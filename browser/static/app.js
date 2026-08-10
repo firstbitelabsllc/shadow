@@ -318,4 +318,6 @@ async function load() {
 }
 
 refresh.addEventListener('click', load);
-load();
+// The gallery page reuses these renderers against fixture data; it must not
+// also fetch and render the machine's real plans into its stub surface.
+if (!document.body.dataset.gallery) load();

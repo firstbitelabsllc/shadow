@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Shadow — card gallery</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+      .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem; padding: 1.5rem; }
+      .gallery-cell h3 { margin: 0 0 0.5rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+      .gallery-cell .stage { border: 1px dashed rgba(128,128,128,0.35); border-radius: 12px; padding: 0.75rem; }
+      .gallery-note { padding: 0 1.5rem; opacity: 0.75; max-width: 60rem; }
+    </style>
+    <script src="/static/app.js" defer></script>
+    <script src="/static/gallery.js" defer></script>
+  </head>
+  <body data-gallery>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Every card state, from checked-in fixtures</p>
+        <h1>Shadow — gallery</h1>
+      </div>
+    </header>
+    <p class="gallery-note">Each card below is rendered by the production code
+    against a fixture plan projected by the production pipeline — if a state
+    here looks wrong, the board is wrong. The brief card and the board card
+    for every state, side by side.</p>
+    <div id="gallery" class="gallery"></div>
+    <!-- The stub surface production app.js binds to; never shown. -->
+    <div hidden aria-hidden="true">
+      <div id="projects"></div>
+      <main id="main"></main>
+      <button id="refresh" type="button"></button>
+      <div id="board" class="board"></div>
+      <div class="shell"></div>
+      <button id="view-board" type="button"></button>
+      <button id="view-briefs" type="button"></button>
+    </div>
+  </body>
+</html>
