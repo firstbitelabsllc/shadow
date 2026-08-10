@@ -378,6 +378,17 @@ def live_seat(
             **env,
             "PATH": f"{scratch / 'bin' / seat}{os.pathsep}{env.get('PATH', '')}",
         }
+        # The HOST keeps its real identity: a "real session" is a logged-in
+        # one, and both supported hosts resolve their binary and their login
+        # through HOME (measured: the claude wrapper finds no binary and the
+        # real binary reports Not logged in under the scratch HOME, so live
+        # mode failed closed on every credentialed machine). Isolation is not
+        # weakened — every shadow verb the host runs goes through the shim,
+        # which pins HOME to the scratch home and the portfolio to the
+        # disposable board; the host merely READS its own account state.
+        real_home = os.environ.get("HOME")
+        if real_home:
+            seat_env["HOME"] = real_home
         result = run_bounded(
             host_command(seat, binary, prompt, scratch, final),
             cwd=scratch,
