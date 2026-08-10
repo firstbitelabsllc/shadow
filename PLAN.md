@@ -5,7 +5,7 @@ This file is the sole plan, proof, and resume authority for Shadow (formerly Pil
 ## Brief
 
 - Project: shadow
-- Mode: explore
+- Mode: ship
 - Priority: 1
 
 Superseded authority: the v3 `Outcome` block, portfolio readback, and platform
@@ -1692,3 +1692,6 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-10T18:33:56Z ~locl PROOF scripts/shadow-python.sh -m unittest tests.test_config_defaults.TheRecommendedTemplateIsNotEffectiveConfig tests.test_config_defaults.TheEffectiveConfigIsLocallyIgnored tests.test_config_defaults.InitNeverStagesLocalConfig -> pass (accept)
 - 2026-08-10T18:37:13Z MODE ship->explore | trigger: ~ovrd exposed that repo-local board placement contradicts the accepted one-board/from-any-directory contract; harness: tests.test_config_defaults.ConsumerOverridesStayInsideTheDeclaredBoundary
 - 2026-08-10T18:37:13Z STRUCT ~ovrd splits machine bootstrap from entity preferences | trigger: status resolves the board before any entity config exists, so ambient repo config cannot safely choose machine authority. The installed Shadow checkout owns the single board-root declaration and directive topology; entity configs retain leads/lenses/claim-duration/buckets plus an expected-root assertion. Contradicts: the earlier wording that every consumer locally overrides board-store placement; preserving it would create a second board as soon as two repos disagree.
+- 2026-08-10T18:38:31Z SPIKE ~ovrd can local config place the durable board and directive topology without ambient cwd creating multiple machine authorities? | ends: 2026-08-10
+- 2026-08-10T18:38:31Z DECISION ~ovrd promote -> one installed-checkout machine bootstrap declares board root and directive topology; entity config may assert that root and choose only entity preferences. Claude/Codex targets must already resolve to the canonical source, Cursor is a user-rules projection, and no config creates links or chooses a native runtime.
+- 2026-08-10T18:38:31Z MODE explore->ship | harness: tests.test_config_defaults.ConsumerOverridesStayInsideTheDeclaredBoundary
