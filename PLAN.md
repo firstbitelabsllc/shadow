@@ -27,11 +27,12 @@ sections that stood here until 2026-08-09 are archived at
 - Archived milestone: [m3-v4-core](docs/plan-archive/m3-v4-core.md) <!-- shadow:lifecycle:m3-v4-core:sha256:c3de76e0f5eb235331c4a255bce55339d51c6c37a27f32bfa6a1d74d615cf1c1:cas:26447780540ee0c0526d277c322548b1b69d5da4661470c0f62f3d3cbe286a49:head:b719ea4418bb23272aeefc9d69eb50ad57efb166:blob:2e1a8c8853fc67c84b795bb56cf8caf23f728e29:successor:~disc -->
 
 ### M4 — Amp: the goal is a pointer
-- tools: scripts/shadow-python.sh for gates; docs/reference/amp.md is the contract; grammar § Milestone law for the `- tools:` line
-- [completed] `shadow amp` projects a bounded pointer-first goal block from PLAN.md ~a4mp | proof: cmd npm run test:py
-- [completed] milestone `- tools:` line documented in the grammar and projected by amp ~t0ol | proof: cmd npm run docs:build | needs: ~a4mp
-- [completed] `shadow status` v3 outcome-schema path cut or migrated to the v4 Brief ~c9ut | proof: read shadow status -> v4 Brief fields, zero "outcome must be a string" on a grammar-clean plan | needs: ~a4mp
-- [pending] amp ships in a tagged release, installed mount green ~s4ip (DoD) | proof: gate owner resume: installed `shadow amp` in a v4 repo emits that plan's own goal block | needs: ~t0ol, ~c9ut
+- tools: goal skill, amp docs, Python
+- [completed] amp emits a bounded PLAN goal ~a4mp | proof: cmd npm run test:py
+- [completed] amp projects grammar tools ~t0ol | proof: cmd npm run docs:build | needs: ~a4mp
+- [completed] status uses v4 Brief ~c9ut | proof: read shadow status -> v4, no v3 error | needs: ~a4mp
+- [pending] specific goals name 1–4 local skills; master is skill-free, PLAN owns the roster ~gskl | proof: cmd scripts/shadow-python.sh -m unittest tests.test_grammar_contract
+- [pending] tagged amp emits its installed repo goal ~s4ip (DoD) | proof: gate owner resume: installed `shadow amp` emits the repo goal | needs: ~t0ol, ~c9ut, ~gskl
 
 ### M5 — Shadow is me: continuity + proxy stance
 - tools: docs/reference/host-integration.md is the wiring; docs/reference/honcho.md is the memory ruling; scripts/shadow-python.sh for gates
