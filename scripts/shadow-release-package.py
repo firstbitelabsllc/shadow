@@ -18,6 +18,9 @@ import sys
 import tempfile
 from typing import Any, Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shadow_version import read_version  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parent.parent
 # Provenance is the host plus the path, not a suffix: an attacker-controlled
@@ -124,7 +127,7 @@ def normalize(value: str) -> str:
 
 
 def source_version(root: Path) -> str:
-    return (root / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
+    return read_version(root)
 
 
 def changelog_version(root: Path) -> str:

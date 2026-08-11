@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path, PurePosixPath
+import sys
 import unittest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+sys.path.insert(0, str(ROOT / "scripts"))
+from shadow_version import read_version  # noqa: E402
+
+VERSION = read_version(ROOT)
 
 
 def read_json(relative: str) -> dict:
