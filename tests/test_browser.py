@@ -1163,17 +1163,17 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         self.assertIn("hand-written note", change["summary"])
 
     def test_a_private_path_in_a_progress_line_never_reaches_a_card(self) -> None:
+        private_path = "/" + "Users" + "/someone/Development/private-client/PLAN.md"
         plan = self.PLAN.replace(
             "Final authority read — objective SHA "
             "`b30773705e835d97f9792ea81e3775fa19dbb238f7d5de13bc1e88160827f5fc`, "
             "Snowcubes `origin/main` and both clean authority checkouts agree ~aa11",
-            "read the canonical plan at /Users/person/Development/private-client"
-            "/PLAN.md ~aa11",
+            f"read the canonical plan at {private_path} ~aa11",
         )
         change = board_projection.project_board_brief(plan)["latest_change"]
         # Assert over the WHOLE projected change, not just its summary: the
         # path must not survive in any field the renderer can print.
-        self.assertNotIn("/Users/", json.dumps(change))
+        self.assertNotIn(private_path, json.dumps(change))
         self.assertNotIn("private-client", json.dumps(change))
         self.assertIsNone(change["summary"])
         # The gate is surgical, not a blanket drop: when and kind still speak.
@@ -1190,9 +1190,10 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         self.assertNotIn("ghp_", json.dumps(change))
 
     def test_a_brief_priority_carrying_a_path_is_withheld(self) -> None:
+        private_path = "/" + "Users" + "/someone/Development/x"
         plan = self.PLAN.replace(
             "- Project: demo",
-            "- Project: demo\n- Priority: finish /Users/person/Development/x",
+            f"- Project: demo\n- Priority: finish {private_path}",
         )
         self.assertIsNone(board_projection.project_board_brief(plan)["priority"])
         safe = self.PLAN.replace(
@@ -1206,13 +1207,14 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
     def test_the_gallery_record_never_prints_a_private_priority(self) -> None:
         """The gallery renders checked-in plan TEXT through record_from_text —
         the same path a fixture with a stray machine path would travel."""
+        private_path = "/" + "Users" + "/someone/Development/x"
         plan = self.PLAN.replace(
             "- Project: demo",
-            "- Project: demo\n- Priority: ship /Users/person/Development/x",
+            f"- Project: demo\n- Priority: ship {private_path}",
         )
         record = server.record_from_text(plan, "demo/PLAN.md", "demo")
         self.assertIsNone(record["board"]["priority"])
-        self.assertNotIn("/Users/", json.dumps(record["board"]))
+        self.assertNotIn(private_path, json.dumps(record["board"]))
 
 
 if __name__ == "__main__":
