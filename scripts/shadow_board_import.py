@@ -46,10 +46,9 @@ class SuppressionReceipt:
 def volatile_roots() -> tuple[Path, ...]:
     """Directories whose contents are deleted without asking.
 
-    `SHADOW_VOLATILE_ROOTS` (colon-separated) overrides the default set. It
-    exists because the test suite builds every fixture under `tempfile`, so a
-    hardcoded set would make every sandbox look volatile and the rule could
-    never be exercised in one direction without breaking the other.
+    `SHADOW_VOLATILE_ROOTS` (colon-separated) overrides the default set, so a
+    test can name a swept root without depending on where this platform's
+    `tempfile` happens to put fixtures.
     """
     override = os.environ.get("SHADOW_VOLATILE_ROOTS")
     if override is not None:
@@ -58,12 +57,11 @@ def volatile_roots() -> tuple[Path, ...]:
             for part in override.split(":")
             if part.strip()
         )
-    # `/tmp` only, NOT the per-user tempdir. `tempfile` on macOS hands out
-    # `/var/folders/...`, which is where every sandbox and test fixture lives;
-    # treating that as volatile made 8 suite tests change behaviour because
-    # their fixtures suddenly looked like misplaced board authority. The lane
-    # checkouts this rule exists for sit in the shared, world-writable `/tmp`,
-    # which is also what this host's cleanup sweeps reap on an idle timer.
+    # The shared, world-writable temp root, which is what this host's cleanup
+    # sweeps and the OS reap on an idle timer, and where the lane checkouts this
+    # rule exists for sit. On Linux it is also `tempfile`'s default, so fixtures
+    # land inside it; `volatile_authority`, not a narrower root set, is what
+    # keeps an entirely ephemeral tree from looking like misplaced authority.
     roots = ["/tmp", "/private/tmp"]
     resolved: list[Path] = []
     for raw in roots:
@@ -93,6 +91,24 @@ def volatile_locator(pointer: Path) -> bool:
     return False
 
 
+def volatile_authority(pointer: Path, portfolio: Path) -> bool:
+    """Whether board authority sits on swept storage the portfolio does not.
+
+    The rule compares storage CLASSES, and only fires where the comparison
+    means something: a registered plan under a swept temp root while the
+    portfolio it belongs to sits on durable storage. When the portfolio itself
+    is under a swept root the whole tree is ephemeral (a sandbox, a scratch
+    clone, every `tempfile` fixture in this suite on Linux), so there is no
+    durable place to move authority TO, and the rule stays silent for the same
+    reason it stays silent when no same-identity sibling exists.
+
+    Without that guard the rule was quietly platform-dependent: it fired on
+    nothing on macOS, where `tempfile` hands out `/var/folders/...`, and on
+    every fixture on Linux, where `tempfile` hands out `/tmp/...`.
+    """
+    return volatile_locator(pointer) and not volatile_locator(portfolio)
+
+
 def portfolio_root(fallback: Path) -> Path:
     configured = os.environ.get("SHADOW_PORTFOLIO_ROOT") or os.environ.get("SHADOW_DEV_ROOT")
     if configured:
@@ -119,6 +135,7 @@ def _registered_state(
     amp: ModuleType,
     *,
     home: Path | None,
+    portfolio: Path,
     archive_veto_text,
     declared_globs,
     operator_brief,
@@ -199,7 +216,7 @@ def _registered_state(
         ):
             repairable[identity] = (pointer, state_fingerprint)
             continue
-        if volatile_locator(pointer):
+        if volatile_authority(pointer, portfolio):
             # A readable plan on volatile storage is still a bad place to keep
             # board authority: the operating system, and this machine's own
             # cleanup sweeps, delete temp roots on an idle timer. Treating it as
@@ -236,6 +253,7 @@ def reconcile_portfolio(
     registered, registered_retired, repairable = _registered_state(
         amp,
         home=home,
+        portfolio=root,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
         operator_brief=operator_brief,
@@ -381,6 +399,7 @@ def suppression_receipts(
     registered, registered_retired, repairable = _registered_state(
         amp,
         home=home,
+        portfolio=root,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
         operator_brief=operator_brief,

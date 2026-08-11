@@ -2710,6 +2710,31 @@ class BoardAuthorityDoesNotLiveOnVolatileStorage(unittest.TestCase):
             plan = Path(entities[0]["plan"]).resolve()
             self.assertEqual(plan, (f["registered"] / "PLAN.md").resolve())
 
+    def test_a_portfolio_on_volatile_storage_keeps_its_registered_locator(self):
+        """An entirely ephemeral tree has no durable class to move authority to.
+
+        The rule compares storage classes, so it must stay silent when the
+        portfolio is swept too: a sandbox, a scratch clone, and every
+        `tempfile` fixture in this suite on a platform whose tempdir IS the
+        shared temp root. Left ungated, the rule fired on nothing on macOS and
+        on every fixture on Linux.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=True)
+            env = dict(f["env"])
+            # The whole fixture is swept, sibling included, exactly as CI sees
+            # it when `tempfile` hands out paths under the shared temp root.
+            env["SHADOW_VOLATILE_ROOTS"] = str(Path(tmp).resolve())
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=env)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "the project must not vanish")
+            self.assertEqual(
+                Path(entities[0]["plan"]).resolve(),
+                (f["registered"] / "PLAN.md").resolve(),
+                "authority moved off a swept root onto an equally swept sibling",
+            )
+
 
 class ElectionPrefersTheMostRecentlyCommittedCopy(unittest.TestCase):
     """The name match was a proxy for 'current'. Commit date measures it."""
