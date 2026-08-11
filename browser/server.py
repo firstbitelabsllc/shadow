@@ -1205,6 +1205,11 @@ def write_decision_receipt(plan: Path, document: dict[str, Any], option_id: Any,
             if current.get("receipt_id") != identifier:
                 raise BrowserError("decision receipt collision")
             return current
+        directory_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         temporary_path.unlink(missing_ok=True)
     return payload

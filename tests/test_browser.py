@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import http.client
+import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -104,6 +106,21 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(first["state"], "received")
             self.assertNotIn(dirname, receipt.read_text(encoding="utf-8"))
             self.assertEqual(len(list(receipt.parent.glob("*.json"))), 1)
+
+    def test_decision_receipt_fsyncs_its_file_and_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_repo(Path(dirname))
+            document = server.plan_record(plan, repo)["outcome"]
+            kinds = {"file": False, "dir": False}
+            real_fsync = os.fsync
+
+            def spy(fd: int) -> None:
+                kinds["dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"] = True
+                real_fsync(fd)
+
+            with mock.patch.object(server.os, "fsync", side_effect=spy):
+                server.write_decision_receipt(plan, document, "cold-review", 7)
+        self.assertEqual(kinds, {"file": True, "dir": True})
 
     def test_stale_revision_is_recorded_as_superseded(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -190,6 +191,20 @@ class ShadowHostTests(unittest.TestCase):
         with self.assertRaises(shadow_host.HostError) as raised:
             shadow_host.validate_host_receipt(example, "bounded-task", ["result.txt"])
         self.assertEqual(raised.exception.kind, "host_receipt_invalid")
+
+    def test_attempt_receipt_fsyncs_its_file_and_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            destination = Path(dirname) / "evidence" / "attempt.json"
+            kinds = {"file": False, "dir": False}
+            real_fsync = os.fsync
+
+            def spy(fd: int) -> None:
+                kinds["dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"] = True
+                real_fsync(fd)
+
+            with mock.patch.object(shadow_host.os, "fsync", side_effect=spy):
+                shadow_host.write_json(str(destination), {"schema": "test"})
+        self.assertEqual(kinds, {"file": True, "dir": True})
 
     def test_receipt_rejects_private_paths_and_secret_shaped_text(self) -> None:
         for field, value in (
