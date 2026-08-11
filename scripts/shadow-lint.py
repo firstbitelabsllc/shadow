@@ -266,6 +266,7 @@ def lint_plan(
 
     ids: dict[str, tuple[int, str]] = {}
     needs_refs: list[tuple[int, str]] = []
+    needs_edges: list[tuple[str, str]] = []
     milestone_rows: list[list[tuple[int, dict]]] = []
     current_rows: list[tuple[int, dict]] | None = None
     # Row grammar runs over the WHOLE file, because `shadow accept` builds its
@@ -322,12 +323,50 @@ def lint_plan(
             findings.append(_finding("NEEDS-SHAPE", number, "blocking", "needs must be ~hash ids only"))
         for target in HASH_RE.findall(needs_value):
             needs_refs.append((number, target))
+            needs_edges.append((row_id, target))
         if in_tasks and current_rows is not None:
             current_rows.append((number, row))
 
     for number, target in needs_refs:
         if target not in ids:
             findings.append(_finding("NEEDS-DANGLE", number, "blocking", f"needs target {target} does not exist"))
+
+    # A needs: cycle is a silent deadlock: every row in it waits on another,
+    # none is ever reachable, and until now no check said so. Each distinct
+    # cycle is named once, anchored at its first row in file order.
+    graph: dict[str, list[str]] = {}
+    for source, target in needs_edges:
+        graph.setdefault(source, []).append(target)
+    reported: set[tuple[str, ...]] = set()
+    color: dict[str, int] = {}  # 0 unseen / 1 on the path / 2 finished
+    path: list[str] = []
+
+    def _walk(node: str) -> None:
+        color[node] = 1
+        path.append(node)
+        for nxt in graph.get(node, ()):
+            if nxt not in ids:
+                continue  # a dangling target is NEEDS-DANGLE's finding
+            if color.get(nxt, 0) == 0:
+                _walk(nxt)
+            elif color.get(nxt) == 1:
+                cycle = path[path.index(nxt):]
+                first = min(range(len(cycle)), key=lambda i: cycle[i])
+                canonical = tuple(cycle[first:] + cycle[:first])
+                if canonical not in reported:
+                    reported.add(canonical)
+                    line = min(ids[member][0] for member in canonical)
+                    loop = " -> ".join(canonical + (canonical[0],))
+                    findings.append(_finding(
+                        "NEEDS-CYCLE", line, "blocking",
+                        f"needs cycle deadlocks these rows: {loop}",
+                    ))
+        path.pop()
+        color[node] = 2
+
+    for node in list(graph):
+        if color.get(node, 0) == 0:
+            _walk(node)
 
     for rows in milestone_rows:
         if len(rows) < 2:
