@@ -2157,21 +2157,25 @@ def discard_unclaimed_source_alias(
         raise BoardError("alias cleanup requires regular non-symlink PLAN.md files")
     if not is_local_plan(destination, home=home):
         raise BoardError("alias cleanup destination must live below ~/.shadow/plans")
-    source_id = entity_id(source)
     destination_id = entity_id(destination)
-    if source_id == destination_id:
-        raise BoardError("alias cleanup requires distinct source and local identities")
     destination_rows = set(ROW_ID.findall(read_plan_bytes(destination).decode("utf-8")))
     with _transaction(home) as (root, path, payload):
-        source_entity = next((item for item in payload["entities"] if item["id"] == source_id), None)
+        source_entity = next(
+            (item for item in payload["entities"] if item["plan"] == str(source)),
+            None,
+        )
         destination_entity = next(
-            (item for item in payload["entities"] if item["id"] == destination_id),
+            (item for item in payload["entities"] if item["plan"] == str(destination)),
             None,
         )
         if source_entity is None:
             return json.loads(json.dumps(payload))
         if destination_entity is None:
             raise BoardError("alias cleanup requires the private authority to be registered")
+        source_id = source_entity["id"]
+        old_destination_id = destination_entity["id"]
+        if source_id == old_destination_id:
+            raise BoardError("alias cleanup requires distinct source and local entities")
         if any(item["entity"] == source_id for item in payload["claims"]):
             raise BoardError("alias cleanup refuses a source alias with a live claim")
         source_resume = source_entity["resume"]
@@ -2185,6 +2189,19 @@ def discard_unclaimed_source_alias(
             raise BoardError("alias cleanup refuses divergent source and local resumes")
         if destination_entity["resume"] is None and source_resume is not None:
             destination_entity["resume"] = source_resume
+        if (
+            old_destination_id != destination_id
+            and any(
+                item["id"] == destination_id
+                for item in payload["entities"]
+                if item is not destination_entity
+            )
+        ):
+            raise BoardError("alias cleanup local identity collides with another entity")
+        destination_entity["id"] = destination_id
+        for claim in payload["claims"]:
+            if claim["entity"] == old_destination_id:
+                claim["entity"] = destination_id
         payload["entities"] = [
             item for item in payload["entities"] if item["id"] != source_id
         ]
@@ -2194,6 +2211,7 @@ def discard_unclaimed_source_alias(
         ]
         payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
         payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
         payload["revision"] += 1
         _validate(payload)
         _write(path, payload)

@@ -331,13 +331,13 @@ def reconcile_portfolio(
             raise board.BoardError(
                 f"{source_path}: operational authority must live at {local_plan}"
             )
-        existing_ids = {
-            entity.get("id")
+        existing_plans = {
+            entity.get("plan")
             for entity in current_board.get("entities", [])
         }
         if (
-            board.entity_id(source_path) in existing_ids
-            and board.entity_id(local_plan) in existing_ids
+            str(source_path.resolve()) in existing_plans
+            and str(local_plan.resolve()) in existing_plans
         ):
             board.discard_unclaimed_source_alias(source_path, local_plan, home=home)
             return reconcile_portfolio(root, amp, home=home)
