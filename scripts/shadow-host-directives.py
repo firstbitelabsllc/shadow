@@ -185,12 +185,23 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
     # a person-customized middle be silently overwritten; looking for a loose
     # `## Shadow …` heading and appending let a renamed copy acquire a second
     # directive. Both paths alter ambiguous person-owned text, so fail closed.
-    headings: list[tuple[int, str]] = []
+    headings: list[tuple[int, str, bool]] = []
+    fence: tuple[str, int] | None = None
     offset = 0
     for line in text.splitlines(keepends=True):
         heading = line.rstrip("\r\n")
         if heading.startswith(ANCHOR):
-            headings.append((offset, heading))
+            headings.append((offset, heading, fence is not None))
+        stripped = heading.lstrip(" ")
+        indent = len(heading) - len(stripped)
+        if indent <= 3 and stripped[:1] in {"`", "~"}:
+            marker = stripped[0]
+            run = len(stripped) - len(stripped.lstrip(marker))
+            if run >= 3:
+                if fence is None:
+                    fence = (marker, run)
+                elif marker == fence[0] and run >= fence[1] and not stripped[run:].strip():
+                    fence = None
         offset += len(line)
     if not headings:
         return None
@@ -202,7 +213,12 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
             spans[start] = (start, start + len(known))
             start = text.find(known, start + 1)
 
-    for start, heading in headings:
+    for start, heading, fenced in headings:
+        if fenced:
+            raise ValueError(
+                f"found unmarked Shadow heading {heading!r} inside a Markdown fence; "
+                "a documented example is not a live standing goal, so the file is unchanged"
+            )
         if start not in spans:
             raise ValueError(
                 f"found unmarked Shadow heading {heading!r}, but it is not the shipped block "
@@ -211,7 +227,7 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
                 f"markers ({BEGIN.split(' —')[0]} … {END}), then rerun"
             )
     if len(headings) != 1:
-        names = ", ".join(repr(heading) for _, heading in headings)
+        names = ", ".join(repr(heading) for _, heading, _ in headings)
         raise ValueError(
             f"found multiple unmarked standing-goal headings ({names}); leave them unchanged "
             f"or wrap the intended block in the markers ({BEGIN.split(' —')[0]} … {END}), then rerun"

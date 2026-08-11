@@ -88,6 +88,25 @@ class UnmarkedAdoptionRefusesADriftedHeading(unittest.TestCase):
             self.assertIn("multiple unmarked standing-goal headings", str(caught.exception))
             self.assertEqual(path.read_text(encoding="utf-8"), contents)
 
+    def test_an_exact_earlier_revision_inside_a_markdown_fence_is_not_adopted(self) -> None:
+        for fence in ("```markdown", "~~~~"):
+            with self.subTest(fence), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "AGENTS.md"
+                contents = (
+                    BEFORE
+                    + fence
+                    + "\n"
+                    + hd.KNOWN_EARLIER_STANDING_GOALS[0]
+                    + "\n"
+                    + ("```" if fence.startswith("`") else "~~~~")
+                    + AFTER
+                )
+                path.write_text(contents, encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    hd.apply(path, BLOCK)
+                self.assertIn("inside a Markdown fence", str(caught.exception))
+                self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
 
 class TheBackupKeepsTheModeOfTheFileItCopied(unittest.TestCase):
     def test_private_and_shared_owner_files_keep_their_mode_in_the_backup(self) -> None:
