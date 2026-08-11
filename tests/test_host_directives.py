@@ -21,6 +21,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "shadow-host-directives.py"
 SHADOW = ROOT / "bin" / "shadow"
+NATIVE_HOSTS = ROOT / "docs" / "reference" / "native-hosts.md"
 
 _SPEC = importlib.util.spec_from_file_location("shadow_host_directives", SCRIPT)
 hd = importlib.util.module_from_spec(_SPEC)
@@ -35,6 +36,18 @@ _DSPEC.loader.exec_module(doctor)
 BLOCK = hd.standing_goal()
 BEFORE = "# My rules\n\nDo not break these.\n\n"
 AFTER = "\n## My own section\n\nStill mine.\n"
+
+
+def documented_activation_targets() -> dict[str, str]:
+    targets: dict[str, str] = {}
+    for line in NATIVE_HOSTS.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|") or "`~/" not in line:
+            continue
+        columns = [column.strip() for column in line.strip("|").split("|")]
+        if len(columns) != 2:
+            continue
+        targets[columns[0]] = columns[1].strip("`")
+    return targets
 
 
 class OneSource(unittest.TestCase):
@@ -344,7 +357,7 @@ class ASymlinkedHostFileIsWrittenThrough(unittest.TestCase):
             link = home / ".claude" / "CLAUDE.md"
             link.symlink_to(canonical)
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--host", "claude"],
+                [sys.executable, str(SCRIPT), "--host", "claude-code"],
                 capture_output=True, text=True, check=False,
                 env={**os.environ, "HOME": str(home)},
             )
@@ -529,7 +542,7 @@ class RefusesRatherThanGuesses(unittest.TestCase):
                 env={**hd.os.environ, "HOME": tmp},
             )
             self.assertEqual(result.returncode, 1, result.stdout)
-            self.assertIn("failed:    claude:", result.stderr)
+            self.assertIn("failed:    claude-code:", result.stderr)
             self.assertIn("created:   codex", result.stdout)
 
     def test_a_failed_write_leaves_the_original_intact(self) -> None:
@@ -555,13 +568,13 @@ class CursorIsNotInvented(unittest.TestCase):
         # Its user rules live in application settings, not a file. Writing
         # ~/.cursor/rules/shadow.md would invent a convention and then report
         # success for wiring that does nothing.
-        self.assertEqual(sorted(hd.HOSTS), ["claude", "codex"])
+        self.assertEqual(sorted(hd.HOSTS), ["claude-code", "codex"])
         self.assertNotIn("cursor", hd.HOSTS)
 
     def test_the_cli_says_so_out_loud(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--host", "claude"],
+                [sys.executable, str(SCRIPT), "--host", "claude-code"],
                 capture_output=True, text=True, check=False,
                 env={**hd.os.environ, "HOME": tmp},
             )
@@ -1345,6 +1358,46 @@ class ActivationIsByteIdenticalAcrossSupportedHosts(unittest.TestCase):
                 start = text.index(hd.BEGIN)
                 end = text.index(hd.END, start) + len(hd.END)
                 self.assertEqual(text[start:end], hd.managed(BLOCK))
+
+
+class EverySupportedHostIsActivated(unittest.TestCase):
+    def test_a_fresh_install_writes_every_documented_activation_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            bin_dir = root / "bin"
+            home.mkdir()
+            bin_dir.mkdir()
+            env = {**os.environ, "HOME": str(home)}
+
+            result = subprocess.run(
+                ["bash", "install.sh", "--bin-dir", str(bin_dir)],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for host, target in documented_activation_targets().items():
+                with self.subTest(host):
+                    path = home / target.removeprefix("~/")
+                    self.assertTrue(path.is_file(), f"{host} was not activated at {target}")
+                    self.assertIn(hd.managed(BLOCK), path.read_text(encoding="utf-8"))
+            self.assertFalse((home / ".cursor" / "AGENTS.md").exists())
+            self.assertFalse((home / ".cursor" / "rules" / "shadow.md").exists())
+
+
+class TheSupportedListInTheDocsDrivesTheWriteTargets(unittest.TestCase):
+    def test_the_documented_table_and_installer_targets_are_the_same_set(self) -> None:
+        documented = documented_activation_targets()
+        actual = {
+            host: "~/" + str(path.relative_to(Path.home()))
+            for host, path in hd.HOSTS.items()
+        }
+        self.assertEqual(actual, documented)
+        self.assertNotIn("cursor", actual)
 
 
 class DogfoodOverwriteBacksUpAndConverges(unittest.TestCase):
