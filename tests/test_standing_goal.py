@@ -10,6 +10,7 @@ promise nothing checks is a promise that decays silently.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -109,7 +110,9 @@ class DoctorReportsDrift(unittest.TestCase):
             (home / ".claude").mkdir()
             (home / ".codex").mkdir()
             if contents is not None:
-                (home / ".claude" / "CLAUDE.md").write_text(contents, encoding="utf-8")
+                canonical = home / "LOCAL_AGENT.md"
+                canonical.write_text(contents, encoding="utf-8")
+                (home / ".claude" / "CLAUDE.md").symlink_to(canonical)
             original = Path.home
             Path.home = staticmethod(lambda: home)          # type: ignore[assignment]
             try:
@@ -170,12 +173,104 @@ class DoctorReportsDrift(unittest.TestCase):
             self.assertNotIn(">>", detail)
             self.assertIn("shadow goal --install", detail)
 
-    def test_no_host_path_reaches_the_detail_text(self) -> None:
-        # doctor output gets pasted into issues; a check about a file in $HOME
-        # must not print that file's path.
+    def test_no_private_home_path_reaches_the_detail_text(self) -> None:
+        # The public locator makes wiring visible without leaking the temp HOME.
         for contents in (None, doctor.standing_goal(), "## Shadow — edited\n"):
             _, detail = self._run(contents)
-            self.assertNotIn("/", detail.replace("read/gate", ""))
+            self.assertNotIn("/private/", detail)
+            self.assertNotIn("/Users/", detail)
+            self.assertNotIn("/var/", detail)
+
+
+class HostDirectiveOriginIsReported(unittest.TestCase):
+    def test_each_supported_file_names_the_file_its_host_actually_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            canonical = home / "LOCAL_AGENT.md"
+            canonical.write_text(doctor.standing_goal() + "\n", encoding="utf-8")
+            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md")):
+                host_dir = home / directory
+                host_dir.mkdir()
+                (host_dir / name).symlink_to(canonical)
+            original = Path.home
+            Path.home = staticmethod(lambda: home)          # type: ignore[assignment]
+            try:
+                results = {item["name"]: item for item in doctor.host_goal_checks()}
+            finally:
+                Path.home = original                        # type: ignore[assignment]
+
+        for label in ("claude-code", "codex"):
+            item = results[f"standing goal: {label}"]
+            self.assertEqual(item["state"], "pass")
+            self.assertEqual(item["resolved"], "~/LOCAL_AGENT.md")
+            self.assertIn("reads ~/LOCAL_AGENT.md", item["detail"])
+
+    def test_a_broken_link_names_its_intended_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            broken_target = home / "missing-canonical.md"
+            claude = home / ".claude"
+            claude.mkdir()
+            (claude / "CLAUDE.md").symlink_to(broken_target)
+            original = Path.home
+            Path.home = staticmethod(lambda: home)          # type: ignore[assignment]
+            try:
+                results = {item["name"]: item for item in doctor.host_goal_checks()}
+            finally:
+                Path.home = original                        # type: ignore[assignment]
+
+        item = results["standing goal: claude-code"]
+        self.assertEqual(item["state"], "fail")
+        self.assertEqual(item["resolved"], "~/missing-canonical.md")
+        self.assertIn("broken host instruction link", item["detail"])
+
+    def test_copies_and_split_links_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md")):
+                host_dir = home / directory
+                host_dir.mkdir()
+                (host_dir / name).write_text(doctor.standing_goal() + "\n", encoding="utf-8")
+            original = Path.home
+            Path.home = staticmethod(lambda: home)          # type: ignore[assignment]
+            try:
+                copies = doctor.host_goal_checks()
+                for item, target_name in zip(copies, ("claude.md", "codex.md")):
+                    Path(item["path"].replace("~/", f"{home}/")).unlink()
+                    target = home / target_name
+                    target.write_text(doctor.standing_goal() + "\n", encoding="utf-8")
+                    Path(item["path"].replace("~/", f"{home}/")).symlink_to(target)
+                split = doctor.host_goal_checks()
+            finally:
+                Path.home = original                        # type: ignore[assignment]
+
+        self.assertTrue(all(item["state"] == "warn" for item in copies))
+        self.assertTrue(all("not a symlink" in item["detail"] for item in copies))
+        self.assertTrue(all(item["state"] == "warn" for item in split))
+        self.assertTrue(all("resolve to different targets" in item["detail"] for item in split))
+
+    def test_an_outside_home_target_is_failed_and_redacted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            home = Path(tmp)
+            target = Path(outside) / "private-operator" / "canonical.md"
+            target.parent.mkdir()
+            target.write_text(doctor.standing_goal() + "\n", encoding="utf-8")
+            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md")):
+                host_dir = home / directory
+                host_dir.mkdir()
+                (host_dir / name).symlink_to(target)
+            original = Path.home
+            Path.home = staticmethod(lambda: home)          # type: ignore[assignment]
+            try:
+                results = doctor.host_goal_checks()
+            finally:
+                Path.home = original                        # type: ignore[assignment]
+
+        self.assertTrue(all(item["state"] == "fail" for item in results))
+        rendered = json.dumps(results, sort_keys=True)
+        self.assertNotIn(str(target), rendered)
+        self.assertNotIn("private-operator", rendered)
+        self.assertIn("outside-home@", rendered)
 
 
 if __name__ == "__main__":
