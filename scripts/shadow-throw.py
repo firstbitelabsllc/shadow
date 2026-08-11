@@ -251,8 +251,9 @@ def main(argv: list[str] | None = None) -> int:
                 claimed_at=claimed["claimed_at"],
                 return_by=claimed["return_by"],
                 recovery=claimed["recovery"],
+                adopt_expired=args.adopt_expired,
             )
-            if remote is not None and remote["status"] != "acquired":
+            if remote is not None and remote["status"] == "lost":
                 try:
                     _board.release(
                         plan_path,
@@ -284,6 +285,14 @@ def main(argv: list[str] | None = None) -> int:
                         "shadow throw: remote claim transport failed; no work packet emitted",
                         file=sys.stderr,
                     )
+                return 1
+            if remote is not None and remote["status"] != "acquired":
+                print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+                print(
+                    "shadow throw: remote claim state is ambiguous; exact local claim retained; "
+                    "no work packet emitted",
+                    file=sys.stderr,
+                )
                 return 1
             if remote is not None:
                 print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)

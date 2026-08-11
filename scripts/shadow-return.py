@@ -14,6 +14,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as board  # noqa: E402
+import shadow_remote_claim as remote_claim  # noqa: E402
 
 SPEC = importlib.util.spec_from_file_location("shadow_return_amp", ROOT / "scripts" / "shadow-amp.py")
 amp = importlib.util.module_from_spec(SPEC)
@@ -22,6 +23,7 @@ SPEC.loader.exec_module(amp)
 
 
 def main(argv: list[str] | None = None) -> int:
+    remote_claim.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow return", description=__doc__)
     location = parser.add_mutually_exclusive_group()
     location.add_argument("--repo", type=Path)
@@ -86,6 +88,31 @@ def main(argv: list[str] | None = None) -> int:
             # Resume arbitration needs the full reachable order, including rows
             # currently claimed by other seats. The board removes this row itself.
             parsed["claimed"] = set()
+            current = board.entity_state(plan_path, exact_on_conflict=True)
+            claim = next(
+                (
+                    item for item in (current["claims"] if current else [])
+                    if item["row"] == args.row and item["owner"] == args.by
+                ),
+                None,
+            )
+            if claim is not None:
+                repo = Path(plan_token["repo"])
+                remote = remote_claim.transition(
+                    repo,
+                    entity=claim["entity"],
+                    row=args.row,
+                    owner=args.by,
+                    project=current["project"]["id"],
+                    plan_token=plan_token,
+                    claim=claim,
+                    state="completed" if reason == "completed" else "released",
+                    reason=reason,
+                )
+                if remote is not None and remote["status"] != "acquired":
+                    raise board.BoardError(
+                        "remote claim transition was not confirmed; exact local claim retained"
+                    )
             result = board.release(
                 plan_path,
                 args.row,
@@ -94,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 reason=reason,
                 expected_plan=plan_token,
                 expected_text=plan_text,
+                expected_claim=claim,
             )
     except (OSError, UnicodeError, board.BoardError) as exc:
         print(f"shadow return: {exc}", file=sys.stderr)

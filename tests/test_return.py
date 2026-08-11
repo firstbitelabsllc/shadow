@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import json
+from contextlib import redirect_stderr, redirect_stdout
+import importlib.util
+import io
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "shadow"
+sys.path.insert(0, str(ROOT / "scripts"))
+import shadow_remote_claim as remote_claim  # noqa: E402
+import shadow_root_board as board  # noqa: E402
+RETURN_SPEC = importlib.util.spec_from_file_location("shadow_return_test", ROOT / "scripts" / "shadow-return.py")
+return_mod = importlib.util.module_from_spec(RETURN_SPEC)
+assert RETURN_SPEC and RETURN_SPEC.loader
+RETURN_SPEC.loader.exec_module(return_mod)
 
 PLAN = """# Return fixture
 
@@ -84,6 +96,74 @@ def payload(home: Path) -> dict:
 
 
 class ReturnRequiresTheClaimOwner(unittest.TestCase):
+    def test_legacy_local_claim_can_atomically_create_a_released_remote_tip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = fixture(root)
+            remote = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            git(repo, "remote", "add", "origin", str(remote))
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            self.assertEqual(run(env, "status", "--json", cwd=repo).returncode, 0)
+            board.claim(
+                repo / "PLAN.md", "~aa11", "seat-a",
+                project="return-fixture", priority=2, home=home,
+            )
+            entity = payload(home)["entities"][0]["id"]
+            ref = remote_claim.claim_ref(entity, "~aa11")
+
+            returned = run(
+                env, "return", "--repo", str(repo), "--row", "~aa11", "--by", "seat-a"
+            )
+
+            self.assertEqual(returned.returncode, 0, returned.stderr)
+            self.assertEqual(payload(home)["claims"], [])
+            stored = subprocess.run(
+                ["git", "-C", str(remote), "show", f"{ref}:claim.json"],
+                capture_output=True, text=True, check=True,
+            )
+            receipt = json.loads(stored.stdout)
+            self.assertEqual((receipt["state"], receipt["reason"]), ("released", "handback"))
+
+    def test_released_remote_half_state_retries_only_the_local_release(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = fixture(root)
+            remote = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            git(repo, "remote", "add", "origin", str(remote))
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            claimed = run(
+                env, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            receipt = next(json.loads(line) for line in claimed.stderr.splitlines() if line.startswith("{"))
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, env),
+                mock.patch.object(return_mod.board, "release", side_effect=board.BoardError("local release failed")),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = return_mod.main(
+                    ["--repo", str(repo), "--row", "~aa11", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            self.assertEqual(payload(home)["claims"][0]["owner"], "seat-a")
+            stored = json.loads(
+                subprocess.run(
+                    ["git", "-C", str(remote), "show", f"{receipt['ref']}:claim.json"],
+                    capture_output=True, text=True, check=True,
+                ).stdout
+            )
+            self.assertEqual(stored["state"], "released")
+
+            retry = run(
+                env, "return", "--repo", str(repo), "--row", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(retry.returncode, 0, retry.stderr)
+            self.assertEqual(payload(home)["claims"], [])
+
     def test_wrong_owner_cannot_close_and_right_owner_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))
