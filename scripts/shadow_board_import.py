@@ -273,7 +273,8 @@ def reconcile_portfolio(
         operator_brief=operator_brief,
         browser_error=BrowserError,
     )
-    retired: dict[str, dict] = dict(registered_retired)
+    retired: dict[str, dict] = {}
+    observed_identities: set[str] = set()
     try:
         records = discover_plans(
             root,
@@ -326,8 +327,9 @@ def reconcile_portfolio(
         if not relative:
             continue
         plan_path = Path(os.path.abspath(root / relative))
+        identity = record.get("_logical_entity") or board.entity_id(plan_path)
+        observed_identities.add(identity)
         if not is_live(record):
-            identity = record.get("_logical_entity") or board.entity_id(plan_path)
             registered_retirement = registered_retired.get(identity)
             if registered_retirement is not None and record.get("_retired_plan") is None:
                 retirement = dict(registered_retirement)
@@ -380,7 +382,6 @@ def reconcile_portfolio(
             priority = _priority(plan)
         except board.BoardError as exc:
             raise board.BoardError(f"{relative}: {exc}") from exc
-        identity = record.get("_logical_entity") or board.entity_id(plan_path)
         content = text.encode("utf-8")
         seed = {
             "identity": identity,
@@ -402,6 +403,10 @@ def reconcile_portfolio(
             seed["repair_state"] = repair_state
         elif record.get("_registered_pointer"):
             seed["registered_plan"] = str(source_path)
+        elif identity in registered_retired:
+            retirement = registered_retired[identity]
+            seed["repair_from"] = retirement["registered_plan"]
+            seed["repair_state"] = retirement["expected_state"]
         elif identity in repairable:
             repair_from, repair_state = repairable[identity]
             seed["repair_from"] = str(repair_from)
@@ -431,6 +436,9 @@ def reconcile_portfolio(
             for row, (stamp, owner) in latest.items()
             if row in live
         )
+    for identity, retirement in registered_retired.items():
+        if identity not in observed_identities:
+            retired[identity] = retirement
     return board.reconcile(
         seeds,
         historical,
@@ -481,8 +489,11 @@ def suppression_receipts(
         raise board.BoardError(f"portfolio inspection refused: {exc}") from exc
     receipts: list[SuppressionReceipt] = []
     archived_identities: set[str] = set()
+    observed_identities: set[str] = set()
     for record in records:
         identity = record.get("_logical_entity")
+        if identity:
+            observed_identities.add(identity)
         if record.get("shadowed_by"):
             receipts.append(SuppressionReceipt(
                 path=board.public_copy_locator(identity, record["path"]),
@@ -508,7 +519,9 @@ def suppression_receipts(
                     "computer-board locator"
                 ),
             ))
-    for identity in sorted(set(registered_retired).difference(archived_identities)):
+    for identity in sorted(
+        set(registered_retired).difference(archived_identities, observed_identities)
+    ):
         receipts.append(SuppressionReceipt(
             path=board.public_entity_locator(identity),
             shadowed_by=None,

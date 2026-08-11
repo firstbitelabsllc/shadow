@@ -1231,6 +1231,95 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
                     "authority moved off the live copy",
                 )
 
+    def test_a_newer_live_copy_repairs_a_registered_stale_demotion(self) -> None:
+        """The timestamp verdict is symmetric across the registered pointer.
+
+        A registered checkout can itself be the copy parked on an older
+        demotion while a same-origin worktree has committed the newer live
+        plan. Discovery must compare both copies before retiring the identity,
+        then move the registered pointer to the live copy under the same CAS.
+        """
+
+        def commit_at(repo: Path, message: str, when: str) -> None:
+            stamped = {
+                **os.environ,
+                "GIT_AUTHOR_DATE": when,
+                "GIT_COMMITTER_DATE": when,
+            }
+            result = subprocess.run(
+                ["git", "-C", str(repo), "commit", "--quiet", "-m", message],
+                capture_output=True,
+                text=True,
+                env=stamped,
+                check=False,
+            )
+            if result.returncode:
+                raise AssertionError(result.stderr)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+
+            registered_repo = project(
+                root, name="installed-shadow", display_name="shadow"
+            )
+            git(registered_repo, "remote", "add", "origin", self.REMOTE)
+            registered_plan = registered_repo / "PLAN.md"
+            live_text = registered_plan.read_text(encoding="utf-8")
+
+            seeded = run(home, "status", "--root", str(registered_repo), "--json")
+            self.assertEqual(seeded.returncode, 0, seeded.stderr)
+
+            registered_plan.write_text(
+                live_text.replace("# Project\n", f"# Project\n\n{self.BANNER}\n", 1),
+                encoding="utf-8",
+            )
+            git(registered_repo, "add", "PLAN.md")
+            commit_at(
+                registered_repo,
+                "demote the registered checkout",
+                "2026-06-24T02:06:40+00:00",
+            )
+
+            live_repo = portfolio / "shadow"
+            git(
+                registered_repo,
+                "worktree",
+                "add",
+                "--quiet",
+                "--detach",
+                str(live_repo),
+                "HEAD",
+            )
+            live_plan = live_repo / "PLAN.md"
+            live_plan.write_text(live_text, encoding="utf-8")
+            git(live_repo, "add", "PLAN.md")
+            commit_at(
+                live_repo,
+                "revive the plan in the current copy",
+                "2026-08-10T18:15:14+00:00",
+            )
+
+            env = {"SHADOW_PORTFOLIO_ROOT": str(portfolio)}
+            for attempt in range(2):
+                refreshed = run(home, "status", "--json", cwd=blank, extra_env=env)
+                self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+                entities = board(home)["entities"]
+                self.assertEqual(
+                    [entity["project"] for entity in entities],
+                    ["shadow"],
+                    f"the live entity was dropped on reconcile {attempt + 1}",
+                )
+                self.assertEqual(
+                    Path(entities[0]["plan"]).resolve(),
+                    live_plan.resolve(),
+                    "the stale registered demotion remained canonical",
+                )
+
     def test_every_copy_the_veto_read_is_a_retirement_predicate(self) -> None:
         """The verdict reads the whole identity, so the whole identity is CASed.
 

@@ -48,6 +48,99 @@ class OneSource(unittest.TestCase):
         self.assertTrue(BLOCK.startswith("## Shadow "))
 
 
+class UnmarkedAdoptionRefusesADriftedHeading(unittest.TestCase):
+    def test_an_exact_known_earlier_revision_is_adopted(self) -> None:
+        legacy = hd.KNOWN_EARLIER_STANDING_GOALS[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            path.write_text(BEFORE + legacy + AFTER, encoding="utf-8")
+            self.assertEqual(hd.apply(path, BLOCK), "adopted")
+            self.assertEqual(path.read_text(encoding="utf-8"), BEFORE + hd.managed(BLOCK) + AFTER)
+
+    def test_a_drifted_or_customized_heading_is_refused_by_name(self) -> None:
+        heading = BLOCK.splitlines()[0]
+        copies = {
+            "renamed": BLOCK.replace(heading, "## Shadow — Leo's private operating rule", 1),
+            "customized": BLOCK.replace(
+                "Outcome: act as the user's active local proxy; reconstruct what matters,",
+                "Outcome: a private local rule takes priority over the durable board.",
+                1,
+            ),
+        }
+        for name, copy in copies.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "CLAUDE.md"
+                contents = BEFORE + copy + AFTER
+                path.write_text(contents, encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    hd.apply(path, BLOCK)
+                self.assertIn(copy.splitlines()[0], str(caught.exception))
+                self.assertIn("exact shipped standing-goal revision", str(caught.exception))
+                self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
+    def test_text_appended_to_the_final_line_is_refused(self) -> None:
+        # A known revision that is only a *prefix* of what sits there is not
+        # that revision: adopting it would end the managed block mid-line and
+        # leave the person's words after the end marker.
+        for name, copy in (
+            ("current", BLOCK + " PRIVATE"),
+            ("earlier", hd.KNOWN_EARLIER_STANDING_GOALS[0] + " PRIVATE"),
+        ):
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "CLAUDE.md"
+                contents = BEFORE + copy + AFTER
+                path.write_text(contents, encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    hd.apply(path, BLOCK)
+                self.assertIn("exact shipped standing-goal revision", str(caught.exception))
+                self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
+    def test_multiple_exact_unmarked_copies_are_refused_without_a_guess(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            contents = BEFORE + BLOCK + "\n\n" + hd.KNOWN_EARLIER_STANDING_GOALS[0] + AFTER
+            path.write_text(contents, encoding="utf-8")
+            with self.assertRaises(ValueError) as caught:
+                hd.apply(path, BLOCK)
+            self.assertIn("multiple unmarked standing-goal headings", str(caught.exception))
+            self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
+    def test_an_exact_earlier_revision_inside_a_markdown_fence_is_not_adopted(self) -> None:
+        for fence in ("```markdown", "~~~~"):
+            with self.subTest(fence), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "AGENTS.md"
+                contents = (
+                    BEFORE
+                    + fence
+                    + "\n"
+                    + hd.KNOWN_EARLIER_STANDING_GOALS[0]
+                    + "\n"
+                    + ("```" if fence.startswith("`") else "~~~~")
+                    + AFTER
+                )
+                path.write_text(contents, encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    hd.apply(path, BLOCK)
+                self.assertIn("inside a Markdown fence", str(caught.exception))
+                self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
+
+class TheBackupKeepsTheModeOfTheFileItCopied(unittest.TestCase):
+    def test_private_and_shared_owner_files_keep_their_mode_in_the_backup(self) -> None:
+        for mode in (0o600, 0o644):
+            with self.subTest(oct(mode)), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "AGENTS.md"
+                path.write_text(BEFORE, encoding="utf-8")
+                path.chmod(mode)
+
+                self.assertEqual(hd.apply(path, BLOCK), "added")
+
+                backup = path.with_suffix(path.suffix + ".bak-shadow")
+                self.assertEqual(path.stat().st_mode & 0o777, mode)
+                self.assertEqual(backup.stat().st_mode & 0o777, mode)
+                self.assertEqual(backup.read_text(encoding="utf-8"), BEFORE)
+
+
 class RemovalLeavesThePersonsTextAlone(unittest.TestCase):
     """The audited floor: --remove takes out at most what adding introduced.
 

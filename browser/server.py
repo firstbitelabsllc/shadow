@@ -934,13 +934,10 @@ def discover_plans(
         prefix = Path(root_relative).parent
         identities[repo] = (origin, prefix)
         root_identity = _root_board.logical_entity_id(origin, root_relative)
-        if root_identity in (retired_registered or set()):
-            plans_by_repo[repo] = [repo / "PLAN.md"]
-        else:
-            plans_by_repo[repo] = repo_plans(
-                repo,
-                declaration_plan=registered.get(root_identity),
-            )
+        plans_by_repo[repo] = repo_plans(
+            repo,
+            declaration_plan=registered.get(root_identity),
+        )
 
     instances: dict[tuple[str, str], list[Path]] = {}
     for repo in candidates:
@@ -975,11 +972,16 @@ def discover_plans(
                 registered_plan
                 if registered_plan is not None
                 and Path(os.path.abspath(path)) != registered_plan
+                and not registered_retirement
                 else None
             )
             veto_receipt = None
             veto = None
-            if registered_override is not None and not registered_retirement:
+            compared_registered = (
+                registered_plan is not None
+                and Path(os.path.abspath(path)) != registered_plan
+            )
+            if compared_registered:
                 veto_paths = list(instances.get(key, [path]))
                 if registered_plan not in veto_paths:
                     veto_paths.append(registered_plan)
@@ -997,16 +999,7 @@ def discover_plans(
                     "close, archive, or split the import scope"
                 )
             try:
-                if registered_retirement:
-                    display = path.relative_to(root).as_posix()
-                    record = {
-                        "path": display,
-                        "archived": True,
-                        "archive_veto": PUBLIC_ARCHIVE_VETO,
-                    }
-                    if capture_tokens:
-                        record["_logical_entity"] = identity
-                elif registered_override is not None:
+                if registered_override is not None:
                     display = path.relative_to(root).as_posix()
                     if veto:
                         record = {
@@ -1056,7 +1049,7 @@ def discover_plans(
                     shadowed.append(record)
                 continue
             seen[key] = record["path"]
-            if registered_override is None:
+            if not compared_registered:
                 veto_receipt = _archive_veto_receipt(
                     instances.get(key, [path]), cache=veto_cache, dates=commit_dates
                 )

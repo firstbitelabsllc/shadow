@@ -137,19 +137,28 @@ def _ending(lines, mark):
     the option's own margin is the message speaking again, whether or not a blank
     line announced it, and that is where the ending starts.
     """
-    rest = lines[mark + 1:]
+    return lines[_body_end(lines, mark):]
+
+
+def _body_end(lines, mark):
+    """Where the option at `mark` stops explaining itself.
+
+    Indentation is what binds a continuation to its option: lines indented past
+    the option marker are still that option's body, and the first line back at
+    its own margin — or the blank line that ends the list — is not.
+    """
     depth = _indent(lines[mark])
-    body = 0
-    while body < len(rest) and rest[body].strip() and _indent(rest[body]) > depth:
-        body += 1
-    return rest[body:]
+    end = mark + 1
+    while end < len(lines) and lines[end].strip() and _indent(lines[end]) > depth:
+        end += 1
+    return end
 
 
 def _indent(line):
     return len(line) - len(line.lstrip())
 
 
-def _passage(lines, first):
+def _passage(lines, first, last):
     """The menu and what is presented with it, not everything above it.
 
     A drawing earns the pass by showing what the options ARE, so it has to be
@@ -170,7 +179,22 @@ def _passage(lines, first):
                 break
             crossed = True
         start -= 1
-    return "\n".join(lines[start:])
+    # A drawing may follow the options, but it must be the block immediately
+    # attached to them. Otherwise any later log or code sample buys an
+    # exemption for a menu it does not explain. Keep the first following block
+    # (including a multi-line fence/table) and stop at the next blank boundary.
+    #
+    # Codex (PR #359, P2): the final option's own continuation is not that
+    # block. Starting at `last + 1` made an indented explanation the "following
+    # block", so the loop stopped at the blank line ending the list and cut off
+    # the fence or table drawn right under it — a menu that does show its work,
+    # blocked for not showing it.
+    end = _body_end(lines, last)
+    while end < len(lines) and not lines[end].strip():
+        end += 1
+    while end < len(lines) and lines[end].strip():
+        end += 1
+    return "\n".join(lines[start:end])
 
 
 def violations(text):
@@ -178,7 +202,7 @@ def violations(text):
     marks = _closing_marks(lines)
     if len({OPTION.match(lines[i]).group(1) for i in marks}) < 2:
         return []
-    passage = _passage(lines, marks[0])
+    passage = _passage(lines, marks[0], marks[-1])
     if "```" in passage or TABLE.search(passage):
         return []
     return [

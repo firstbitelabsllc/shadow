@@ -37,6 +37,13 @@ _amp = importlib.util.module_from_spec(_AMP_SPEC)
 sys.modules.setdefault("shadow_accept_amp", _amp)
 _AMP_SPEC.loader.exec_module(_amp)
 
+_LINT_SPEC = importlib.util.spec_from_file_location(
+    "shadow_accept_lint", ROOT / "scripts" / "shadow-lint.py"
+)
+_lint = importlib.util.module_from_spec(_LINT_SPEC)
+sys.modules.setdefault("shadow_accept_lint", _lint)
+_LINT_SPEC.loader.exec_module(_lint)
+
 
 ROW_ID_RE = re.compile(r"^~[0-9a-z]{4}$")
 # Unanchored twin for scanning a `needs:` value, which holds several ids.
@@ -113,6 +120,35 @@ def proof_argv(command: str) -> list[str]:
         return shlex.split(command)
     except ValueError as exc:
         raise AcceptError(f"the proof command cannot be parsed: {exc}") from exc
+
+
+def blocking_lint_finding(text: str, plan_path: Path) -> dict | None:
+    """The first blocking finding this plan text would draw, judged at HEAD.
+
+    Codex (PR #359, P2): accept proves and commits against the committed
+    checkout, so the lint must answer in-tree paths from HEAD too. Reading the
+    working tree made unrelated local state a veto — deleting a committed
+    executable another row's proof names emitted blocking PROOF-ARGV0 and
+    refused a flip the clean checkout runs fine.
+    """
+    return next(
+        (
+            finding
+            for finding in _lint.lint_plan(text, root=plan_path.parent, committed=True)
+            if finding["severity"] == "blocking"
+        ),
+        None,
+    )
+
+
+def refuse_lint_blocked_plan(text: str, plan_path: Path) -> None:
+    finding = blocking_lint_finding(text, plan_path)
+    if finding is not None:
+        raise AcceptError(
+            "the completed plan would fail shadow lint "
+            f"({finding['check']} on line {finding['line']}: {finding['detail']}); "
+            "nothing was changed"
+        )
 
 
 def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -656,6 +692,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_text, row_id, completed_argv
             ):
                 raise AcceptError("the row is completed without a matching accept proof")
+            refuse_lint_blocked_plan(plan_text, plan_path)
             if claim is not None:
                 parsed = _amp._parse(plan_text)
                 parsed["claimed"] = set()
@@ -770,6 +807,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         updated = completed_plan_text(plan_text, row_id, argv_proof, stamp)
+        refuse_lint_blocked_plan(updated, plan_path)
         completed_plan = _amp._parse(updated)
         completed_plan["claimed"] = set()
         resumes = _amp._candidate_ids(completed_plan)
