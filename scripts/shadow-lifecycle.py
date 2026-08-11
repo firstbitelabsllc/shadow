@@ -587,8 +587,8 @@ def atomic_write(path: Path, payload: bytes, mode: int = 0o644) -> None:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
             stream.flush()
-            os.fsync(stream.fileno())
             os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
         os.replace(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY)
         try:
