@@ -678,6 +678,128 @@ def publish_completion(
     return 0
 
 
+def remote_completion_receipt(
+    repo: Path,
+    plan_path: Path,
+    row_id: str,
+    owner: str,
+) -> dict | None:
+    """Authenticate one acquired journal, including from a detached retry."""
+    state = _board.entity_state(plan_path, exact_on_conflict=True)
+    if state is None or state["entity"] is None or state["project"] is None:
+        raise AcceptError("remote completion recovery cannot resolve its board entity")
+    try:
+        relative = plan_path.relative_to(repo).as_posix()
+        active = _remote_claim.discover_active(
+            repo,
+            entity=state["entity"]["id"],
+            project=state["project"]["id"],
+            rows=[row_id],
+            relative=relative,
+            recover_detached=True,
+        )
+    except (ValueError, _remote_claim.RemoteClaimError) as exc:
+        raise AcceptError(
+            "the completed row's remote claim could not be authenticated"
+        ) from exc
+    if not active:
+        return None
+    if len(active) != 1:
+        raise AcceptError("the completed row has conflicting remote claims")
+    receipt = active[0]
+    if receipt["owner"] != owner:
+        raise AcceptError(
+            f"{row_id} has a remote claim owned by {receipt['owner']}, not {owner}"
+        )
+    return receipt
+
+
+def ensure_completion_published(
+    repo: Path,
+    row_id: str,
+    plan_token: dict[str, str],
+    plan_text: str,
+    summary: str,
+) -> int | None:
+    """Publish on a tracking branch or authenticate an already-merged retry."""
+    if _remote_claim.uses_origin_upstream(repo):
+        result = publish_completion(repo, row_id, False, summary, announce=False)
+        return result or None
+    try:
+        published_bytes = _remote_claim.published_plan_bytes(repo, plan_token)
+    except _remote_claim.RemoteClaimError as exc:
+        raise AcceptError(
+            "completion publication could not be authenticated; remote claim retained"
+        ) from exc
+    if published_bytes is None:
+        raise AcceptError(
+            "completion is not published on the configured origin; remote claim retained"
+        )
+    try:
+        published_text = published_bytes.decode("utf-8")
+        _, _, local_state, local_proof, _ = find_row(plan_text, row_id)
+        _, _, published_state, published_proof, _ = find_row(published_text, row_id)
+        if not published_proof.startswith("cmd "):
+            raise AcceptError("published completion proof is not command-classed")
+        published_argv = proof_argv(published_proof[4:])
+    except (UnicodeError, AcceptError) as exc:
+        raise AcceptError(
+            "current origin default PLAN no longer carries the completed row and "
+            "matching accept proof; remote claim retained"
+        ) from exc
+    if (
+        local_state != "completed"
+        or published_state != "completed"
+        or not local_proof.startswith("cmd ")
+        or published_proof != local_proof
+        or not _board.has_accept_proof_receipt(
+            published_text, row_id, published_argv
+        )
+    ):
+        raise AcceptError(
+            "current origin default PLAN no longer carries the completed row and "
+            "matching accept proof; remote claim retained"
+        )
+    return None
+
+
+def claim_from_remote_receipt(receipt: dict) -> dict:
+    return {
+        "entity": receipt["entity"],
+        "row": receipt["row"],
+        "owner": receipt["owner"],
+        **receipt["claim"],
+    }
+
+
+def transition_remote_completion(
+    repo: Path,
+    plan_path: Path,
+    row_id: str,
+    owner: str,
+    plan_token: dict[str, str],
+    claim: dict,
+) -> None:
+    state = _board.entity_state(plan_path, exact_on_conflict=True)
+    remote = _remote_claim.transition(
+        repo,
+        entity=claim["entity"],
+        row=row_id,
+        owner=owner,
+        project=state["project"]["id"],
+        plan_token=plan_token,
+        claim=claim,
+        state="completed",
+        reason="completed",
+        recover_detached=True,
+    )
+    if remote is None or remote["status"] != "acquired":
+        raise AcceptError(
+            "completion is published but its remote claim transition is ambiguous; "
+            "exact local claim retained when present"
+        )
+
+
 def finalize_completion(
     repo: Path,
     plan_path: Path,
@@ -691,30 +813,27 @@ def finalize_completion(
     summary: str,
 ) -> int:
     """Publish authority, close its remote journal, then release locally."""
-    managed = _remote_claim.uses_origin_upstream(repo)
+    receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
+    managed = _remote_claim.uses_origin_upstream(repo) or receipt is not None
     if no_push and managed:
         return publish_completion(repo, row_id, True, summary)
     if managed:
-        published = publish_completion(repo, row_id, False, summary, announce=False)
+        published = ensure_completion_published(
+            repo, row_id, plan_token, plan_text, summary
+        )
         if published:
             return published
-        state = _board.entity_state(plan_path, exact_on_conflict=True)
-        remote = _remote_claim.transition(
-            repo,
-            entity=claim["entity"],
-            row=row_id,
-            owner=owner,
-            project=state["project"]["id"],
-            plan_token=plan_token,
-            claim=claim,
-            state="completed",
-            reason="completed",
-        )
-        if remote is None or remote["status"] != "acquired":
+        remote_claim = claim_from_remote_receipt(receipt) if receipt is not None else claim
+        if receipt is not None and any(
+            claim.get(key) != remote_claim.get(key)
+            for key in ("claimed_at", "return_by", "recovery")
+        ):
             raise AcceptError(
-                "completion is published but its remote claim transition is ambiguous; "
-                "exact local claim retained"
+                "local and remote completion claims disagree; exact local claim retained"
             )
+        transition_remote_completion(
+            repo, plan_path, row_id, owner, plan_token, remote_claim
+        )
     _board.release(
         plan_path,
         row_id,
@@ -729,6 +848,38 @@ def finalize_completion(
         print(f"accepted {row_id}: {summary}; published and remote claim completed")
         return 0
     return publish_completion(repo, row_id, no_push, summary)
+
+
+def finalize_completed_retry_without_local_claim(
+    repo: Path,
+    plan_path: Path,
+    row_id: str,
+    owner: str,
+    plan_token: dict[str, str],
+    plan_text: str,
+    no_push: bool,
+    summary: str,
+) -> int:
+    receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
+    if receipt is None:
+        return publish_completion(repo, row_id, no_push, summary)
+    if no_push:
+        return publish_completion(repo, row_id, True, summary)
+    published = ensure_completion_published(
+        repo, row_id, plan_token, plan_text, summary
+    )
+    if published:
+        return published
+    transition_remote_completion(
+        repo,
+        plan_path,
+        row_id,
+        owner,
+        plan_token,
+        claim_from_remote_receipt(receipt),
+    )
+    print(f"accepted {row_id}: {summary}; published and remote claim completed")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -811,9 +962,13 @@ def main(argv: list[str] | None = None) -> int:
                     raise AcceptError(
                         f"the completed row's root claim could not reconcile: {exc}"
                     ) from exc
-            return publish_completion(
+            return finalize_completed_retry_without_local_claim(
                 repo,
+                plan_path,
                 row_id,
+                owner,
+                plan_token,
+                plan_text,
                 args.no_push,
                 "completion already proven; root claim reconciled",
             )
