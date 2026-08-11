@@ -1,0 +1,20 @@
+{
+  "name": "shadow",
+  "interface": {
+    "displayName": "Shadow"
+  },
+  "plugins": [
+    {
+      "name": "shadow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/shadow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
