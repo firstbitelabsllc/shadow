@@ -263,6 +263,7 @@ def validate_milestone(
         if (match := ROW_RE.match(line.rstrip("\r\n")))
     }
     selected = []
+    shared: list[str] = []
     proven: set[str] = set()
     for start, end, item in progress_items(lines):
         refs = set(HASH_RE.findall(item))
@@ -270,9 +271,18 @@ def validate_milestone(
             continue
         foreign = refs.intersection(all_ids - ids)
         if foreign:
-            raise LifecycleError(
-                "a Progress receipt is shared with a live task: " + ", ".join(sorted(foreign))
-            )
+            # A receipt naming BOTH an archiving row and a live one is live
+            # provenance: moving it would strand the live row's history in an
+            # archive file. It STAYS in the hot plan and the milestone still
+            # archives — refusing the whole archive instead made the byte
+            # ceiling unreachable, because every completed milestone here
+            # shares at least one receipt with live work (measured
+            # 2026-08-11: eight of eight refused).
+            shared.append(", ".join(sorted(foreign)))
+            for line in item.splitlines():
+                if match := PROOF_LINE_RE.match(line):
+                    proven.add(match.group("id"))
+            continue
         selected.append((start, end, item))
         for line in item.splitlines():
             if match := PROOF_LINE_RE.match(line):
@@ -280,7 +290,7 @@ def validate_milestone(
     missing = sorted(ids - proven)
     if missing:
         raise LifecycleError("completed milestone lacks PROOF receipts: " + ", ".join(missing))
-    return ids, selected
+    return ids, selected, shared
 
 
 def fold_dependencies(line: str, archived_ids: set[str]) -> tuple[str, int]:
@@ -359,10 +369,19 @@ def archive_candidate(
             raise LifecycleError("milestone heading is ambiguous")
         raise LifecycleError("milestone was not found in the live Tasks section")
     milestone = matching[0]
-    archived_ids, receipts = validate_milestone(milestone, lines)
+    archived_ids, receipts, shared = validate_milestone(milestone, lines)
     slug = safe_slug(wanted)
     block = "".join(lines[milestone.start : milestone.end])
     receipt_text = "".join(item for _, _, item in receipts)
+    # Receipts this milestone shares with still-live rows are NOT moved; the
+    # archive names them so a cold reader knows where the rest of the story is.
+    shared_note = (
+        "## Receipts left in the live plan\n\n"
+        + "".join(f"- shared with live task(s): {entry}\n" for entry in shared)
+        + "\n"
+        if shared
+        else ""
+    )
     archive_body = (
         f"# Archived milestone: {slug}\n\n"
         "Source: `PLAN.md`\n\n"
@@ -370,6 +389,7 @@ def archive_candidate(
         f"{block}"
         "## Exact Progress receipts\n\n"
         f"{receipt_text}"
+        f"{shared_note}"
     )
     if not archive_body.endswith("\n"):
         archive_body += "\n"
@@ -432,6 +452,7 @@ def archive_candidate(
         "archive": archive,
         "ids": sorted(archived_ids),
         "receipt_count": len(receipts),
+        "shared_receipts_kept": len(shared),
         "dependency_folds": dependency_folds,
         "successor": successor,
         "successor_row": successor_row,
@@ -1732,6 +1753,7 @@ def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
             "milestone": wanted,
             "archive": str(archive_path),
             "receipt_count": candidate["receipt_count"],
+            "shared_receipts_kept": candidate["shared_receipts_kept"],
             "dependency_folds": candidate["dependency_folds"],
             "successor": candidate["successor"],
             "successor_row": candidate["successor_row"],
