@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -426,6 +427,199 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             self.assertEqual(still_live.returncode, 1, still_live.stderr)
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+
+class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
+    RECEIPT_FIELDS = {
+        "schema", "status", "ref", "entity", "row", "owner", "project",
+        "plan", "winner", "failure",
+    }
+
+    def git(self, repo: Path, *args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def protected_fixture(self, root: Path) -> tuple[Path, Path, Path, Path, str]:
+        bare = root / "protected.git"
+        seed = root / "seed"
+        first = root / "first"
+        second = root / "second"
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        seed.mkdir()
+        self.git(seed, "init", "-q")
+        self.git(seed, "config", "user.email", "protected@example.invalid")
+        self.git(seed, "config", "user.name", "Protected Fixture")
+        (seed / "PLAN.md").write_text(
+            PLAN.replace("- Project: demo", "- Project: protected-demo"),
+            encoding="utf-8",
+        )
+        self.git(seed, "add", "PLAN.md")
+        self.git(seed, "commit", "-qm", "seed protected project")
+        self.git(seed, "remote", "add", "origin", str(bare))
+        self.git(seed, "push", "-qu", "origin", "HEAD:main")
+        self.git(bare, "symbolic-ref", "HEAD", "refs/heads/main")
+        main = self.git(bare, "rev-parse", "refs/heads/main")
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text(
+            "#!/bin/sh\n"
+            "while read old new ref; do\n"
+            "  test \"$ref\" != refs/heads/main || exit 1\n"
+            "done\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        hook.chmod(0o755)
+        subprocess.run(["git", "clone", "-q", str(bare), str(first)], check=True)
+        subprocess.run(["git", "clone", "-q", str(bare), str(second)], check=True)
+        return bare, first, second, seed, main
+
+    def throw_process(
+        self, repo: Path, home: Path, seat: str
+    ) -> subprocess.Popen[str]:
+        home.mkdir()
+        return subprocess.Popen(
+            [
+                sys.executable,
+                str(THROW),
+                "--repo",
+                str(repo),
+                "--task",
+                "~bb22",
+                "--by",
+                seat,
+            ],
+            cwd=repo,
+            env={**os.environ, "HOME": str(home)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def receipt(self, stderr: str) -> dict:
+        matches = []
+        for line in stderr.splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict) and value.get("schema") == "shadow.remote-claim.v1":
+                matches.append(value)
+        self.assertEqual(len(matches), 1, stderr)
+        self.assertEqual(set(matches[0]), self.RECEIPT_FIELDS)
+        self.assertEqual(set(matches[0]["plan"]), {"head", "blob"})
+        return matches[0]
+
+    def test_protected_main_uses_one_remote_cas_before_printing_one_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, second, _, original_main = self.protected_fixture(root)
+            processes = [
+                self.throw_process(first, root / "home-a", "seat-a"),
+                self.throw_process(second, root / "home-b", "seat-b"),
+            ]
+            results = [process.communicate(timeout=30) for process in processes]
+            codes = [process.returncode for process in processes]
+
+            winners = [index for index, code in enumerate(codes) if code == 0]
+            losers = [index for index, code in enumerate(codes) if code == 1]
+            self.assertEqual(winners, [0] if codes[0] == 0 else [1], results)
+            self.assertEqual(losers, [0] if codes[0] == 1 else [1], results)
+            winner_index = winners[0]
+            loser_index = losers[0]
+            winner_seat = ("seat-a", "seat-b")[winner_index]
+            loser_seat = ("seat-a", "seat-b")[loser_index]
+            winner_stdout, winner_stderr = results[winner_index]
+            loser_stdout, loser_stderr = results[loser_index]
+            self.assertIn("/goal protected-demo", winner_stdout)
+            self.assertEqual(loser_stdout, "")
+            self.assertIn(winner_seat, loser_stderr)
+
+            winner_receipt = self.receipt(winner_stderr)
+            loser_receipt = self.receipt(loser_stderr)
+            self.assertEqual(winner_receipt["status"], "acquired")
+            self.assertEqual(winner_receipt["owner"], winner_seat)
+            self.assertEqual(winner_receipt["winner"], winner_seat)
+            self.assertIsNone(winner_receipt["failure"])
+            self.assertEqual(loser_receipt["status"], "lost")
+            self.assertEqual(loser_receipt["owner"], loser_seat)
+            self.assertEqual(loser_receipt["winner"], winner_seat)
+            self.assertEqual(loser_receipt["failure"], "claim_exists")
+            self.assertEqual(winner_receipt["entity"], loser_receipt["entity"])
+            self.assertEqual(winner_receipt["row"], "~bb22")
+            self.assertEqual(winner_receipt["project"], "protected-demo")
+            self.assertEqual(winner_receipt["plan"], loser_receipt["plan"])
+            self.assertNotIn(str(root), winner_stderr + loser_stderr)
+
+            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
+            self.assertEqual(set(refs), {"refs/heads/main", winner_receipt["ref"]})
+            stored = json.loads(
+                self.git(bare, "show", f"{winner_receipt['ref']}:claim.json")
+            )
+            self.assertEqual(stored, winner_receipt)
+            for index, home_name in enumerate(("home-a", "home-b")):
+                board_payload = json.loads(
+                    (root / home_name / ".shadow" / "board.json").read_text(encoding="utf-8")
+                )
+                expected = 1 if index == winner_index else 0
+                self.assertEqual(len(board_payload["claims"]), expected)
+
+    def test_transport_error_compensates_exact_local_claim_without_leaking_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, _ = self.protected_fixture(root)
+            shutil.rmtree(bare)
+
+            process = self.throw_process(first, root / "home-a", "seat-a")
+            stdout, stderr = process.communicate(timeout=30)
+
+            self.assertEqual(process.returncode, 1, stderr)
+            self.assertEqual(stdout, "")
+            receipt = self.receipt(stderr)
+            self.assertEqual(receipt["status"], "error")
+            self.assertEqual(receipt["owner"], "seat-a")
+            self.assertIsNone(receipt["winner"])
+            self.assertEqual(receipt["failure"], "transport_failed")
+            self.assertNotIn(str(root), stdout + stderr)
+            board_payload = json.loads(
+                (root / "home-a" / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(board_payload["claims"], [])
+
+    def test_pre_push_hook_blocks_transport_and_is_scrubbed_before_compensation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, original_main = self.protected_fixture(root)
+            hook = first / ".git" / "hooks" / "pre-push"
+            hook.write_text(
+                f"#!/bin/sh\necho 'private hook output: {root}' >&2\nexit 1\n",
+                encoding="utf-8",
+            )
+            hook.chmod(0o755)
+
+            process = self.throw_process(first, root / "home-a", "seat-a")
+            stdout, stderr = process.communicate(timeout=30)
+
+            self.assertEqual(process.returncode, 1, stderr)
+            self.assertEqual(stdout, "")
+            receipt = self.receipt(stderr)
+            self.assertEqual(receipt["status"], "error")
+            self.assertEqual(receipt["failure"], "transport_failed")
+            self.assertNotIn("private hook output", stderr)
+            self.assertNotIn(str(root), stderr)
+            board_payload = json.loads(
+                (root / "home-a" / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(board_payload["claims"], [])
+            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
+            self.assertEqual(refs, ["refs/heads/main"])
 
 
 if __name__ == "__main__":

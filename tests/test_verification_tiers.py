@@ -54,6 +54,13 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         throw = ci.select_paths(["scripts/shadow-throw.py"])
         self.assertIn("tests.test_telemetry", throw.modules)
 
+    def test_remote_claim_transport_runs_throw_and_release_proof(self) -> None:
+        selected = ci.select_paths(["scripts/shadow_remote_claim.py"])
+        self.assertFalse(selected.run_all)
+        self.assertIn("tests.test_throw", selected.modules)
+        self.assertIn("tests.test_root_board", selected.modules)
+        self.assertTrue(selected.release_contract)
+
     def test_unknown_or_empty_changes_fall_back_to_full(self) -> None:
         for paths in ([], ["new-unmapped-root/file.xyz"]):
             selected = ci.select_paths(paths)
