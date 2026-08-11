@@ -2194,8 +2194,17 @@ def discard_unclaimed_source_alias(
     """
     source = source.resolve()
     destination = destination.resolve()
-    if not regular_plan(source) or not regular_plan(destination):
-        raise BoardError("alias cleanup requires regular non-symlink PLAN.md files")
+    # The source side is deliberately allowed to be absent.  Once an
+    # operational plan has been moved under ``~/.shadow/plans``, a later
+    # source cleanup can remove the old file before an older board entry is
+    # refreshed.  The registered source locator is then only stale metadata;
+    # the private plan and its rows remain the authority.  A present source
+    # must still be a regular file, so a symlink cannot smuggle a different
+    # authority into this cleanup path.
+    if source.exists() and not regular_plan(source):
+        raise BoardError("alias cleanup source is not a regular non-symlink PLAN.md file")
+    if not regular_plan(destination):
+        raise BoardError("alias cleanup requires a regular non-symlink private PLAN.md")
     if not is_local_plan(destination, home=home):
         raise BoardError("alias cleanup destination must live below ~/.shadow/plans")
     destination_id = entity_id(destination)
