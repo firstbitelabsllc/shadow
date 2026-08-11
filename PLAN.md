@@ -31,7 +31,7 @@ sections that stood here until 2026-08-09 are archived at
 - [completed] amp emits a bounded PLAN goal ~a4mp | proof: cmd npm run test:py
 - [completed] amp projects grammar tools ~t0ol | proof: cmd npm run docs:build | needs: ~a4mp
 - [completed] status uses v4 Brief ~c9ut | proof: read shadow status -> v4, no v3 error | needs: ~a4mp
-- [pending] specific goals name 1–4 local skills; master is skill-free, PLAN owns the roster ~gskl | proof: cmd scripts/shadow-python.sh -m unittest tests.test_grammar_contract
+- [completed] specific goals name 1–4 local skills; master is skill-free, PLAN owns the roster ~gskl | proof: cmd scripts/shadow-python.sh -m unittest tests.test_grammar_contract
 - [pending] tagged amp emits its installed repo goal ~s4ip (DoD) | proof: gate owner resume: installed `shadow amp` emits the repo goal | needs: ~t0ol, ~c9ut, ~gskl
 
 ### M5 — Shadow is me: continuity + proxy stance
@@ -1749,3 +1749,4 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-11T21:00:30Z ~vgra PROOF scripts/shadow-python.sh -m unittest tests.test_release_package tests.test_install_doctor tests.test_distribution_contract -> pass (29 green; new scripts/shadow_version.py is the single reader with the launcher's exact awk grammar -- first non-empty non-comment line, semver-validated -- and doctor, release-package, grep-gate, browser/server, and the distribution test all import it; new tests.test_version_reader pins Python==launcher agreement on a commented VERSION file, the input that split the three old grammars; mutation check: reverting to naive first-line reddens it. Flip recorded by hand per the protected-trunk forced form)
 - 2026-08-11T21:05:24Z AUDIT ~tdch top-down adversarial challenge at HEAD 0c4e556: six read-only adversaries and a judge; attack sets, survived lists, and evidence live in the owner's local Langfuse (shadow-topdown-challenge, trace a212e481eea85e49cc06dda8a876b503). VERDICT: zero launch blockers, five surfaces clean; nothing gates shadow-v1.0.0. Rows minted: ~lgrf, ~bpth (real), ~ldup, ~rmot, ~hscr (latent); ~hrcx re-confirmed; one folds into ~gsrc; parity claim REFUTED; two NON-ISSUE. All fail-closed, loopback-local, or inside the repo trust boundary.
 - 2026-08-11T21:05:24Z ~tdch PROOF read the AUDIT above names each surface, the verdict, every minted row, and its Langfuse trace -> pass (forced form)
+- 2026-08-11T21:25:30Z ~gskl PROOF scripts/shadow-python.sh -m unittest tests.test_grammar_contract -> pass (accept)
