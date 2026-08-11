@@ -14,6 +14,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
+from shadow_version import read_version, VersionError  # noqa: E402
 
 MAX_TEXT_BYTES = 1_000_000
 FORBIDDEN_SUFFIXES = {".key", ".log", ".pem", ".p12", ".token", ".jsonl"}
@@ -81,8 +82,8 @@ def metadata_errors(root: Path) -> list[str]:
     the plugin manifest, VERSION, and the git origin are the identity sources."""
     try:
         plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        version = (root / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
-    except (OSError, json.JSONDecodeError, IndexError) as exc:
+        version = read_version(root)
+    except (OSError, json.JSONDecodeError, VersionError) as exc:
         return [f"metadata unreadable: {exc}"]
     errors = []
     if plugin.get("name") != "shadow":
