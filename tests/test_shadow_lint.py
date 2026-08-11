@@ -18,6 +18,12 @@ assert SPEC and SPEC.loader
 lint = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(lint)
 
+ACCEPT_SCRIPT = ROOT / "scripts" / "shadow-accept.py"
+ACCEPT_SPEC = importlib.util.spec_from_file_location("shadow_accept", ACCEPT_SCRIPT)
+assert ACCEPT_SPEC and ACCEPT_SPEC.loader
+accept = importlib.util.module_from_spec(ACCEPT_SPEC)
+ACCEPT_SPEC.loader.exec_module(accept)
+
 
 CLEAN_PLAN = """# Demo
 
@@ -439,6 +445,33 @@ class RowGrammarRunsWhereverAcceptWouldFlip(unittest.TestCase):
         # DoD law is about milestones. A stray row under another heading must
         # not invent a milestone, or every plan with prose bullets goes red.
         self.assertNotIn("DOD-COUNT", _checks(self.OUTSIDE))
+
+    def test_lint_checks_the_same_outside_row_accept_can_flip(self) -> None:
+        plan = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Worklane boundary
+
+- [pending] an outside row ~cc33 | proof: not-classed
+
+## Progress
+
+- None yet.
+"""
+
+        self.assertIn("PROOF-CLASS", _checks(plan))
+        self.assertEqual(accept.find_row(plan, "~cc33")[2], "pending")
+        completed = accept.completed_plan_text(
+            plan,
+            "~cc33",
+            ["true"],
+            "2026-08-10T00:00:00Z",
+        )
+        self.assertIn("- [completed] an outside row ~cc33", completed)
 
     def test_a_clean_plan_is_still_clean(self) -> None:
         self.assertEqual(_checks(CLEAN_PLAN) - {"SECTION-MISSING", "TS-ORDER"}, set())
