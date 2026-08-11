@@ -1,9 +1,0 @@
-{
-  "name": "shadow",
-  "displayName": "Shadow",
-  "version": "0.2.0",
-  "description": "A plain-language chief of staff for ongoing work.",
-  "author": {
-    "name": "First Bite Labs"
-  }
-}
