@@ -2711,6 +2711,55 @@ class BoardAuthorityDoesNotLiveOnVolatileStorage(unittest.TestCase):
             self.assertEqual(plan, (f["registered"] / "PLAN.md").resolve())
 
 
+class ElectionPrefersTheMostRecentlyCommittedCopy(unittest.TestCase):
+    """The name match was a proxy for 'current'. Commit date measures it."""
+
+    REMOTE = "git@example.invalid:team/widget.git"
+
+    def _commit_at(self, repo: Path, message: str, when: str) -> None:
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+        r = subprocess.run(["git", "-C", str(repo), "commit", "--quiet", "-m", message],
+                           capture_output=True, text=True, env=env, check=False)
+        if r.returncode:
+            raise AssertionError(r.stderr)
+
+    def _two_copies(self, root: Path, *, matching_is_older: bool):
+        portfolio = root / "portfolio"
+        portfolio.mkdir()
+        # `widget` matches the origin repository name; `widget-authority` does not.
+        matching = project(portfolio, name="widget", display_name="widget")
+        git(matching, "remote", "add", "origin", self.REMOTE)
+        other = project(portfolio, name="widget-authority", display_name="widget")
+        git(other, "remote", "add", "origin", self.REMOTE)
+        old, new = "2026-06-24T00:00:00+00:00", "2026-08-10T00:00:00+00:00"
+        for repo, when in ((matching, old if matching_is_older else new),
+                           (other, new if matching_is_older else old)):
+            (repo / "PLAN.md").write_text(
+                (repo / "PLAN.md").read_text(encoding="utf-8") + f"\n<!-- {when} -->\n",
+                encoding="utf-8")
+            git(repo, "add", "PLAN.md")
+            self._commit_at(repo, "date the plan", when)
+        return portfolio
+
+    def _elected(self, portfolio: Path) -> str:
+        from browser import server
+
+        records = server.discover_plans(portfolio, fail_on_skipped=True)
+        return records[0]["path"].split("/")[0]
+
+    def test_a_newer_copy_beats_the_name_matching_stale_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio = self._two_copies(Path(tmp), matching_is_older=True)
+            self.assertEqual(self._elected(portfolio), "widget-authority")
+
+    def test_the_name_match_still_wins_when_it_is_also_the_newest(self):
+        """The original rename-era case, unchanged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio = self._two_copies(Path(tmp), matching_is_older=False)
+            self.assertEqual(self._elected(portfolio), "widget")
+
+
 if __name__ == "__main__":
+
 
     unittest.main()

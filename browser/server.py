@@ -528,10 +528,27 @@ def _archive_veto_text(text: str) -> str | None:
     return found.group(0) if found else None
 
 
+def _dated(path: Path, dates: dict[str, int | None] | None) -> int | None:
+    """Commit-date one plan at most once per discovery pass.
+
+    Election and the archive veto both need the date of the same files. Dating
+    is a `git log` per path, and a pinned contract requires N duplicate
+    checkouts to cost O(N) subprocesses rather than O(N**2), so the two callers
+    share one memo instead of each paying for it.
+    """
+    if dates is None:
+        return _root_board.plan_commit_time(path)
+    key = str(Path(os.path.abspath(path)))
+    if key not in dates:
+        dates[key] = _root_board.plan_commit_time(path)
+    return dates[key]
+
+
 def _archive_veto_receipt(
     paths: list[Path],
     *,
     cache: dict[tuple[str, ...], dict[str, Any] | None] | None = None,
+    dates: dict[str, int | None] | None = None,
 ) -> dict[str, Any] | None:
     """Freeze the exact source whose self-demotion retires a logical plan.
 
@@ -594,7 +611,7 @@ def _archive_veto_receipt(
         # complete bounded snapshot and file metadata before retirement.
         text = content[:65_536].decode("utf-8", errors="ignore")
         found = _archive_veto_text(text)
-        committed = _root_board.plan_commit_time(candidate)
+        committed = _dated(candidate, dates)
         witnesses.append(
             {"plan": str(candidate.resolve()), "expected_state": state}
         )
@@ -805,6 +822,8 @@ def discover_plans(
     # veto the copy that already won the key — so without this every extra
     # same-identity checkout re-reads and re-`git log`s the whole set.
     veto_cache: dict[tuple[str, ...], dict[str, Any] | None] = {}
+    # One date per plan for the whole pass, shared by election and the veto.
+    commit_dates: dict[str, int | None] = {}
     if is_plan_root(root):
         candidates = [root]
     elif root.is_dir():
@@ -834,14 +853,33 @@ def discover_plans(
         # case-folded on both sides: the normalized origin is lowercased, so a
         # `Thing` directory cloned from `.../thing` would otherwise lose the
         # tie-break to whatever mtime and alphabetical order happened to pick.
-        candidates = sorted(
-            found,
-            key=lambda repo: (
+        #
+        # Commit recency outranks the name match, because the name match was
+        # only ever a PROXY for "this is the canonical, current copy" and the
+        # commit date measures that directly. Measured on the reference machine:
+        # `resplit-ios/` matches its origin name and sits on a 2026-06-24 commit,
+        # while `resplit-ios-authority/` carries the 2026-08-10 plan; name-first
+        # elected the June copy, whose PLAN.md contains none of the rows a seat
+        # needs to claim. Under recency the newer copy wins and the original
+        # rename-era case still resolves correctly — a stale clone that kept the
+        # old directory name loses on its own commit date, which is exactly what
+        # the name rule was reaching for.
+        #
+        # `None` (untracked plan, no repository, partial clone missing the
+        # commit) sorts LAST rather than first, so an undatable copy never
+        # displaces one that can prove its age; the name match then decides
+        # among equals, preserving the previous behaviour whenever recency
+        # cannot separate two checkouts.
+        def _election_key(repo: Path) -> tuple[int, int, bool, str]:
+            committed = _dated(repo / "PLAN.md", commit_dates)
+            return (
+                0 if committed is not None else 1,
+                -(committed or 0),
                 repo.name.lower() != _origin_repo_name(_origin_of(repo)).lower(),
-                -_plan_mtime(repo),
                 repo.name,
-            ),
-        )
+            )
+
+        candidates = sorted(found, key=_election_key)
     else:
         candidates = []
     # Every instance of every key, gathered BEFORE election. A plan's own
@@ -907,7 +945,9 @@ def discover_plans(
                 veto_paths = list(instances.get(key, [path]))
                 if registered_plan not in veto_paths:
                     veto_paths.append(registered_plan)
-                veto_receipt = _archive_veto_receipt(veto_paths, cache=veto_cache)
+                veto_receipt = _archive_veto_receipt(
+                    veto_paths, cache=veto_cache, dates=commit_dates
+                )
                 veto = veto_receipt["match"] if veto_receipt else None
             # Deduplicate before reading. A broken ghost checkout must not veto
             # the healthy canonical copy that already won this logical key.
@@ -980,7 +1020,7 @@ def discover_plans(
             seen[key] = record["path"]
             if registered_override is None:
                 veto_receipt = _archive_veto_receipt(
-                    instances.get(key, [path]), cache=veto_cache
+                    instances.get(key, [path]), cache=veto_cache, dates=commit_dates
                 )
                 veto = veto_receipt["match"] if veto_receipt else None
             if veto:
