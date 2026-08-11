@@ -1491,6 +1491,55 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertLessEqual(len(dated), len(copies) + 1)
 
+    def test_a_cached_commit_date_is_not_reused_after_the_plan_changes(self) -> None:
+        """The memo answers for the state it measured, not for the path.
+
+        Election dates every candidate up front; the veto freezes plan CONTENT
+        later in the same pass. A copy committed live in between would be judged
+        as new content against the old date, look older than it is, and be
+        retired by a demotion it has since dropped. The content CAS cannot catch
+        that, because the state it validates is the new one.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp), name="widget", display_name="widget")
+            plan = repo / "PLAN.md"
+
+            from browser import server
+
+            memo: dict[str, tuple[str, int | None]] = {}
+            scans: list[str] = []
+            real_commit_time = server._root_board.plan_commit_time
+
+            def counted(candidate: Path):
+                scans.append(str(candidate))
+                return real_commit_time(candidate)
+
+            server._root_board.plan_commit_time = counted
+            try:
+                first = server._dated(plan, memo)
+                self.assertEqual(server._dated(plan, memo), first)
+                self.assertEqual(len(scans), 1, "an unchanged plan stays one scan")
+
+                plan.write_text(
+                    plan.read_text(encoding="utf-8") + "\n<!-- moved on -->\n",
+                    encoding="utf-8",
+                )
+                git(repo, "add", "PLAN.md")
+                when = "2026-08-10T00:00:00+00:00"
+                subprocess.run(
+                    ["git", "-C", str(repo), "commit", "--quiet", "-m", "moved on"],
+                    env={**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when},
+                    capture_output=True,
+                    check=True,
+                )
+                moved = server._dated(plan, memo)
+            finally:
+                server._root_board.plan_commit_time = real_commit_time
+
+            self.assertEqual(len(scans), 2, "a changed plan is dated again")
+            self.assertEqual(moved, real_commit_time(plan))
+            self.assertNotEqual(moved, first)
+
     def test_one_self_demoted_registered_alias_retires_the_whole_logical_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._registered_alias_pair(Path(tmp))
@@ -2828,5 +2877,157 @@ class ACrashMidClaimLeavesARecoverableBoard(unittest.TestCase):
                     )
 
 
+class BoardAuthorityDoesNotLiveOnVolatileStorage(unittest.TestCase):
+    """A registered plan under a swept temp root yields to a durable sibling."""
+
+    REMOTE = "git@example.invalid:team/shadow.git"
+
+    def _fixture(self, root: Path, *, with_sibling: bool):
+        home = root / "home"
+        volatile = root / "volatile"
+        durable = root / "durable"
+        blank = root / "blank"
+        for path in (home, volatile, durable, blank):
+            path.mkdir()
+        registered = project(volatile, name="shadow", display_name="shadow")
+        git(registered, "remote", "add", "origin", self.REMOTE)
+        out = run(home, "status", "--root", str(registered), "--json")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(len(board(home)["entities"]), 1)
+        if with_sibling:
+            git(registered, "worktree", "add", "--quiet", "--detach",
+                str(durable / "shadow"), "HEAD")
+        return {
+            "home": home,
+            "registered": registered,
+            "durable": durable,
+            "blank": blank,
+            "env": {
+                "SHADOW_PORTFOLIO_ROOT": str(durable),
+                "SHADOW_VOLATILE_ROOTS": str(volatile.resolve()),
+            },
+        }
+
+    def test_a_durable_sibling_takes_authority_from_the_temp_root_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=True)
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=f["env"])
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "the project must not vanish")
+            plan = Path(entities[0]["plan"]).resolve()
+            self.assertTrue(
+                str(plan).startswith(str(f["durable"].resolve())),
+                f"authority stayed on volatile storage: {plan}",
+            )
+
+    def test_with_no_durable_sibling_the_temp_copy_keeps_working(self):
+        """The half that makes this safe: a sandbox with only a temp checkout."""
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=False)
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=f["env"])
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "nothing to repair to, so nothing changes")
+            plan = Path(entities[0]["plan"]).resolve()
+            self.assertEqual(plan, (f["registered"] / "PLAN.md").resolve())
+
+    def test_a_sibling_under_the_same_swept_root_takes_nothing(self):
+        """One temp path for another is not a repair, so the rule stays silent.
+
+        This is also every `tempfile` fixture in this suite on a platform whose
+        tempdir IS the shared temp root: on Linux the whole tree is swept, and
+        a rule that fired there would demote a healthy locator for no gain.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=True)
+            env = dict(f["env"])
+            # The whole fixture is swept, sibling included, exactly as CI sees
+            # it when `tempfile` hands out paths under the shared temp root.
+            env["SHADOW_VOLATILE_ROOTS"] = str(Path(tmp).resolve())
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=env)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "the project must not vanish")
+            self.assertEqual(
+                Path(entities[0]["plan"]).resolve(),
+                (f["registered"] / "PLAN.md").resolve(),
+                "authority moved off a swept root onto an equally swept sibling",
+            )
+
+    def test_an_unreadable_durable_sibling_takes_nothing_and_refuses_nothing(self):
+        """A repair target is held to the standard of the locator it replaces.
+
+        The registered plan is healthy; only the durable copy is not. Demoting
+        the locator first and discovering that afterwards is how a working
+        board becomes `showing the last-good computer board` on a machine that
+        had nothing wrong with its authority.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=True)
+            (f["durable"] / "shadow" / "PLAN.md").write_bytes(b"\xff\xfe not a plan")
+
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=f["env"])
+
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "the project must not vanish")
+            self.assertEqual(
+                Path(entities[0]["plan"]).resolve(),
+                (f["registered"] / "PLAN.md").resolve(),
+                "a healthy locator was given up for a plan the import refuses",
+            )
+
+
+class ElectionPrefersTheMostRecentlyCommittedCopy(unittest.TestCase):
+    """The name match was a proxy for 'current'. Commit date measures it."""
+
+    REMOTE = "git@example.invalid:team/widget.git"
+
+    def _commit_at(self, repo: Path, message: str, when: str) -> None:
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+        r = subprocess.run(["git", "-C", str(repo), "commit", "--quiet", "-m", message],
+                           capture_output=True, text=True, env=env, check=False)
+        if r.returncode:
+            raise AssertionError(r.stderr)
+
+    def _two_copies(self, root: Path, *, matching_is_older: bool):
+        portfolio = root / "portfolio"
+        portfolio.mkdir()
+        # `widget` matches the origin repository name; `widget-authority` does not.
+        matching = project(portfolio, name="widget", display_name="widget")
+        git(matching, "remote", "add", "origin", self.REMOTE)
+        other = project(portfolio, name="widget-authority", display_name="widget")
+        git(other, "remote", "add", "origin", self.REMOTE)
+        old, new = "2026-06-24T00:00:00+00:00", "2026-08-10T00:00:00+00:00"
+        for repo, when in ((matching, old if matching_is_older else new),
+                           (other, new if matching_is_older else old)):
+            (repo / "PLAN.md").write_text(
+                (repo / "PLAN.md").read_text(encoding="utf-8") + f"\n<!-- {when} -->\n",
+                encoding="utf-8")
+            git(repo, "add", "PLAN.md")
+            self._commit_at(repo, "date the plan", when)
+        return portfolio
+
+    def _elected(self, portfolio: Path) -> str:
+        from browser import server
+
+        records = server.discover_plans(portfolio, fail_on_skipped=True)
+        return records[0]["path"].split("/")[0]
+
+    def test_a_newer_copy_beats_the_name_matching_stale_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio = self._two_copies(Path(tmp), matching_is_older=True)
+            self.assertEqual(self._elected(portfolio), "widget-authority")
+
+    def test_the_name_match_still_wins_when_it_is_also_the_newest(self):
+        """The original rename-era case, unchanged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio = self._two_copies(Path(tmp), matching_is_older=False)
+            self.assertEqual(self._elected(portfolio), "widget")
+
+
 if __name__ == "__main__":
+
+
     unittest.main()
