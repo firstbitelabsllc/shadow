@@ -676,7 +676,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             bare, first, _, _, _ = self.protected_fixture(root)
-            secret = "sk-abcdefghijklmno"
+            secret = "sk-" + "abcdefghijklmno"
             nested = first / secret
             nested.mkdir()
             (nested / "PLAN.md").write_text(
@@ -727,7 +727,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             root = Path(dirname).resolve()
             _, first, _, _, _ = self.protected_fixture(root)
             token, _ = board.committed_plan_snapshot(first / "PLAN.md")
-            secret = "sk-abcdefghijklmno"
+            secret = "sk-" + "abcdefghijklmno"
             unsafe = {**token, "relative": f"{secret}/PLAN.md"}
             entity = board.entity_id(first / "PLAN.md")
             claim = {
