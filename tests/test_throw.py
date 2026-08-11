@@ -1137,5 +1137,115 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             self.assertEqual(refs, ["refs/heads/main"])
 
 
+class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
+    git = AProtectedTrunkStillTakesAClaim.git
+    protected_fixture = AProtectedTrunkStillTakesAClaim.protected_fixture
+    throw_process = AProtectedTrunkStillTakesAClaim.throw_process
+
+    def test_an_ordinary_status_and_throw_find_only_the_protocol_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, second, _, original_main = self.protected_fixture(root)
+            private_marker = "branch-private-" + "AKIA" + "IOSFODNN7EXAMPLE"
+
+            self.git(first, "checkout", "-qb", "arbitrary-unmerged-claim")
+            (first / "claim.json").write_text(
+                json.dumps(
+                    {
+                        "owner": "branch-only-seat",
+                        "claimed": "~bb22",
+                        "private": f"{root}/{private_marker}",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.git(first, "add", "claim.json")
+            self.git(first, "commit", "-qm", "deceptive branch-only claim")
+            self.git(
+                first,
+                "push",
+                "-q",
+                "origin",
+                "HEAD:refs/heads/arbitrary-unmerged-claim",
+            )
+            self.git(first, "checkout", "-q", "main")
+
+            claimed = self.throw_process(first, root / "home-a", "seat-a")
+            first_stdout, first_stderr = claimed.communicate(timeout=30)
+            self.assertEqual(claimed.returncode, 0, first_stderr)
+            self.assertIn("/goal protected-demo", first_stdout)
+            self.assertEqual(
+                self.git(
+                    second,
+                    "for-each-ref",
+                    "--format=%(refname)",
+                    "refs/remotes/origin/shadow/claims",
+                ),
+                "",
+            )
+
+            home_b = root / "home-b"
+            home_b.mkdir()
+            observed = subprocess.run(
+                [
+                    sys.executable,
+                    str(STATUS),
+                    "--root",
+                    str(second),
+                    "--by",
+                    "seat-b",
+                    "--json",
+                ],
+                cwd=second,
+                env={**os.environ, "HOME": str(home_b)},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(observed.returncode, 0, observed.stderr)
+            report = json.loads(observed.stdout)
+            checkpoint = next(
+                checkpoint
+                for milestone in report["v4_plans"][0]["milestones"]
+                for checkpoint in milestone["checkpoints"]
+                if checkpoint["id"] == "~bb22"
+            )
+            self.assertEqual(checkpoint["availability"], "claimed")
+            self.assertEqual(checkpoint["owners"], ["seat-a"])
+            self.assertEqual(report["root_board"]["claims"], [])
+
+            contender = run(THROW, second, {**os.environ, "HOME": str(home_b)},
+                            "--task", "~bb22", "--by", "seat-b")
+            self.assertEqual(contender.returncode, 1, contender.stderr)
+            self.assertEqual(contender.stdout, "")
+            self.assertIn("seat-a", contender.stderr)
+            self.assertEqual(
+                json.loads(
+                    (home_b / ".shadow" / "board.json").read_text(encoding="utf-8")
+                )["claims"],
+                [],
+            )
+
+            public_streams = observed.stdout + observed.stderr + contender.stdout + contender.stderr
+            self.assertNotIn("branch-only-seat", public_streams)
+            self.assertNotIn(private_marker, public_streams)
+            self.assertNotIn(str(root), public_streams)
+            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
+            protocol_refs = [
+                ref for ref in refs if ref.startswith("refs/heads/shadow/claims/v1/")
+            ]
+            self.assertEqual(len(protocol_refs), 1)
+            self.assertIn("refs/heads/arbitrary-unmerged-claim", refs)
+            self.assertEqual(
+                self.git(bare, "ls-tree", "--name-only", protocol_refs[0]),
+                "claim.json",
+            )
+            journal = self.git(bare, "show", f"{protocol_refs[0]}:claim.json")
+            for private in (str(root), private_marker, "branch-only-seat", "the ready row", "cmd true"):
+                self.assertNotIn(private, journal)
+
+
 if __name__ == "__main__":
     unittest.main()
