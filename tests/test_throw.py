@@ -1329,6 +1329,7 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
             record = ordinary["v4_plans"][0]
             self.assertTrue(record["broken"])
             self.assertIn("remote claim discovery", record["resume"])
+            self.assertIsNone(record.get("next_unclaimed"))
             checkpoint = next(
                 checkpoint
                 for milestone in record["milestones"]

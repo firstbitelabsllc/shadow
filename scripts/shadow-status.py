@@ -475,6 +475,10 @@ def board_records(payload: dict) -> list[dict]:
             row_ids,
             candidates,
         )
+        record["next_unclaimed"] = next(
+            (row for row in candidates if row not in entity_claims),
+            None,
+        )
         issue = issue or remote_issue
         if issue:
             record["resume"] = f"UNKNOWN — {issue}"
@@ -496,10 +500,6 @@ def board_records(payload: dict) -> list[dict]:
         )
         if owner:
             record["owner"] = owner
-        record["next_unclaimed"] = next(
-            (row for row in candidates if row not in entity_claims),
-            None,
-        )
         records.append(record)
     return records
 
