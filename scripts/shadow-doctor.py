@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -151,17 +152,41 @@ def host_goal_checks() -> list[dict[str, Any]]:
         return [check("standing goal: source", "fail", "no block found in docs/reference/host-integration.md")]
     anchor = block.splitlines()[0]
     results = []
+    origins: list[tuple[int, Path]] = []
+
+    def public_path(value: Path) -> tuple[str, bool]:
+        """Name host wiring without disclosing the operator's home directory."""
+        try:
+            relative = value.relative_to(Path.home().resolve())
+        except ValueError:
+            digest = hashlib.sha256(os.fsencode(value)).hexdigest()[:12]
+            return f"outside-home@{digest}", False
+        return f"~/{relative.as_posix()}", True
+
     for label, path in (("claude-code", Path.home() / ".claude" / "CLAUDE.md"),
                         ("codex", Path.home() / ".codex" / "AGENTS.md")):
         name = f"standing goal: {label}"
+        resolved = path.resolve(strict=False)
+        public_host = f"~/{path.relative_to(Path.home()).as_posix()}"
+        public_resolved, inside_home = public_path(resolved)
+        origin = f"reads {public_resolved}"
+        origin_data = {"path": public_host, "resolved": public_resolved}
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
             # A missing host file is that host not being configured, not a
             # broken install — warn, never fail. Still say the fix: a warning
             # a person cannot act on is noise.
-            results.append(check(name, "warn", "no host instruction file — create it with: shadow goal --install"))
+            state = "fail" if path.is_symlink() else "warn"
+            problem = "broken host instruction link" if path.is_symlink() else "no host instruction file"
+            results.append(check(
+                name,
+                state,
+                f"{problem} — {origin}; create or repair it with: shadow goal --install",
+                **origin_data,
+            ))
             continue
+        origins.append((len(results), resolved))
         # Count first. `block in text` is a bare substring test, so a file
         # holding a stale copy AND a fresh one appended below it passed as
         # "current" — while the host reads the stale one first. That is exactly
@@ -172,14 +197,40 @@ def host_goal_checks() -> list[dict[str, Any]]:
             results.append(check(
                 name, "fail",
                 f"{copies} copies of the standing goal — the host reads the first one; "
-                "delete the extras, then: shadow goal --install",
+                f"delete the extras, then: shadow goal --install — {origin}",
+                **origin_data,
             ))
         elif block in text:
-            results.append(check(name, "pass", "current"))
+            results.append(check(name, "pass", f"current — {origin}", **origin_data))
         elif copies == 1:
-            results.append(check(name, "fail", "stale copy — replace it with: shadow goal --install"))
+            results.append(check(
+                name,
+                "fail",
+                f"stale copy — replace it with: shadow goal --install — {origin}",
+                **origin_data,
+            ))
         else:
-            results.append(check(name, "warn", "not pasted — add it with: shadow goal --install"))
+            results.append(check(
+                name,
+                "warn",
+                f"not pasted — add it with: shadow goal --install — {origin}",
+                **origin_data,
+            ))
+        if not path.is_symlink():
+            if results[-1]["state"] == "pass":
+                results[-1]["state"] = "warn"
+            results[-1]["detail"] = f"not a symlink — {origin}; run: shadow goal --install"
+        elif not inside_home:
+            results[-1]["state"] = "fail"
+            results[-1]["detail"] = (
+                f"symlink leaves the private host root — {origin}; run: shadow goal --install"
+            )
+
+    if len(origins) == 2 and origins[0][1] != origins[1][1]:
+        for index, _ in origins:
+            if results[index]["state"] == "pass":
+                results[index]["state"] = "warn"
+            results[index]["detail"] += "; split: supported hosts resolve to different targets"
     return results
 
 
