@@ -39,6 +39,10 @@ over-promise here would be a lie about someone's hand-written instructions:
   (`~/.claude`, `~/.codex`); a fresh create that must also make new parent
   directories syncs the file and its immediate directory but not the chain of
   newly created ancestors, whose persistence across power loss is best-effort.
+  A killed writer may leave its hidden temp name behind. The next writer removes
+  only an exact owned-temp shape whose regular 0600 inode has no live advisory
+  lock; creation and sweeping share a directory lock, so another cooperating
+  writer's temp cannot appear before its liveness lock exists.
   *Create/backup exclusivity*: a fresh target or a
   `.bak-shadow` is made with `link(2)`, which the kernel refuses atomically if
   the name is already taken — nothing is ever clobbered into existence, and on
@@ -94,7 +98,9 @@ recorded in docs/reference/native-hosts.md § Activation surfaces.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import errno
+import fcntl
 import importlib.util
 import os
 import re
@@ -324,6 +330,112 @@ _test_between_snapshot_and_read = None
 _test_between_resolve_and_snapshot = None
 _test_between_verify_and_commit = None
 _test_between_final_verify_and_replace = None
+_test_after_temp_is_owned = None
+
+_OWNED_TEMP_RE: Final = re.compile(r"\.shadow-v1-[0-9]+-[A-Za-z0-9_-]{6,32}\.tmp\Z")
+
+
+def _sweep_dead_temps_locked(directory: Path) -> None:
+    """Remove only this writer's unlocked, single-name 0600 temp files.
+
+    The caller holds an advisory lock on the directory descriptor. Every
+    cooperating creator takes that same lock across mkstemp + the temp-file
+    lock, so a sweeper can never observe a newly-created temp before its owner
+    lock exists. A live owner keeps the per-file lock until rename/cleanup;
+    SIGKILL releases it in the kernel, making the abandoned file collectible.
+    """
+    swept = False
+    for candidate in directory.iterdir():
+        if _OWNED_TEMP_RE.fullmatch(candidate.name) is None:
+            continue
+        try:
+            before = os.lstat(candidate)
+        except FileNotFoundError:
+            continue
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_nlink != 1
+            or before.st_uid != os.getuid()
+        ):
+            continue
+        flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(candidate, flags)
+        except OSError:
+            continue
+        try:
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                continue
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue
+            try:
+                current = os.lstat(candidate)
+            except FileNotFoundError:
+                continue
+            if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+                continue
+            candidate.unlink()
+            swept = True
+        finally:
+            os.close(descriptor)
+    if swept:
+        _fsync_dir(directory)
+
+
+def _sweep_dead_temps(directory: Path) -> None:
+    """Sweep after acquiring the same creation barrier every writer uses."""
+    try:
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+    except FileNotFoundError:
+        return
+    try:
+        fcntl.flock(directory_fd, fcntl.LOCK_EX)
+        _sweep_dead_temps_locked(directory)
+    finally:
+        fcntl.flock(directory_fd, fcntl.LOCK_UN)
+        os.close(directory_fd)
+
+
+@contextmanager
+def _owned_temp(directory: Path):
+    """Yield a temp descriptor whose liveness survives closure of the writer."""
+    directory_fd = os.open(
+        directory,
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0),
+    )
+    temporary: str | None = None
+    owner_fd: int | None = None
+    yielded = False
+    handle: int | None = None
+    try:
+        fcntl.flock(directory_fd, fcntl.LOCK_EX)
+        _sweep_dead_temps_locked(directory)
+        handle, temporary = tempfile.mkstemp(
+            dir=str(directory), prefix=f".shadow-v1-{os.getpid()}-", suffix=".tmp"
+        )
+        owner_fd = os.dup(handle)
+        fcntl.flock(owner_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(directory_fd, fcntl.LOCK_UN)
+        if _test_after_temp_is_owned is not None:
+            _test_after_temp_is_owned(Path(temporary))
+        yielded = True
+        yield handle, temporary
+    finally:
+        try:
+            fcntl.flock(directory_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        if temporary is not None:
+            Path(temporary).unlink(missing_ok=True)
+        if handle is not None and not yielded:
+            os.close(handle)
+        if owner_fd is not None:
+            os.close(owner_fd)
+        os.close(directory_fd)
 
 
 def _fsync_dir(directory: Path) -> None:
@@ -427,58 +539,6 @@ def _refuse_unless_host_still_leads_to_pin(host: Path, target: Path,
         )
 
 
-_TEMP_RE: Final = re.compile(r"\.shadow-(\d+)-.*\.tmp")
-
-
-def _temp_prefix() -> str:
-    """Temp names carry the creating pid so a later run can prove ownership."""
-    return f".shadow-{os.getpid()}-"
-
-
-def _sweep_stale_temps(directory: Path) -> list[str]:
-    """Remove temps that PROVABLY belong to a dead run, and only those.
-
-    A kill between mkstemp and the finally-unlink strands a `.shadow-*.tmp`
-    forever. The pid in the name is the ownership proof: a pid the kernel no
-    longer knows (ESRCH) belongs to a dead run and its temp is residue. A
-    live pid may be a concurrent apply mid-write — its temp is load-bearing.
-    A name without a pid (the pre-pid format, or anything else) proves
-    nothing. Both are left untouched: this sweep deletes only what it can
-    prove, never what it merely suspects.
-    """
-    swept: list[str] = []
-    try:
-        entries = list(os.scandir(directory))
-    except OSError:
-        return swept
-    for entry in entries:
-        matched = _TEMP_RE.fullmatch(entry.name)
-        if matched is None:
-            continue
-        pid = int(matched.group(1))
-        if pid == os.getpid():
-            continue
-        try:
-            os.kill(pid, 0)
-            continue  # the run is alive; its temp may be mid-write
-        except ProcessLookupError:
-            pass  # ESRCH: the owning run is provably dead
-        except OSError:
-            continue  # EPERM or anything else: the pid exists; leave it
-        try:
-            os.unlink(entry.path)
-        except OSError:
-            continue
-        swept.append(entry.name)
-    if swept:
-        print(
-            f"[directives] swept {len(swept)} stale temp file(s) left by a "
-            f"dead run in {directory}",
-            file=sys.stderr,
-        )
-    return swept
-
-
 def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     """Create `path` with these bytes atomically, or report that it exists.
 
@@ -489,8 +549,7 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     overwritten, ever. Returns False when the name was already taken, which
     for a backup means "someone's backup exists; keep it".
     """
-    handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=_temp_prefix(), suffix=".tmp")
-    try:
+    with _owned_temp(path.parent) as (handle, temporary):
         with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
             stream.write(text)
             # chmod BEFORE the fsync, and via the descriptor, so the mode is
@@ -508,8 +567,6 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
             return False
         _fsync_dir(path.parent)
         return True
-    finally:
-        Path(temporary).unlink(missing_ok=True)
 
 
 def _atomic_write(path: Path, text: str, *, mode: int | None,
@@ -540,8 +597,7 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
     FRESH path: link(2), which refuses atomically if anything appeared.
     """
     if expect is not None:
-        handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=_temp_prefix(), suffix=".tmp")
-        try:
+        with _owned_temp(path.parent) as (handle, temporary):
             with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
                 stream.write(text)
                 # chmod before the fsync (see _place_exclusive) so the mode is
@@ -643,9 +699,6 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
                         f"written to {path}; the host no longer reads that file — "
                         "rerun to write the one it points at now"
                     )
-        except BaseException:
-            Path(temporary).unlink(missing_ok=True)
-            raise
         return
 
     if not _place_exclusive(path, text, mode=mode):
@@ -688,6 +741,7 @@ def _private_full_file(path: Path, block: str) -> str:
     generated-block upgrades converge without rewriting that backup.
     """
     target = _canonical(path)
+    _sweep_dead_temps(target.parent)
     pinned: int | None = None
     backup_pinned: int | None = None
     try:
@@ -832,9 +886,7 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
     # a boolean captured up front would only make one of those two transitions
     # invisible.
     target = _canonical(path)
-    # Sweep first: temps stranded next to the target by a killed earlier run
-    # are removed only on proof their owner is dead (see _sweep_stale_temps).
-    _sweep_stale_temps(target.parent)
+    _sweep_dead_temps(target.parent)
     if _test_between_resolve_and_snapshot is not None:
         _test_between_resolve_and_snapshot()
     # The snapshot is the FIRST act on the resolved target, and it is a

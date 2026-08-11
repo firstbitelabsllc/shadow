@@ -13,6 +13,7 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import signal
 import stat
 import subprocess
 import sys
@@ -1389,6 +1390,75 @@ class EverySupportedHostIsActivated(unittest.TestCase):
                     self.assertIn(hd.managed(BLOCK), path.read_text(encoding="utf-8"))
             self.assertFalse((home / ".cursor" / "AGENTS.md").exists())
             self.assertFalse((home / ".cursor" / "rules" / "shadow.md").exists())
+
+
+class StaleTempResidueIsSweptSafely(unittest.TestCase):
+    def test_a_dead_runs_temp_is_swept_but_a_live_runs_temp_is_not(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            blocked = root / "BLOCKED.md"
+            concurrent = root / "CONCURRENT.md"
+            blocked.write_text("owner text\n", encoding="utf-8")
+            concurrent.write_text("owner text\n", encoding="utf-8")
+            ready_read, ready_write = os.pipe()
+            child = os.fork()
+            if child == 0:
+                os.close(ready_read)
+
+                def pause_after_temp_is_owned(_temporary: Path) -> None:
+                    os.write(ready_write, b"1")
+                    signal.pause()
+
+                hd._test_after_temp_is_owned = pause_after_temp_is_owned
+                try:
+                    hd.apply(blocked, BLOCK)
+                finally:
+                    os._exit(70)
+
+            os.close(ready_write)
+            try:
+                self.assertEqual(os.read(ready_read, 1), b"1")
+                live = list(root.glob(".shadow-v1-*.tmp"))
+                self.assertEqual(len(live), 1, live)
+
+                self.assertEqual(hd.apply(concurrent, BLOCK), "added")
+                self.assertTrue(live[0].exists(), "a concurrent apply swept a live temp")
+
+                os.kill(child, signal.SIGKILL)
+                _, status = os.waitpid(child, 0)
+                child = 0
+                self.assertTrue(os.WIFSIGNALED(status))
+
+                self.assertEqual(hd.apply(concurrent, BLOCK), "current")
+                self.assertFalse(live[0].exists(), "the next apply kept a dead run's temp")
+                self.assertEqual(list(root.glob(".shadow-v1-*.tmp")), [])
+            finally:
+                os.close(ready_read)
+                if child:
+                    os.kill(child, signal.SIGKILL)
+                    os.waitpid(child, 0)
+
+    def test_temp_lookalikes_without_the_owned_regular_file_shape_are_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "AGENTS.md"
+            target.write_text("owner text\n", encoding="utf-8")
+            directory = root / ".shadow-v1-99999999-abcdefgh.tmp"
+            directory.mkdir()
+            symlink = root / ".shadow-v1-99999998-abcdefgh.tmp"
+            symlink.symlink_to(target)
+            wrong_mode = root / ".shadow-v1-99999997-abcdefgh.tmp"
+            wrong_mode.write_text("not ours\n", encoding="utf-8")
+            wrong_mode.chmod(0o644)
+            malformed = root / ".shadow-somebody-elses.tmp"
+            malformed.write_text("not ours\n", encoding="utf-8")
+
+            self.assertEqual(hd.apply(target, BLOCK), "added")
+
+            self.assertTrue(directory.is_dir())
+            self.assertTrue(symlink.is_symlink())
+            self.assertEqual(wrong_mode.read_text(encoding="utf-8"), "not ours\n")
+            self.assertEqual(malformed.read_text(encoding="utf-8"), "not ours\n")
 
 
 class TheSupportedListInTheDocsDrivesTheWriteTargets(unittest.TestCase):
