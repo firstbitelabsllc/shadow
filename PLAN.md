@@ -24,10 +24,7 @@ sections that stood here until 2026-08-09 are archived at
 - [completed] read-only board view on desktop and phone ~j6n4 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell | needs: ~t2b8
 - [completed] full gate matrix green and v3.0.x released ~r9c3 (DoD) | proof: cmd npm run verify | needs: ~j6n4
 
-### M3 — v4 core
-- [completed] the Method reduced to eight concepts, lint the enforcer ~h4v1 | proof: cmd npm run test:py | needs: ~r9c3
-- [completed] four tagged plans on grammar v2: shadow, moussey #145, snowcubes #2113, resplit #2236 ~g4mv | proof: read shadow lint -> 0 blocking on all four | needs: ~h4v1
-- [completed] v4.0.0 released, installed, doctor green ~z7e5 (DoD) | proof: read shadow doctor -> 11/11 on installed v4.0.0 | needs: ~h4v1
+- Archived milestone: [m3-v4-core](docs/plan-archive/m3-v4-core.md) <!-- shadow:lifecycle:m3-v4-core:sha256:c3de76e0f5eb235331c4a255bce55339d51c6c37a27f32bfa6a1d74d615cf1c1:cas:26447780540ee0c0526d277c322548b1b69d5da4661470c0f62f3d3cbe286a49:head:b719ea4418bb23272aeefc9d69eb50ad57efb166:blob:2e1a8c8853fc67c84b795bb56cf8caf23f728e29:successor:~disc -->
 
 ### M4 — Amp: the goal is a pointer
 - tools: scripts/shadow-python.sh for gates; docs/reference/amp.md is the contract; grammar § Milestone law for the `- tools:` line
@@ -373,31 +370,13 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-07T12:05:00Z ~gate PROOF Leo confirmed in chat ('delete all the old ones, we don't need to port over anything') -> deleted ~/Development/vidux (68M) + vidux-friendly-artifact-20260804 + vidux-snowcubes-current-20260804 + the .disabled vidux-browser plist; pre-deletion inventory: 0 dirty files, 0 unpushed commits in all three; the vidux remote redirects to firstbitelabsllc/shadow so all history survives there; board healthy post-delete (read)
 - 2026-08-07T11:40:00Z AUDIT seat=chief 7-verifier subsumption sweep (goal: shadow = vidux/pilot-puppy/swarm/sidekick/pilot-leo/ninety all-in-one + car mode): swarm/sidekick/ninety never existed here (sweep receipts in session); pilot-puppy retired on disk, 2 orphan ghost servers running deleted code killed (PIDs 49826/65757, ports 7191/7199 freed); vidux job subsumed but LaunchAgent was LIVE on 0.0.0.0:7191 feeding tailnet path /flavors — retired only AFTER the successor went live; pilot-leo skill source still being written in 2 stale ai-leo checkouts (untouched, see Deferred)
 - 2026-08-07T11:40:00Z PROOF car mode -> https://leos-mac-studio-10442.tail4cfd4f.ts.net:8443 serves the board through the tailnet: /api/health 200 v4.0.1; LaunchAgent com.leokwan.shadow-browse (loopback bind :7195 + --allow-host) + tailscale serve --https=8443; vidux-browser booted out (plist kept as .disabled-20260807, revert = mv back + bootstrap), /flavors path removed (read)
-- 2026-08-07T04:55:00Z SHIP report — mega goal (Shadow v4) closes agent-side: M3 DoD ~z7e5 proven (doctor 11/11 on installed 4.0.0); step 4 proven (~g4mv, four plans lint-clean); the 19-agent challenge fixed 12 confirmed defects pre-tag; standard vocabulary shipped per operator ruling. LESSON folded: invented vocabulary is product surface an operator must veto — standard words survive; the highest-yield adversarial target is the enforcers themselves. SUCCESSOR: the chain hands to product goals — first: trysnowcubes-web's open storefront milestone runs start-to-ship on Shadow as substrate; ASC resubmission stays gate leo. In-flight background: vocab-resweep workflow over moussey #145 / snowcubes #2113 / resplit #2236 (complete when all three report pushed + worktrees pruned). Deferred ~ob1c (one-chat brief surface) wake HAS fired; it re-parks with wake: the first product cycle names cold-start cost as friction — product goals own the chain first.
-- 2026-08-07T04:35:00Z ~z7e5 PROOF shadow doctor on installed v4.0.0 -> 11/11, 0 warnings; tarball sha256 9b617fe0..3d53f matches the release; version 4.0.0 (read, re-observed post-install)
-- 2026-08-07T04:35:00Z ~z7e5 DoD flips: M3 complete — the mega goal's Shadow-side work is done; the chain hands to product goals per the completion condition
-- 2026-08-07T04:05:00Z ~g4mv PROOF shadow-lint over the four migrated plans -> 0 blocking (moussey fdb2f223 on #145; snowcubes draft #2113 + graphite; resplit 897801527 on #2236; worktrees torn down) (read)
 - 2026-08-07T03:40:00Z NOTE seat=chief concept-drift audit vs the founding manifesto: core followed (method-over-harness, planning-is-writing, gate pair, checkpoints, A/B/C, auth-out); deliberate drifts confirmed (4 modes -> 2 postures with Spike/Defer/Challenge as moves; ledger deleted for git+board; adversarialism is process not machinery); named gap: the one-identity chat is behavior, not substrate -> Deferred row ~ob1c
 - 2026-08-06T17:05:00Z BOX ~v4ch is the v4 core survivable under a 7-lens adversarial challenge (correctness/simplify/deletion/coverage/interop) | ends: 2026-08-06
 - 2026-08-06T23:30:00Z VERDICT ~v4ch keep -> 12 confirmed defects (0 refuted of 12) fixed in 6 commits: enforcer false-green paths closed, checkpoint second-flip-path deleted, drive lib deleted, no-op scrub deleted, SKILL/docs stopped teaching dead commands, board crash fixed; 27 worthwhile triaged (cheap ones done, rest Deferred)
-- 2026-08-06T16:35:00Z PARK seat=chief — v4 (PR #254) is green locally
-  (Python 131, JS 4, Playwright 10, docs, privacy, 4.0.0 package) and pushed,
-  but merge is blocked by a GitHub Actions outage: every job fails at "Set up
-  job" with "Failed to resolve action download info: Service Unavailable" —
-  GitHub cannot fetch actions/checkout etc. Not our code; two re-triggers hit
-  the same infra failure. Not retry-looping. RESUME: when Actions recovers,
-  `gh run rerun` the failed workflows (or push an empty commit), and on green
-  merge #254, cut v4.0.0, reinstall on the operator machine (flips DOD d2
-  ~z7e5 Unknown->Verified), tear down the worktree.
-
-
-- 2026-08-06T15:30:00Z ~h4v1 PROOF npm run test:py -> 124 pass, lint 0 blocking (accept)
 - 2026-08-06T15:30:00Z POSTURE Broad->Close | harness: the v4.0.0 full gate matrix
 
 ### Close
 
-- DOD d1 Method reduced to eight concepts, lint-enforced | C: ~h4v1 | proof: cmd npm run test:py -> pass, shadow lint 0 blocking | status: Verified
-- DOD d2 v4.0.0 released, installed, doctor green | C: ~z7e5 | proof: read shadow doctor -> pending reinstall on the operator machine | status: Unknown
 - LESSON folded into AGENT.md v2 + docs/reference/method.md: a method that needs a glossary fails its own readability test; every concept must pay rent (name a failure it prevents) or fold. Preemptive machinery (the beads-derived concurrency tokens) was deferred until a real collision occurs.
 
 - 2026-08-06T06:25:00Z POSTURE note seat=chief — Method v2 simplification
@@ -429,25 +408,8 @@ sections that stood here until 2026-08-09 are archived at
   public; full local matrix Python 180/180, Playwright 10/10, vitest 4/4,
   docs, privacy 0 findings.
 - 2026-08-05T23:05:00Z ~r9c3 DONE seat=chief
-- 2026-08-05T23:05:00Z ~h4v1 PROOF seat=chief out=/api/plans readback shows four
-  entity lanes (pilot-puppy, moussey, resplit, snowcubes) each with mode,
-  milestone, checkpoint counts; desktop+phone board screenshots reviewed by
-  eye (which caught and fixed the shell-hide defect in v2.3.2). Tagging PRs:
-  moussey #145, trysnowcubes-web #2057 (first root PLAN.md), resplit-ios
-  #2236 (additive; authority remains vidux/north-star).
-- 2026-08-05T23:05:00Z ~h4v1 DONE seat=chief
-- 2026-08-05T23:05:00Z ~z7e5 PROOF seat=chief out=this commit's own diff: mode
-  Close declared in the Operator Brief, checkpoint rows flipped only with
-  these paired PROOF lines, one re-portioning line with its trigger, and the
-  Close matrix below — the cycle ran by the released grammar it shipped.
-- 2026-08-05T23:05:00Z ~z7e5 DONE seat=chief
-
-### Close
-
 - DOD d1 The Method encoded and installable | C: ~m3k7,~q8f2,~w5d9 | proof: `python3 -m unittest tests.test_method_contract` -> 4/4 + doctor 11/11 on v2.3.2 | status: Verified
 - DOD d2 Board live, read-only, both viewports | C: ~t2b8,~j6n4 | proof: `npm run test:e2e` -> 10/10 incl. zero-write and shell-hidden assertions | status: Verified
-- DOD d3 Real plans render as entity lanes | C: ~h4v1 | proof: /api/plans readback + reviewed screenshots (scratchpad board-desktop/phone.png) | status: Verified
-- DOD d4 One Method-style cycle ran in a tagged repo | C: ~z7e5 | proof: this commit's PLAN.md diff | status: Verified
 - LESSON folded into docs/reference/method.md and CHANGELOG through v2.3.2:
   worktree pools must be pruned from discovery, and hidden-attribute views
   need explicit display guards — both found by real dogfood, both now pinned
@@ -1746,3 +1708,5 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-11T10:44:24Z ~tobs PROOF scripts/shadow-python.sh -m unittest tests.test_telemetry.TelemetryIsOffByDefault tests.test_telemetry.EveryEventIsInspectableOnDisk tests.test_telemetry.AMachineThatNeverOptsInIsUnchanged tests.test_telemetry -> pass (accept)
 
 - 2026-08-11T10:44:24Z STRUCT archived milestone m8-0-1-0-one-honest-number-and-the-fan-out-law-dogfooded | successor: M4 — Amp: the goal is a pointer | trigger: proven lifecycle compaction
+
+- 2026-08-11T10:44:24Z STRUCT archived milestone m3-v4-core | successor: M4 — Amp: the goal is a pointer | trigger: proven lifecycle compaction
