@@ -37,10 +37,10 @@ CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 BOARD_NAME = "board.json"
 LOCK_NAME = ".board.lock"
 MAX_PLAN_BYTES = 1_000_000
-# Same-identity copies whose state one retirement may hold as a predicate.
-# Bounded for the same reason every other import input is: a caller cannot
-# make one reconcile stat an unbounded list of locators.
-MAX_RETIRED_WITNESSES = 256
+# Same-identity copies whose state one live-or-retired discovery verdict may
+# hold as a predicate. Bounded for the same reason every other import input is:
+# a caller cannot make one reconcile stat an unbounded list of locators.
+MAX_DISCOVERY_WITNESSES = 256
 HOT_PLAN_MAX_BYTES = 256 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
@@ -1271,7 +1271,7 @@ def reconcile(
         # the demotion retires the entity only because no strictly newer copy
         # declined to repeat it. So every copy the verdict read is a predicate
         # of the transaction, and each carries its own bounded state token.
-        if not isinstance(witnesses, list) or len(witnesses) > MAX_RETIRED_WITNESSES:
+        if not isinstance(witnesses, list) or len(witnesses) > MAX_DISCOVERY_WITNESSES:
             raise BoardError("retired source witnesses are invalid")
         prepared_witnesses: list[dict] = []
         for witness in witnesses:
@@ -1318,6 +1318,7 @@ def reconcile(
         repair_from = seed.get("repair_from")
         repair_state = seed.get("repair_state")
         registered_plan = seed.get("registered_plan")
+        witnesses = seed.get("witnesses") or []
         if not regular_plan(source):
             raise BoardError("import entity must point to a regular, non-symlink PLAN.md")
         plan = source.resolve()
@@ -1379,6 +1380,26 @@ def reconcile(
             )
         ):
             raise BoardError("bounded discovery repair token is invalid")
+        if not isinstance(witnesses, list) or len(witnesses) > MAX_DISCOVERY_WITNESSES:
+            raise BoardError("bounded discovery witnesses are invalid")
+        prepared_witnesses: list[dict] = []
+        for witness in witnesses:
+            if not isinstance(witness, dict):
+                raise BoardError("bounded discovery witnesses are invalid")
+            witness_plan = witness.get("plan")
+            witness_state = witness.get("expected_state")
+            if not isinstance(witness_plan, str) or not Path(witness_plan).is_absolute():
+                raise BoardError(
+                    "bounded discovery witness must name an absolute plan locator"
+                )
+            if (
+                not isinstance(witness_state, str)
+                or re.fullmatch(r"[0-9a-f]{64}", witness_state) is None
+            ):
+                raise BoardError("bounded discovery witness content token is invalid")
+            prepared_witnesses.append(
+                {"plan": witness_plan, "expected_state": witness_state}
+            )
         prepared.append(
             {
                 "id": identity,
@@ -1390,6 +1411,7 @@ def reconcile(
                 "expected_size": expected_size,
                 "expected_sha256": expected_sha256,
                 "repair_state": repair_state,
+                "witnesses": prepared_witnesses,
                 **locator_fields,
             }
         )
@@ -1428,6 +1450,20 @@ def reconcile(
                     "registered board locator changed during reconciliation; retry"
                 )
 
+    def assert_seed_witnesses() -> None:
+        for seed in prepared:
+            for witness in seed["witnesses"]:
+                try:
+                    state = plan_state_token(Path(witness["plan"]))
+                except BoardError as exc:
+                    raise BoardError(
+                        "bounded discovery comparison changed during reconciliation; retry"
+                    ) from exc
+                if state != witness["expected_state"]:
+                    raise BoardError(
+                        "bounded discovery comparison changed during reconciliation; retry"
+                    )
+
     def assert_retired_content() -> None:
         for source in prepared_retired:
             try:
@@ -1460,10 +1496,12 @@ def reconcile(
 
     assert_seed_content()
     assert_repair_states()
+    assert_seed_witnesses()
     assert_retired_content()
     with _transaction(home) as (root, path, payload):
         assert_seed_content()
         assert_repair_states()
+        assert_seed_witnesses()
         assert_retired_content()
         original_payload = json.loads(json.dumps(payload))
         changed = False
@@ -1740,6 +1778,7 @@ def reconcile(
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
         assert_seed_content()
         assert_repair_states()
+        assert_seed_witnesses()
         assert_retired_content()
         if payload == original_payload:
             return json.loads(json.dumps(payload))
