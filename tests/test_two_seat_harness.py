@@ -206,12 +206,23 @@ if MODE == "complete_descendant":
         env=os.environ,
     )
 
+if MODE == "denied_ps":
+    # Models a real codex host: its sandbox denies `ps`, so the shim's
+    # parent-pid walk collapses and attribution must ride the seat token.
+    stub_dir = Path.cwd() / ("ps-stub-" + SEAT)
+    stub_dir.mkdir(exist_ok=True)
+    stub = stub_dir / "ps"
+    stub.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    stub.chmod(0o755)
+    os.environ["PATH"] = str(stub_dir) + os.pathsep + os.environ["PATH"]
+
 def shadow(*args):
     # new_session models a real Claude host, whose shell tool runs every
-    # command as a fresh OS-session leader.
+    # command as a fresh OS-session leader; denied_ps runs the same way so
+    # neither session identity nor ancestry can attribute its commands.
     return subprocess.run(
         [SHADOW, *args], capture_output=True, text=True, check=False,
-        env=os.environ, start_new_session=(MODE == "new_session"),
+        env=os.environ, start_new_session=(MODE in ("new_session", "denied_ps")),
     )
 
 all_args = " ".join(sys.argv[1:])
@@ -535,6 +546,20 @@ class LiveTwoSeatProof(unittest.TestCase):
         # credentialed live run (measured 2026-08-10). Attribution is by
         # host-process descent and a fresh-session host must pass.
         context, root, fixture, _, _, result = self._run("new_session")
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            data = receipt(result)
+            self.assertEqual(data["status"], "pass")
+            self.assertEqual(data["mode"], "live")
+            self.assertTrue(all(seat["completed"] for seat in data["seats"]))
+            fixture.assert_operator_state_untouched(self)
+
+    def test_a_host_whose_sandbox_denies_ps_still_passes_via_its_token(self) -> None:
+        # A real codex session's sandbox denies `ps` (measured 2026-08-11:
+        # "ps is not permitted in this environment"), so the parent-pid walk
+        # collapses; the seat token planted in the host's environment must
+        # carry attribution on its own.
+        context, root, fixture, _, _, result = self._run("denied_ps")
         with context:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             data = receipt(result)
