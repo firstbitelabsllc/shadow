@@ -49,9 +49,10 @@ scripts/shadow-python.sh scripts/shadow-release-package.py \
 ```
 
 The green receipt names the exact commit, namespaced release ref, and
-reproducible archive SHA-256. Pushing that tag, creating a GitHub Release,
-marking it Latest, and changing the README install command remain separate
-publication/readback steps; none is inferred from the local receipt.
+reproducible archive SHA-256. Pushing that tag, creating a GitHub Release, and
+marking it Latest remain separate publication/readback steps; none is inferred
+from the local receipt. The README stable-install command must already name the
+same immutable tag before the tag is published.
 
 ## The one human brief
 
