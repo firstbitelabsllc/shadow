@@ -27,6 +27,16 @@ owners, and resume. The committed entity `PLAN.md` owns milestones,
 checkpoints, detail, and proof. The browser, a chat transcript, a worktree
 copy, or a provider's private plan is never a competing authority.
 
+When the current branch tracks configured `origin`, `shadow throw` also takes
+one deterministic Git coordination lock under
+`refs/heads/shadow/claims/v1/<entity>/<row>` before work leaves the seat. Its
+closed public receipt contains no task or proof text and never becomes
+authority. The tracked branch stays untouched; the repository ruleset must
+permit the claim namespace. Without a configured origin upstream, Shadow keeps
+the same local-only behavior. A refused or ambiguous coordination write prints
+no work packet; confirmed loss compensates its exact local attempt, while an
+ambiguous result retains that claim for the same-seat retry.
+
 ## Install once
 
 ```bash
@@ -93,6 +103,10 @@ tilde before Shadow runs. `shadow accept` is the only command-proof flip path.
 For a person-observed `read` or `gate` proof, record the result in `PLAN.md`
 and use `shadow return`. For a blocked task, record one exact Deferred wake
 before returning the claim.
+
+For a remotely coordinated claim, `shadow accept --no-push` retains both the
+local claim and remote lock. A later ordinary accept publishes the completed
+PLAN, records the completed tombstone, and only then releases the local claim.
 
 For the other shipped rails, use the same explicit projections:
 
