@@ -1,9 +1,0 @@
-{
-  "name": "shadow",
-  "version": "0.2.0",
-  "description": "One private computer board coordinates project priorities, entity PLAN.md shards, owned claims, proof, resume, and bounded native-host execution.",
-  "author": {
-    "name": "First Bite Labs"
-  },
-  "homepage": "https://github.com/firstbitelabsllc/shadow"
-}
