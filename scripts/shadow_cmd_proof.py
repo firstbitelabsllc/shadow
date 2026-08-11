@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -150,7 +151,13 @@ def script_operand(argv: list[str]) -> str | None:
     return None
 
 
-def _is_regular_file_in_head(root: Path, relative: Path) -> bool:
+def head_entry(root: Path, relative: Path) -> tuple[bytes, bytes] | None:
+    """The (mode, object type) HEAD records for `relative`, or None if it has none.
+
+    The committed tree is the authority on purpose: a file the caller deleted
+    locally is still what a clean checkout of HEAD runs, and a file only the
+    working tree carries is not.
+    """
     try:
         top = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
@@ -160,15 +167,18 @@ def _is_regular_file_in_head(root: Path, relative: Path) -> bool:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False
+        return None
     if top.returncode:
-        return False
+        return None
     git_root = Path(top.stdout.strip()).resolve()
-    candidate = (root.resolve() / relative).resolve(strict=False)
+    # Normalize only lexical `.`/`..` components. Resolving the candidate here
+    # would consult dirty worktree symlinks before asking Git about HEAD: a
+    # local symlink could hide an absent HEAD path or redirect a committed one.
+    candidate = Path(os.path.normpath(os.fspath(root.resolve() / relative)))
     try:
         git_relative = candidate.relative_to(git_root)
     except ValueError:
-        return False
+        return None
     try:
         entry = subprocess.run(
             ["git", "-C", str(git_root), "ls-tree", "-z", "HEAD", "--", str(git_relative)],
@@ -177,11 +187,18 @@ def _is_regular_file_in_head(root: Path, relative: Path) -> bool:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False
+        return None
     if entry.returncode or not entry.stdout:
-        return False
+        return None
     metadata = entry.stdout.split(b"\t", 1)[0].split()
-    return len(metadata) == 3 and metadata[0] in {b"100644", b"100755"} and metadata[1] == b"blob"
+    if len(metadata) != 3:
+        return None
+    return metadata[0], metadata[1]
+
+
+def _is_regular_file_in_head(root: Path, relative: Path) -> bool:
+    entry = head_entry(root, relative)
+    return entry is not None and entry[0] in {b"100644", b"100755"} and entry[1] == b"blob"
 
 
 def script_operand_issue(argv: list[str], root: Path) -> str | None:
