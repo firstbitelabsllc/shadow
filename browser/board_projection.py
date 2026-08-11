@@ -139,14 +139,19 @@ def _human_change(raw: str) -> dict[str, Any]:
     text = text.replace("`", "")
     text = re.sub(r"\s+([,;:.])", r"\1", text)
     text = " ".join(text.split())
+    whole = text
     if len(text) > MAX_ROW_TEXT:
         cut = text[: MAX_ROW_TEXT - 1]
         if " " in cut:
             cut = cut[: cut.rfind(" ")]
         text = cut.rstrip(" ,;:—–-") + "…"
-    # Gate the FINAL text: truncation and hash-stripping run first, so a
-    # path that survives either of them is still refused here.
-    return {"when": when, "kind": kind, "summary": _public(text)}
+    # Gate BOTH the whole line and the truncated display value. The bound can
+    # cut inside an unbroken token and leave a stump that no longer matches the
+    # shape — `ghp_` plus fifteen characters is not a token to the gate but is
+    # still the head of the owner's real one — so a line that was ever unsafe
+    # is withheld whatever the cut left behind.
+    summary = _public(text) if _public(whole) is not None else None
+    return {"when": when, "kind": kind, "summary": summary}
 
 
 def _milestones(task_lines: list[str]) -> list[dict[str, Any]]:
