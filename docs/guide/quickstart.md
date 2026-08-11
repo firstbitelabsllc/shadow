@@ -42,6 +42,11 @@ shadow amp --repo . --by your-seat
 
 The root board at `~/.shadow` owns the claim and lease. The project `PLAN.md`
 still owns the row text, proof, and evidence; the board never copies them.
+When the current branch tracks configured `origin`, `shadow throw` also
+confirms one deterministic remote coordination lock before printing the work
+packet. Its closed public receipt names the row, lease, and exact PLAN objects;
+it is not another task or proof board. With no configured origin upstream,
+claiming stays local-only.
 
 ## 3. Work through a bounded host
 
@@ -69,6 +74,11 @@ For a passing `cmd` proof, use the only flip path:
 ```bash
 shadow accept --repo . --row '~ab12' --by your-seat
 ```
+
+For a remotely coordinated claim, ordinary accept publishes the completed
+PLAN, records the completed tombstone, and then releases the local claim.
+`shadow accept --no-push` retains both the local claim and remote lock until a
+later ordinary accept can publish and finish that ordering.
 
 For a person-observed `read` or `gate` proof, append the result to the plan and
 return the claim. For blocked work, append one Deferred wake naming the exact

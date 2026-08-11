@@ -28,6 +28,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_remote_claim as _remote_claim  # noqa: E402
 from shadow_cmd_proof import script_operand_issue  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
@@ -217,7 +218,7 @@ def commit_completed_plan(
     original_text: str,
     updated_text: str,
     resumes: list[str],
-) -> None:
+) -> tuple[dict, dict[str, str], str]:
     """Create one exact project commit while preserving unrelated index state."""
     plan_pathspec = str(plan_relative)
     with _board.project_lock(plan_path):
@@ -279,16 +280,7 @@ def commit_completed_plan(
             ) from exc
         if completed_text != updated_text:
             raise AcceptError("the project proof committed different plan bytes; root claim stays open")
-        _board.release(
-            plan_path,
-            row_id,
-            owner=owner,
-            reason="completed",
-            resumes=resumes,
-            expected_plan=completed_token,
-            expected_text=completed_text,
-            expected_claim=claim_token,
-        )
+        return claim_token, completed_token, completed_text
 
 
 def proof_passes(worktree: Path, proof: list[str], timeout_seconds: int) -> bool:
@@ -623,7 +615,9 @@ def committed_or_recovered_snapshot(
             ) from exc
 
 
-def publish_completion(repo: Path, row_id: str, no_push: bool, summary: str) -> int:
+def publish_completion(
+    repo: Path, row_id: str, no_push: bool, summary: str, *, announce: bool = True
+) -> int:
     """Make an already-committed completion reachable, including on retry."""
     if no_push:
         print(
@@ -679,11 +673,66 @@ def publish_completion(repo: Path, row_id: str, no_push: bool, summary: str) -> 
             file=sys.stderr,
         )
         return 3
-    print(f"accepted {row_id}: {summary} and pushed to {remote} {remote_ref}")
+    if announce:
+        print(f"accepted {row_id}: {summary} and pushed to {remote} {remote_ref}")
     return 0
 
 
+def finalize_completion(
+    repo: Path,
+    plan_path: Path,
+    row_id: str,
+    owner: str,
+    claim: dict,
+    plan_token: dict[str, str],
+    plan_text: str,
+    resumes: list[str],
+    no_push: bool,
+    summary: str,
+) -> int:
+    """Publish authority, close its remote journal, then release locally."""
+    managed = _remote_claim.uses_origin_upstream(repo)
+    if no_push and managed:
+        return publish_completion(repo, row_id, True, summary)
+    if managed:
+        published = publish_completion(repo, row_id, False, summary, announce=False)
+        if published:
+            return published
+        state = _board.entity_state(plan_path, exact_on_conflict=True)
+        remote = _remote_claim.transition(
+            repo,
+            entity=claim["entity"],
+            row=row_id,
+            owner=owner,
+            project=state["project"]["id"],
+            plan_token=plan_token,
+            claim=claim,
+            state="completed",
+            reason="completed",
+        )
+        if remote is None or remote["status"] != "acquired":
+            raise AcceptError(
+                "completion is published but its remote claim transition is ambiguous; "
+                "exact local claim retained"
+            )
+    _board.release(
+        plan_path,
+        row_id,
+        owner=owner,
+        reason="completed",
+        resumes=resumes,
+        expected_plan=plan_token,
+        expected_text=plan_text,
+        expected_claim=claim,
+    )
+    if managed:
+        print(f"accepted {row_id}: {summary}; published and remote claim completed")
+        return 0
+    return publish_completion(repo, row_id, no_push, summary)
+
+
 def main(argv: list[str] | None = None) -> int:
+    _remote_claim.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow accept", description=__doc__)
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--row", required=True)
@@ -746,16 +795,19 @@ def main(argv: list[str] | None = None) -> int:
                 parsed["claimed"] = set()
                 try:
                     with _board.project_lock(plan_path):
-                        _board.release(
+                        return finalize_completion(
+                            repo,
                             plan_path,
                             row_id,
-                            owner=owner,
-                            reason="completed",
-                            resumes=_amp._candidate_ids(parsed),
-                            expected_plan=plan_token,
-                            expected_text=plan_text,
+                            owner,
+                            claim,
+                            plan_token,
+                            plan_text,
+                            _amp._candidate_ids(parsed),
+                            args.no_push,
+                            "completion already proven; root claim reconciled",
                         )
-                except _board.BoardError as exc:
+                except (_board.BoardError, AcceptError) as exc:
                     raise AcceptError(
                         f"the completed row's root claim could not reconcile: {exc}"
                     ) from exc
@@ -872,7 +924,7 @@ def main(argv: list[str] | None = None) -> int:
         completed_plan["claimed"] = set()
         resumes = _amp._candidate_ids(completed_plan)
         try:
-            commit_completed_plan(
+            claim_token, completed_token, completed_text = commit_completed_plan(
                 repo,
                 plan_path,
                 plan_relative,
@@ -883,6 +935,18 @@ def main(argv: list[str] | None = None) -> int:
                 updated,
                 resumes,
             )
+            return finalize_completion(
+                repo,
+                plan_path,
+                row_id,
+                owner,
+                claim_token,
+                completed_token,
+                completed_text,
+                resumes,
+                args.no_push,
+                "proof passed in a clean checkout; row flipped with its PROOF line",
+            )
         except _board.BoardError as exc:
             raise AcceptError(
                 f"the project proof landed, but the root claim could not close: {exc}; "
@@ -891,12 +955,7 @@ def main(argv: list[str] | None = None) -> int:
     except AcceptError as exc:
         print(f"shadow accept: {exc}", file=sys.stderr)
         return 1
-    return publish_completion(
-        repo,
-        row_id,
-        args.no_push,
-        "proof passed in a clean checkout; row flipped with its PROOF line",
-    )
+    return 0
 
 
 if __name__ == "__main__":
