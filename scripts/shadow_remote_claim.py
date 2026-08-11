@@ -436,7 +436,10 @@ def discover_active(
         tips[fields[1]] = fields[0]
     if not tips:
         return []
-    fetched = _git(repo, "fetch", "--quiet", "--no-tags", "origin", *tips)
+    fetched = _git(
+        repo, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
+        "origin", *tips,
+    )
     if fetched.returncode:
         raise RemoteClaimError("remote claim discovery could not authenticate its receipts")
     active: list[dict[str, Any]] = []
