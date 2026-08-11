@@ -385,6 +385,45 @@ def unmet_needs(plan_text: str, needs: str) -> list[str]:
     return [ref for ref in NEEDS_REF_RE.findall(needs) if ref not in completed]
 
 
+def contradiction_challenges(plan_text: str, row_id: str, needs: str) -> list[str]:
+    """Open ## Contradictions entries naming the row or its needs-ancestry.
+
+    A dependent must not flip while its foundation is under a written,
+    undelivered challenge — the one coordination behavior that takes three
+    roles (challenger, owner, dependent), so no disjoint-claim run ever
+    exercises it and only this gate can. Ancestry is the transitive closure
+    of needs:, so a challenge two levels down still holds the flip.
+    """
+    needs_of: dict[str, str] = {}
+    for line in plan_text.splitlines():
+        row = ROW_LINE_RE.match(line)
+        if row is not None:
+            fields = dict(FIELD_RE.findall(row.group("tail") or ""))
+            needs_of[row.group("id")] = fields.get("needs", "")
+    ancestry = {row_id}
+    frontier = set(NEEDS_REF_RE.findall(needs))
+    while frontier:
+        member = frontier.pop()
+        if member in ancestry:
+            continue
+        ancestry.add(member)
+        frontier.update(NEEDS_REF_RE.findall(needs_of.get(member, "")))
+    hits: list[str] = []
+    inside = False
+    for line in plan_text.splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            inside = heading == "Contradictions" or heading.startswith("Contradictions ")
+            continue
+        if not inside or not line.startswith("- "):
+            continue
+        if line.strip().lower().startswith("- none"):
+            continue
+        if any(member in line for member in ancestry):
+            hits.append(line.strip())
+    return hits
+
+
 def find_row(plan_text: str, row_id: str) -> tuple[int, str, str, str, str]:
     """Return (line index, line, state, proof, needs) for the row carrying row_id.
 
@@ -734,6 +773,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"{row_id} still needs {', '.join(blocked_by)} — a row is ready only when "
                 "every needs-target is completed; finish those first"
             )
+        challenged = contradiction_challenges(plan_text, row_id, needs)
+        if challenged:
+            raise AcceptError(
+                f"{row_id} or its needs-ancestry is under a written challenge and must not "
+                f"flip silently; resolve the Contradictions entry first: {challenged[0]}"
+            )
         if not proof.startswith("cmd "):
             kind = proof.split(" ", 1)[0]
             raise AcceptError(
@@ -813,6 +858,12 @@ def main(argv: list[str] | None = None) -> int:
             raise AcceptError(
                 f"{row_id} still needs {', '.join(blocked_now)} — its readiness changed while "
                 "the proof ran; nothing was changed"
+            )
+        challenged_now = contradiction_challenges(plan_text, row_id, fresh_needs)
+        if challenged_now:
+            raise AcceptError(
+                f"{row_id} or its needs-ancestry was challenged in writing while the proof "
+                f"ran; nothing was changed — resolve the Contradictions entry first: {challenged_now[0]}"
             )
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         updated = completed_plan_text(plan_text, row_id, argv_proof, stamp)
