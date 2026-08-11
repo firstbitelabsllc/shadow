@@ -5,7 +5,8 @@ This is the portable starting point for Shadow on another Mac.
 ## Bootstrap
 
 ```bash
-git clone https://github.com/firstbitelabsllc/shadow.git
+git clone --branch shadow-v1.0.0 --depth 1 \
+  https://github.com/firstbitelabsllc/shadow.git
 cd shadow
 bash install.sh
 shadow doctor
@@ -62,7 +63,8 @@ helpers are adapters; none becomes the plan authority or stores credentials.
 - Repository: `firstbitelabsllc/shadow`
 - Do not trust a version or commit copied into this guide. Read the protected
   `main` branch and release tags before starting work.
-- Use `git ls-remote origin refs/heads/main refs/tags/v*`, then read `VERSION`
+- Use `git ls-remote origin refs/heads/main refs/tags/shadow-v*`, then read
+  `VERSION`
   from the exact checkout or release tag you chose.
 - Run `shadow doctor` on that checkout. The result describes that
   computer's mounts and host tools; it is not a remote-host claim.

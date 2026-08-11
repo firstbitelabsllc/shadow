@@ -10,14 +10,16 @@ surface; Shadow does not invent `~/.cursor/rules`.
 ## 1. Install once
 
 ```bash
-git clone https://github.com/firstbitelabsllc/shadow.git && cd shadow
+git clone --branch shadow-v1.0.0 --depth 1 \
+  https://github.com/firstbitelabsllc/shadow.git && cd shadow
 bash install.sh
 shadow doctor
 ```
 
-Git, Bash, Python 3.10+ — no Node, no npm. The clone is the install; update
-with `git pull`. If a host mount already points somewhere else (an old global
-package path, say), `install.sh` repoints it.
+Git, Bash, Python 3.10+ — no Node, no npm. The immutable release clone is the
+install; update by checking out the next GitHub Latest `shadow-v*` tag and
+rerunning `install.sh`. If a host mount already points somewhere else (an old
+global package path, say), `install.sh` repoints it.
 
 Optional: `export SHADOW_PORTFOLIO_ROOT="$HOME/Development"` (that value is
 the default) — the root `shadow status` falls back to when the current
