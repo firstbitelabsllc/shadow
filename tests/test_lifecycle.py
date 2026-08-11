@@ -369,6 +369,56 @@ def apply_with_cas(
     return result, report, cas
 
 
+class ASharedReceiptStaysLiveInsteadOfBlockingTheArchive(unittest.TestCase):
+    """A receipt naming BOTH an archiving row and a live one is live
+    provenance: it must STAY in the hot plan, and the milestone must still
+    archive. Refusing the whole archive made the byte ceiling unreachable —
+    measured 2026-08-11 on Shadow's own plan, where all eight completed
+    milestones refused for exactly this reason while the plan sat at its
+    256 KiB limit with no legal way to shrink.
+    """
+
+    SHARED_PLAN = PLAN.replace(
+        "- 2026-08-10T00:02:00Z NOTE unrelated history remains live\n",
+        "- 2026-08-10T00:02:00Z NOTE ~bb22 groundwork is what ~cc33 builds on\n"
+        "- 2026-08-10T00:03:00Z NOTE unrelated history remains live\n",
+    )
+
+    def test_the_milestone_archives_and_the_shared_receipt_stays(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, self.SHARED_PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+            self.assertEqual(preview.get("shared_receipts_kept"), 1, preview)
+            # Two exclusive receipts move; the shared one is kept back.
+            self.assertEqual(preview.get("receipt_count"), 2, preview)
+            applied = run(repo, "--milestone", "Finished work", "--apply",
+                          "--expect", preview["cas"], "--by", "seat-a")[1]
+            self.assertEqual(applied.get("action"), "archived", applied)
+            live = (repo / "PLAN.md").read_text(encoding="utf-8")
+            # The shared receipt stays where the live row can still read it.
+            self.assertIn("~bb22 groundwork is what ~cc33 builds on", live)
+            # The exclusive receipt left with the milestone.
+            self.assertNotIn("~aa11 PROOF true -> pass", live)
+            archive = (repo / "docs" / "plan-archive" / "finished-work.md").read_text(encoding="utf-8")
+            self.assertIn("Receipts left in the live plan", archive)
+            self.assertIn("~cc33", archive)
+
+    def test_an_exclusive_only_milestone_still_moves_every_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+            self.assertEqual(preview.get("shared_receipts_kept"), 0, preview)
+            applied = run(repo, "--milestone", "Finished work", "--apply",
+                          "--expect", preview["cas"], "--by", "seat-a")[1]
+            self.assertEqual(applied.get("action"), "archived", applied)
+            archive = (repo / "docs" / "plan-archive" / "finished-work.md").read_text(encoding="utf-8")
+            self.assertNotIn("Receipts left in the live plan", archive)
+
+
 class BudgetsAreEnforced(unittest.TestCase):
     def test_all_three_checked_in_limits_have_teeth(self) -> None:
         too_many_rows = "## Tasks\n\n### Too many tasks\n" + "\n".join(
