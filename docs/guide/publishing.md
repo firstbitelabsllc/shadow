@@ -20,8 +20,9 @@ flowchart LR
 | ChatGPT and Codex | The `.codex-plugin` package and repo marketplace expose the same Shadow skill and goal shaper. | Full status and action require a local host that can read the board and run Shadow. A hosted chat is a coach only. |
 | Claude Code | The existing `.claude-plugin` package installs the same source skill. | Local board access follows the existing install and host rules. |
 | Cursor | The checked-in skill works through Cursor's local skill/plugin support. | Cursor can act only where the local checkout and host integration are available. |
-| Custom GPT | The skill prose can seed a friendly “Shadow Coach” for goal shaping and explanation. | A Custom GPT is not real Shadow until a reviewed remote bridge exists. It must say that it cannot see the local board. |
-| MCP directories | A future remote adapter could expose a privacy-safe brief and typed intent return. | No server is published today. The local board remains authority; a remote service may not copy the queue, credentials, or transcripts. |
+| Private ChatGPT app | Leo's account connects to a reviewed, read-only MCP coach that returns the human brief and goal contracts. | It receives no local board, plan, credentials, or transcripts and has no mutation tools. Cloud apps supply facts; local Shadow remains authority. |
+| Custom GPT | The skill prose can seed a friendly “Shadow Coach” for goal shaping and explanation. | A Custom GPT cannot see the local board and may use the private app only for the same read-only contracts. |
+| MCP directories | The reviewed bridge is deliberately absent from every public directory. | Its endpoint contains only public static coaching contracts. Public submission remains a separately authorized release step. |
 
 Install the repo marketplace locally for a dry run:
 
@@ -73,7 +74,9 @@ in technical evidence on demand. They are not the story of the work.
 A first-time user should be able to paste a rough goal and receive a useful
 outcome, a plain-language current-state explanation, and one next move without
 knowing Git or Shadow's plan grammar. Writing to the real board still requires
-the local product until the typed remote-return contract is built and reviewed.
+the local product. The private ChatGPT bridge makes the writing contract
+available remotely; it does not create a remote board, copy a plan, or return a
+claim.
 
 That split is deliberate: wide distribution may improve comprehension before
 it earns remote authority, but it may never imply false parity.

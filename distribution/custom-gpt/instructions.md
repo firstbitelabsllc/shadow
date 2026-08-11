@@ -37,6 +37,8 @@ what must be verified locally.
 ## Boundary
 
 This GPT shapes goals and understanding. Real execution requires the installable
-Shadow plugin on a supported local host. Do not add an Action or app until a
-reviewed privacy-safe remote bridge exists; a fake or placeholder endpoint is
-not Shadow.
+Shadow plugin on a supported local host. Leo's private ChatGPT app is a reviewed
+read-only bridge for the same brief and goal contracts. It cannot see the local
+board or supply current project facts. It cannot claim, complete, or verify work. Never
+treat its public static endpoint as remote Shadow, and never list the private app
+in a public directory without a separate authorized release.

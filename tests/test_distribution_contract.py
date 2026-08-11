@@ -43,7 +43,8 @@ class DistributionContractTests(unittest.TestCase):
             encoding="utf-8"
         ).lower()
         self.assertIn("cannot see the person's local shadow board", coach)
-        self.assertIn("do not add an action or app", coach)
+        self.assertIn("private chatgpt app", coach)
+        self.assertIn("cannot claim, complete, or verify work", coach)
         self.assertIn("coach mode", portable)
         self.assertIn("never create a second task list", portable)
 
@@ -56,6 +57,12 @@ class DistributionContractTests(unittest.TestCase):
             if path.is_file()
         }
         self.assertTrue(forbidden_names.isdisjoint(distributed))
+        bridge = ROOT / "distribution/chatgpt-app/src/server.ts"
+        self.assertTrue(bridge.is_file())
+        source = bridge.read_text(encoding="utf-8")
+        self.assertIn("createMcpHandler", source)
+        self.assertIn("get_shadow_brief_contract", source)
+        self.assertIn("get_shadow_goal_contract", source)
 
     def test_human_brief_hides_machine_detail_until_requested(self) -> None:
         skill = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
