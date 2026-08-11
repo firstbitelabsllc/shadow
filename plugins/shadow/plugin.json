@@ -1,6 +1,0 @@
-{
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "shadow",
-  "version": "0.2.0",
-  "description": "A plain-language chief of staff that turns ongoing work into decisions, risks, and next moves."
-}
