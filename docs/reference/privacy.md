@@ -31,6 +31,8 @@ The browser is loopback-only. Evidence stays inside the Git project under
 credential relay, watcher, daemon, background dispatch process, or transcript
 store.
 
-There is no telemetry of any kind. Local receipts and Git history are the
-only observation surfaces. Which provider or account a native host uses is
-the host CLI's own business — Shadow passes no selector and records none.
+There is no remote telemetry or network transport. Shadow has a closed
+[local event vocabulary](telemetry.md), but its constructor currently writes
+nothing. Local receipts and Git history remain the only observation surfaces.
+Which provider or account a native host uses is the host CLI's own business —
+Shadow passes no selector and records none.
