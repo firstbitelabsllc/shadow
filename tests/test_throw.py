@@ -431,6 +431,65 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             self.assertEqual(payload["claims"][0]["owner"], "seat-a")
 
 
+class ALegacyIdRowIsClaimedByThrowWithoutAHandWrittenLine(unittest.TestCase):
+    def test_legacy_mnemonic_resolves_to_the_rows_canonical_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            remote = Path(tmp) / "origin.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "remote", "add", "origin", str(remote)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "push", "-qu", "origin", "HEAD:main"],
+                check=True,
+            )
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "the ready row ~bb22",
+                    "P9a~formats make the Singles format unmistakable ~bb22",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-qam", "preserve legacy mnemonic"],
+                check=True,
+            )
+
+            result = run(
+                THROW, repo, env, "--task", "P9a~formats", "--by", "seat-a"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("P9a~formats make the Singles format unmistakable ~bb22", result.stdout)
+            payload = json.loads(
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in payload["claims"]],
+                [("~bb22", "seat-a")],
+            )
+            entity = board.entity_id(plan)
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "--git-dir",
+                        str(remote),
+                        "for-each-ref",
+                        "--format=%(refname)",
+                        f"refs/heads/shadow/claims/v1/{entity}/bb22",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                f"refs/heads/shadow/claims/v1/{entity}/bb22",
+            )
+
+
 class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
     RECEIPT_FIELDS = {
         "schema", "status", "ref", "entity", "row", "owner", "project",
