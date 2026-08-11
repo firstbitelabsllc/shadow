@@ -13,6 +13,7 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import signal
 import stat
 import subprocess
 import sys
@@ -1391,6 +1392,96 @@ class EverySupportedHostIsActivated(unittest.TestCase):
             self.assertFalse((home / ".cursor" / "rules" / "shadow.md").exists())
 
 
+class StaleTempResidueIsSweptSafely(unittest.TestCase):
+    def test_a_dead_runs_temp_is_swept_but_a_live_runs_temp_is_not(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            blocked = root / "BLOCKED.md"
+            concurrent = root / "CONCURRENT.md"
+            blocked.write_text("owner text\n", encoding="utf-8")
+            concurrent.write_text("owner text\n", encoding="utf-8")
+            ready_read, ready_write = os.pipe()
+            child = os.fork()
+            if child == 0:
+                os.close(ready_read)
+                os.umask(0o777)
+
+                def pause_after_temp_is_owned(_temporary: Path) -> None:
+                    os.write(ready_write, b"1")
+                    signal.pause()
+
+                hd._test_after_temp_is_owned = pause_after_temp_is_owned
+                try:
+                    hd.apply(blocked, BLOCK)
+                finally:
+                    os._exit(70)
+
+            os.close(ready_write)
+            try:
+                self.assertEqual(os.read(ready_read, 1), b"1")
+                live = list(root.glob(".shadow-v1-*.tmp"))
+                self.assertEqual(len(live), 1, live)
+
+                self.assertEqual(hd.apply(concurrent, BLOCK), "added")
+                self.assertTrue(live[0].exists(), "a concurrent apply swept a live temp")
+
+                os.kill(child, signal.SIGKILL)
+                _, status = os.waitpid(child, 0)
+                child = 0
+                self.assertTrue(os.WIFSIGNALED(status))
+
+                self.assertEqual(hd.apply(concurrent, BLOCK), "current")
+                self.assertFalse(live[0].exists(), "the next apply kept a dead run's temp")
+                self.assertEqual(list(root.glob(".shadow-v1-*.tmp")), [])
+                self.assertEqual(list(root.glob(".shadow-v1-*.lease")), [])
+            finally:
+                os.close(ready_read)
+                if child:
+                    os.kill(child, signal.SIGKILL)
+                    os.waitpid(child, 0)
+
+    def test_temp_lookalikes_without_the_owned_regular_file_shape_are_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "AGENTS.md"
+            target.write_text("owner text\n", encoding="utf-8")
+            directory = root / ".shadow-v1-99999999-abcdefgh.tmp"
+            directory.mkdir()
+            symlink = root / ".shadow-v1-99999998-abcdefgh.tmp"
+            symlink.symlink_to(target)
+            wrong_mode = root / ".shadow-v1-99999997-abcdefgh.tmp"
+            wrong_mode.write_text("not ours\n", encoding="utf-8")
+            wrong_mode.chmod(0o644)
+            malformed = root / ".shadow-somebody-elses.tmp"
+            malformed.write_text("not ours\n", encoding="utf-8")
+            exact_unreceipted = root / ".shadow-v1-42424242-abcdef0123456789.tmp"
+            exact_unreceipted.write_text("foreign exact-shape bytes\n", encoding="utf-8")
+            malformed_lease = root / ".shadow-v1-42424242-fedcba9876543210.lease"
+            malformed_lease.write_text("not a Shadow receipt\n", encoding="utf-8")
+            malformed_lease.chmod(0o600)
+            malformed_payload = root / ".shadow-v1-42424242-fedcba9876543210.tmp"
+            malformed_payload.write_text("paired foreign bytes\n", encoding="utf-8")
+
+            self.assertEqual(hd.apply(target, BLOCK), "added")
+
+            self.assertTrue(directory.is_dir())
+            self.assertTrue(symlink.is_symlink())
+            self.assertEqual(wrong_mode.read_text(encoding="utf-8"), "not ours\n")
+            self.assertEqual(malformed.read_text(encoding="utf-8"), "not ours\n")
+            self.assertEqual(
+                exact_unreceipted.read_text(encoding="utf-8"),
+                "foreign exact-shape bytes\n",
+            )
+            self.assertEqual(
+                malformed_lease.read_text(encoding="utf-8"),
+                "not a Shadow receipt\n",
+            )
+            self.assertEqual(
+                malformed_payload.read_text(encoding="utf-8"),
+                "paired foreign bytes\n",
+            )
+
+
 class TheSupportedListInTheDocsDrivesTheWriteTargets(unittest.TestCase):
     def test_the_documented_table_and_installer_targets_are_the_same_set(self) -> None:
         documented = documented_activation_targets()
@@ -1468,72 +1559,6 @@ class DogfoodOverwriteBacksUpAndConverges(unittest.TestCase):
                 hd._private_full_file(path, BLOCK)
             self.assertEqual(path.read_text(encoding="utf-8"), original)
             self.assertEqual(backup.read_text(encoding="utf-8"), "# somebody else's bytes\n")
-
-class StaleTempResidueIsSweptSafely(unittest.TestCase):
-    """A kill between temp creation and rename must not litter forever.
-
-    The temp name carries the creating pid, and the next apply removes only
-    temps whose owner is provably dead — a live pid may be a concurrent
-    apply mid-write, and a name without a pid proves nothing, so both
-    survive. Deleting a peer's live temp would corrupt an in-flight write;
-    this class exists so the sweep can never take that shortcut.
-    """
-
-    def _host(self, tmp: Path) -> Path:
-        path = tmp / ".claude" / "CLAUDE.md"
-        path.parent.mkdir(parents=True)
-        path.write_text(BEFORE, encoding="utf-8")
-        return path
-
-    def test_a_dead_runs_temp_is_swept_by_the_next_apply(self) -> None:
-        with tempfile.TemporaryDirectory() as name:
-            tmp = Path(name).resolve()
-            path = self._host(tmp)
-            dead_pid = subprocess.run(
-                [sys.executable, "-c", "import os; print(os.getpid())"],
-                capture_output=True, text=True, check=True,
-            ).stdout.strip()
-            stale = path.parent / f".shadow-{dead_pid}-abc123.tmp"
-            stale.write_text("half-written residue", encoding="utf-8")
-            hd.apply(path, BLOCK)
-            self.assertFalse(stale.exists(), "a provably dead run's temp survived the sweep")
-            self.assertIn(BLOCK, path.read_text(encoding="utf-8"))
-
-    def test_a_live_runs_temp_is_never_swept(self) -> None:
-        with tempfile.TemporaryDirectory() as name:
-            tmp = Path(name).resolve()
-            path = self._host(tmp)
-            peer = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-            try:
-                live = path.parent / f".shadow-{peer.pid}-def456.tmp"
-                live.write_text("a concurrent apply's in-flight bytes", encoding="utf-8")
-                hd.apply(path, BLOCK)
-                self.assertTrue(live.exists(), "a live run's temp was deleted out from under it")
-                self.assertEqual(live.read_text(encoding="utf-8"), "a concurrent apply's in-flight bytes")
-            finally:
-                peer.kill()
-                peer.wait()
-
-    def test_an_unattributable_temp_is_left_alone(self) -> None:
-        with tempfile.TemporaryDirectory() as name:
-            tmp = Path(name).resolve()
-            path = self._host(tmp)
-            legacy = path.parent / ".shadow-xyzzy.tmp"
-            legacy.write_text("pre-pid-format residue", encoding="utf-8")
-            own = path.parent / f".shadow-{os.getpid()}-own.tmp"
-            own.write_text("this very process's temp", encoding="utf-8")
-            hd.apply(path, BLOCK)
-            self.assertTrue(legacy.exists(), "an unattributable temp was swept without proof")
-            self.assertTrue(own.exists(), "the sweeping process deleted its own temp")
-
-    def test_a_completed_apply_leaves_no_temp_behind(self) -> None:
-        with tempfile.TemporaryDirectory() as name:
-            tmp = Path(name).resolve()
-            path = self._host(tmp)
-            hd.apply(path, BLOCK)
-            residue = [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")]
-            self.assertEqual(residue, [])
-
 
 class ALinkedWriteDisclosesTargetAndBackup(unittest.TestCase):
     """"added: claude" against a symlinked host file names neither the file
