@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -11,6 +14,74 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "shadow"
 DOCTOR = ROOT / "scripts" / "shadow-doctor.py"
+
+
+class TheGateUsesTheResolvedPythonNotBarePython3(unittest.TestCase):
+    def test_documented_install_and_doctor_use_the_versioned_interpreter(self) -> None:
+        candidates = [
+            name
+            for name in ("python3.10", "python3.11", "python3.12", "python3.13", "python3.14")
+            if shutil.which(name)
+        ]
+        if not candidates:
+            self.skipTest("no versioned Python 3 interpreter is installed")
+        versioned = max(candidates, key=lambda name: int(name.rsplit(".", 1)[1]))
+        real_interpreter = Path(shutil.which(versioned) or sys.executable).resolve()
+
+        with tempfile.TemporaryDirectory() as dirname:
+            scratch = Path(dirname)
+            home = scratch / "home"
+            bin_dir = scratch / "bin"
+            home.mkdir()
+            bin_dir.mkdir()
+            for host_home in (".claude", ".agents", ".cursor"):
+                (home / host_home).mkdir()
+            marker = scratch / "versioned-interpreter-used"
+
+            low = bin_dir / "python3"
+            low.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            low.chmod(0o755)
+            wrapper = bin_dir / versioned
+            wrapper.write_text(
+                "#!/bin/sh\n"
+                f"printf x >> {shlex.quote(str(marker))}\n"
+                f"exec {shlex.quote(str(real_interpreter))} \"$@\"\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+            host = bin_dir / "codex"
+            host.write_text("#!/bin/sh\necho 'codex-cli fixture'\n", encoding="utf-8")
+            host.chmod(0o755)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{bin_dir}{os.pathsep}{Path(real_interpreter).parent}"
+                        f"{os.pathsep}{os.environ.get('PATH', '')}",
+                "SHADOW_PYTHON": "",
+            }
+            install = subprocess.run(
+                ["bash", "install.sh", "--bin-dir", str(bin_dir)],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            doctor = subprocess.run(
+                [str(bin_dir / "shadow"), "doctor", "--json"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            used_versioned = marker.is_file()
+
+        self.assertEqual(install.returncode, 0, install.stdout + install.stderr)
+        self.assertIn("next: shadow doctor", install.stdout)
+        self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
+        self.assertTrue(json.loads(doctor.stdout)["ok"])
+        self.assertTrue(used_versioned, "the versioned interpreter was never used")
 
 
 class DoctorTests(unittest.TestCase):

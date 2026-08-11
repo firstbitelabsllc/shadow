@@ -35,10 +35,17 @@ esac
 fail() { echo "install.sh: $*" >&2; exit 1; }
 
 command -v git >/dev/null 2>&1 || fail "git is required"
-command -v python3 >/dev/null 2>&1 || fail "python3 is required (3.10+)"
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' \
-  || fail "python3 is older than 3.10"
 [[ -f "${ROOT}/bin/shadow" ]] || fail "run this from a Shadow checkout (bin/shadow not found)"
+[[ -x "${ROOT}/scripts/shadow-python.sh" ]] \
+  || fail "run this from a Shadow checkout (scripts/shadow-python.sh not found)"
+
+# The installed command already resolves a compatible versioned interpreter
+# before falling back to bare python3. The installer must use that same gate:
+# stock macOS can keep an old /usr/bin/python3 while Homebrew supplies a
+# supported python3.X beside it. Rejecting that machine here made the documented
+# install fail even though every command it installed was runnable.
+PYTHON="$(SHADOW_PYTHON_COMMAND=install "${ROOT}/scripts/shadow-python.sh" --print)" \
+  || fail "Python 3.10+ is required"
 
 mkdir -p "${BIN_DIR}"
 # The same two traps the skill mount guards against, which this line did not.
@@ -82,7 +89,7 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   # This owns only its own marker-delimited block — the rest of the file is
   # untouched, an unmarked copy is adopted rather than duplicated, and
   # `shadow goal --remove` takes it back out.
-  python3 "${ROOT}/scripts/shadow-host-directives.py" \
+  "${PYTHON}" "${ROOT}/scripts/shadow-host-directives.py" \
     || echo "note:      some hosts did not take the standing goal — see the failed: lines above; fix and run: shadow goal --install" >&2
 fi
 
