@@ -479,6 +479,9 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         hook.chmod(0o755)
         subprocess.run(["git", "clone", "-q", str(bare), str(first)], check=True)
         subprocess.run(["git", "clone", "-q", str(bare), str(second)], check=True)
+        for clone in (first, second):
+            self.git(clone, "config", "user.email", "protected@example.invalid")
+            self.git(clone, "config", "user.name", "Protected Fixture")
         return bare, first, second, seed, main
 
     def throw_process(
