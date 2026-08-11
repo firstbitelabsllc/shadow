@@ -800,8 +800,31 @@ def _private_full_file(path: Path, block: str) -> str:
         if pinned is not None:
             os.close(pinned)
 
+class Outcome(str):
+    """The action word, still comparing equal as a plain string, carrying
+    WHAT was actually touched: the resolved file the bytes landed in and the
+    backup this run created. A bare "added: claude" against a symlinked host
+    file names neither the file that changed nor the safety copy of it — the
+    CLI reads these attributes to say both.
+    """
+
+    target: Path | None
+    backup: Path | None
+
+    def __new__(cls, action: str, *, target: Path | None = None,
+                backup: Path | None = None) -> "Outcome":
+        self = super().__new__(cls, action)
+        self.target = target
+        self.backup = backup
+        return self
+
+
 def apply(path: Path, block: str, *, remove: bool = False) -> str:
-    """Write the block into `path`. Returns what happened, for the caller."""
+    """Write the block into `path`. Returns what happened, for the caller.
+
+    The return is an `Outcome`: the action word, plus the resolved target
+    actually written and any backup this run created, for disclosure.
+    """
     # No is_symlink() snapshot is taken here, deliberately. A host pathname is
     # mutable: a regular file can become a symlink, and a symlink a regular
     # file, between this line and the commit. Every success path therefore
@@ -880,7 +903,7 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
             if span is None:
                 _refuse_unless_host_still_leads_to_pin(
                     path, target, pinned, identity, "absent")
-                return "absent"
+                return Outcome("absent", target=target)
             head, tail = text[: span[0]], text[span[1] :]
             # Take out at most what adding introduced: the one newline appended
             # after the block, and one newline of the separator before it. An
@@ -904,7 +927,7 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
                 if current == wanted:
                     _refuse_unless_host_still_leads_to_pin(
                         path, target, pinned, identity, "current")
-                    return "current"
+                    return Outcome("current", target=target)
                 new = text[: span[0]] + wanted + text[span[1] :]
                 action = "refreshed" if current.startswith(BEGIN) else "adopted"
 
@@ -950,7 +973,8 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
                     f"{exc}; the pre-write state is preserved at {backup}"
                 ) from exc
             raise
-        return action
+        return Outcome(action, target=target,
+                       backup=backup if made_backup else None)
     finally:
         if pinned is not None:
             os.close(pinned)
@@ -980,7 +1004,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"failed:    {name}: {exc}", file=sys.stderr)
             status = 1
             continue
-        print(f"{action + ':':10} {name}")
+        line = f"{action + ':':10} {name}"
+        # A linked write discloses itself: the file that actually changed and
+        # the safety copy made of it, never a bare action against the host
+        # name — recovery starts from the real paths.
+        target = getattr(action, "target", None)
+        if target is not None and target != path:
+            line += f" -> wrote {target}"
+        backup = getattr(action, "backup", None)
+        if backup is not None:
+            line += f" (backup: {backup})"
+        print(line)
     print("\nCursor is not written: its user rules live in application settings, not a file.")
     return status
 
