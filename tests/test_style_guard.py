@@ -431,5 +431,20 @@ class StyleGuardTests(unittest.TestCase):
         self.assertEqual(done.stdout.strip(), "", "an unreadable transcript must not block work")
 
 
+class TheFenceExemptionIsBounded(unittest.TestCase):
+    def test_a_later_unrelated_fence_does_not_explain_the_menu(self) -> None:
+        guard = _load()
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n\n"
+            "Neither has been chosen. Which do you prefer?\n\n"
+            "Unrelated test output:\n"
+            "```\n"
+            "32 passed\n"
+            "```\n"
+        )
+        self.assertTrue(guard.violations(text))
+
+
 if __name__ == "__main__":
     unittest.main()

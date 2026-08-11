@@ -149,7 +149,7 @@ def _indent(line):
     return len(line) - len(line.lstrip())
 
 
-def _passage(lines, first):
+def _passage(lines, first, last):
     """The menu and what is presented with it, not everything above it.
 
     A drawing earns the pass by showing what the options ARE, so it has to be
@@ -170,7 +170,16 @@ def _passage(lines, first):
                 break
             crossed = True
         start -= 1
-    return "\n".join(lines[start:])
+    # A drawing may follow the options, but it must be the block immediately
+    # attached to them. Otherwise any later log or code sample buys an
+    # exemption for a menu it does not explain. Keep the first following block
+    # (including a multi-line fence/table) and stop at the next blank boundary.
+    end = last + 1
+    while end < len(lines) and not lines[end].strip():
+        end += 1
+    while end < len(lines) and lines[end].strip():
+        end += 1
+    return "\n".join(lines[start:end])
 
 
 def violations(text):
@@ -178,7 +187,7 @@ def violations(text):
     marks = _closing_marks(lines)
     if len({OPTION.match(lines[i]).group(1) for i in marks}) < 2:
         return []
-    passage = _passage(lines, marks[0])
+    passage = _passage(lines, marks[0], marks[-1])
     if "```" in passage or TABLE.search(passage):
         return []
     return [

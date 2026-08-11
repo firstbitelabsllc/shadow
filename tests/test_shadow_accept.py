@@ -1638,3 +1638,65 @@ class AcceptReadsAProgressHeadingTheWayLintDoes(unittest.TestCase):
 
     def test_a_different_word_starting_with_progress_is_not_a_progress_section(self) -> None:
         self.assertIsNone(accept.PROGRESS_HEADING_RE.search("## Progressive\n"))
+
+
+class AcceptNeverCommitsAPlanLintBlocks(unittest.TestCase):
+    def test_a_passing_proof_cannot_flip_the_dod_before_its_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            plan = repo / "PLAN.md"
+            before = plan.read_text(encoding="utf-8").replace(
+                "proof: gate leo resume: release cut",
+                "proof: cmd python3 -c 'raise SystemExit(0)'",
+            )
+            plan.write_text(before, encoding="utf-8")
+            git(repo, "commit", "-qam", "make the early DoD proof runnable")
+            head = git(repo, "rev-parse", "HEAD")
+
+            result = run_accept(repo, "~cd34")
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("DOD-EARLY", result.stderr)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+            self.assertEqual(plan.read_text(encoding="utf-8"), before)
+            state = accept._board.entity_state(plan, home=repo.parent / "home")
+            self.assertEqual(["~cd34"], [claim["row"] for claim in state["claims"]])
+
+    def test_a_completed_retry_cannot_reconcile_a_claim_for_a_lint_blocked_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = make_repo(root)
+            plan = repo / "PLAN.md"
+            _, _, _, proof, _ = accept.find_row(PLAN, "~ab12")
+            argv = accept.proof_argv(proof.removeprefix("cmd "))
+            completed = accept.completed_plan_text(
+                PLAN, "~ab12", argv, "2026-08-11T00:00:00Z"
+            ).replace("- Mode: ship", "- Mode: turbo")
+            plan.write_text(completed, encoding="utf-8")
+            git(repo, "commit", "-qam", "completed but lint blocked")
+
+            home = root / "home"
+            home.mkdir()
+            accept._board.reconcile(
+                [{"plan": str(plan), "project": "demo", "priority": 3, "candidates": ["~ab12"]}],
+                [],
+                home=home,
+            )
+            accept._board.claim(plan, "~ab12", "seat-a", project="demo", priority=3, home=home)
+            board_path = home / ".shadow" / "board.json"
+            board_before = board_path.read_bytes()
+            head = git(repo, "rev-parse", "HEAD")
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(repo), "--row", "~ab12", "--by", "seat-a"],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("MODE-ILLEGAL", result.stderr)
+            self.assertEqual(board_path.read_bytes(), board_before)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+            self.assertEqual(plan.read_text(encoding="utf-8"), completed)
