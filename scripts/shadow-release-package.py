@@ -49,6 +49,7 @@ REQUIRED_FILES = {
     # `shadow amp` and `shadow throw` exited 2 with "can't open file".
     "scripts/shadow-amp.py",
     "scripts/shadow-throw.py",
+    "scripts/shadow_remote_claim.py",
     "scripts/shadow-return.py",
     "scripts/shadow-priority.py",
     "scripts/shadow-lifecycle.py",

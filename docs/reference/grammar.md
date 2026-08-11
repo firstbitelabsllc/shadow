@@ -160,17 +160,49 @@ persisted claim and is told its owner. `shadow status --in-flight` joins the
 pointer back to entity text and proof at read time. Liveness is never asserted
 —probe the entity-owned proof, never a process.
 
-**Claim-safety scope — per computer, in plain terms.** The one-winner
-guarantee above is enforced by this computer's board under its advisory lock,
-so it holds between seats ON ONE MACHINE. Across two computers there is no
-shared lock: each machine's board takes its own claim, and the two collide
-only when their PLAN.md commits meet at push/merge time — after the work has
-already been done twice. A fleet that spans more than one computer can
-double-claim one checkpoint today, and nothing tells either loser until the
-push race. This is a stated boundary, not a bug: cross-computer claim
-serialization gets its own protocol row the moment a real fleet spans two
-machines working one entity — until then, keep one entity's claims on one
-computer.
+**Claim-safety scope.** The computer board remains the local authority for
+project priority, entity pointers, claims, owners, leases, and resume. The
+committed entity `PLAN.md` remains the only authority for milestone and task
+text, state, dependencies, proof, and Progress evidence. A remote claim ref is
+only a bounded cross-computer coordination lock. It cannot rank work, supply a
+task or proof, flip a row, or replace either authority.
+
+Remote locking opts in only when the checkout's current branch configuration
+names remote `origin` and a `refs/heads/` merge target. It does not require a
+locally materialized remote-tracking ref. With no such configured `origin`
+upstream, `shadow throw` keeps the local-only per-computer behavior above and
+performs no network write. In the opted-in case, the one conventional lock is
+`refs/heads/shadow/claims/v1/<entity-id>/<row-id-without-tilde>`. Shadow first
+takes the exact local board claim, then creates that ref or compare-and-swaps
+its observed tip, and emits the work packet only after the intended acquired
+tip is confirmed. The claim commit makes the exact committed PLAN source it
+names reachable without updating the tracked upstream or protected trunk.
+
+The ref is an append-only acquired/released/completed lifecycle. Public verbs
+never delete it and never reuse an absent name after a tombstone. `shadow
+return` appends the released tombstone before releasing the exact local claim;
+a later throw appends a new acquired child. `--adopt-expired` takes an exact
+local claim, verifies the observed remote `return_by` is overdue, and CASes a
+new acquired child rather than overwriting history. `shadow accept` commits and
+publishes the paired PLAN completion first, appends the completed tombstone,
+and then releases the exact local claim. For a remotely coordinated claim,
+`shadow accept --no-push` deliberately retains the local claim and acquired
+remote lock: other computers cannot be told completion is durable when the
+completed PLAN was not published.
+
+Every remote transition is create/CAS against one expected object id. After a
+nonzero, timeout, or disconnected result, Shadow reads the exact ref again:
+the intended object is success, the unchanged predecessor is confirmed
+failure, and another valid object is a lost race. If the tip cannot be read and
+validated, the result is ambiguous: no packet is emitted and the exact local
+claim is retained for an idempotent retry. A confirmed loss or confirmed
+failure compensates only the exact local claim created by that attempt.
+
+The configured Git server must allow the caller to create and fast-forward-CAS
+the `shadow/claims/v1/` branch namespace. A protected `main` stays protected;
+repositories whose ruleset blocks the coordination namespace fail closed and
+emit no packet. Granting this narrow ref permission grants no permission to
+update the tracked branch and does not make the ref a project queue.
 
 Historical `THROWN` lines, if present in an imported plan, are provenance only
 and never own live claims or resume selection. Each logical entity consumes

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import importlib.util
+import json
 import re
 import subprocess
 import sys
@@ -27,6 +28,7 @@ sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_remote_claim as _remote  # noqa: E402
 import shadow_telemetry as _telemetry  # noqa: E402
 
 
@@ -111,6 +113,7 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
 
 
 def main(argv: list[str] | None = None) -> int:
+    _remote.sanitize_process_git_env()
     started = time.monotonic()
     parser = argparse.ArgumentParser(
         prog="shadow throw",
@@ -184,6 +187,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with _board.project_lock(plan_path):
             repo, plan, plan_token = _validated_target(plan_path, args.task)
+            observed_token, plan_bytes = _board.committed_plan_snapshot(plan_path)
+            if observed_token != plan_token:
+                raise _board.BoardError("project plan changed before the claim committed; retry")
+            plan_text = plan_bytes.decode("utf-8")
+            if _remote.uses_origin_upstream(repo) and not _remote.public_safe_plan_token(
+                plan_token
+            ):
+                raise _board.BoardError(
+                    "project plan locator is not public-safe for remote claim transport"
+                )
             if not args.entity:
                 # Normalize/register this exact bounded entity before claiming.
                 # This also rekeys a stored entity after its Git origin changes, so
@@ -234,6 +247,61 @@ def main(argv: list[str] | None = None) -> int:
             plan["entity_id"] = entity["id"]
             plan["seat_owner"] = claimed["owner"]
             block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
+            remote = _remote.acquire(
+                repo,
+                entity=entity["id"],
+                row=args.task,
+                owner=args.by,
+                project=project["id"],
+                plan_token=plan_token,
+                claimed_at=claimed["claimed_at"],
+                return_by=claimed["return_by"],
+                recovery=claimed["recovery"],
+                adopt_expired=args.adopt_expired,
+            )
+            if remote is not None and remote["status"] == "lost":
+                try:
+                    _board.release(
+                        plan_path,
+                        args.task,
+                        resumes=_amp._candidate_ids(plan),
+                        owner=args.by,
+                        reason="handback",
+                        expected_plan=plan_token,
+                        expected_text=plan_text,
+                        expected_claim=claimed,
+                    )
+                except _board.BoardError:
+                    print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+                    print(
+                        "shadow throw: remote claim failed and exact local compensation failed; "
+                        "inspect shadow status --in-flight",
+                        file=sys.stderr,
+                    )
+                    return 1
+                print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+                if remote["status"] == "lost":
+                    print(
+                        f"shadow throw: remote claim was won by {remote['winner']}; "
+                        "no work packet emitted",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "shadow throw: remote claim transport failed; no work packet emitted",
+                        file=sys.stderr,
+                    )
+                return 1
+            if remote is not None and remote["status"] != "acquired":
+                print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+                print(
+                    "shadow throw: remote claim state is ambiguous; exact local claim retained; "
+                    "no work packet emitted",
+                    file=sys.stderr,
+                )
+                return 1
+            if remote is not None:
+                print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
     except _board.AlreadyClaimed as exc:
         print(
             f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",
