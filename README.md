@@ -87,7 +87,7 @@ ambiguous result retains that claim for the same-seat retry.
 ## Install once
 
 ```bash
-git clone --branch shadow-v1.0.0 --depth 1 \
+git clone --branch shadow-v1.0.1 --depth 1 \
   https://github.com/firstbitelabsllc/shadow.git
 cd shadow
 bash install.sh
