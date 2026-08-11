@@ -10,7 +10,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow config --explain [--repo PATH]` | Read the optional repository-root `shadow.yaml` declaration, or report the built-in version 1 defaults when it is absent. It prints the attack-then-refute step and active review lenses; the command is read-only and writes no resolved state. |
 | `shadow goal [--install|--remove] [--host HOST]` | Print the static standing goal, or install/remove its managed block in supported host instruction files. Cursor cold directive activation is unsupported until a reviewed writable user-rule surface exists; its skill mount and sealed host runner remain supported. |
 | `shadow amp --entity ID --by <seat>` | Resume a paste-ready packet for a checkpoint already claimed by that seat. It never dispatches unclaimed work. |
-| `shadow throw --task '~hash' --by <seat> [--repo PATH\|--entity ID]` | Atomically claim an entity checkpoint before work leaves the seat, then print its packet. The board records pointer, row id, owner, lease, and recovery action; the entity plan is unchanged. A configured origin upstream also requires the deterministic remote coordination CAS. `--adopt-expired` replaces only an overdue claim after proof was probed. |
+| `shadow throw --task '~hash' --by <seat> [--repo PATH\|--entity ID]` | Atomically claim an entity checkpoint before work leaves the seat, then print its packet. A unique legacy text alias such as `P9a~formats` may be supplied, but it resolves to the row's canonical `~hash` before the claim. The board records pointer, canonical row id, owner, lease, and recovery action; the entity plan is unchanged. A configured origin upstream also requires the deterministic remote coordination CAS. `--adopt-expired` replaces only an overdue claim after proof was probed. |
 | `shadow return --row '~hash' --by <seat> [--repo PATH\|--entity ID]` | Idempotently append a remote released tombstone when remote coordination is active, then close the named owner's exact local claim after a committed manual proof, a committed blocked state plus one Deferred wake, or an explicit handback. |
 | `shadow priority --value 1..5 --repo PATH` | Change the root-board priority under the same local transaction. The project plan's bootstrap value is unchanged and later discovery cannot overwrite the root decision. |
 | `shadow accept --row '~hash' --repo PATH --by <seat> [--no-push]` | Require that seat's live claim and rerun the committed `cmd` proof in a clean detached checkout. Normally it flips and publishes the paired PROOF commit, appends the remote completed tombstone, then closes the local claim. For a remotely coordinated claim, `--no-push` keeps both claims open for a later publishing retry. |
@@ -95,7 +95,9 @@ the person-observed gate without flipping that gate itself.
 **Quote task ids.** Ids look like `~ab12`, and in zsh — the default macOS shell —
 an unquoted `~ab12` is a home-directory expansion, so the command dies with
 `no such user or named directory: ab12` before Shadow ever runs. Write
-`--task '~ab12'` or `--row "~ab12"`.
+`--task '~ab12'` or `--row "~ab12"`. Old mnemonic labels are accepted only by
+`throw` when one canonical row preserves the exact label at the head of its
+text; all subsequent commands use the canonical id printed in the packet.
 
 **`status` and `browse` take `--root`; `amp`, `throw`, `return`, `priority`, and `accept` take
 `--repo`.** The split is deliberate: `--root` is a directory to scan for many
