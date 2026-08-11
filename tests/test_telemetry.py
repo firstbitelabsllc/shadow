@@ -313,5 +313,29 @@ class NothingSensitiveSurvivesTheEmitter(unittest.TestCase):
                 self.assertNotIn(forbidden, serialized)
 
 
+class TheLocalSinkIsOwnerOptInOnly(unittest.TestCase):
+    """The owner's local Langfuse sink never runs for users: without the
+    three explicit env vars it refuses and does nothing, and no product
+    script reaches for it — the ~obsv product kill stands.
+    """
+
+    def test_without_the_env_vars_it_refuses_and_does_nothing(self) -> None:
+        script = ROOT / "scripts" / "dev" / "shadow-observed-gauntlet.py"
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SHADOW_LANGFUSE")}
+        result = subprocess.run(
+            [str(ROOT / "scripts" / "shadow-python.sh"), str(script), "--rounds", "1"],
+            capture_output=True, text=True, check=False, env=env, cwd=str(ROOT),
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("owner opt-in only", result.stderr)
+
+    def test_no_product_script_reaches_for_the_sink(self) -> None:
+        offenders = []
+        for path in (ROOT / "scripts").glob("*.py"):
+            if "shadow-observed-gauntlet" in path.read_text(encoding="utf-8"):
+                offenders.append(path.name)
+        self.assertEqual(offenders, [], "a product script references the owner-only sink")
+
+
 if __name__ == "__main__":
     unittest.main()
