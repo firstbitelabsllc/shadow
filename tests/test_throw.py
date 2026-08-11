@@ -1169,6 +1169,14 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
                 "HEAD:refs/heads/arbitrary-unmerged-claim",
             )
             self.git(first, "checkout", "-q", "main")
+            with (first / "PLAN.md").open("a", encoding="utf-8") as stream:
+                stream.write(
+                    "\n- 2026-08-11T12:00:00Z NOTE @seat-a "
+                    "claim exact unmerged source\n"
+                )
+            self.git(first, "commit", "-qam", "unmerged claim source")
+            unmerged_head = self.git(first, "rev-parse", "HEAD")
+            self.assertNotEqual(unmerged_head, original_main)
 
             claimed = self.throw_process(first, root / "home-a", "seat-a")
             first_stdout, first_stderr = claimed.communicate(timeout=30)
@@ -1214,6 +1222,13 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
             self.assertEqual(checkpoint["availability"], "claimed")
             self.assertEqual(checkpoint["owners"], ["seat-a"])
             self.assertEqual(report["root_board"]["claims"], [])
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(second), "cat-file", "-e", f"{unmerged_head}^{{commit}}"],
+                    check=False,
+                ).returncode,
+                0,
+            )
 
             in_flight = subprocess.run(
                 [
