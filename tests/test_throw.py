@@ -1215,6 +1215,30 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
             self.assertEqual(checkpoint["owners"], ["seat-a"])
             self.assertEqual(report["root_board"]["claims"], [])
 
+            in_flight = subprocess.run(
+                [
+                    sys.executable,
+                    str(STATUS),
+                    "--root",
+                    str(second),
+                    "--in-flight",
+                    "--json",
+                ],
+                cwd=second,
+                env={**os.environ, "HOME": str(home_b)},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(in_flight.returncode, 0, in_flight.stderr)
+            recovery = json.loads(in_flight.stdout)
+            self.assertEqual(
+                [(row["id"], row["by"]) for row in recovery["rows"]],
+                [("~bb22", "seat-a")],
+            )
+            self.assertEqual(recovery["root_board"]["claims"], [])
+
             contender = run(THROW, second, {**os.environ, "HOME": str(home_b)},
                             "--task", "~bb22", "--by", "seat-b")
             self.assertEqual(contender.returncode, 1, contender.stderr)
@@ -1227,7 +1251,10 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
                 [],
             )
 
-            public_streams = observed.stdout + observed.stderr + contender.stdout + contender.stderr
+            public_streams = (
+                observed.stdout + observed.stderr + in_flight.stdout + in_flight.stderr
+                + contender.stdout + contender.stderr
+            )
             self.assertNotIn("branch-only-seat", public_streams)
             self.assertNotIn(private_marker, public_streams)
             self.assertNotIn(str(root), public_streams)

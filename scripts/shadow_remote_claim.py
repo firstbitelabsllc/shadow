@@ -33,6 +33,7 @@ RECOVERY: Final = "probe-proof-then-adopt-park-or-close"
 TIMEOUT_SECONDS: Final = 20
 MAX_RECEIPT_BYTES: Final = 8 * 1024
 MAX_RELATIVE_BYTES: Final = 240
+MAX_DISCOVERY_ROWS: Final = 128
 GIT_INJECTION_VARS: Final = {
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_COMMON_DIR",
@@ -55,6 +56,10 @@ GIT_INJECTION_VARS: Final = {
     "GIT_SHALLOW_FILE",
     "GIT_WORK_TREE",
 }
+
+
+class RemoteClaimError(RuntimeError):
+    """A remote claim projection could not be authenticated completely."""
 
 
 def _is_git_injection(name: str) -> bool:
@@ -295,6 +300,58 @@ def _valid_winner(
     return value if owner is not None else None
 
 
+def _validated_tip_commit(
+    repo: Path,
+    *,
+    commit_id: str,
+    ref: str,
+    entity: str,
+    row: str,
+    project: str,
+    plan_token: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    sized = _git(repo, "cat-file", "-s", f"{commit_id}:claim.json")
+    raw_size = sized.stdout.decode("ascii", errors="ignore").strip()
+    if (
+        sized.returncode
+        or not raw_size.isdigit()
+        or int(raw_size) > MAX_RECEIPT_BYTES
+    ):
+        return None
+    shown = _git(repo, "show", f"{commit_id}:claim.json")
+    if shown.returncode:
+        return None
+    try:
+        value = json.loads(shown.stdout.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    token = value.get("plan") if plan_token is None and isinstance(value, dict) else plan_token
+    if not public_safe_plan_token(token):
+        return None
+    if not isinstance(token, dict):
+        return None
+    ancestor = _git(repo, "merge-base", "--is-ancestor", token["head"], commit_id)
+    resolved_blob = _git(repo, "rev-parse", f"{token['head']}:{token['relative']}")
+    resolved_oid = resolved_blob.stdout.decode("ascii", errors="ignore").strip()
+    object_type = _git(repo, "cat-file", "-t", resolved_oid)
+    if (
+        ancestor.returncode
+        or resolved_blob.returncode
+        or resolved_oid != token["blob"]
+        or object_type.returncode
+        or object_type.stdout.decode("ascii", errors="ignore").strip() != "blob"
+    ):
+        return None
+    return _valid_winner(
+        value,
+        ref=ref,
+        entity=entity,
+        row=row,
+        project=project,
+        plan_token=token,
+    )
+
+
 def _remote_tip(
     repo: Path,
     *,
@@ -317,49 +374,86 @@ def _remote_tip(
     fetched = _git(repo, "fetch", "--quiet", "--no-tags", "origin", ref)
     if fetched.returncode:
         return None
-    sized = _git(repo, "cat-file", "-s", f"{commit_id}:claim.json")
-    raw_size = sized.stdout.decode("ascii", errors="ignore").strip()
-    if (
-        sized.returncode
-        or not raw_size.isdigit()
-        or int(raw_size) > MAX_RECEIPT_BYTES
-    ):
-        return None
-    shown = _git(repo, "show", f"{commit_id}:claim.json")
-    if shown.returncode:
-        return None
-    try:
-        value = json.loads(shown.stdout.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError):
-        return None
-    token = value.get("plan") if plan_token is None and isinstance(value, dict) else plan_token
-    if not public_safe_plan_token(token):
-        return (commit_id, None)
-    if not isinstance(token, dict):
-        return (commit_id, None)
-    ancestor = _git(repo, "merge-base", "--is-ancestor", token["head"], commit_id)
-    resolved_blob = _git(repo, "rev-parse", f"{token['head']}:{token['relative']}")
-    resolved_oid = resolved_blob.stdout.decode("ascii", errors="ignore").strip()
-    object_type = _git(repo, "cat-file", "-t", resolved_oid)
-    if (
-        ancestor.returncode
-        or resolved_blob.returncode
-        or resolved_oid != token["blob"]
-        or object_type.returncode
-        or object_type.stdout.decode("ascii", errors="ignore").strip() != "blob"
-    ):
-        return (commit_id, None)
     return (
         commit_id,
-        _valid_winner(
-            value,
+        _validated_tip_commit(
+            repo,
+            commit_id=commit_id,
             ref=ref,
             entity=entity,
             row=row,
             project=project,
-            plan_token=token,
+            plan_token=plan_token,
         ),
     )
+
+
+def discover_active(
+    repo: Path,
+    *,
+    entity: str,
+    project: str,
+    rows: list[str],
+    relative: str,
+) -> list[dict[str, Any]] | None:
+    """Project active remote locks for known local PLAN rows without coaching.
+
+    The local PLAN bounds the query to at most the Method's hot-row limit. The
+    conventional refs make the lookup deterministic; arbitrary branches are
+    never enumerated. Returned journals are observations only and must not be
+    written into the local root board.
+    """
+    if not uses_origin_upstream(repo):
+        return None
+    unique_rows = sorted(set(rows))
+    if (
+        ENTITY.fullmatch(entity) is None
+        or PROJECT.fullmatch(project) is None
+        or not isinstance(relative, str)
+        or len(unique_rows) > MAX_DISCOVERY_ROWS
+        or any(ROW.fullmatch(row) is None for row in unique_rows)
+    ):
+        raise RemoteClaimError("remote claim discovery input is invalid")
+    if not unique_rows:
+        return []
+    expected = {claim_ref(entity, row): row for row in unique_rows}
+    listed = _git(repo, "ls-remote", "--refs", "origin", *expected)
+    if listed.returncode:
+        raise RemoteClaimError("remote claim discovery is unavailable")
+    lines = listed.stdout.decode("ascii", errors="ignore").splitlines()
+    if len(lines) > len(expected):
+        raise RemoteClaimError("remote claim discovery returned an invalid listing")
+    tips: dict[str, str] = {}
+    for line in lines:
+        fields = line.split()
+        if (
+            len(fields) != 2
+            or HEX_OBJECT.fullmatch(fields[0]) is None
+            or fields[1] not in expected
+            or fields[1] in tips
+        ):
+            raise RemoteClaimError("remote claim discovery returned an invalid listing")
+        tips[fields[1]] = fields[0]
+    if not tips:
+        return []
+    fetched = _git(repo, "fetch", "--quiet", "--no-tags", "origin", *tips)
+    if fetched.returncode:
+        raise RemoteClaimError("remote claim discovery could not authenticate its receipts")
+    active: list[dict[str, Any]] = []
+    for ref, commit_id in sorted(tips.items()):
+        receipt = _validated_tip_commit(
+            repo,
+            commit_id=commit_id,
+            ref=ref,
+            entity=entity,
+            row=expected[ref],
+            project=project,
+        )
+        if receipt is None or receipt["plan"]["relative"] != relative:
+            raise RemoteClaimError("remote claim discovery found an unauthenticated receipt")
+        if receipt["state"] == "acquired":
+            active.append(receipt)
+    return active
 
 
 def _push(repo: Path, ref: str, commit_id: str, previous: str | None) -> bool:
