@@ -502,6 +502,26 @@ class LiveTwoSeatProof(unittest.TestCase):
             fixture.assert_operator_state_untouched(self)
             assert_closed_receipt(self, data, [str(root), GOAL, "the feature is being built"])
 
+    def test_the_delivered_live_prompt_commands_a_rendezvous_before_accept(self) -> None:
+        # A real host follows the wrapper's final instruction; if that
+        # instruction says "complete and print", the seats finish solo and
+        # the overlap the gate requires never happens — measured twice on
+        # 2026-08-10 as seat_overlap_missing with real hosts. The prompt
+        # each host actually receives must command polling for the peer's
+        # claim BEFORE it permits accept.
+        context, root, fixture, marker, _, result = self._run()
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            invocations = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(sorted(call["seat"] for call in invocations), ["claude", "codex"])
+            for call in invocations:
+                prompt = " ".join(call["argv"])
+                wrapper = prompt[prompt.index("Shared identity:"):]
+                self.assertIn("shadow status --in-flight", wrapper)
+                rendezvous = wrapper.index("until it shows the other seat's claim beside your own")
+                accept = wrapper.index("accept it")
+                self.assertLess(rendezvous, accept)
+
     def test_one_seat_cannot_complete_both_rows_and_fabricate_coordination(self) -> None:
         context, root, fixture, _, _, result = self._run("one_seat")
         with context:

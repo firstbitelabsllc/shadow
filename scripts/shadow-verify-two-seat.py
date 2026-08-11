@@ -17,6 +17,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -426,6 +427,7 @@ def claim_history(home: Path) -> dict[str, str]:
         }
         if set(mapping) == expected_rows and set(mapping.values()) == set(SEATS):
             return mapping
+    print("two-seat: no board commit ever held both seats' claims at once", file=sys.stderr)
     raise HarnessError("seat_overlap_missing")
 
 
@@ -436,6 +438,7 @@ def peer_observation(home: Path, sessions: dict[str, int]) -> None:
             for line in (home / ".two-seat-command-audit.jsonl").read_text(encoding="utf-8").splitlines()
         ]
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        print("two-seat: the seat command audit is missing or unreadable", file=sys.stderr)
         raise HarnessError("seat_overlap_missing") from exc
     for seat in SEATS:
         own = [
@@ -443,6 +446,7 @@ def peer_observation(home: Path, sessions: dict[str, int]) -> None:
             if isinstance(entry, dict) and entry.get("seat") == seat
         ]
         if any(entry.get("session") != sessions[seat] for entry in own):
+            print(f"two-seat: seat {seat} has audit entries from a foreign session", file=sys.stderr)
             raise HarnessError("seat_overlap_missing")
         successful = {
             entry.get("verb")
@@ -457,6 +461,9 @@ def peer_observation(home: Path, sessions: dict[str, int]) -> None:
             for entry in own
         )
         if successful < {"status", "throw", "accept"} or not observed_peer:
+            missing = sorted({"status", "throw", "accept"} - successful)
+            detail = f"missing successful verbs {missing}" if missing else "never saw a status reading with both seats as owners"
+            print(f"two-seat: seat {seat} {detail}", file=sys.stderr)
             raise HarnessError("seat_overlap_missing")
 
 
@@ -577,8 +584,14 @@ def main(argv: list[str] | None = None) -> int:
                 base = (
                     f"{text}\n\nShared identity: goal SHA-256 {goal_hash}; "
                     f"origin/main {ref}. Use stable seat {{seat}}. "
-                    "Operate through the Shadow standing goal, complete one reachable "
-                    "checkpoint with proof, then print the shared goal SHA-256 and ref."
+                    "Operate through the Shadow standing goal and claim one "
+                    "reachable checkpoint. One other seat works this same board "
+                    "concurrently under this same goal: after your own claim "
+                    "commits, run `shadow status --in-flight` and keep polling it "
+                    "a few seconds apart until it shows the other seat's claim "
+                    "beside your own. Only after you have observed both claims "
+                    "together, complete your checkpoint with proof and accept it, "
+                    "then print the shared goal SHA-256 and ref."
                 )
                 binaries = {
                     "claude": resolve_host("SHADOW_CLAUDE_CODE_BIN", "claude"),
