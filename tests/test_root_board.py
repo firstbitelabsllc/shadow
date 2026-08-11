@@ -1231,6 +1231,93 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
                     "authority moved off the live copy",
                 )
 
+    def test_every_copy_the_veto_read_is_a_retirement_predicate(self) -> None:
+        """The verdict reads the whole identity, so the whole identity is CASed.
+
+        This demotion retires the entity only because no strictly newer copy
+        declined to repeat it. A token for the demoted copy alone would let the
+        live copy it was compared against change — including into the newer
+        word that supersedes the demotion — between discovery and the
+        transaction, and retire a live project anyway.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            importer, amp = self._importer_and_amp()
+            demoted = fixture["sibling"] / "PLAN.md"
+            demoted.write_text(
+                demoted.read_text(encoding="utf-8").replace(
+                    "# Project\n", f"# Project\n\n{self.BANNER}\n", 1
+                ),
+                encoding="utf-8",
+            )
+            git(fixture["sibling"], "add", "PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "demote sibling")
+            live = fixture["healthy"] / "PLAN.md"
+            real_reconcile = importer.board.reconcile
+
+            def revise_the_live_copy_then_reconcile(*args, **kwargs):
+                live.write_text(
+                    live.read_text(encoding="utf-8")
+                    + "- 2026-08-11T00:00:00Z NOTE revised after discovery\n",
+                    encoding="utf-8",
+                )
+                return real_reconcile(*args, **kwargs)
+
+            importer.board.reconcile = revise_the_live_copy_then_reconcile
+            try:
+                with self.assertRaisesRegex(
+                    importer.board.BoardError,
+                    "changed during reconciliation",
+                ):
+                    importer.reconcile_portfolio(
+                        fixture["portfolio"], amp, home=fixture["home"]
+                    )
+            finally:
+                importer.board.reconcile = real_reconcile
+            self._assert_board_unchanged(fixture)
+
+    def test_duplicate_checkouts_do_not_multiply_the_vetos_git_scans(self) -> None:
+        """N copies of one plan cost N commit reads, not N**2.
+
+        The verdict is sought before deduplication, so every same-identity
+        checkout asks for it and each ask dates the whole set. Uncached, a
+        machine holding a dozen old clones pays that square on every ordinary
+        `shadow status`.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            portfolio = root / "portfolio"
+            portfolio.mkdir()
+            healthy = project(root, name="installed-shadow", display_name="shadow")
+            git(healthy, "remote", "add", "origin", self.REMOTE)
+            copies = []
+            for index in range(4):
+                copy = portfolio / f"shadow-{index}"
+                git(healthy, "worktree", "add", "--quiet", "--detach", str(copy), "HEAD")
+                copies.append(copy)
+
+            from browser import server
+
+            plan = healthy / "PLAN.md"
+            identity = server._root_board.entity_id(plan)
+            dated: list[str] = []
+            real_commit_time = server._root_board.plan_commit_time
+
+            def counted(candidate: Path):
+                dated.append(str(candidate))
+                return real_commit_time(candidate)
+
+            server._root_board.plan_commit_time = counted
+            try:
+                records = server.discover_plans(
+                    portfolio, registered_plans={identity: plan}
+                )
+            finally:
+                server._root_board.plan_commit_time = real_commit_time
+
+            self.assertEqual(len(records), 1)
+            self.assertLessEqual(len(dated), len(copies) + 1)
+
     def test_one_self_demoted_registered_alias_retires_the_whole_logical_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._registered_alias_pair(Path(tmp))

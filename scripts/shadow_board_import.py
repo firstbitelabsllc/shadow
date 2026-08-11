@@ -210,6 +210,10 @@ def reconcile_portfolio(
                     "identity": identity,
                     "plan": record.get("_retired_plan"),
                     "expected_state": record.get("_retired_state"),
+                    # Every copy the supersession comparison read, not just the
+                    # demotion it quotes: a sibling that turns live between
+                    # discovery and the transaction must void this retirement.
+                    "witnesses": record.get("_retired_witnesses") or [],
                 }
                 if (
                     registered_retirement is not None

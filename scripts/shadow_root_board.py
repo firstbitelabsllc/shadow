@@ -37,6 +37,10 @@ CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 BOARD_NAME = "board.json"
 LOCK_NAME = ".board.lock"
 MAX_PLAN_BYTES = 1_000_000
+# Same-identity copies whose state one retirement may hold as a predicate.
+# Bounded for the same reason every other import input is: a caller cannot
+# make one reconcile stat an unbounded list of locators.
+MAX_RETIRED_WITNESSES = 256
 HOT_PLAN_MAX_BYTES = 256 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
@@ -1249,6 +1253,7 @@ def reconcile(
         plan = source.get("plan")
         expected_state = source.get("expected_state")
         registered_plan = source.get("registered_plan")
+        witnesses = source.get("witnesses") or []
         if identity not in retired_ids:
             raise BoardError("retired source must name a retired entity")
         if not isinstance(plan, str) or not Path(plan).is_absolute():
@@ -1262,12 +1267,37 @@ def reconcile(
             not isinstance(registered_plan, str) or not Path(registered_plan).is_absolute()
         ):
             raise BoardError("retired registered locator predicate is invalid")
+        # A retirement is decided by the whole set of same-identity copies:
+        # the demotion retires the entity only because no strictly newer copy
+        # declined to repeat it. So every copy the verdict read is a predicate
+        # of the transaction, and each carries its own bounded state token.
+        if not isinstance(witnesses, list) or len(witnesses) > MAX_RETIRED_WITNESSES:
+            raise BoardError("retired source witnesses are invalid")
+        prepared_witnesses: list[dict] = []
+        for witness in witnesses:
+            if not isinstance(witness, dict):
+                raise BoardError("retired source witnesses are invalid")
+            witness_plan = witness.get("plan")
+            witness_state = witness.get("expected_state")
+            if not isinstance(witness_plan, str) or not Path(witness_plan).is_absolute():
+                raise BoardError("retired source witness must name an absolute plan locator")
+            if (
+                not isinstance(witness_state, str)
+                or re.fullmatch(r"[0-9a-f]{64}", witness_state) is None
+            ):
+                raise BoardError("retired source witness content token is invalid")
+            prepared_witnesses.append(
+                {"plan": witness_plan, "expected_state": witness_state}
+            )
+        if not any(witness["plan"] == plan for witness in prepared_witnesses):
+            prepared_witnesses.append({"plan": plan, "expected_state": expected_state})
         prepared_retired.append(
             {
                 "identity": identity,
                 "plan": plan,
                 "expected_state": expected_state,
                 "registered_plan": registered_plan,
+                "witnesses": prepared_witnesses,
             }
         )
     if (
@@ -1415,6 +1445,18 @@ def reconcile(
                 raise BoardError(
                     "self-demotion source changed during reconciliation; retry"
                 )
+            # The other copies are checked by state alone. Their identity is
+            # not re-derived: a nested declared plan legitimately reports a
+            # different `entity_id` than the logical key it belongs to, and
+            # only "did this copy change since the verdict read it" is being
+            # asked of them.
+            for witness in source["witnesses"]:
+                if witness["plan"] == source["plan"]:
+                    continue
+                if plan_state_token(Path(witness["plan"])) != witness["expected_state"]:
+                    raise BoardError(
+                        "self-demotion source changed during reconciliation; retry"
+                    )
 
     assert_seed_content()
     assert_repair_states()
