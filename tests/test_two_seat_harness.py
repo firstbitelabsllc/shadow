@@ -207,9 +207,11 @@ if MODE == "complete_descendant":
     )
 
 def shadow(*args):
+    # new_session models a real Claude host, whose shell tool runs every
+    # command as a fresh OS-session leader.
     return subprocess.run(
         [SHADOW, *args], capture_output=True, text=True, check=False,
-        env=os.environ,
+        env=os.environ, start_new_session=(MODE == "new_session"),
     )
 
 all_args = " ".join(sys.argv[1:])
@@ -526,6 +528,20 @@ class LiveTwoSeatProof(unittest.TestCase):
                 accept = wrapper.index("accept it")
                 self.assertLess(rendezvous, hold)
                 self.assertLess(hold, accept)
+
+    def test_a_host_running_each_command_in_a_fresh_session_still_passes(self) -> None:
+        # A real Claude session's shell tool makes every command its own
+        # OS-session leader, so session-equality attribution failed every
+        # credentialed live run (measured 2026-08-10). Attribution is by
+        # host-process descent and a fresh-session host must pass.
+        context, root, fixture, _, _, result = self._run("new_session")
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            data = receipt(result)
+            self.assertEqual(data["status"], "pass")
+            self.assertEqual(data["mode"], "live")
+            self.assertTrue(all(seat["completed"] for seat in data["seats"]))
+            fixture.assert_operator_state_untouched(self)
 
     def test_one_seat_cannot_complete_both_rows_and_fabricate_coordination(self) -> None:
         context, root, fixture, _, _, result = self._run("one_seat")

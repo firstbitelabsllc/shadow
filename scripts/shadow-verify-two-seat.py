@@ -321,10 +321,31 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
             "env['HOME'] = str(home)\n"
             "env['SHADOW_PORTFOLIO_ROOT'] = str(portfolio)\n"
             "result = subprocess.run([real, *args], env=env)\n"
+            "def ancestor_chain():\n"
+            "    # Hosts may run each command in a fresh OS session (a real\n"
+            "    # Claude session does), so attribution walks the parent-pid\n"
+            "    # chain instead of comparing session ids.\n"
+            "    table = {}\n"
+            "    try:\n"
+            "        listing = subprocess.run(['ps', '-axo', 'pid=,ppid='], capture_output=True, text=True)\n"
+            "    except OSError:\n"
+            "        return []\n"
+            "    for line in listing.stdout.splitlines():\n"
+            "        parts = line.split()\n"
+            "        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():\n"
+            "            table[int(parts[0])] = int(parts[1])\n"
+            "    chain = []\n"
+            "    pid = os.getpid()\n"
+            "    for _ in range(128):\n"
+            "        chain.append(pid)\n"
+            "        pid = table.get(pid)\n"
+            "        if not pid or pid in chain:\n"
+            "            break\n"
+            "    return chain\n"
             "try:\n"
             "    board = json.loads((home / '.shadow/board.json').read_text(encoding='utf-8'))\n"
             "    owners = sorted(c.get('owner') for c in board.get('claims', []) if isinstance(c, dict))\n"
-            "    event = {'seat': seat, 'session': os.getsid(0), 'verb': args[0], 'returncode': result.returncode, 'owners': owners}\n"
+            "    event = {'seat': seat, 'session': os.getsid(0), 'ancestors': ancestor_chain(), 'verb': args[0], 'returncode': result.returncode, 'owners': owners}\n"
             "    with (home / '.two-seat-command-audit.jsonl').open('a', encoding='utf-8') as stream:\n"
             "        stream.write(json.dumps(event, sort_keys=True) + '\\n')\n"
             "except (OSError, ValueError, json.JSONDecodeError):\n"
@@ -431,7 +452,13 @@ def claim_history(home: Path) -> dict[str, str]:
     raise HarnessError("seat_overlap_missing")
 
 
-def peer_observation(home: Path, sessions: dict[str, int]) -> None:
+def peer_observation(home: Path, leaders: dict[str, int]) -> None:
+    # ``leaders`` maps each seat to its host's process id. A host is free to
+    # run every command in a fresh OS session (a real Claude session does),
+    # so a seat's audit entry is attributed by descent: the seat's own host
+    # process must appear in the recorded parent-pid chain. An entry a host
+    # fabricated through the OTHER seat's shim still fails, because that
+    # chain descends from the wrong host.
     try:
         entries = [
             json.loads(line)
@@ -445,17 +472,21 @@ def peer_observation(home: Path, sessions: dict[str, int]) -> None:
             entry for entry in entries
             if isinstance(entry, dict) and entry.get("seat") == seat
         ]
-        if any(entry.get("session") != sessions[seat] for entry in own):
-            print(f"two-seat: seat {seat} has audit entries from a foreign session", file=sys.stderr)
+
+        def descended(entry: dict) -> bool:
+            chain = entry.get("ancestors")
+            return isinstance(chain, list) and leaders[seat] in chain
+
+        if any(not descended(entry) for entry in own):
+            print(f"two-seat: seat {seat} has audit entries not descended from its own host process", file=sys.stderr)
             raise HarnessError("seat_overlap_missing")
         successful = {
             entry.get("verb")
             for entry in own
-            if entry.get("session") == sessions[seat] and entry.get("returncode") == 0
+            if entry.get("returncode") == 0
         }
         observed_peer = any(
             entry.get("verb") == "status"
-            and entry.get("session") == sessions[seat]
             and entry.get("returncode") == 0
             and set(entry.get("owners", [])) == set(SEATS)
             for entry in own
