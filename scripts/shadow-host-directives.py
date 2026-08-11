@@ -138,7 +138,7 @@ KNOWN_EARLIER_STANDING_GOALS: Final = (
 )
 
 HOSTS: Final = {
-    "claude": Path.home() / ".claude" / "CLAUDE.md",
+    "claude-code": Path.home() / ".claude" / "CLAUDE.md",
     "codex": Path.home() / ".codex" / "AGENTS.md",
 }
 
@@ -918,10 +918,6 @@ def main(argv: list[str] | None = None) -> int:
     status = 0
     for name in args.host or sorted(HOSTS):
         path = HOSTS[name]
-        if not path.parent.is_dir():
-            # The host is not installed on this machine. Not an error.
-            print(f"skipped:   {name} (no host directory)")
-            continue
         try:
             action = apply(path, block, remove=args.remove)
         except (OSError, ValueError) as exc:
