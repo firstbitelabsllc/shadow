@@ -43,6 +43,79 @@ def load_telemetry():
     return module
 
 
+class TelemetryIsOffByDefault(unittest.TestCase):
+    def test_only_the_exact_local_opt_in_enables_the_writer(self) -> None:
+        telemetry = load_telemetry()
+
+        for environment in (
+            {},
+            {"SHADOW_TELEMETRY": ""},
+            {"SHADOW_TELEMETRY": "off"},
+            {"SHADOW_TELEMETRY": "LOCAL"},
+        ):
+            with self.subTest(environment=environment):
+                self.assertFalse(telemetry.local_enabled(environment))
+        self.assertTrue(telemetry.local_enabled({"SHADOW_TELEMETRY": "local"}))
+
+
+class EveryEventIsInspectableOnDisk(unittest.TestCase):
+    def test_each_append_is_one_readable_json_line(self) -> None:
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve() / "project"
+            repo.mkdir()
+            candidate = {
+                "recorded_at": "2026-08-11T05:00:00Z",
+                "project": "shadow",
+                "entity": "a" * 64,
+                "row": "~tobs",
+                "verb": "throw",
+                "duration_ms": 17,
+                "outcome": "claimed",
+            }
+
+            destination = telemetry.emit_local(repo, candidate)
+            telemetry.emit_local(
+                repo,
+                {**candidate, "recorded_at": "2026-08-11T05:00:01Z"},
+            )
+
+            lines = destination.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(
+                [json.loads(line)["recorded_at"] for line in lines],
+                ["2026-08-11T05:00:00Z", "2026-08-11T05:00:01Z"],
+            )
+            self.assertTrue(
+                all(tuple(json.loads(line)) == EXPECTED_FIELDS for line in lines)
+            )
+
+
+class AMachineThatNeverOptsInIsUnchanged(unittest.TestCase):
+    def test_a_real_throw_claims_without_creating_an_event_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = throw_fixture(root)
+            env.pop("SHADOW_TELEMETRY", None)
+
+            result = run_shadow(
+                THROW, repo, env, "--task", "~bb22", "--by", "unopted-seat"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal demo", result.stdout)
+            self.assertFalse(
+                (repo / ".shadow" / "evidence" / "shadow-events.jsonl").exists()
+            )
+            board = json.loads(
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                (board["claims"][0]["row"], board["claims"][0]["owner"]),
+                ("~bb22", "unopted-seat"),
+            )
+
+
 class TheAllowlistIsClosed(unittest.TestCase):
     def test_unknown_fields_never_enter_the_constructed_record(self) -> None:
         telemetry = load_telemetry()
