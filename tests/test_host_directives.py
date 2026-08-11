@@ -490,6 +490,38 @@ class ASymlinkedHostFileIsWrittenThrough(unittest.TestCase):
             self.assertEqual([p.name for p in link.parent.iterdir()], [link.name])
 
 
+class TheManagedBlockLandsInTheCanonicalSourceNotTheLink(unittest.TestCase):
+    def test_goal_install_updates_one_canonical_file_through_both_host_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            canonical = root / "ai-leo" / "host-directives" / "LOCAL_AGENT.md"
+            canonical.parent.mkdir(parents=True)
+            canonical.write_text("# Personal rules\n\n", encoding="utf-8")
+
+            links = (home / ".claude" / "CLAUDE.md", home / ".codex" / "AGENTS.md")
+            for link in links:
+                link.parent.mkdir(parents=True)
+                link.symlink_to(canonical)
+
+            result = subprocess.run(
+                [str(SHADOW), "goal", "--install"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={**os.environ, "HOME": str(home), "SHADOW_PYTHON": sys.executable},
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for link in links:
+                self.assertTrue(link.is_symlink(), f"{link} became a copied regular file")
+                self.assertEqual(link.resolve(strict=True), canonical.resolve(strict=True))
+            text = canonical.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("# Personal rules\n\n"))
+            self.assertEqual(text.count(hd.BEGIN), 1)
+            self.assertIn(hd.managed(BLOCK), text)
+
+
 class RefusesRatherThanGuesses(unittest.TestCase):
     def test_a_begin_marker_with_no_end_is_refused(self) -> None:
         # Someone deleted the terminator. Any guess about how far the block ran
