@@ -99,16 +99,18 @@ def _validated_target(
     plan_path: Path, task: str
 ) -> tuple[Path, dict, dict[str, str], str]:
     """Read one exact project authority and reject an unsafe/untakeable row."""
+    local = _board.is_local_plan(plan_path)
     repo = _repo_for(plan_path)
     relative = str(plan_path.relative_to(repo)) if plan_path.is_relative_to(repo) else plan_path.name
-    if git(repo, "ls-files", "-u", "--", relative).stdout.strip():
-        raise _board.BoardError("PLAN.md has unresolved merge conflicts; resolve them first")
-    if git(repo, "status", "--porcelain", "--", relative).stdout.strip():
-        raise _board.BoardError(
-            "PLAN.md has uncommitted changes; commit them before pointing another seat at it"
-        )
+    if not local:
+        if git(repo, "ls-files", "-u", "--", relative).stdout.strip():
+            raise _board.BoardError("PLAN.md has unresolved merge conflicts; resolve them first")
+        if git(repo, "status", "--porcelain", "--", relative).stdout.strip():
+            raise _board.BoardError(
+                "PLAN.md has uncommitted changes; commit them before pointing another seat at it"
+            )
     try:
-        token, content = _board.committed_plan_snapshot(plan_path)
+        token, content = _board.frozen_plan_snapshot(plan_path)
         text = content.decode("utf-8")
     except (OSError, UnicodeError) as exc:
         raise _board.BoardError("project plan is missing or unreadable") from exc
@@ -141,7 +143,7 @@ def _validated_target(
     suffix = f"/{token['relative']}"
     public_repo = where[: -len(suffix)] if where.endswith(suffix) else where
     plan["authority_pointer"] = (
-        f"{token['relative']} @ {token['head']} in {public_repo}"
+        f"{token['relative']} @ {'this computer' if local else token['head']} in {public_repo}"
     )
     return repo, plan, token, canonical_task
 
@@ -234,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
             repo, plan, plan_token, args.task = _validated_target(
                 plan_path, args.task
             )
-            observed_token, plan_bytes = _board.committed_plan_snapshot(plan_path)
+            observed_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
             if observed_token != plan_token:
                 raise _board.BoardError("project plan changed before the claim committed; retry")
             plan_text = plan_bytes.decode("utf-8")

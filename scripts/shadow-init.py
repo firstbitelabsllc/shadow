@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the repository-owned Shadow PLAN.md."""
+"""Create one machine-local Shadow PLAN.md for the current project."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def plan_text(repo: Path, now: str) -> str:
 
 ## Progress
 
-- {now}: Shadow initialized the repository-owned plan; full-outcome definition is the only unresolved product decision.
+- {now}: Shadow initialized the machine-local plan; full-outcome definition is the only unresolved product decision.
 """
 
 
@@ -97,7 +97,7 @@ def write_exclusive(path: Path, text: str) -> None:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="shadow init",
-        description="Create PLAN.md in the current Git project without overwriting.",
+        description="Create a local PLAN.md under ~/.shadow/plans without overwriting.",
     )
     result.add_argument("--here", action="store_true", help="initialize the current Git project")
     return result
@@ -116,14 +116,16 @@ def main(argv: list[str] | None = None) -> int:
     if current != repo:
         print("shadow init: run --here from the Git project root", file=sys.stderr)
         return 2
-    destination = repo / "PLAN.md"
+    destination = Path.home() / ".shadow" / "plans" / public_identifier(repo.name) / "PLAN.md"
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(destination.parent, 0o700)
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     try:
         write_exclusive(destination, plan_text(repo, now))
     except FileExistsError:
         print("shadow init: PLAN.md already exists; refusing to overwrite", file=sys.stderr)
         return 1
-    print("created PLAN.md")
+    print(f"created local PLAN.md: {destination}")
     return 0
 
 
