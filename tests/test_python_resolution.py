@@ -65,6 +65,10 @@ class PythonResolutionTests(unittest.TestCase):
             self.skipTest("test runner itself is below the 3.10 floor")
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
             marker = root / "interpreter-used"
             shim = root / "python-shim"
             shim.write_text(
@@ -80,7 +84,11 @@ class PythonResolutionTests(unittest.TestCase):
                 "--json",
                 "--root",
                 str(root),
-                env={"SHADOW_PYTHON": str(shim)},
+                env={
+                    "HOME": str(home),
+                    "SHADOW_PORTFOLIO_ROOT": str(portfolio),
+                    "SHADOW_PYTHON": str(shim),
+                },
             )
             used = marker.is_file()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -115,6 +123,10 @@ class PythonResolutionTests(unittest.TestCase):
         real_interpreter = Path(shutil.which(versioned) or versioned).resolve()
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
             bin_dir = root / "bin"
             bin_dir.mkdir()
             marker = root / "versioned-interpreter-used"
@@ -130,7 +142,9 @@ class PythonResolutionTests(unittest.TestCase):
             )
             wrapper.chmod(0o755)
             env = {
+                "HOME": str(home),
                 "PATH": f"{bin_dir}{os.pathsep}{Path(real_interpreter).parent}{os.pathsep}{os.environ.get('PATH', '')}",
+                "SHADOW_PORTFOLIO_ROOT": str(portfolio),
                 "SHADOW_PYTHON": "",
             }
             result = run_cli(CLI, "status", "--json", "--root", str(root), env=env)

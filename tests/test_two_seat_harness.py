@@ -124,8 +124,20 @@ class Fixture:
 
     @staticmethod
     def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        env = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.startswith("GIT_")
+        }
+        env.update({
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+        })
         result = subprocess.run(
-            ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=False
+            ["git", "-c", "core.excludesFile=/dev/null", *args],
+            cwd=str(cwd), env=env,
+            capture_output=True, text=True, check=False,
         )
         if result.returncode:
             raise AssertionError(result.stdout + result.stderr)

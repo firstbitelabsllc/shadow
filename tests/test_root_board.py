@@ -356,7 +356,7 @@ class ColdSeatsResumeThroughBoardEntityIds(unittest.TestCase):
             shell = shutil.which("zsh") or shutil.which("bash")
             self.assertIsNotNone(shell, "claim-command proof needs a tilde-expanding shell")
             second = subprocess.run(
-                [shell, "-lc", rendered],
+                [shell, "-c", rendered],
                 cwd=unrelated,
                 env={**os.environ, "HOME": str(home)},
                 capture_output=True,
