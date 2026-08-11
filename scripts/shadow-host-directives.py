@@ -97,6 +97,7 @@ import argparse
 import errno
 import importlib.util
 import os
+import re
 import stat
 from pathlib import Path
 import sys
@@ -426,6 +427,58 @@ def _refuse_unless_host_still_leads_to_pin(host: Path, target: Path,
         )
 
 
+_TEMP_RE: Final = re.compile(r"\.shadow-(\d+)-.*\.tmp")
+
+
+def _temp_prefix() -> str:
+    """Temp names carry the creating pid so a later run can prove ownership."""
+    return f".shadow-{os.getpid()}-"
+
+
+def _sweep_stale_temps(directory: Path) -> list[str]:
+    """Remove temps that PROVABLY belong to a dead run, and only those.
+
+    A kill between mkstemp and the finally-unlink strands a `.shadow-*.tmp`
+    forever. The pid in the name is the ownership proof: a pid the kernel no
+    longer knows (ESRCH) belongs to a dead run and its temp is residue. A
+    live pid may be a concurrent apply mid-write — its temp is load-bearing.
+    A name without a pid (the pre-pid format, or anything else) proves
+    nothing. Both are left untouched: this sweep deletes only what it can
+    prove, never what it merely suspects.
+    """
+    swept: list[str] = []
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return swept
+    for entry in entries:
+        matched = _TEMP_RE.fullmatch(entry.name)
+        if matched is None:
+            continue
+        pid = int(matched.group(1))
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, 0)
+            continue  # the run is alive; its temp may be mid-write
+        except ProcessLookupError:
+            pass  # ESRCH: the owning run is provably dead
+        except OSError:
+            continue  # EPERM or anything else: the pid exists; leave it
+        try:
+            os.unlink(entry.path)
+        except OSError:
+            continue
+        swept.append(entry.name)
+    if swept:
+        print(
+            f"[directives] swept {len(swept)} stale temp file(s) left by a "
+            f"dead run in {directory}",
+            file=sys.stderr,
+        )
+    return swept
+
+
 def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     """Create `path` with these bytes atomically, or report that it exists.
 
@@ -436,7 +489,7 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
     overwritten, ever. Returns False when the name was already taken, which
     for a backup means "someone's backup exists; keep it".
     """
-    handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=".shadow-", suffix=".tmp")
+    handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=_temp_prefix(), suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
             stream.write(text)
@@ -487,7 +540,7 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
     FRESH path: link(2), which refuses atomically if anything appeared.
     """
     if expect is not None:
-        handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=".shadow-", suffix=".tmp")
+        handle, temporary = tempfile.mkstemp(dir=str(path.parent), prefix=_temp_prefix(), suffix=".tmp")
         try:
             with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
                 stream.write(text)
@@ -756,6 +809,9 @@ def apply(path: Path, block: str, *, remove: bool = False) -> str:
     # a boolean captured up front would only make one of those two transitions
     # invisible.
     target = _canonical(path)
+    # Sweep first: temps stranded next to the target by a killed earlier run
+    # are removed only on proof their owner is dead (see _sweep_stale_temps).
+    _sweep_stale_temps(target.parent)
     if _test_between_resolve_and_snapshot is not None:
         _test_between_resolve_and_snapshot()
     # The snapshot is the FIRST act on the resolved target, and it is a
