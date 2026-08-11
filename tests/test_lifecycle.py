@@ -388,13 +388,15 @@ class ASharedReceiptStaysLiveInsteadOfBlockingTheArchive(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             repo = make_repo(root, self.SHARED_PLAN)
-            _, preview = run(repo, "--milestone", "Finished work")
+            env = isolated_lifecycle_env(repo, None)
+            _, preview = run(repo, "--milestone", "Finished work", extra_env=env)
             self.assertEqual(preview.get("action"), "would_archive", preview)
             self.assertEqual(preview.get("shared_receipts_kept"), 1, preview)
             # Two exclusive receipts move; the shared one is kept back.
             self.assertEqual(preview.get("receipt_count"), 2, preview)
             applied = run(repo, "--milestone", "Finished work", "--apply",
-                          "--expect", preview["cas"], "--by", "seat-a")[1]
+                          "--expect", preview["cas"], "--by", "seat-a",
+                          extra_env=env)[1]
             self.assertEqual(applied.get("action"), "archived", applied)
             live = (repo / "PLAN.md").read_text(encoding="utf-8")
             # The shared receipt stays where the live row can still read it.
@@ -409,11 +411,13 @@ class ASharedReceiptStaysLiveInsteadOfBlockingTheArchive(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             repo = make_repo(root, PLAN)
-            _, preview = run(repo, "--milestone", "Finished work")
+            env = isolated_lifecycle_env(repo, None)
+            _, preview = run(repo, "--milestone", "Finished work", extra_env=env)
             self.assertEqual(preview.get("action"), "would_archive", preview)
             self.assertEqual(preview.get("shared_receipts_kept"), 0, preview)
             applied = run(repo, "--milestone", "Finished work", "--apply",
-                          "--expect", preview["cas"], "--by", "seat-a")[1]
+                          "--expect", preview["cas"], "--by", "seat-a",
+                          extra_env=env)[1]
             self.assertEqual(applied.get("action"), "archived", applied)
             archive = (repo / "docs" / "plan-archive" / "finished-work.md").read_text(encoding="utf-8")
             self.assertNotIn("Receipts left in the live plan", archive)
