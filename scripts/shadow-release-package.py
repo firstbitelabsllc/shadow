@@ -65,6 +65,7 @@ REQUIRED_FILES = {
     "scripts/shadow-verify-two-seat.py",
     "scripts/shadow_process_lib.py",
     "scripts/shadow_cmd_proof.py",
+    "scripts/shadow_plan_grammar.py",
     "scripts/shadow_telemetry.py",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
