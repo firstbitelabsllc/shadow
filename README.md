@@ -99,7 +99,10 @@ shadow status --in-flight --json   # leave a resumable handoff
 ```
 
 Task ids look like `~ab12`; quote them in zsh so the shell does not expand the
-tilde before Shadow runs. `shadow accept` is the only command-proof flip path.
+tilde before Shadow runs. A migrated row may retain an old mnemonic such as
+`P9a~formats` at the head of its text; `shadow throw` accepts that unique alias
+but records and prints the row's canonical `~hash`. `shadow accept` is the only
+command-proof flip path.
 For a person-observed `read` or `gate` proof, record the result in `PLAN.md`
 and use `shadow return`. For a blocked task, record one exact Deferred wake
 before returning the claim.
