@@ -396,6 +396,10 @@ def reconcile_portfolio(
             ],
             "expected_size": len(content),
             "expected_sha256": hashlib.sha256(content).hexdigest(),
+            # A live result is still a comparison verdict: every same-identity
+            # copy read while deciding that no newer demotion stands must stay
+            # frozen until the board transaction commits.
+            "witnesses": record.get("_live_witnesses") or [],
         }
         if repair is not None:
             repair_from, repair_state = repair

@@ -604,12 +604,12 @@ def _archive_veto_receipt(
     on. A plan that really did retire itself is unaffected — its demotion is
     its newest word, which is exactly what this compares.
 
-    Every copy the comparison consulted is frozen, not only the demotion that
-    is quoted back. The retirement now depends on the OTHER copies too — a
-    newer live one would have vetoed it — so a token for the demotion alone
-    would let a copy that was demoted at discovery become live before the
-    reconcile transaction and still be retired. The witnesses travel with the
-    receipt and are CASed together with it.
+    Every copy the comparison consulted is frozen for BOTH verdicts, not only
+    the demotion that is quoted back. A retirement depends on the live copies
+    not being newer; a live verdict depends on the demoted copies staying
+    older. Discarding either side's witnesses after choosing a verdict would
+    let the newest committed word change before reconciliation. The witnesses
+    travel with the comparison result and are CASed together with it.
 
     Boundary: a scratch checkout committing directly under the portfolio root
     could outrank a repository's canonical copy. The worktree contract already
@@ -670,12 +670,17 @@ def _archive_veto_receipt(
             and newest_live is not None
             and newest_live > newest_demoted
         ):
-            receipt = None
+            receipt = {"match": None, "witnesses": witnesses}
         else:
             # Only the copies actually read above; a locator that offered no
             # bounded content took no part in the verdict, and CASing it would
             # make an unreadable sibling able to block every retirement.
             receipt["witnesses"] = witnesses
+    elif witnesses:
+        # "No demotion found" is also a verdict about every readable copy.
+        # Freeze those inputs so a copy cannot self-demote after discovery and
+        # still enter the board as live under the stale comparison.
+        receipt = {"match": None, "witnesses": witnesses}
     if cache is not None:
         cache[memo_key] = receipt
     return receipt
@@ -1062,6 +1067,8 @@ def discover_plans(
                     record["_retired_plan"] = veto_receipt["plan"]
                     record["_retired_state"] = veto_receipt["expected_state"]
                     record["_retired_witnesses"] = veto_receipt["witnesses"]
+            elif capture_tokens and veto_receipt is not None:
+                record["_live_witnesses"] = veto_receipt["witnesses"]
             records.append(record)
     rank = {"needs_you": 0, "blocked": 1, "working": 2, "not_delivered": 3, "finished_with_proof": 4}
     records.sort(
