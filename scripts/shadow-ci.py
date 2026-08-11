@@ -46,7 +46,10 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_status_focus", "tests.test_root_board", "tests.test_browser",
     )),
     (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_throw", "tests.test_status_focus")),
-    (("scripts/shadow-throw.py",), ("tests.test_throw", "tests.test_root_board", "tests.test_gauntlet")),
+    (("scripts/shadow-throw.py",), (
+        "tests.test_throw", "tests.test_root_board", "tests.test_gauntlet",
+        "tests.test_telemetry",
+    )),
     (("scripts/shadow-return.py",), ("tests.test_return", "tests.test_root_board", "tests.test_amp")),
     (("scripts/shadow-accept.py",), ("tests.test_shadow_accept", "tests.test_gauntlet", "tests.test_root_board")),
     (("scripts/shadow-lifecycle.py", "schemas/retirement-manifest.v1.json"), (
