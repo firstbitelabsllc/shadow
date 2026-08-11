@@ -189,8 +189,14 @@ its observed tip, and emits the work packet only after the intended acquired
 tip is confirmed. The claim commit makes the exact committed PLAN source it
 names reachable without updating the tracked upstream or protected trunk. A
 process that dies inside that window leaves the local claim held by its own
-seat with no confirmed remote tip; the next throw by that seat says so and
-names the recovery—`shadow return --row <id> --by <seat>`, then throw again.
+seat with no confirmed remote tip. The next throw by that seat asks the trunk
+who holds the lock before it coaches: with no authenticated acquired tip naming
+that seat it says so and names the recovery, `shadow return --entity <id> --row
+'<row>' --by <seat>`, then throw again. When the trunk does confirm that seat,
+the retry instead points at the live claim (`shadow amp`), because releasing a
+confirmed lock would open the row to another computer. Every printed move
+carries the path-free entity id and shell-quoted arguments, so it runs
+unchanged from the caller's own directory.
 
 The ref is an append-only acquired/released/completed lifecycle. Public verbs
 never delete it and never reuse an absent name after a tombstone. `shadow
