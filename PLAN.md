@@ -16,12 +16,7 @@ sections that stood here until 2026-08-09 are archived at
 
 - Archived milestone: [m1-method-encoded](docs/plan-archive/m1-method-encoded.md) <!-- shadow:lifecycle:m1-method-encoded:sha256:4f49331f3d7d6685df21780b6e9c294f590db16333f8f90c7cb13bfb45e74c63:cas:2d11bf680d3804b04900f6e25c946e11b9025f6801aac86951eb4ea7d393f357:head:df367d8bd8f2dbb5db9b614a9a9d2dd7c9fbfff7:blob:2fb49fdd4199e0be515ca4398939446a0e40e5cd:successor:~gsrc -->
 
-### M2 — Board live
-- [completed] scanner serves gated entity/mode/milestone/checkpoint counts ~t2b8 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_status_focus
-- [completed] read-only board view on desktop and phone ~j6n4 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell | needs: ~t2b8
-- [completed] full gate matrix green and v3.0.x released ~r9c3 (DoD) | proof: cmd npm run verify | needs: ~j6n4
-
-- Archived milestone: [m3-v4-core](docs/plan-archive/m3-v4-core.md) <!-- shadow:lifecycle:m3-v4-core:sha256:c3de76e0f5eb235331c4a255bce55339d51c6c37a27f32bfa6a1d74d615cf1c1:cas:26447780540ee0c0526d277c322548b1b69d5da4661470c0f62f3d3cbe286a49:head:b719ea4418bb23272aeefc9d69eb50ad57efb166:blob:2e1a8c8853fc67c84b795bb56cf8caf23f728e29:successor:~disc -->
+- Archived milestone: [m2-board-live](docs/plan-archive/m2-board-live.md) <!-- shadow:lifecycle:m2-board-live:sha256:8a0b16386fe6d2c7f697d358dd6c2104e3633595e3f5351795097baee0a026de:cas:ce84f5115fe9381a4336f0d90bab786783b0e88c59ba84be134762fa7e04b766:head:ed976754cd461a449b56f529c9d38e4b17e77384:blob:bcd0484468f882f35ba01f58cba3ca51e19af6e3:successor:~gsrc -->
 
 ### M4 — Amp: the goal is a pointer
 - tools: goal skill, amp docs, Python
@@ -395,29 +390,10 @@ sections that stood here until 2026-08-09 are archived at
   into the spec, then operator review gates any implementation. The spec
   changes no shipped behavior.
 
-- 2026-08-05T23:05:00Z ~r9c3 PROOF seat=chief out=PRs #247/#248/#249 squash-merged
-  with hosted checks 11 pass / 1 skip each; releases v2.3.0
-  (`6a25eb51…45e2bc`), v2.3.1 (`893e75fe…c0ffd2`), v2.3.2 (`fdc0876d…32be92`)
-  public; full local matrix Python 180/180, Playwright 10/10, vitest 4/4,
-  docs, privacy 0 findings.
-- 2026-08-05T23:05:00Z ~r9c3 DONE seat=chief
-- DOD d2 Board live, read-only, both viewports | C: ~t2b8,~j6n4 | proof: `npm run test:e2e` -> 10/10 incl. zero-write and shell-hidden assertions | status: Verified
 - LESSON folded into docs/reference/method.md and CHANGELOG through v2.3.2:
   worktree pools must be pruned from discovery, and hidden-attribute views
   need explicit display guards — both found by real dogfood, both now pinned
   by regression tests. No further standing-knowledge delta.
-
-- 2026-08-05T21:30:00Z ~m3k7 ~q8f2 ~t2b8 ~j6n4 DONE seat=chief — Method v1
-  build slice from fresh `main@1ed58392`: AGENT.md, docs/reference/method.md,
-  SKILL.md Method section, 4 contract tests, board scanner (3 TDD tests), and
-  the read-only board view (2 e2e specs, desktop+phone). Steal-spec research
-  grounded in source reads of beads (hash IDs, ready predicate), ralph
-  (one-item loops, AGENT.md content law), spec-kit (analyze lint passes),
-  liatrio (DoD coverage matrix), superpowers (skill enforcement), and OpenSpec
-  (lesson-delta archive). Proofs on this head: contract tests 4/4, browser
-  unittest 20/20, playwright 10/10, docs build, privacy scan ok. 'huncho'
-  verified as plastic-labs/honcho — a Postgres+deriver second store; adopt its
-  hook *pattern* only, not the store.
 
 - 2026-08-05T06:20:00Z: R11 is merged, released, installed, and re-proven.
   PR #245 squash-merged to `main@7fd88682` with hosted CI, CodeQL (three
@@ -1538,8 +1514,6 @@ sections that stood here until 2026-08-09 are archived at
 
 - 2026-08-09T00:30:00Z LESSON `shadow accept` runs a cmd proof through shlex.split with NO shell, so a proof containing `&&`, `$(...)`, or a redirect is not a compound command -- the operators arrive as literal arguments to the first binary. This milestone's own DoD proof was written as `bash install.sh ... && shadow --version` and could never have passed: install.sh would have received `&&` as an unknown argument. It was also a false green by construction, since printing a version asserts nothing about it. Rewritten as one `bash -c '...'` token that clones origin/main, installs, and hard-asserts `test "$v" = 0.1.0` plus a doctor run. Verified failing today against main at 4.1.0 (rc=1, "installed 4.1.0"), which is what makes it a gate rather than a printout: a proof that cannot fail before the work is done is not proof. | trigger: reading shadow-accept.py:157 while checking whether my own DoD row was runnable
 
-- 2026-08-09T00:37:00Z ~t2b8 PROOF scripts/shadow-python.sh -m unittest tests.test_status_focus -> Ran 20 tests, OK. Replaces the retired `npm run test:py`. (cmd)
-- 2026-08-09T00:38:00Z ~j6n4 PROOF scripts/shadow-python.sh -m unittest tests.test_browser_shell -> Ran 7 tests, OK. Replaces `npm run test:e2e`, whose playwright board suite was deleted with npm; test_browser_shell ports its four source-contract assertions verbatim. (cmd)
 - 2026-08-09T00:40:00Z STRUCT lint gained COMPLETED-NO-PROOF (blocking): a [completed] row must name a "<ts> <id> PROOF ..." line in ## Progress. Why now: a 5-agent 0.1.0 audit proved the product's central claim false -- in a fresh `shadow init` tree a row hand-flipped to [completed] with zero PROOF lines linted "clean" rc=0, and status then said "every task complete; mint the successor". AGENT.md:4, grammar.md:5 and :58, and README property 3 all named lint as that enforcer; lint checked shape, never truth. Contradicts: nothing -- it makes four documents honest. It immediately caught four of this plan's own rows whose npm-era proof commands died with npm; each was re-pointed at a command that exists and re-run today rather than given a fabricated receipt. One test fixture faked completion by string-replacing states without adding proofs, the same shortcut a careless operator takes; it now carries receipts.
 
 - 2026-08-09T05:04:48Z THROWN ~rsch the five open design questions are answered from evidence, not preference: how a tool safely owns a block in someone's CLAUDE.md, what Cursor's real user-rule surface is, where plans actually live on this machine, how an optional method pack is declared a dependency, and what Langfuse puts on the wire | note: five named agents: host-directive injection, Cursor surface, plan locations on this machine, dependency declaration, Langfuse wire shape
@@ -1733,3 +1707,5 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-11T21:25:30Z ~gskl PROOF scripts/shadow-python.sh -m unittest tests.test_grammar_contract -> pass (accept)
 
 - 2026-08-11T21:25:30Z STRUCT archived milestone m1-method-encoded | successor: M4 — Amp: the goal is a pointer | trigger: proven lifecycle compaction
+
+- 2026-08-11T21:25:30Z STRUCT archived milestone m2-board-live | successor: M4 — Amp: the goal is a pointer | trigger: proven lifecycle compaction
