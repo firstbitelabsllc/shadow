@@ -195,6 +195,16 @@ sections that stood here until 2026-08-09 are archived at
 
 - Archived milestone: [m24-a-protected-completion-leaves-no-orphan-authority](docs/plan-archive/m24-a-protected-completion-leaves-no-orphan-authority.md) <!-- shadow:lifecycle:m24-a-protected-completion-leaves-no-orphan-authority:sha256:87a192ee0bc5369704394c0c19ba08ab83ba2a95ec918275dc5e5ea15df28f41:cas:04a7b52419d349f77cc7331cc276d486646e661e9482a7781b16ef126aa8bfb2:head:4f8fefed57c4a315663f0fc9e69be00b351dc699:blob:ecf51583cbda02da0b43de2c12b67931fcd2bd85:successor:~disc -->
 
+### M25 — this computer reaches full regime without a second orchestrator
+
+- tools: this is the owner's machine setup and retirement lane, not a new product authority. It composes the existing Shadow 1.0 acceptance rows instead of copying them. Network telemetry, provider routing, a roster that gates legal seats, daemons, schedulers, and transcript stores remain out. Deletion stays recovery-first and manifest-backed
+- [pending] configuration has one explicit layered contract: safe product defaults, an optional committed repository declaration, and an ignored machine-local override for computer-specific board recovery, directive targets, claim-return policy, and review preferences; precedence is printed, absence remains fully functional, and no file can select a provider, model, account, credential, or make an unlisted seat illegal ~mcfg | proof: read docs/reference/config.md names the three layers, supported keys, precedence, ignored local path, and refusal boundary; `shadow config --explain --json` from a configured and unconfigured repository names every effective value and source
+- [pending] the owner's top-level instructions have one canonical private source: Claude may keep a syntax-only wrapper, Codex and Cursor may share a direct link, but shared operating law exists once; the live files no longer name Pilot Puppy as the coding front door, and `shadow doctor` reports no split warning ~hdir | proof: gate leo resume: edit the canonical private source once, then fresh Claude, Codex, and Cursor sessions each quote the same harmless probe line without a copy or sync command
+- [pending] Cursor cold activation is decided by behavior, not an assumed path: a fresh Cursor session either opens this computer's board from its installed AGENTS/skill surfaces or the exact unsupported boundary and missing vendor contract remain explicit ~cur1 | proof: gate leo resume: start a fresh Cursor session outside every project and observe either a board-sourced checkpoint without prompting or the precise unsupported-surface receipt
+- [pending] a cold host gets a usable board when one registered entity's remote-claim discovery is unavailable: status preserves that entity as honest UNKNOWN, exits successfully for the healthy portfolio, and the host verifier does not call the whole computer stale ~brfr | proof: cmd scripts/shadow-python.sh -m unittest tests.test_verify_host tests.test_status_focus tests.test_remote_claim_discovery
+- [pending] every Vidux, Pilot Puppy, Agent Ledger, paused automation, disabled launcher, duplicate directive, and stale local-config artifact has one disposition — retain, archive with verified recovery, replace, or delete — and no live hook or unique Git history is removed before its successor and recovery receipt are proven ~ret1 | proof: gate leo resume: approve the exact retirement manifest after it records invocation state, dirty and unpushed evidence, recovery artifact, successor, deletion order, and rollback for every target
+- [pending] this computer needs no supervision to resume valuable work: a cold supported host reads the same canonical law, opens a healthy board, claims and proves work under a stable public seat, survives a killed chat, and another seat reconstructs the state; machine-local preferences are explicit, every retired surface has recovery proof, and no competing orchestrator, network telemetry, or orphan claim remains ~10xd (DoD) | proof: gate leo resume: re-observe the canonical-directive probe, Cursor verdict, healthy unrelated-directory board, existing killed-chat and two-seat sealed runs, one accepted outside-project loop, the approved retirement receipt, and zero root-board claims | needs: ~mcfg, ~hdir, ~cur1, ~brfr, ~live, ~pair, ~outp, ~2st8, ~ret1
+
 ## Worklane boundary
 
 - Shadow has its own product plan and proof gap. That gap never blocks an
@@ -334,7 +344,31 @@ sections that stood here until 2026-08-09 are archived at
   all say so. ~curs decides it with evidence; inventing a path and reporting
   success for wiring that does nothing is the one outcome ruled out.
 
+- the shipped config contract is a committed `shadow.yaml` containing only
+  adversarial lenses, while this computer already carries an ignored
+  `.shadow/local.yaml` that describes leads, durability, and buckets but is not
+  read by Shadow | provisional winner: one documented layered contract, with
+  the ignored file either made real or deleted rather than left as fake
+  configurability | opened 2026-08-11T17:53:27Z
+  The owner requires consumer-declared and machine-local overrides without
+  source-controlling the local edit. The current command reports `built-in`,
+  proving the ignored file is inert. ~mcfg must preserve absence behavior and
+  the no-router/no-provider boundary while making every supported key and its
+  source inspectable.
+
+- M16 records one canonical private host-directive file as completed, while
+  live doctor reports Claude and Codex current but split across `CLAUDE.md` and
+  `AGENTS.md`; Cursor points at the latter yet its verifier still declares cold
+  activation unsupported | provisional winner: one shared law with only a
+  proven syntax wrapper, plus a behavior-level Cursor verdict | opened
+  2026-08-11T17:53:27Z
+  The machine evidence is newer than the completed plan claim, so ~hdir and
+  ~cur1 re-prove the live topology instead of treating the old receipt as
+  acceptance.
+
 ## Progress
+
+- 2026-08-11T17:53:27Z STRUCT M25 added from the owner's full-regime pre-plan. Fresh `main@d3a5362` equals `origin/main`; Shadow 1.0.0 doctor has 17/17 checks with two split-directive warnings; every bucket is present; the offline sealed two-seat verifier completed both seats with zero orphan claims and the story gauntlet passed. The real-machine cold verifier fails for Claude, Codex, and Cursor because one unavailable remote-claim discovery makes unrelated-directory status exit nonzero; Cursor additionally reports cold directive activation unsupported. `shadow config --explain` reports built-in defaults while the ignored `.shadow/local.yaml` is inert and documents a nonexistent `--init-local` command. These are the remaining setup seams, not evidence for another orchestrator.
 
 - 2026-08-11T06:10:00Z STRUCT M23 added from the owner's P0: Shadow must be approachable to nontraditional developers and publishable wherever the host contract is real. The product decision is local core, portable projection, typed return. Outcome and consequence lead; machinery is available on demand. Parallel promises are shown as parallel work, never flattened into a fake serial queue. Hosted surfaces say coach mode until they can reach the computer board; distribution never creates a second authority.
 - 2026-08-11T06:15:00Z EVIDENCE the first portable package validates as a strict Claude plugin and installs through Codex's real local marketplace into a disposable HOME at version 0.2.0 with the Shadow skill present. The Custom GPT source states that it cannot see or mutate local work. Cursor's installed CLI exposes no plugin-validation verb, so its source contract is the portable Agent Skill rather than an invented successful install receipt. No public directory submission, remote bridge, app, Action, or MCP server exists or is claimed.
