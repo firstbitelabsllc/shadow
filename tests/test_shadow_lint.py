@@ -160,11 +160,38 @@ class ShadowLintTests(unittest.TestCase):
         self.assertIn("COMPLETED-NO-PROOF", blocking(malformed))
         self.assertNotIn("COMPLETED-NO-PROOF", blocking(CLEAN_PLAN))
 
-    def test_pre_cutover_receipt_prose_remains_accepted(self) -> None:
-        legacy = CLEAN_PLAN.replace("npm run test:pdp -> pass", "npm run test:pdp")
+    def test_pre_cutover_receipt_prose_remains_accepted_for_grandfathered_ids(self) -> None:
+        # Loose pre-cutover prose still passes for the frozen set of ids that
+        # actually carried one when the strict shape landed.
+        grandfathered = sorted(lint.GRANDFATHERED_PROOF_IDS)[0]
+        legacy = (
+            CLEAN_PLAN.replace("npm run test:pdp -> pass", "npm run test:pdp")
+            .replace("~ab12", grandfathered)
+        )
 
         self.assertNotIn("PROOF-RECEIPT-SHAPE", blocking(legacy))
         self.assertNotIn("COMPLETED-NO-PROOF", blocking(legacy))
+
+    def test_a_backdated_timestamp_cannot_grandfather_an_arbitrary_row(self) -> None:
+        # The hole: a timestamp is text anyone can type. Before this, any
+        # `- <pre-cutover ts> ~id PROOF <anything>` line marked a completed
+        # row proven with no proof content at all.
+        forged = CLEAN_PLAN.replace(
+            "- 2026-08-05T10:00:00Z ~ab12 PROOF npm run test:pdp -> pass",
+            "- 2000-01-01T00:00:00Z ~ab12 PROOF i pinky promise it passed",
+        )
+        found = blocking(forged)
+        self.assertIn("PROOF-RECEIPT-SHAPE", found)
+        self.assertIn("COMPLETED-NO-PROOF", found)
+        self.assertNotIn("~ab12", lint.GRANDFATHERED_PROOF_IDS)
+
+    def test_the_grandfathered_set_can_only_shrink(self) -> None:
+        # Every grandfathered id must still exist in the shipped plan; an id
+        # that no longer appears has been re-proven or removed, and the set
+        # should lose it rather than accumulate dead exemptions.
+        plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
+        stale = [i for i in lint.GRANDFATHERED_PROOF_IDS if i not in plan]
+        self.assertEqual(stale, [], "grandfathered ids no longer in the plan must be dropped")
 
     def test_duplicate_row_ids_are_blocking(self) -> None:
         plan = CLEAN_PLAN.replace("~cd34 |", "~ab12 |", 1)
