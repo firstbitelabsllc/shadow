@@ -74,6 +74,54 @@ def commit_fixture(root: Path, *paths: str) -> None:
     subprocess.run(["git", "-C", str(root), "commit", "-qm", "proof fixture"], check=True)
 
 
+class ANeedsCycleIsNamedNotSilent(unittest.TestCase):
+    """Rows whose needs: point at each other wait forever: none is ever
+    reachable, resume never offers them, and before this no check said a
+    word. The cycle must be a named blocking finding, once per cycle.
+    """
+
+    @staticmethod
+    def _plan(tasks: str) -> str:
+        return CLEAN_PLAN.replace(
+            "- [completed] wrapper renders ~ab12 | proof: cmd npm run test:pdp\n"
+            "- [in_progress] smoke green ~cd34 | proof: cmd npm run smoke | needs: ~ab12\n"
+            "- [pending] owner submits ~ef56 (DoD) | proof: gate leo resume: ASC verdict lands\n",
+            tasks,
+        )
+
+    def test_a_two_row_cycle_is_a_blocking_finding_naming_both_rows(self) -> None:
+        plan = self._plan(
+            "- [pending] first half ~aa11 | proof: cmd npm run a | needs: ~bb22\n"
+            "- [pending] second half ~bb22 | proof: cmd npm run b | needs: ~aa11\n"
+            "- [pending] ships ~ef56 (DoD) | proof: gate leo resume: verdict\n"
+        )
+        self.assertIn("NEEDS-CYCLE", blocking(plan))
+        finding = [f for f in lint.lint_plan(plan) if f["check"] == "NEEDS-CYCLE"]
+        self.assertEqual(len(finding), 1)
+        self.assertIn("~aa11", finding[0]["detail"])
+        self.assertIn("~bb22", finding[0]["detail"])
+
+    def test_a_row_needing_itself_is_a_cycle(self) -> None:
+        plan = self._plan(
+            "- [pending] waits on itself ~aa11 | proof: cmd npm run a | needs: ~aa11\n"
+            "- [pending] ships ~ef56 (DoD) | proof: gate leo resume: verdict\n"
+        )
+        self.assertIn("NEEDS-CYCLE", blocking(plan))
+
+    def test_a_three_row_cycle_is_reported_once(self) -> None:
+        plan = self._plan(
+            "- [pending] a ~aa11 | proof: cmd npm run a | needs: ~cc33\n"
+            "- [pending] b ~bb22 | proof: cmd npm run b | needs: ~aa11\n"
+            "- [pending] c ~cc33 | proof: cmd npm run c | needs: ~bb22\n"
+            "- [pending] ships ~ef56 (DoD) | proof: gate leo resume: verdict\n"
+        )
+        findings = [f for f in lint.lint_plan(plan) if f["check"] == "NEEDS-CYCLE"]
+        self.assertEqual(len(findings), 1)
+
+    def test_an_acyclic_chain_stays_clean(self) -> None:
+        self.assertNotIn("NEEDS-CYCLE", checks(CLEAN_PLAN))
+
+
 class ShadowLintTests(unittest.TestCase):
     def test_clean_v2_plan_has_no_blocking_findings(self) -> None:
         self.assertEqual(blocking(CLEAN_PLAN), set())
