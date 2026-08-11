@@ -117,7 +117,7 @@ sections that stood here until 2026-08-09 are archived at
 ### M14 — telemetry and logging, data-minimized
 
 - tools: the owner reopened this after ~obsv killed it. Nothing here sends anything until ~endp is answered; every row below is buildable and testable with the machine offline
-- [pending] what Shadow may ever record is written down as a closed allowlist of field names, and anything not on it is dropped at the point of construction rather than filtered later ~flds | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.TheAllowlistIsClosed
+- [completed] what Shadow may ever record is written down as a closed allowlist of field names, and anything not on it is dropped at the point of construction rather than filtered later ~flds | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.TheAllowlistIsClosed
 - [pending] a plan verb emits a structured local event to a file under the project evidence path, carrying ids, verbs, durations and outcomes and no plan text, no proof output, no paths outside the repo, no environment ~emit | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.EventsCarryNoPayload | needs: ~flds
 - [pending] a redaction test feeds secrets, absolute home paths, and full proof output through the emitter and proves none of them reach the event ~redk | proof: cmd scripts/shadow-python.sh -m unittest tests.test_telemetry.NothingSensitiveSurvivesTheEmitter | needs: ~emit
 - [pending] the owner picks the endpoint and the exact field list before any network code exists, and records both in docs/reference/telemetry.md ~endp | proof: gate leo resume: the chosen endpoint and the approved field list are written into docs/reference/telemetry.md
@@ -1695,3 +1695,4 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-11T03:06:50Z ~hdop PROOF scripts/shadow-python.sh -m unittest tests.test_host_directives.UnmarkedAdoptionRefusesADriftedHeading tests.test_host_directives -> pass (accept)
 - 2026-08-11T03:23:04Z ~vsup PROOF scripts/shadow-python.sh -m unittest tests.test_root_board.RegisteredPointerIsCanonicalBeforePortfolioParsing tests.test_root_board tests.test_browser -> pass (accept)
 - 2026-08-11T03:52:27Z ~aud1 PROOF bash -c 'set -e; d=$(mktemp -d); trap "rm -rf $d" EXIT; git clone -q --depth 1 --branch main https://github.com/firstbitelabsllc/shadow.git "$d/s"; cd "$d/s"; scripts/shadow-python.sh -m unittest discover -s tests -p "test_*.py"; scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md' -> pass (accept)
+- 2026-08-11T04:09:26Z ~flds PROOF scripts/shadow-python.sh -m unittest tests.test_telemetry.TheAllowlistIsClosed -> pass (accept)
