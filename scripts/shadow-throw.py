@@ -45,6 +45,11 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _recovery(row: str, owner: str) -> str:
+    """The one move that clears a local claim whose remote lock is unconfirmed."""
+    return f"recover with shadow return --row {row} --by {owner}, then throw again"
+
+
 def _row_line(text: str, task_id: str) -> tuple[str, re.Match[str]] | None:
     for line in text.splitlines():
         match = _amp.ROW_RE.match(line)
@@ -322,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
                     print(
                         "shadow throw: remote claim failed and exact local compensation failed; "
-                        "inspect shadow status --in-flight",
+                        f"inspect shadow status --in-flight, then {_recovery(args.task, args.by)}",
                         file=sys.stderr,
                     )
                     return 1
@@ -343,13 +348,49 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
                 print(
                     "shadow throw: remote claim state is ambiguous; exact local claim retained; "
-                    "no work packet emitted",
+                    f"no work packet emitted; {_recovery(args.task, args.by)}",
                     file=sys.stderr,
                 )
                 return 1
             if remote is not None:
                 print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+            else:
+                # No coordination happened. When a shared trunk is nonetheless
+                # reachable, say so: a silent local-only claim is the one
+                # outcome another computer cannot tell from a coordinated lock.
+                degraded = _remote.local_only_result(
+                    repo,
+                    entity=entity["id"],
+                    row=args.task,
+                    owner=args.by,
+                    project=project["id"],
+                    plan_token=plan_token,
+                    claimed_at=claimed["claimed_at"],
+                    return_by=claimed["return_by"],
+                    recovery=claimed["recovery"],
+                )
+                if degraded is not None:
+                    print(
+                        json.dumps(degraded, sort_keys=True, separators=(",", ":")),
+                        file=sys.stderr,
+                    )
+                    print(
+                        f"[throw] this checkout reaches a shared remote with no configured "
+                        f"origin upstream ({degraded['failure']}), so {args.task} is claimed "
+                        "on this computer only; another computer can claim the same row at "
+                        "the same time",
+                        file=sys.stderr,
+                    )
     except _board.AlreadyClaimed as exc:
+        if exc.owner == args.by:
+            # The exact state a crash between the local claim and its confirmed
+            # remote lock leaves behind, so name the move that clears it.
+            print(
+                f"shadow throw: {args.task} was claimed by {exc.owner} on this computer "
+                f"already; its remote lock may be unconfirmed; {_recovery(args.task, args.by)}",
+                file=sys.stderr,
+            )
+            return 1
         print(
             f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",
             file=sys.stderr,

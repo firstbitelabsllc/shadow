@@ -1049,6 +1049,9 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             self.assertIsNone(receipt["winner"])
             self.assertEqual(receipt["failure"], "ambiguous_remote")
             self.assertNotIn(str(root), stdout + stderr)
+            # The local claim outlived its unconfirmed remote lock, so the exit
+            # has to name the move that clears it instead of only the state.
+            self.assertIn("shadow return --row ~bb22 --by seat-a", stderr)
             board_payload = json.loads(
                 (root / "home-a" / ".shadow" / "board.json").read_text(encoding="utf-8")
             )
@@ -1400,6 +1403,142 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
             self.assertEqual(len(recovery["rows"]), 1)
             self.assertTrue(recovery["rows"][0]["broken"])
             self.assertEqual(recovery["root_board"]["claims"], [])
+
+
+class ASharedTrunkWithoutOriginNamesItsDegradation(unittest.TestCase):
+    """A local-only claim on a shared trunk must never look coordinated."""
+
+    def git(self, repo: Path, *args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def shared_clone(self, root: Path, remote: str) -> tuple[Path, dict[str, str]]:
+        bare = root / "shared.git"
+        seed = root / "seed"
+        clone = root / "clone"
+        home = root / "home"
+        home.mkdir()
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        seed.mkdir()
+        self.git(seed, "init", "-q")
+        self.git(seed, "config", "user.email", "shared@example.invalid")
+        self.git(seed, "config", "user.name", "Shared Fixture")
+        (seed / "PLAN.md").write_text(
+            PLAN.replace("- Project: demo", "- Project: shared-demo"),
+            encoding="utf-8",
+        )
+        self.git(seed, "add", "PLAN.md")
+        self.git(seed, "commit", "-qm", "seed shared project")
+        self.git(seed, "remote", "add", "origin", str(bare))
+        self.git(seed, "push", "-qu", "origin", "HEAD:main")
+        self.git(bare, "symbolic-ref", "HEAD", "refs/heads/main")
+        subprocess.run(
+            ["git", "clone", "-q", "-o", remote, str(bare), str(clone)], check=True
+        )
+        self.git(clone, "config", "user.email", "shared@example.invalid")
+        self.git(clone, "config", "user.name", "Shared Fixture")
+        return clone, {**os.environ, "HOME": str(home)}
+
+    def notices(self, stderr: str) -> list[dict]:
+        found = []
+        for line in stderr.splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict) and value.get("schema") == remote_claim.SCHEMA:
+                found.append(value)
+        return found
+
+    def only_notice(self, stderr: str) -> dict:
+        found = self.notices(stderr)
+        self.assertEqual(len(found), 1, stderr)
+        self.assertEqual(set(found[0]), remote_claim.FIELDS)
+        return found[0]
+
+    def test_a_branch_tracking_upstream_reports_the_local_only_degradation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            clone, env = self.shared_clone(root, "upstream")
+
+            result = run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal shared-demo", result.stdout)
+            notice = self.only_notice(result.stderr)
+            self.assertEqual(notice["status"], "local-only")
+            self.assertEqual(notice["failure"], "upstream_not_origin")
+            self.assertEqual(notice["row"], "~bb22")
+            self.assertEqual(notice["owner"], "seat-a")
+            self.assertIsNone(notice["winner"])
+            self.assertIn("another computer can claim", result.stderr)
+            # The remote is never written, so no other computer is warned off.
+            self.assertEqual(self.git(root / "shared.git", "for-each-ref", "--format=%(refname)", "refs/heads/shadow"), "")
+
+    def test_a_detached_head_over_a_shared_remote_is_named_not_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            clone, env = self.shared_clone(root, "origin")
+            self.git(clone, "checkout", "-q", "--detach")
+
+            result = run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.only_notice(result.stderr)["failure"], "detached_head")
+
+    def test_a_branch_without_an_upstream_over_a_shared_remote_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            clone, env = self.shared_clone(root, "origin")
+            self.git(clone, "checkout", "-qb", "lane")
+
+            result = run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                self.only_notice(result.stderr)["failure"], "branch_without_upstream"
+            )
+
+    def test_a_checkout_with_no_remote_at_all_stays_quiet(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, _, env = fixture(Path(dirname))
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.notices(result.stderr), [])
+            self.assertNotIn("another computer can claim", result.stderr)
+
+    def test_a_coordinated_origin_clone_reports_no_degradation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            clone, env = self.shared_clone(root, "origin")
+
+            result = run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.only_notice(result.stderr)["status"], "acquired")
+            self.assertNotIn("another computer can claim", result.stderr)
+
+    def test_a_same_seat_rethrow_names_the_crash_window_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            clone, env = self.shared_clone(root, "origin")
+            self.assertEqual(
+                run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a").returncode,
+                0,
+            )
+
+            again = run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(again.returncode, 1)
+            self.assertIn("shadow return --row ~bb22 --by seat-a", again.stderr)
 
 
 if __name__ == "__main__":

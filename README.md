@@ -80,7 +80,9 @@ one deterministic Git coordination lock under
 closed public receipt contains no task or proof text and never becomes
 authority. The tracked branch stays untouched; the repository ruleset must
 permit the claim namespace. Without a configured origin upstream, Shadow keeps
-the same local-only behavior. A refused or ambiguous coordination write prints
+the same local-only behavior and, when a shared remote is still reachable,
+prints a `local-only` receipt naming that degradation rather than looking
+coordinated. A refused or ambiguous coordination write prints
 no work packet; confirmed loss compensates its exact local attempt, while an
 ambiguous result retains that claim for the same-seat retry.
 

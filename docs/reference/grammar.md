@@ -177,12 +177,20 @@ Remote locking opts in only when the checkout's current branch configuration
 names remote `origin` and a `refs/heads/` merge target. It does not require a
 locally materialized remote-tracking ref. With no such configured `origin`
 upstream, `shadow throw` keeps the local-only per-computer behavior above and
-performs no network write. In the opted-in case, the one conventional lock is
+performs no network write. When that checkout can still reach a shared trunk—a
+branch tracking some other remote name, a detached HEAD, or a branch with no
+upstream—the claim also prints a closed `local-only` receipt naming the exact
+cause, because two computers can then hold the same row at once. A checkout
+with no remote shares nothing and stays quiet. In the opted-in case, the one
+conventional lock is
 `refs/heads/shadow/claims/v1/<entity-id>/<row-id-without-tilde>`. Shadow first
 takes the exact local board claim, then creates that ref or compare-and-swaps
 its observed tip, and emits the work packet only after the intended acquired
 tip is confirmed. The claim commit makes the exact committed PLAN source it
-names reachable without updating the tracked upstream or protected trunk.
+names reachable without updating the tracked upstream or protected trunk. A
+process that dies inside that window leaves the local claim held by its own
+seat with no confirmed remote tip; the next throw by that seat says so and
+names the recovery—`shadow return --row <id> --by <seat>`, then throw again.
 
 The ref is an append-only acquired/released/completed lifecycle. Public verbs
 never delete it and never reuse an absent name after a tombstone. `shadow
