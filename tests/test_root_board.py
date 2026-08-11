@@ -1154,6 +1154,170 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
                 json.dumps(json.loads(hidden.stdout)["rows"]).lower(),
             )
 
+    def test_a_strictly_newer_live_copy_supersedes_a_stale_checkouts_demotion(self) -> None:
+        """A checkout parked in the past cannot retire a plan that moved on.
+
+        The sibling above commits its banner LAST, so it is the identity's
+        newest word and still retires it. Here the banner is the OLDER commit
+        and the registered copy has since replaced it — the exact shape of a
+        long-lived repository whose stale checkout keeps serving a superseded
+        archive shell. The entity must survive repeated ordinary reconciles,
+        because a demotion that lost the board once is a demotion that takes
+        the project's live claims with it every time status runs.
+        """
+
+        def commit_at(repo: Path, message: str, when: str) -> None:
+            stamped = {
+                **os.environ,
+                "GIT_AUTHOR_DATE": when,
+                "GIT_COMMITTER_DATE": when,
+            }
+            result = subprocess.run(
+                ["git", "-C", str(repo), "commit", "--quiet", "-m", message],
+                capture_output=True,
+                text=True,
+                env=stamped,
+                check=False,
+            )
+            if result.returncode:
+                raise AssertionError(result.stderr)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+
+            healthy = project(root, name="installed-shadow", display_name="shadow")
+            git(healthy, "remote", "add", "origin", self.REMOTE)
+            plan = healthy / "PLAN.md"
+            live_text = plan.read_text(encoding="utf-8")
+
+            # T0: the whole repository is a self-demoted archive shell.
+            plan.write_text(
+                live_text.replace("# Project\n", f"# Project\n\n{self.BANNER}\n", 1),
+                encoding="utf-8",
+            )
+            git(healthy, "add", "PLAN.md")
+            commit_at(healthy, "demote the plan", "2026-06-24T02:06:40+00:00")
+            stale = portfolio / "shadow-stale"
+            git(healthy, "worktree", "add", "--quiet", "--detach", str(stale), "HEAD")
+
+            # T1: the repository revives the plan; the stale checkout does not
+            # follow, so the banner survives only on a commit that lost.
+            plan.write_text(live_text, encoding="utf-8")
+            git(healthy, "add", "PLAN.md")
+            commit_at(healthy, "revive the plan", "2026-08-10T18:15:14+00:00")
+
+            registered = run(home, "status", "--root", str(healthy), "--json")
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            self.assertEqual(len(board(home)["entities"]), 1)
+
+            env = {"SHADOW_PORTFOLIO_ROOT": str(portfolio)}
+            for attempt in range(2):
+                refreshed = run(home, "status", "--json", cwd=blank, extra_env=env)
+                self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+                entities = board(home)["entities"]
+                self.assertEqual(
+                    [entity["project"] for entity in entities],
+                    ["shadow"],
+                    f"the live entity was dropped on reconcile {attempt + 1}",
+                )
+                self.assertEqual(
+                    Path(entities[0]["plan"]).resolve(),
+                    plan.resolve(),
+                    "authority moved off the live copy",
+                )
+
+    def test_every_copy_the_veto_read_is_a_retirement_predicate(self) -> None:
+        """The verdict reads the whole identity, so the whole identity is CASed.
+
+        This demotion retires the entity only because no strictly newer copy
+        declined to repeat it. A token for the demoted copy alone would let the
+        live copy it was compared against change — including into the newer
+        word that supersedes the demotion — between discovery and the
+        transaction, and retire a live project anyway.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            importer, amp = self._importer_and_amp()
+            demoted = fixture["sibling"] / "PLAN.md"
+            demoted.write_text(
+                demoted.read_text(encoding="utf-8").replace(
+                    "# Project\n", f"# Project\n\n{self.BANNER}\n", 1
+                ),
+                encoding="utf-8",
+            )
+            git(fixture["sibling"], "add", "PLAN.md")
+            git(fixture["sibling"], "commit", "--quiet", "-m", "demote sibling")
+            live = fixture["healthy"] / "PLAN.md"
+            real_reconcile = importer.board.reconcile
+
+            def revise_the_live_copy_then_reconcile(*args, **kwargs):
+                live.write_text(
+                    live.read_text(encoding="utf-8")
+                    + "- 2026-08-11T00:00:00Z NOTE revised after discovery\n",
+                    encoding="utf-8",
+                )
+                return real_reconcile(*args, **kwargs)
+
+            importer.board.reconcile = revise_the_live_copy_then_reconcile
+            try:
+                with self.assertRaisesRegex(
+                    importer.board.BoardError,
+                    "changed during reconciliation",
+                ):
+                    importer.reconcile_portfolio(
+                        fixture["portfolio"], amp, home=fixture["home"]
+                    )
+            finally:
+                importer.board.reconcile = real_reconcile
+            self._assert_board_unchanged(fixture)
+
+    def test_duplicate_checkouts_do_not_multiply_the_vetos_git_scans(self) -> None:
+        """N copies of one plan cost N commit reads, not N**2.
+
+        The verdict is sought before deduplication, so every same-identity
+        checkout asks for it and each ask dates the whole set. Uncached, a
+        machine holding a dozen old clones pays that square on every ordinary
+        `shadow status`.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            portfolio = root / "portfolio"
+            portfolio.mkdir()
+            healthy = project(root, name="installed-shadow", display_name="shadow")
+            git(healthy, "remote", "add", "origin", self.REMOTE)
+            copies = []
+            for index in range(4):
+                copy = portfolio / f"shadow-{index}"
+                git(healthy, "worktree", "add", "--quiet", "--detach", str(copy), "HEAD")
+                copies.append(copy)
+
+            from browser import server
+
+            plan = healthy / "PLAN.md"
+            identity = server._root_board.entity_id(plan)
+            dated: list[str] = []
+            real_commit_time = server._root_board.plan_commit_time
+
+            def counted(candidate: Path):
+                dated.append(str(candidate))
+                return real_commit_time(candidate)
+
+            server._root_board.plan_commit_time = counted
+            try:
+                records = server.discover_plans(
+                    portfolio, registered_plans={identity: plan}
+                )
+            finally:
+                server._root_board.plan_commit_time = real_commit_time
+
+            self.assertEqual(len(records), 1)
+            self.assertLessEqual(len(dated), len(copies) + 1)
+
     def test_one_self_demoted_registered_alias_retires_the_whole_logical_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._registered_alias_pair(Path(tmp))
