@@ -90,6 +90,11 @@ def write_exclusive(path: Path, text: str) -> None:
             os.link(temporary_path, path)
         except FileExistsError:
             raise FileExistsError(path) from None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         temporary_path.unlink(missing_ok=True)
 
