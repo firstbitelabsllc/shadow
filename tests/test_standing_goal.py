@@ -116,7 +116,7 @@ class DoctorReportsDrift(unittest.TestCase):
                 results = {c["name"]: c for c in doctor.host_goal_checks()}
             finally:
                 Path.home = original                        # type: ignore[assignment]
-        claude = results["standing goal: claude"]
+        claude = results["standing goal: claude-code"]
         return claude["state"], claude["detail"]
 
     def test_a_missing_host_file_warns_and_never_fails(self) -> None:

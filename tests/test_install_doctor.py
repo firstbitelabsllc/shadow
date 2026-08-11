@@ -84,6 +84,51 @@ class TheGateUsesTheResolvedPythonNotBarePython3(unittest.TestCase):
         self.assertTrue(used_versioned, "the versioned interpreter was never used")
 
 
+class DoctorNamesEverySupportedHostThatDidNotReceiveTheDirective(unittest.TestCase):
+    def test_missing_instruction_files_name_each_documented_activation_host(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            scratch = Path(dirname)
+            home = scratch / "home"
+            bin_dir = scratch / "bin"
+            home.mkdir()
+            bin_dir.mkdir()
+            for directory in (".claude", ".codex", ".agents", ".cursor"):
+                (home / directory).mkdir()
+            shadow = bin_dir / "shadow"
+            shadow.symlink_to(CLI)
+            host = bin_dir / "codex"
+            host.write_text("#!/bin/sh\necho 'codex-cli fixture'\n", encoding="utf-8")
+            host.chmod(0o755)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "SHADOW_DOCTOR_EXPECTED_CLI": str(CLI),
+            }
+            result = subprocess.run(
+                [sys.executable, str(DOCTOR), "--json"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        report = json.loads(result.stdout)
+        goal_checks = {
+            item["name"]: item
+            for item in report["checks"]
+            if item["name"].startswith("standing goal:")
+        }
+        self.assertEqual(set(goal_checks), {
+            "standing goal: claude-code",
+            "standing goal: codex",
+        })
+        for item in goal_checks.values():
+            self.assertEqual(item["state"], "warn")
+            self.assertIn("shadow goal --install", item["detail"])
+
+
 class DoctorTests(unittest.TestCase):
     def run_doctor(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

@@ -151,7 +151,7 @@ def host_goal_checks() -> list[dict[str, Any]]:
         return [check("standing goal: source", "fail", "no block found in docs/reference/host-integration.md")]
     anchor = block.splitlines()[0]
     results = []
-    for label, path in (("claude", Path.home() / ".claude" / "CLAUDE.md"),
+    for label, path in (("claude-code", Path.home() / ".claude" / "CLAUDE.md"),
                         ("codex", Path.home() / ".codex" / "AGENTS.md")):
         name = f"standing goal: {label}"
         try:
