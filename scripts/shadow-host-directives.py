@@ -210,7 +210,14 @@ def _span(text: str, block: str) -> tuple[int, int] | None:
     for known in (block, *KNOWN_EARLIER_STANDING_GOALS):
         start = text.find(known)
         while start != -1:
-            spans[start] = (start, start + len(known))
+            end = start + len(known)
+            # The match has to end where a line ends. A known block that is
+            # only a prefix of the text at that offset is a person's block with
+            # something appended to its final line, and adopting it would move
+            # the end marker in front of their words
+            # ("…yourself. PRIVATE" → "<!-- shadow:goal:end --> PRIVATE").
+            if text[end:end + 1] in ("", "\n") or text.startswith("\r\n", end):
+                spans[start] = (start, end)
             start = text.find(known, start + 1)
 
     for start, heading, fenced in headings:

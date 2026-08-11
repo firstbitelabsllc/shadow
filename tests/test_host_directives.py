@@ -78,6 +78,23 @@ class UnmarkedAdoptionRefusesADriftedHeading(unittest.TestCase):
                 self.assertIn("exact shipped standing-goal revision", str(caught.exception))
                 self.assertEqual(path.read_text(encoding="utf-8"), contents)
 
+    def test_text_appended_to_the_final_line_is_refused(self) -> None:
+        # A known revision that is only a *prefix* of what sits there is not
+        # that revision: adopting it would end the managed block mid-line and
+        # leave the person's words after the end marker.
+        for name, copy in (
+            ("current", BLOCK + " PRIVATE"),
+            ("earlier", hd.KNOWN_EARLIER_STANDING_GOALS[0] + " PRIVATE"),
+        ):
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "CLAUDE.md"
+                contents = BEFORE + copy + AFTER
+                path.write_text(contents, encoding="utf-8")
+                with self.assertRaises(ValueError) as caught:
+                    hd.apply(path, BLOCK)
+                self.assertIn("exact shipped standing-goal revision", str(caught.exception))
+                self.assertEqual(path.read_text(encoding="utf-8"), contents)
+
     def test_multiple_exact_unmarked_copies_are_refused_without_a_guess(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "CLAUDE.md"
