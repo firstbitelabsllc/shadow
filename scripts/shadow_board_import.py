@@ -43,6 +43,56 @@ class SuppressionReceipt:
         }
 
 
+def volatile_roots() -> tuple[Path, ...]:
+    """Directories whose contents are deleted without asking.
+
+    `SHADOW_VOLATILE_ROOTS` (colon-separated) overrides the default set. It
+    exists because the test suite builds every fixture under `tempfile`, so a
+    hardcoded set would make every sandbox look volatile and the rule could
+    never be exercised in one direction without breaking the other.
+    """
+    override = os.environ.get("SHADOW_VOLATILE_ROOTS")
+    if override is not None:
+        return tuple(
+            Path(part).expanduser().resolve()
+            for part in override.split(":")
+            if part.strip()
+        )
+    # `/tmp` only, NOT the per-user tempdir. `tempfile` on macOS hands out
+    # `/var/folders/...`, which is where every sandbox and test fixture lives;
+    # treating that as volatile made 8 suite tests change behaviour because
+    # their fixtures suddenly looked like misplaced board authority. The lane
+    # checkouts this rule exists for sit in the shared, world-writable `/tmp`,
+    # which is also what this host's cleanup sweeps reap on an idle timer.
+    roots = ["/tmp", "/private/tmp"]
+    resolved: list[Path] = []
+    for raw in roots:
+        candidate = Path(raw)
+        if not candidate.is_dir():
+            continue
+        # `/tmp` is a symlink to `/private/tmp` on macOS, so resolve then
+        # deduplicate rather than reporting the same root twice.
+        real = candidate.resolve()
+        if real not in resolved:
+            resolved.append(real)
+    return tuple(resolved)
+
+
+def volatile_locator(pointer: Path) -> bool:
+    """Whether this registered plan sits on storage that gets swept."""
+    try:
+        resolved = Path(os.path.abspath(pointer)).resolve()
+    except OSError:
+        return False
+    for root in volatile_roots():
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        return True
+    return False
+
+
 def portfolio_root(fallback: Path) -> Path:
     configured = os.environ.get("SHADOW_PORTFOLIO_ROOT") or os.environ.get("SHADOW_DEV_ROOT")
     if configured:
@@ -147,6 +197,17 @@ def _registered_state(
             UnicodeError,
             ValueError,
         ):
+            repairable[identity] = (pointer, state_fingerprint)
+            continue
+        if volatile_locator(pointer):
+            # A readable plan on volatile storage is still a bad place to keep
+            # board authority: the operating system, and this machine's own
+            # cleanup sweeps, delete temp roots on an idle timer. Treating it as
+            # REPAIRABLE rather than refusing it is what makes this safe — with a
+            # healthy same-identity sibling on durable storage, discovery elects
+            # the sibling; with no sibling, nothing changes and the temp copy is
+            # used exactly as before. That second half matters: a sandbox whose
+            # only checkout lives under a temp dir must keep working.
             repairable[identity] = (pointer, state_fingerprint)
             continue
         trusted[identity] = pointer.resolve()

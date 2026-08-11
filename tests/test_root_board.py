@@ -2655,5 +2655,62 @@ class ACrashMidClaimLeavesARecoverableBoard(unittest.TestCase):
                     )
 
 
+class BoardAuthorityDoesNotLiveOnVolatileStorage(unittest.TestCase):
+    """A registered plan under a swept temp root yields to a durable sibling."""
+
+    REMOTE = "git@example.invalid:team/shadow.git"
+
+    def _fixture(self, root: Path, *, with_sibling: bool):
+        home = root / "home"
+        volatile = root / "volatile"
+        durable = root / "durable"
+        blank = root / "blank"
+        for path in (home, volatile, durable, blank):
+            path.mkdir()
+        registered = project(volatile, name="shadow", display_name="shadow")
+        git(registered, "remote", "add", "origin", self.REMOTE)
+        out = run(home, "status", "--root", str(registered), "--json")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(len(board(home)["entities"]), 1)
+        if with_sibling:
+            git(registered, "worktree", "add", "--quiet", "--detach",
+                str(durable / "shadow"), "HEAD")
+        return {
+            "home": home,
+            "registered": registered,
+            "durable": durable,
+            "blank": blank,
+            "env": {
+                "SHADOW_PORTFOLIO_ROOT": str(durable),
+                "SHADOW_VOLATILE_ROOTS": str(volatile.resolve()),
+            },
+        }
+
+    def test_a_durable_sibling_takes_authority_from_the_temp_root_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=True)
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=f["env"])
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "the project must not vanish")
+            plan = Path(entities[0]["plan"]).resolve()
+            self.assertTrue(
+                str(plan).startswith(str(f["durable"].resolve())),
+                f"authority stayed on volatile storage: {plan}",
+            )
+
+    def test_with_no_durable_sibling_the_temp_copy_keeps_working(self):
+        """The half that makes this safe: a sandbox with only a temp checkout."""
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=False)
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=f["env"])
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "nothing to repair to, so nothing changes")
+            plan = Path(entities[0]["plan"]).resolve()
+            self.assertEqual(plan, (f["registered"] / "PLAN.md").resolve())
+
+
 if __name__ == "__main__":
+
     unittest.main()
