@@ -528,27 +528,62 @@ def _archive_veto_text(text: str) -> str | None:
     return found.group(0) if found else None
 
 
-def _dated(path: Path, dates: dict[str, int | None] | None) -> int | None:
-    """Commit-date one plan at most once per discovery pass.
+def _plan_change_stamp(path: Path) -> str:
+    """Cheap "is this still the same file" token: one `lstat`, no read, no git.
+
+    Deliberately not `plan_state_snapshot`: that reads the bounded content to
+    hash it, and this is consulted on every dating, including election's, which
+    otherwise reads nothing.
+    """
+    try:
+        metadata = os.lstat(path)
+    except OSError:
+        return "unavailable"
+    return (
+        f"{metadata.st_mode}\0{metadata.st_size}\0{metadata.st_mtime_ns}\0"
+        f"{metadata.st_ctime_ns}\0{metadata.st_dev}\0{metadata.st_ino}"
+    )
+
+
+def _dated(path: Path, dates: dict[str, tuple[str, int | None]] | None) -> int | None:
+    """Commit-date one plan at most once per discovery pass, per file state.
 
     Election and the archive veto both need the date of the same files. Dating
     is a `git log` per path, and a pinned contract requires N duplicate
     checkouts to cost O(N) subprocesses rather than O(N**2), so the two callers
     share one memo instead of each paying for it.
+
+    The memo is keyed by file state as well as path, because the two callers do
+    not read at the same instant: election dates every candidate up front, and
+    the veto freezes plan CONTENT later in the same pass. A copy committed live
+    in between would otherwise be judged as new content against the old cached
+    date, and looking older than it is, be retired by a demotion it has since
+    dropped. The content CAS cannot catch that: it validates the new file
+    state, which is exactly what the verdict misread. So a file that changed
+    since it was dated is dated again, and the shared memo only ever answers
+    for the state it measured.
+
+    Boundary: a commit that leaves the working file byte-identical (staged
+    earlier, committed mid-pass) moves the date without moving the stamp, and
+    that date is out of this pass's view. The pass is a snapshot; only changes
+    a plan's own bytes or metadata can express are seen.
     """
     if dates is None:
         return _root_board.plan_commit_time(path)
     key = str(Path(os.path.abspath(path)))
-    if key not in dates:
-        dates[key] = _root_board.plan_commit_time(path)
-    return dates[key]
+    stamp = _plan_change_stamp(path)
+    cached = dates.get(key)
+    if cached is None or cached[0] != stamp:
+        cached = (stamp, _root_board.plan_commit_time(path))
+        dates[key] = cached
+    return cached[1]
 
 
 def _archive_veto_receipt(
     paths: list[Path],
     *,
     cache: dict[tuple[str, ...], dict[str, Any] | None] | None = None,
-    dates: dict[str, int | None] | None = None,
+    dates: dict[str, tuple[str, int | None]] | None = None,
 ) -> dict[str, Any] | None:
     """Freeze the exact source whose self-demotion retires a logical plan.
 
@@ -822,8 +857,11 @@ def discover_plans(
     # veto the copy that already won the key — so without this every extra
     # same-identity checkout re-reads and re-`git log`s the whole set.
     veto_cache: dict[tuple[str, ...], dict[str, Any] | None] = {}
-    # One date per plan for the whole pass, shared by election and the veto.
-    commit_dates: dict[str, int | None] = {}
+    # One date per plan state for the whole pass, shared by election and the
+    # veto. Keyed by state, not path alone: the veto freezes content after
+    # election dated the same files, so a copy that changed in between must not
+    # be judged as new content against the older cached date.
+    commit_dates: dict[str, tuple[str, int | None]] = {}
     if is_plan_root(root):
         candidates = [root]
     elif root.is_dir():

@@ -59,9 +59,9 @@ def volatile_roots() -> tuple[Path, ...]:
         )
     # The shared, world-writable temp root, which is what this host's cleanup
     # sweeps and the OS reap on an idle timer, and where the lane checkouts this
-    # rule exists for sit. On Linux it is also `tempfile`'s default, so fixtures
-    # land inside it; `volatile_authority`, not a narrower root set, is what
-    # keeps an entirely ephemeral tree from looking like misplaced authority.
+    # rule exists for sit. On Linux it is also `tempfile`'s default, so every
+    # fixture lands inside it; requiring a durable, import-grade repair target,
+    # not a narrower root set, is what keeps an entirely ephemeral tree inert.
     roots = ["/tmp", "/private/tmp"]
     resolved: list[Path] = []
     for raw in roots:
@@ -91,24 +91,6 @@ def volatile_locator(pointer: Path) -> bool:
     return False
 
 
-def volatile_authority(pointer: Path, portfolio: Path) -> bool:
-    """Whether board authority sits on swept storage the portfolio does not.
-
-    The rule compares storage CLASSES, and only fires where the comparison
-    means something: a registered plan under a swept temp root while the
-    portfolio it belongs to sits on durable storage. When the portfolio itself
-    is under a swept root the whole tree is ephemeral (a sandbox, a scratch
-    clone, every `tempfile` fixture in this suite on Linux), so there is no
-    durable place to move authority TO, and the rule stays silent for the same
-    reason it stays silent when no same-identity sibling exists.
-
-    Without that guard the rule was quietly platform-dependent: it fired on
-    nothing on macOS, where `tempfile` hands out `/var/folders/...`, and on
-    every fixture on Linux, where `tempfile` hands out `/tmp/...`.
-    """
-    return volatile_locator(pointer) and not volatile_locator(portfolio)
-
-
 def portfolio_root(fallback: Path) -> Path:
     configured = os.environ.get("SHADOW_PORTFOLIO_ROOT") or os.environ.get("SHADOW_DEV_ROOT")
     if configured:
@@ -131,20 +113,66 @@ def _priority(plan: dict) -> int:
     return value
 
 
+def _assert_authority_grade(
+    content: bytes,
+    *,
+    amp: ModuleType,
+    declared_globs,
+    operator_brief,
+) -> None:
+    """Raise unless this frozen plan text is fit to hold board authority.
+
+    One definition, two readers: the trust check below, and the check a copy
+    must pass before authority is repaired ONTO it. A repair target held to a
+    weaker standard than the locator it replaces is how a healthy pointer ends
+    up replaced by a plan the import then refuses.
+    """
+    if len(content) > board.MAX_PLAN_BYTES:
+        raise board.BoardError("registered plan exceeds the bounded size limit")
+    text = content.decode("utf-8")
+    parsed = amp._parse(text)
+    if not parsed["brief"].get("Project") or not parsed["brief"].get("Mode"):
+        raise board.BoardError("registered plan lacks current board fields")
+    if amp.unclean_note(parsed):
+        raise board.BoardError("registered plan is not grammar-clean")
+    _priority(parsed)
+    amp._candidate_ids(parsed)
+    declaration = operator_brief(text).get("plans", "")
+    if any(
+        not candidate
+        or candidate.startswith("/")
+        or ".." in Path(candidate).parts
+        for candidate in (part.strip() for part in declaration.split(","))
+        if declaration
+    ):
+        raise board.BoardError("registered plan declaration is unsafe")
+    declared_globs(text)
+
+
 def _registered_state(
     amp: ModuleType,
     *,
     home: Path | None,
-    portfolio: Path,
     archive_veto_text,
     declared_globs,
     operator_brief,
     browser_error: type[Exception],
-) -> tuple[dict[str, Path], dict[str, dict], dict[str, tuple[Path, str]]]:
-    """Unique healthy, retired, and repairable registered board locators."""
+) -> tuple[
+    dict[str, Path],
+    dict[str, dict],
+    dict[str, tuple[Path, str]],
+    dict[str, tuple[Path, str]],
+]:
+    """Unique healthy, retired, repairable, and swept registered locators.
+
+    The last group is a SUBSET of the healthy one, not an alternative to it: a
+    locator on volatile storage is still trusted, and only stops being the
+    authority once a durable replacement good enough to hold it is in hand.
+    """
     trusted: dict[str, Path] = {}
     retired: dict[str, dict] = {}
     repairable: dict[str, tuple[Path, str]] = {}
+    volatile: dict[str, tuple[Path, str]] = {}
     for identity, pointers in board.registered_locator_index(home=home).items():
         frozen = {
             pointer: board.plan_state_snapshot(pointer)
@@ -185,26 +213,12 @@ def _registered_state(
         try:
             if board.entity_id(pointer) != identity:
                 continue
-            if len(content) > board.MAX_PLAN_BYTES:
-                raise board.BoardError("registered plan exceeds the bounded size limit")
-            text = content.decode("utf-8")
-            parsed = amp._parse(text)
-            if not parsed["brief"].get("Project") or not parsed["brief"].get("Mode"):
-                raise board.BoardError("registered plan lacks current board fields")
-            if amp.unclean_note(parsed):
-                raise board.BoardError("registered plan is not grammar-clean")
-            _priority(parsed)
-            amp._candidate_ids(parsed)
-            declaration = operator_brief(text).get("plans", "")
-            if any(
-                not candidate
-                or candidate.startswith("/")
-                or ".." in Path(candidate).parts
-                for candidate in (part.strip() for part in declaration.split(","))
-                if declaration
-            ):
-                raise board.BoardError("registered plan declaration is unsafe")
-            declared_globs(text)
+            _assert_authority_grade(
+                content,
+                amp=amp,
+                declared_globs=declared_globs,
+                operator_brief=operator_brief,
+            )
         except (
             board.BoardError,
             browser_error,
@@ -216,19 +230,20 @@ def _registered_state(
         ):
             repairable[identity] = (pointer, state_fingerprint)
             continue
-        if volatile_authority(pointer, portfolio):
-            # A readable plan on volatile storage is still a bad place to keep
-            # board authority: the operating system, and this machine's own
-            # cleanup sweeps, delete temp roots on an idle timer. Treating it as
-            # REPAIRABLE rather than refusing it is what makes this safe — with a
-            # healthy same-identity sibling on durable storage, discovery elects
-            # the sibling; with no sibling, nothing changes and the temp copy is
-            # used exactly as before. That second half matters: a sandbox whose
-            # only checkout lives under a temp dir must keep working.
-            repairable[identity] = (pointer, state_fingerprint)
-            continue
+        if volatile_locator(pointer):
+            # A readable plan on volatile storage is a bad place to keep board
+            # authority: the operating system, and this machine's own cleanup
+            # sweeps, delete temp roots on an idle timer. But it is STILL the
+            # authority here, because demoting it before a replacement is in
+            # hand is what breaks the two cases this rule must not break: a
+            # broken same-identity sibling would refuse the whole import, and a
+            # second copy under the same temp root would just take the pointer
+            # from one swept path to another. Reconcile repairs it only onto a
+            # durable, import-grade copy; with none, nothing changes and the
+            # temp copy is used exactly as before.
+            volatile[identity] = (pointer, state_fingerprint)
         trusted[identity] = pointer.resolve()
-    return trusted, retired, repairable
+    return trusted, retired, repairable, volatile
 
 
 def reconcile_portfolio(
@@ -250,10 +265,9 @@ def reconcile_portfolio(
 
     seeds: list[dict] = []
     historical: list[dict] = []
-    registered, registered_retired, repairable = _registered_state(
+    registered, registered_retired, repairable, volatile = _registered_state(
         amp,
         home=home,
-        portfolio=root,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
         operator_brief=operator_brief,
@@ -274,6 +288,39 @@ def reconcile_portfolio(
         )
     except BrowserError as exc:
         raise board.BoardError(f"portfolio import refused: {exc}") from exc
+
+    def durable_authority_grade(candidate: Path) -> bool:
+        """Whether authority may be repaired from swept storage onto this copy.
+
+        Both halves are load-bearing. Durable, or the repair is a move from one
+        path the sweeps reap to another. Import-grade, or a healthy registered
+        locator is given up for a plan the very next step refuses, which turns
+        a working board into `showing the last-good computer board`.
+        """
+        if volatile_locator(candidate):
+            return False
+        _, content = board.plan_state_snapshot(candidate)
+        if content is None:
+            return False
+        try:
+            _assert_authority_grade(
+                content,
+                amp=amp,
+                declared_globs=declared_plan_globs,
+                operator_brief=operator_brief,
+            )
+        except (
+            board.BoardError,
+            BrowserError,
+            KeyError,
+            OSError,
+            TypeError,
+            UnicodeError,
+            ValueError,
+        ):
+            return False
+        return True
+
     for record in records:
         relative = record.get("path")
         if not relative:
@@ -302,12 +349,20 @@ def reconcile_portfolio(
             retired[identity] = retirement
             continue
         source_path = plan_path
+        repair: tuple[Path, str] | None = None
         if record.get("_registered_pointer"):
             source_path = registered.get(record.get("_logical_entity"))
             if source_path is None:
                 raise board.BoardError(
                     f"{relative}: registered board locator changed during import"
                 )
+            swept = volatile.get(record.get("_logical_entity"))
+            # The elected copy, and only it: authority follows the copy the
+            # portfolio would render, never some other sibling that happens to
+            # be durable.
+            if swept is not None and durable_authority_grade(plan_path):
+                source_path = plan_path
+                repair = swept
         try:
             text = read_plan(source_path)
         except (BrowserError, OSError, UnicodeError) as exc:
@@ -341,7 +396,11 @@ def reconcile_portfolio(
             "expected_size": len(content),
             "expected_sha256": hashlib.sha256(content).hexdigest(),
         }
-        if record.get("_registered_pointer"):
+        if repair is not None:
+            repair_from, repair_state = repair
+            seed["repair_from"] = str(repair_from)
+            seed["repair_state"] = repair_state
+        elif record.get("_registered_pointer"):
             seed["registered_plan"] = str(source_path)
         elif identity in repairable:
             repair_from, repair_state = repairable[identity]
@@ -396,10 +455,9 @@ def suppression_receipts(
         operator_brief,
     )
 
-    registered, registered_retired, repairable = _registered_state(
+    registered, registered_retired, repairable, _ = _registered_state(
         amp,
         home=home,
-        portfolio=root,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
         operator_brief=operator_brief,

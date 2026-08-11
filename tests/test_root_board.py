@@ -1318,6 +1318,55 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertLessEqual(len(dated), len(copies) + 1)
 
+    def test_a_cached_commit_date_is_not_reused_after_the_plan_changes(self) -> None:
+        """The memo answers for the state it measured, not for the path.
+
+        Election dates every candidate up front; the veto freezes plan CONTENT
+        later in the same pass. A copy committed live in between would be judged
+        as new content against the old date, look older than it is, and be
+        retired by a demotion it has since dropped. The content CAS cannot catch
+        that, because the state it validates is the new one.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp), name="widget", display_name="widget")
+            plan = repo / "PLAN.md"
+
+            from browser import server
+
+            memo: dict[str, tuple[str, int | None]] = {}
+            scans: list[str] = []
+            real_commit_time = server._root_board.plan_commit_time
+
+            def counted(candidate: Path):
+                scans.append(str(candidate))
+                return real_commit_time(candidate)
+
+            server._root_board.plan_commit_time = counted
+            try:
+                first = server._dated(plan, memo)
+                self.assertEqual(server._dated(plan, memo), first)
+                self.assertEqual(len(scans), 1, "an unchanged plan stays one scan")
+
+                plan.write_text(
+                    plan.read_text(encoding="utf-8") + "\n<!-- moved on -->\n",
+                    encoding="utf-8",
+                )
+                git(repo, "add", "PLAN.md")
+                when = "2026-08-10T00:00:00+00:00"
+                subprocess.run(
+                    ["git", "-C", str(repo), "commit", "--quiet", "-m", "moved on"],
+                    env={**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when},
+                    capture_output=True,
+                    check=True,
+                )
+                moved = server._dated(plan, memo)
+            finally:
+                server._root_board.plan_commit_time = real_commit_time
+
+            self.assertEqual(len(scans), 2, "a changed plan is dated again")
+            self.assertEqual(moved, real_commit_time(plan))
+            self.assertNotEqual(moved, first)
+
     def test_one_self_demoted_registered_alias_retires_the_whole_logical_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = self._registered_alias_pair(Path(tmp))
@@ -2710,14 +2759,12 @@ class BoardAuthorityDoesNotLiveOnVolatileStorage(unittest.TestCase):
             plan = Path(entities[0]["plan"]).resolve()
             self.assertEqual(plan, (f["registered"] / "PLAN.md").resolve())
 
-    def test_a_portfolio_on_volatile_storage_keeps_its_registered_locator(self):
-        """An entirely ephemeral tree has no durable class to move authority to.
+    def test_a_sibling_under_the_same_swept_root_takes_nothing(self):
+        """One temp path for another is not a repair, so the rule stays silent.
 
-        The rule compares storage classes, so it must stay silent when the
-        portfolio is swept too: a sandbox, a scratch clone, and every
-        `tempfile` fixture in this suite on a platform whose tempdir IS the
-        shared temp root. Left ungated, the rule fired on nothing on macOS and
-        on every fixture on Linux.
+        This is also every `tempfile` fixture in this suite on a platform whose
+        tempdir IS the shared temp root: on Linux the whole tree is swept, and
+        a rule that fired there would demote a healthy locator for no gain.
         """
         with tempfile.TemporaryDirectory() as tmp:
             f = self._fixture(Path(tmp), with_sibling=True)
@@ -2733,6 +2780,29 @@ class BoardAuthorityDoesNotLiveOnVolatileStorage(unittest.TestCase):
                 Path(entities[0]["plan"]).resolve(),
                 (f["registered"] / "PLAN.md").resolve(),
                 "authority moved off a swept root onto an equally swept sibling",
+            )
+
+    def test_an_unreadable_durable_sibling_takes_nothing_and_refuses_nothing(self):
+        """A repair target is held to the standard of the locator it replaces.
+
+        The registered plan is healthy; only the durable copy is not. Demoting
+        the locator first and discovering that afterwards is how a working
+        board becomes `showing the last-good computer board` on a machine that
+        had nothing wrong with its authority.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._fixture(Path(tmp), with_sibling=True)
+            (f["durable"] / "shadow" / "PLAN.md").write_bytes(b"\xff\xfe not a plan")
+
+            out = run(f["home"], "status", "--json", cwd=f["blank"], extra_env=f["env"])
+
+            self.assertEqual(out.returncode, 0, out.stderr)
+            entities = board(f["home"])["entities"]
+            self.assertEqual(len(entities), 1, "the project must not vanish")
+            self.assertEqual(
+                Path(entities[0]["plan"]).resolve(),
+                (f["registered"] / "PLAN.md").resolve(),
+                "a healthy locator was given up for a plan the import refuses",
             )
 
 
