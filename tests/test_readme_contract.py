@@ -26,7 +26,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "Active tasks: none",
             "Proof boundaries",
             "Host integration",
-            "--branch shadow-v1.0.0",
+            "--branch shadow-v1.0.1",
             "scripts/shadow-verify-two-seat.py",
             "--live --goal-file",
         )
