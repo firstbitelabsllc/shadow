@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -31,6 +32,15 @@ def baseline() -> tuple[dict, dict, set[str]]:
         "files": [{"path": path} for path in sorted(paths)],
     }
     return plugin, pack, paths
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 class ReleasePackageTests(unittest.TestCase):
@@ -166,6 +176,154 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertTrue(report["stranger_install"])
         self.assertTrue(report["reproducible"])
         self.assertFalse(report["publishable"])
+
+
+class ReleaseIdentityIsImmutable(unittest.TestCase):
+    def make_repo(self, root: Path) -> Path:
+        repo = root / "repo"
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        git(repo, "config", "user.email", "release@example.invalid")
+        git(repo, "config", "user.name", "Release Test")
+        (repo / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+        git(repo, "add", "VERSION")
+        git(repo, "commit", "-qm", "seed")
+        return repo
+
+    def inspect(self, repo: Path) -> dict:
+        return mod.inspect_release_identity(repo, "1.0.0", require_release_ref=True)
+
+    def clone_release_checkout(self, root: Path) -> Path:
+        repo = root / "shadow"
+        subprocess.run(["git", "clone", "-q", "--no-local", str(ROOT), str(repo)], check=True)
+        git(repo, "config", "user.email", "release@example.invalid")
+        git(repo, "config", "user.name", "Release Test")
+        git(repo, "remote", "set-url", "origin", "https://github.com/firstbitelabsllc/shadow.git")
+        git(repo, "tag", "-a", f"shadow-v{VERSION}", "-m", f"Shadow {VERSION}")
+        return repo
+
+    def test_only_a_namespaced_annotated_tag_at_exact_head_is_public(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            head = git(repo, "rev-parse", "HEAD")
+
+            legacy = self.inspect(repo)
+            self.assertIsNone(legacy["release_ref"])
+            self.assertTrue(any("shadow-v1.0.0" in error for error in legacy["errors"]))
+
+            git(repo, "tag", "-a", "v1.0.0", "-m", "legacy")
+            occupied_legacy = self.inspect(repo)
+            self.assertIsNone(occupied_legacy["release_ref"])
+            self.assertTrue(any("shadow-v1.0.0" in error for error in occupied_legacy["errors"]))
+
+            git(repo, "tag", "shadow-v1.0.0")
+            lightweight = self.inspect(repo)
+            self.assertIsNone(lightweight["release_ref"])
+            self.assertTrue(any("annotated" in error for error in lightweight["errors"]))
+
+            git(repo, "tag", "-d", "shadow-v1.0.0")
+            git(repo, "tag", "-a", "shadow-v1.0.0", "-m", "Shadow 1.0")
+            exact = self.inspect(repo)
+            self.assertEqual(exact, {"commit": head, "release_ref": "shadow-v1.0.0", "errors": []})
+
+            (repo / "later.txt").write_text("later\n", encoding="utf-8")
+            git(repo, "add", "later.txt")
+            git(repo, "commit", "-qm", "later")
+            moved = self.inspect(repo)
+            self.assertIsNone(moved["release_ref"])
+            self.assertTrue(any("exact HEAD" in error for error in moved["errors"]))
+
+    def test_public_verification_records_commit_ref_and_archive_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.clone_release_checkout(Path(tmp))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(repo),
+                    "--expect-version",
+                    VERSION,
+                    "--public-release",
+                    "--json",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            report = json.loads(result.stdout)
+            head = git(repo, "rev-parse", "HEAD")
+
+        self.assertEqual(result.returncode, 0, report)
+        self.assertTrue(report["publishable"], report)
+        self.assertEqual(report["commit"], head)
+        self.assertEqual(report["release_ref"], f"shadow-v{VERSION}")
+        self.assertRegex(report["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_archive_is_cut_from_the_receipted_commit_not_mutable_head(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self.make_repo(root)
+            (repo / "SOURCE_REF").write_text("$Format:%H$\n", encoding="ascii")
+            (repo / ".gitattributes").write_text("SOURCE_REF export-subst\n", encoding="utf-8")
+            git(repo, "add", "SOURCE_REF", ".gitattributes")
+            git(repo, "commit", "-qm", "source receipt")
+            receipted = git(repo, "rev-parse", "HEAD")
+            git(repo, "remote", "add", "origin", "https://github.com/firstbitelabsllc/shadow.git")
+            (repo / "later.txt").write_text("later\n", encoding="utf-8")
+            git(repo, "add", "later.txt")
+            git(repo, "commit", "-qm", "move head")
+            archive = root / "archive"
+            archive.mkdir()
+            try:
+                _, tarball, _ = mod.pack(repo, archive, source_ref=receipted)
+            except TypeError as exc:
+                self.fail(f"release packer cannot bind an exact commit: {exc}")
+            archived_ref = subprocess.check_output(
+                ["tar", "-xOf", str(tarball), "SOURCE_REF"], text=True
+            ).strip()
+
+        self.assertEqual(archived_ref, receipted)
+
+    def test_public_mode_never_accepts_allow_dirty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.clone_release_checkout(Path(tmp))
+            (repo / "README.md").write_text("dirty release bytes\n", encoding="utf-8")
+            report = mod.verify(
+                repo,
+                expected_version=VERSION,
+                allow_dirty=True,
+                require_release_ref=True,
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["publishable"])
+        self.assertTrue(any("allow dirty" in error for error in report["errors"]))
+
+    def test_identity_drift_during_pack_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.clone_release_checkout(Path(tmp))
+            real_pack = mod.pack
+            calls = 0
+
+            def moving_pack(*args, **kwargs):
+                nonlocal calls
+                result = real_pack(*args, **kwargs)
+                calls += 1
+                if calls == 1:
+                    git(repo, "commit", "--allow-empty", "-qm", "move during verification")
+                return result
+
+            with mock.patch.object(mod, "pack", side_effect=moving_pack):
+                report = mod.verify(
+                    repo,
+                    expected_version=VERSION,
+                    require_release_ref=True,
+                )
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["publishable"])
+        self.assertTrue(any("changed during verification" in error for error in report["errors"]))
 
 
 if __name__ == "__main__":
