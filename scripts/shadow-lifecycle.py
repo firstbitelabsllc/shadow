@@ -25,20 +25,18 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_plan_grammar as _grammar  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
 MAX_TASK_ROWS = _board.HOT_PLAN_MAX_TASK_ROWS
 MAX_MILESTONES = _board.HOT_PLAN_MAX_MILESTONES
-ROW_RE = re.compile(
-    r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
-    r"(?P<text>.+?) (?P<id>~[0-9a-z]{4})(?P<dod> \(DoD\))?"
-    r"(?P<tail>(?: \| [a-z]+:.*)?)$"
-)
-ROW_LOOSE_RE = re.compile(r"^- \[[^\]]*\] ")
-FIELD_RE = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
-HASH_RE = re.compile(r"~[0-9a-z]{4}\b")
-PROOF_LINE_RE = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
+ROW_RE = _grammar.ROW_RE
+ROW_LOOSE_RE = _grammar.ROW_LOOSE_RE
+FIELD_RE = _grammar.FIELD_RE
+HASH_RE = _grammar.HASH_RE
+PROOF_LINE_RE = _grammar.PROOF_LINE_RE
+PROOF_CLASS_RE = _grammar.PROOF_CLASS_RE
 STAMP_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ", re.MULTILINE)
 TOMBSTONE_RE_TEMPLATE = (
     r"<!-- shadow:lifecycle:{slug}:sha256:(?P<digest>[0-9a-f]{{64}}):"
@@ -264,7 +262,7 @@ def validate_milestone(
         raise LifecycleError("milestone is not fully completed")
     for row in rows:
         proof = row["fields"].get("proof", "").strip()  # type: ignore[union-attr]
-        if re.match(r"^(?:cmd|read|gate) \S", proof) is None:
+        if PROOF_CLASS_RE.match(proof) is None:
             raise LifecycleError(f"{row['id']} has no typed proof")
 
     # Row ids are the only key the shared-receipt guard and the dependency fold
