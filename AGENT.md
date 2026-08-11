@@ -96,10 +96,14 @@ keeps the hot plan inside its versioned row, byte, and open-milestone budgets.
 
 `shadow throw` is the only public claim boundary. Under the computer-board
 lock it rereads the board and committed entity snapshot, records owner and
-return time, atomically replaces the board, commits a local Git receipt, and
-only then emits a packet. Two seats racing one checkpoint produce one winner;
-the loser is told the persisted owner. Claims never mutate `PLAN.md` and do not
-require a project remote.
+return time, atomically replaces the board, and commits a local Git receipt.
+A checkout whose current branch tracks configured `origin` also acquires the
+deterministic `refs/heads/shadow/claims/v1/<entity>/<row>` coordination lock by
+create-or-CAS before it emits a packet. The ref contains a closed public receipt
+and makes the exact PLAN commit reachable; it never contains task or proof text
+and never becomes task, proof, priority, or resume authority. With no configured
+origin upstream, claims remain local-only. Two eligible seats racing one
+checkpoint produce one winner; the loser is told the persisted owner.
 
 Fan out only bounded, path-disjoint claims with a declared independent need.
 Every handoff names allowed paths, expected return, proof, and recovery action.
@@ -107,10 +111,15 @@ Prefer named, inspectable, messageable native workers; the lead reproduces
 important proof before acceptance. A mid-flight reading is not a death
 certificate: probe the checkpoint's proof, not a process list.
 
-`shadow return --by <seat>` closes only that owner's completed, blocked, or
-explicitly handed-back claim. An overdue lease is never silently reassigned;
-another seat probes proof and uses explicit adoption. `shadow accept --by
-<seat>` requires the same owner through proof and completion.
+`shadow return --by <seat>` appends a released tombstone before it closes only
+that owner's completed, blocked, or explicitly handed-back local claim. An
+overdue lease is never silently reassigned: another seat probes proof, takes an
+exact local claim, and CAS-adopts the expired remote lock. `shadow accept --by
+<seat>` requires the same owner through proof, publishes the completed PLAN,
+appends the completed tombstone, and only then releases the local claim.
+`--no-push` retains both claims for a later publishing retry. An ambiguous Git
+outcome emits no packet and retains the exact local claim so a retry can resolve
+the same intended ref instead of manufacturing an orphan.
 
 ## Verification and release
 
