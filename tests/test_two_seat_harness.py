@@ -517,10 +517,15 @@ class LiveTwoSeatProof(unittest.TestCase):
             for call in invocations:
                 prompt = " ".join(call["argv"])
                 wrapper = prompt[prompt.index("Shared identity:"):]
-                self.assertIn("shadow status --in-flight", wrapper)
+                # The seat shim rejects any verb whose --by is absent or
+                # names another seat, so the delivered polling command must
+                # carry the bound seat or the rendezvous cannot be audited.
+                self.assertIn(f"shadow status --in-flight --by {call['seat']}", wrapper)
                 rendezvous = wrapper.index("until it shows the other seat's claim beside your own")
+                hold = wrapper.index("do not complete or accept until")
                 accept = wrapper.index("accept it")
-                self.assertLess(rendezvous, accept)
+                self.assertLess(rendezvous, hold)
+                self.assertLess(hold, accept)
 
     def test_one_seat_cannot_complete_both_rows_and_fabricate_coordination(self) -> None:
         context, root, fixture, _, _, result = self._run("one_seat")
