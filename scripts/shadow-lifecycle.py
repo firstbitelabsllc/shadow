@@ -227,15 +227,25 @@ def progress_items(lines: list[str]) -> list[tuple[int, int, str]]:
         (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
         len(lines),
     )
-    bullets = [index for index in range(start, end) if lines[index].startswith("- ")]
-    return [
-        (
-            item_start,
-            bullets[position + 1] if position + 1 < len(bullets) else end,
-            "".join(lines[item_start : bullets[position + 1] if position + 1 < len(bullets) else end]),
-        )
-        for position, item_start in enumerate(bullets)
+    # A receipt owns its bullet plus the blank and INDENTED continuation lines
+    # under it, and nothing else. Any other top-level line — the next bullet, a
+    # nested heading, a closing paragraph — starts content this receipt does not
+    # own. The last receipt is bounded the same way instead of running to the
+    # end of the section, which at EOF swallowed unrelated trailing prose into
+    # the archive and deleted it from the live plan.
+    boundaries = [
+        index
+        for index in range(start, end)
+        if lines[index].startswith("- ")
+        or (lines[index].strip() and not lines[index][:1].isspace())
     ]
+    items: list[tuple[int, int, str]] = []
+    for position, index in enumerate(boundaries):
+        if not lines[index].startswith("- "):
+            continue
+        stop = boundaries[position + 1] if position + 1 < len(boundaries) else end
+        items.append((index, stop, "".join(lines[index:stop])))
+    return items
 
 
 def validate_milestone(
@@ -257,11 +267,20 @@ def validate_milestone(
         if re.match(r"^(?:cmd|read|gate) \S", proof) is None:
             raise LifecycleError(f"{row['id']} has no typed proof")
 
-    all_ids = {
+    # Row ids are the only key the shared-receipt guard and the dependency fold
+    # have. A duplicate id makes the archiving row its own alias: `all_ids - ids`
+    # cannot see the live twin, so its receipt reads as exclusive and moves out
+    # of the plan, and fold_dependencies strips a still-live `needs:`. Refuse the
+    # whole archive while the plan is ambiguous.
+    plan_ids = [
         match.group("id")
         for line in lines
         if (match := ROW_RE.match(line.rstrip("\r\n")))
-    }
+    ]
+    duplicates = sorted({row_id for row_id in plan_ids if plan_ids.count(row_id) > 1})
+    if duplicates:
+        raise LifecycleError("plan has duplicate task ids: " + ", ".join(duplicates))
+    all_ids = set(plan_ids)
     selected = []
     shared: list[str] = []
     proven: set[str] = set()
