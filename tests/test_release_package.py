@@ -224,7 +224,12 @@ class ReleaseIdentityIsImmutable(unittest.TestCase):
 
     def clone_release_checkout(self, root: Path) -> Path:
         repo = root / "shadow"
-        subprocess.run(["git", "clone", "-q", "--no-local", str(ROOT), str(repo)], check=True)
+        # --no-tags: once the real release tag exists upstream, an inherited
+        # shadow-v<VERSION> tag would collide with the one this fixture cuts at
+        # its own HEAD, and it would point at a commit this clone never made.
+        subprocess.run(
+            ["git", "clone", "-q", "--no-local", "--no-tags", str(ROOT), str(repo)], check=True
+        )
         git(repo, "config", "user.email", "release@example.invalid")
         git(repo, "config", "user.name", "Release Test")
         git(repo, "remote", "set-url", "origin", "https://github.com/firstbitelabsllc/shadow.git")
