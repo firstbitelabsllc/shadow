@@ -65,6 +65,8 @@ class PythonResolutionTests(unittest.TestCase):
             self.skipTest("test runner itself is below the 3.10 floor")
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
             marker = root / "interpreter-used"
             shim = root / "python-shim"
             shim.write_text(
@@ -80,12 +82,13 @@ class PythonResolutionTests(unittest.TestCase):
                 "--json",
                 "--root",
                 str(root),
-                env={"SHADOW_PYTHON": str(shim)},
+                env={"HOME": str(home), "SHADOW_PYTHON": str(shim)},
             )
             used = marker.is_file()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"schema": "shadow.status.v1"', result.stdout)
         self.assertTrue(used)
+
     def test_resolution_finds_an_interpreter_when_unset(self) -> None:
         env = dict(os.environ)
         env.pop("SHADOW_PYTHON", None)
@@ -115,6 +118,8 @@ class PythonResolutionTests(unittest.TestCase):
         real_interpreter = Path(shutil.which(versioned) or versioned).resolve()
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
             bin_dir = root / "bin"
             bin_dir.mkdir()
             marker = root / "versioned-interpreter-used"
@@ -130,6 +135,7 @@ class PythonResolutionTests(unittest.TestCase):
             )
             wrapper.chmod(0o755)
             env = {
+                "HOME": str(home),
                 "PATH": f"{bin_dir}{os.pathsep}{Path(real_interpreter).parent}{os.pathsep}{os.environ.get('PATH', '')}",
                 "SHADOW_PYTHON": "",
             }
