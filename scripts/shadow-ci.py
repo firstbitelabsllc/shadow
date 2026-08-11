@@ -78,6 +78,9 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("scripts/shadow-public-ready-grep-gate.py", "scripts/shadow_scrub_lib.py", "SECURITY.md"), (
         "tests.test_public_ready_grep_gate", "tests.test_secret_scan_workflow",
     )),
+    (("scripts/shadow_telemetry.py", "docs/reference/telemetry.md"), (
+        "tests.test_telemetry", "tests.test_release_package",
+    )),
     ((".github/", "scripts/shadow-ci.py"), (
         "tests.test_verification_tiers", "tests.test_release_train",
         "tests.test_secret_scan_workflow", "tests.test_browser_shell",
@@ -96,6 +99,7 @@ RELEASE_PATHS = (
     "scripts/shadow-ci.py",
     "scripts/shadow-verify-two-seat.py",
     "scripts/shadow_process_lib.py",
+    "scripts/shadow_telemetry.py",
     ".github/workflows/ci.yml",
     "scripts/shadow-release-package.py",
     "schemas/retirement-manifest.v1.json",
