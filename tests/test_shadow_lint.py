@@ -515,6 +515,26 @@ class EverySectionLookupIsPrefixMatched(unittest.TestCase):
             self.assertTrue(lint._has_section(sections, name), name)
             self.assertEqual(lint._section(sections, name), [(1, "x")], name)
 
+    def test_suffixed_tasks_still_enforces_milestone_law(self) -> None:
+        plan = self.SUFFIXED.replace(
+            "## Tasks",
+            "## Tasks — current work",
+        ).replace(
+            "- [pending] it ships ~bb22 (DoD) | proof: read site -> renders",
+            "- [pending] first exit ~bb22 (DoD) | proof: read site -> renders\n"
+            "- [pending] second exit ~cc33 (DoD) | proof: read site -> renders",
+        )
+
+        self.assertIn("DOD-COUNT", _checks(plan))
+
+    def test_suffixed_deferred_still_requires_an_exact_wake(self) -> None:
+        plan = self.SUFFIXED.replace(
+            "## Progress",
+            "## Deferred — later\n\n- parked without a wake\n\n## Progress",
+        )
+
+        self.assertIn("DEFER-NO-WAKE", _checks(plan))
+
     def test_a_different_word_starting_with_the_name_is_not_matched(self) -> None:
         # `## Briefing` is not `## Brief`. Prefix means "name plus a space".
         self.assertFalse(lint._has_section({"Briefing": [(1, "x")]}, "Brief"))
