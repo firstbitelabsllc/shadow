@@ -147,6 +147,7 @@ authentication, model, and billing choices.
 
 - [Installation](docs/guide/installation.md) — mounts, upgrades, and host limits
 - [Quick start](docs/guide/quickstart.md) — the full claim/proof loop
+- [Use Shadow in more places](docs/guide/publishing.md) — honest ChatGPT, Codex, Claude, Cursor, Custom GPT, and MCP boundaries
 - [Commands](docs/reference/commands.md) — every verb and flag
 - [Host integration](docs/reference/host-integration.md) — cold-start behavior
 - [Native hosts](docs/reference/native-hosts.md) — sealed runs and activation
