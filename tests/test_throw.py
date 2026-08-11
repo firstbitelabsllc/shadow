@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
@@ -73,6 +74,77 @@ def run(script: Path, repo: Path, env: dict[str, str], *args: str) -> subprocess
         text=True,
         check=False,
     )
+
+
+def protected_fixture(root: Path) -> tuple[Path, Path, dict[str, str], Path]:
+    repo, home, env = fixture(root)
+    remote = root / "protected.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+    subprocess.run(["git", "-C", str(repo), "branch", "-M", "main"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", str(remote)], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "-qu", "origin", "main"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"],
+        check=True,
+    )
+    hook = remote / "hooks" / "pre-receive"
+    hook.write_text(
+        "#!/bin/sh\n"
+        "while read old new ref; do\n"
+        "  if [ \"$ref\" = refs/heads/main ]; then\n"
+        "    echo protected trunk >&2\n"
+        "    exit 1\n"
+        "  fi\n"
+        "done\n",
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    fake_gh = root / "fake-gh.py"
+    fake_gh.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args[:2] == ['pr', 'create']:\n"
+        "    if os.environ.get('FAKE_GH_MODE') == 'ok':\n"
+        "        state = {'head': args[args.index('--head') + 1], 'base': args[args.index('--base') + 1]}\n"
+        "        open(os.environ['FAKE_GH_STATE'], 'w').write(json.dumps(state))\n"
+        "        if os.environ.get('FAKE_ADVANCE_TRUNK') == '1' and not os.path.exists(os.environ['FAKE_GH_STATE'] + '.advanced'):\n"
+        "            remote = os.environ['FAKE_REMOTE']\n"
+        "            base = subprocess.run(['git', '--git-dir', remote, 'rev-parse', 'refs/heads/main'], capture_output=True, text=True, check=True).stdout.strip()\n"
+        "            tree = subprocess.run(['git', '--git-dir', remote, 'rev-parse', base + '^{tree}'], capture_output=True, text=True, check=True).stdout.strip()\n"
+        "            env = {**os.environ, 'GIT_AUTHOR_NAME': 'test', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 'test', 'GIT_COMMITTER_EMAIL': 't@t'}\n"
+        "            moved = subprocess.run(['git', '--git-dir', remote, 'commit-tree', tree, '-p', base], input='move trunk\\n', capture_output=True, text=True, check=True, env=env).stdout.strip()\n"
+        "            subprocess.run(['git', '--git-dir', remote, 'update-ref', 'refs/heads/main', moved, base], check=True)\n"
+        "            open(os.environ['FAKE_GH_STATE'] + '.advanced', 'w').write(moved)\n"
+        "    print('https://example.invalid/pr/1')\n"
+        "    raise SystemExit(0)\n"
+        "if args[:2] == ['pr', 'list']:\n"
+        "    if os.environ.get('FAKE_GH_MODE') != 'ok' or not os.path.exists(os.environ['FAKE_GH_STATE']):\n"
+        "        print('[]')\n"
+        "        raise SystemExit(0)\n"
+        "    state = json.loads(open(os.environ['FAKE_GH_STATE']).read())\n"
+        "    head = state['head']\n"
+        "    found = subprocess.run(['git', 'ls-remote', os.environ['FAKE_REMOTE'], 'refs/heads/' + head], capture_output=True, text=True, check=True).stdout.strip()\n"
+        "    sha = found.split()[0]\n"
+        "    print(json.dumps([{'number': 1, 'headRefName': head, 'headRefOid': sha, 'baseRefName': state['base'], 'isDraft': True, 'url': 'https://example.invalid/pr/1'}]))\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    fake_gh.chmod(0o755)
+    env.update(
+        {
+            "SHADOW_GH": str(fake_gh),
+            "SHADOW_GITHUB_REPO": "example/demo",
+            "FAKE_REMOTE": str(remote),
+            "FAKE_GH_STATE": str(root / "fake-pr-state.json"),
+        }
+    )
+    return repo, home, env, remote
 
 
 class ThrowRefusesAmbiguousWork(unittest.TestCase):
@@ -1136,11 +1208,394 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
             self.assertEqual(refs, ["refs/heads/main"])
 
+    def test_verified_draft_pr_precedes_goal_and_caller_checkout_never_moves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env, remote = protected_fixture(Path(tmp))
+            env["FAKE_GH_MODE"] = "ok"
+            plan_before = (repo / "PLAN.md").read_bytes()
+            index_before = subprocess.run(
+                ["git", "-C", str(repo), "write-tree"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            head_before = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "-C", str(repo), "switch", "-qc", "feature-work"], check=True
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "push", "-qu", "origin", "feature-work"],
+                check=True,
+            )
+            branch_before = "feature-work"
+            tree = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD^{tree}"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            candidate = subprocess.run(
+                ["git", "-C", str(repo), "commit-tree", tree, "-p", head_before],
+                input="protected trunk probe\n",
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            rejected = subprocess.run(
+                ["git", "-C", str(repo), "push", "origin", f"{candidate}:main"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("protected trunk", rejected.stderr)
+
+            result = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-a",
+                "--cross-computer",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal demo", result.stdout)
+            self.assertIn("remote claim verified in draft PR", result.stderr)
+            pr_state = json.loads(Path(env["FAKE_GH_STATE"]).read_text())
+            self.assertEqual(pr_state["base"], "main")
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual([(c["row"], c["owner"]) for c in payload["claims"]], [("~bb22", "seat-a")])
+            refs = subprocess.run(
+                ["git", "ls-remote", str(remote), "refs/heads/shadow/claim/*"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(len(refs), 1)
+            claim_sha, claim_ref = refs[0].split()
+            self.assertTrue(claim_ref.startswith("refs/heads/shadow/claim/"))
+            claim_parent = subprocess.run(
+                ["git", "--git-dir", str(remote), "rev-parse", f"{claim_sha}^"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            remote_main = subprocess.run(
+                ["git", "--git-dir", str(remote), "rev-parse", "refs/heads/main"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(claim_parent, remote_main)
+            receipt = subprocess.run(
+                ["git", "-C", str(repo), "show", f"{claim_sha}:PLAN.md"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertEqual(receipt.count("THROWN ~bb22"), 1)
+            self.assertIn("transport: shadow-draft-pr-v1", receipt)
+            self.assertEqual((repo / "PLAN.md").read_bytes(), plan_before)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "write-tree"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                index_before,
+            )
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                head_before,
+            )
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "branch", "--show-current"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                branch_before,
+            )
+
+    def test_claim_rebases_if_trunk_moves_after_pr_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _, env, remote = protected_fixture(Path(tmp))
+            env.update({"FAKE_GH_MODE": "ok", "FAKE_ADVANCE_TRUNK": "1"})
+            result = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-a",
+                "--cross-computer",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            ref_line = subprocess.run(
+                ["git", "ls-remote", str(remote), "refs/heads/shadow/claim/*"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            claim_sha = ref_line.split()[0]
+            claim_parent = subprocess.run(
+                ["git", "--git-dir", str(remote), "rev-parse", f"{claim_sha}^"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            main = subprocess.run(
+                ["git", "--git-dir", str(remote), "rev-parse", "refs/heads/main"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(claim_parent, main)
+
+    def test_create_only_lease_rejects_a_ref_inserted_after_the_absent_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, home, env, remote = protected_fixture(root)
+            real_git = subprocess.run(
+                ["which", "git"], capture_output=True, text=True, check=True
+            ).stdout.strip()
+            wrapper = root / "race-git.py"
+            wrapper.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, subprocess, sys\n"
+                "args = sys.argv[1:]\n"
+                "target = next((a for a in args if ':refs/heads/shadow/claim/' in a), None)\n"
+                "mark = os.environ['FAKE_GH_STATE'] + '.cas-inserted'\n"
+                "if 'push' in args and target and not os.path.exists(mark):\n"
+                "    ref = target.split(':', 1)[1]\n"
+                "    base = subprocess.run([os.environ['REAL_GIT'], '--git-dir', os.environ['FAKE_REMOTE'], 'rev-parse', 'refs/heads/main'], capture_output=True, text=True, check=True).stdout.strip()\n"
+                "    subprocess.run([os.environ['REAL_GIT'], '--git-dir', os.environ['FAKE_REMOTE'], 'update-ref', ref, base], check=True)\n"
+                "    open(mark, 'w').write(base)\n"
+                "result = subprocess.run([os.environ['REAL_GIT'], *args])\n"
+                "raise SystemExit(result.returncode)\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+            env.update(
+                {
+                    "FAKE_GH_MODE": "ok",
+                    "REAL_GIT": real_git,
+                    "SHADOW_GIT": str(wrapper),
+                }
+            )
+            result = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-a",
+                "--cross-computer",
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("another computer won", result.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+
+    def test_two_computers_get_one_remote_winner_and_only_that_seat_gets_a_goal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, _, base_env, remote = protected_fixture(root)
+            base_env["FAKE_GH_MODE"] = "ok"
+            seats: list[tuple[Path, dict[str, str], str]] = []
+            for name in ("seat-a", "seat-b"):
+                clone = root / f"clone-{name}"
+                home = root / f"home-{name}"
+                home.mkdir()
+                subprocess.run(["git", "clone", "-q", str(remote), str(clone)], check=True)
+                subprocess.run(
+                    ["git", "-C", str(clone), "config", "user.email", "t@t"], check=True
+                )
+                subprocess.run(
+                    ["git", "-C", str(clone), "config", "user.name", "t"], check=True
+                )
+                seats.append((clone, {**base_env, "HOME": str(home)}, name))
+
+            def claim(packet: tuple[Path, dict[str, str], str]) -> subprocess.CompletedProcess[str]:
+                clone, env, name = packet
+                return run(
+                    THROW,
+                    clone,
+                    env,
+                    "--task",
+                    "~bb22",
+                    "--by",
+                    name,
+                    "--cross-computer",
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(claim, seats))
+
+            self.assertEqual(sorted(result.returncode for result in results), [0, 1])
+            self.assertEqual(sum("/goal demo" in result.stdout for result in results), 1)
+            self.assertEqual(sum(result.stdout == "" for result in results), 1)
+            refs = subprocess.run(
+                ["git", "ls-remote", str(remote), "refs/heads/shadow/claim/*"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(len(refs), 1)
+            for result, (_, env, _) in zip(results, seats):
+                payload = json.loads(
+                    (Path(env["HOME"]) / ".shadow" / "board.json").read_text()
+                )
+                self.assertEqual(len(payload["claims"]), int(result.returncode == 0))
+
 
 class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
     git = AProtectedTrunkStillTakesAClaim.git
     protected_fixture = AProtectedTrunkStillTakesAClaim.protected_fixture
     throw_process = AProtectedTrunkStillTakesAClaim.throw_process
+
+    def test_branch_without_matching_open_pr_emits_no_goal_and_retry_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env, remote = protected_fixture(Path(tmp))
+            env["FAKE_GH_MODE"] = "missing"
+            first = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-a",
+                "--cross-computer",
+            )
+            self.assertEqual(first.returncode, 1)
+            self.assertEqual(first.stdout, "")
+            self.assertIn("local claim is recoverable", first.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+            before = subprocess.run(
+                ["git", "ls-remote", str(remote), "refs/heads/shadow/claim/*"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(len(before), 1)
+
+            old_main = subprocess.run(
+                ["git", "--git-dir", str(remote), "rev-parse", "refs/heads/main"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            advance = Path(tmp) / "advance-plan"
+            subprocess.run(["git", "clone", "-q", str(remote), str(advance)], check=True)
+            subprocess.run(
+                ["git", "-C", str(advance), "config", "user.email", "t@t"], check=True
+            )
+            subprocess.run(
+                ["git", "-C", str(advance), "config", "user.name", "t"], check=True
+            )
+            advanced_plan = advance / "PLAN.md"
+            advanced_plan.write_text(
+                advanced_plan.read_text(encoding="utf-8").replace(
+                    "[completed] groundwork ~aa11",
+                    "[completed] groundwork receipt clarified ~aa11",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["git", "-C", str(advance), "commit", "-qam", "advance another row"],
+                check=True,
+            )
+            new_main = subprocess.run(
+                ["git", "-C", str(advance), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(advance),
+                    "push",
+                    "-q",
+                    "origin",
+                    "HEAD:refs/heads/advance-plan",
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "--git-dir",
+                    str(remote),
+                    "update-ref",
+                    "refs/heads/main",
+                    new_main,
+                    old_main,
+                ],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "--git-dir", str(remote), "update-ref", "-d", "refs/heads/advance-plan"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "fetch", "-q", "origin", "main"], check=True
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "merge", "-q", "--ff-only", "origin/main"],
+                check=True,
+            )
+
+            env["FAKE_GH_MODE"] = "ok"
+            retry = run(
+                THROW,
+                repo,
+                env,
+                "--task",
+                "~bb22",
+                "--by",
+                "seat-a",
+                "--cross-computer",
+            )
+            self.assertEqual(retry.returncode, 0, retry.stderr)
+            self.assertIn("/goal demo", retry.stdout)
+            after = subprocess.run(
+                ["git", "ls-remote", str(remote), "refs/heads/shadow/claim/*"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(len(after), 1)
+            self.assertNotEqual(after, before)
+            claim_sha = after[0].split()[0]
+            parent = subprocess.run(
+                ["git", "--git-dir", str(remote), "rev-parse", f"{claim_sha}^"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(parent, new_main)
 
     def test_an_ordinary_status_and_throw_find_only_the_protocol_claim(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

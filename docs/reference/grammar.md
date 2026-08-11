@@ -211,6 +211,21 @@ repositories whose ruleset blocks the coordination namespace fail closed and
 emit no packet. Granting this narrow ref permission grants no permission to
 update the tracked branch and does not make the ref a project queue.
 
+**Discovery is a separate, explicit step.** The coordination ref above decides
+who may work a row, but a second computer only finds that decision if it knows
+to look at the ref. `shadow throw --cross-computer` is the explicit fleet form
+for a GitHub-backed entity: after the local transaction and the remote
+coordination CAS, it derives one isolated commit from the exact remote-trunk
+PLAN object, pushes one deterministic create-only claim branch, opens or reuses
+one draft pull request, and reads back that the PR is open, draft, targets the
+trunk, and names the exact claim commit. Only then may it emit the goal. The
+caller's PLAN bytes, index, branch, and HEAD never move. A branch without that
+PR readback is recoverable residue, not a remotely reachable dispatch, and
+emits no goal; a lost create-only branch race releases both the remote
+coordination ref and the exact local claim. The PR transports the PLAN receipt;
+it does not become another task or claim authority. Ordinary throws do not pay
+that publication cost.
+
 Historical `THROWN` lines, if present in an imported plan, are provenance only
 and never own live claims or resume selection. Each logical entity consumes
 that historical ownership at most once when it first enters the board.

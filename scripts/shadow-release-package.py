@@ -50,6 +50,7 @@ REQUIRED_FILES = {
     "scripts/shadow-amp.py",
     "scripts/shadow-throw.py",
     "scripts/shadow_remote_claim.py",
+    "scripts/shadow_remote_publish.py",
     "scripts/shadow-return.py",
     "scripts/shadow-priority.py",
     "scripts/shadow-lifecycle.py",

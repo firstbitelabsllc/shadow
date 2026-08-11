@@ -29,6 +29,7 @@ _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_remote_claim as _remote  # noqa: E402
+import shadow_remote_publish as _publish  # noqa: E402
 import shadow_telemetry as _telemetry  # noqa: E402
 
 
@@ -66,7 +67,9 @@ def _repo_for(plan_path: Path) -> Path:
     return Path(top.stdout.strip()).resolve() if top.returncode == 0 else plan_path.parent
 
 
-def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str, str]]:
+def _validated_target(
+    plan_path: Path, task: str
+) -> tuple[Path, dict, dict[str, str], str]:
     """Read one exact project authority and reject an unsafe/untakeable row."""
     repo = _repo_for(plan_path)
     relative = str(plan_path.relative_to(repo)) if plan_path.is_relative_to(repo) else plan_path.name
@@ -109,7 +112,7 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
     plan["authority_pointer"] = (
         f"{token['relative']} @ {token['head']} in {public_repo}"
     )
-    return repo, plan, token
+    return repo, plan, token, text
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -131,6 +134,11 @@ def main(argv: list[str] | None = None) -> int:
         "--adopt-expired",
         action="store_true",
         help="after probing proof, atomically replace an overdue owner claim",
+    )
+    parser.add_argument(
+        "--cross-computer",
+        action="store_true",
+        help="publish a deterministic claim branch and verified draft PR before emitting the goal",
     )
     args = parser.parse_args(argv)
 
@@ -186,11 +194,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         with _board.project_lock(plan_path):
-            repo, plan, plan_token = _validated_target(plan_path, args.task)
-            observed_token, plan_bytes = _board.committed_plan_snapshot(plan_path)
+            repo, plan, plan_token, plan_text = _validated_target(plan_path, args.task)
+            observed_token, _ = _board.committed_plan_snapshot(plan_path)
             if observed_token != plan_token:
                 raise _board.BoardError("project plan changed before the claim committed; retry")
-            plan_text = plan_bytes.decode("utf-8")
             if _remote.uses_origin_upstream(repo) and not _remote.public_safe_plan_token(
                 plan_token
             ):
@@ -229,15 +236,37 @@ def main(argv: list[str] | None = None) -> int:
             # write may advance this preview; the claimed block is rebuilt below
             # from the transaction's actual revision.
             block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
-            receipt = _board.claim(
-                plan_path,
-                args.task,
-                args.by,
-                project=plan["brief"]["Project"],
-                priority=_priority(plan),
-                adopt_expired=args.adopt_expired,
-                expected_plan=plan_token,
-            )
+            try:
+                receipt = _board.claim(
+                    plan_path,
+                    args.task,
+                    args.by,
+                    project=plan["brief"]["Project"],
+                    priority=_priority(plan),
+                    adopt_expired=args.adopt_expired,
+                    expected_plan=plan_token,
+                )
+            except _board.AlreadyClaimed as exc:
+                if not args.cross_computer or exc.owner != args.by:
+                    raise
+                resumed = _board.entity_state(plan_path)
+                if resumed is None or resumed["entity"] is None:
+                    raise _board.BoardError("owned local claim could not be resumed")
+                owned = next(
+                    (
+                        item
+                        for item in resumed["claims"]
+                        if item["row"] == args.task and item["owner"] == args.by
+                    ),
+                    None,
+                )
+                if owned is None:
+                    raise _board.BoardError("owned local claim changed before remote retry")
+                receipt = {
+                    "payload": _board.snapshot(),
+                    "entity": resumed["entity"],
+                    "claim": owned,
+                }
             payload = receipt["payload"]
             claimed = receipt["claim"]
             entity = receipt["entity"]
@@ -302,6 +331,65 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             if remote is not None:
                 print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+            if args.cross_computer:
+                # The mutex above decides who may work the row; this publishes
+                # that decision where a second computer can find it.
+                located = _row_line(plan_text, args.task)
+                if located is None:
+                    raise _board.BoardError("claimed row disappeared before remote publication")
+                try:
+                    remote_receipt = _publish.publish(
+                        repo,
+                        plan_token=plan_token,
+                        plan_text=plan_text,
+                        row=args.task,
+                        row_text=located[1].group("text"),
+                        owner=args.by,
+                        entity=entity["id"],
+                        claimed_at=claimed["claimed_at"],
+                        return_by=claimed["return_by"],
+                    )
+                except _publish.RemoteClaimConflict as exc:
+                    _remote.transition(
+                        repo,
+                        entity=entity["id"],
+                        row=args.task,
+                        owner=args.by,
+                        project=project["id"],
+                        plan_token=plan_token,
+                        claim=claimed,
+                        state="released",
+                        reason="handback",
+                    )
+                    _board.release(
+                        plan_path,
+                        args.task,
+                        resumes=_amp._candidate_ids(plan),
+                        owner=args.by,
+                        reason="handback",
+                        expected_plan=plan_token,
+                        expected_text=plan_text,
+                        expected_claim=claimed,
+                    )
+                    raise _board.BoardError(str(exc)) from exc
+                except _publish.RemoteClaimError as exc:
+                    # No goal was printed, so no work started: give the
+                    # coordination ref back or this seat's own lock would
+                    # refuse its recoverable retry.
+                    _remote.transition(
+                        repo,
+                        entity=entity["id"],
+                        row=args.task,
+                        owner=args.by,
+                        project=project["id"],
+                        plan_token=plan_token,
+                        claim=claimed,
+                        state="released",
+                        reason="handback",
+                    )
+                    raise _board.BoardError(
+                        f"local claim is recoverable but cross-computer publication failed: {exc}"
+                    ) from exc
     except _board.AlreadyClaimed as exc:
         print(
             f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",
@@ -340,6 +428,11 @@ def main(argv: list[str] | None = None) -> int:
         f"[throw] {args.task} claimed by {args.by} on this computer; {count} claim(s) visible to every local seat",
         file=sys.stderr,
     )
+    if args.cross_computer:
+        print(
+            f"[throw] remote claim verified in draft PR {remote_receipt['pr']['url']}",
+            file=sys.stderr,
+        )
     if count >= BUSY_THRESHOLD:
         print(
             f"[throw] {count} claims are open; land or park work before taking more",

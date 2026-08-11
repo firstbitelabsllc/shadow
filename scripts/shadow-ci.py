@@ -47,7 +47,11 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_throw",
     )),
     (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_throw", "tests.test_status_focus")),
-    (("scripts/shadow-throw.py", "scripts/shadow_remote_claim.py"), (
+    ((
+        "scripts/shadow-throw.py",
+        "scripts/shadow_remote_claim.py",
+        "scripts/shadow_remote_publish.py",
+    ), (
         "tests.test_throw", "tests.test_root_board", "tests.test_gauntlet",
         "tests.test_telemetry", "tests.test_return", "tests.test_shadow_accept",
     )),
@@ -105,6 +109,7 @@ RELEASE_PATHS = (
     "scripts/shadow_process_lib.py",
     "scripts/shadow_telemetry.py",
     "scripts/shadow_remote_claim.py",
+    "scripts/shadow_remote_publish.py",
     ".github/workflows/ci.yml",
     "scripts/shadow-release-package.py",
     "schemas/retirement-manifest.v1.json",

@@ -106,6 +106,9 @@ class ReleasePackageTests(unittest.TestCase):
     def test_remote_claim_transport_ships_with_throw(self) -> None:
         self.assertIn("scripts/shadow_remote_claim.py", mod.REQUIRED_FILES)
 
+    def test_cross_computer_claim_transport_ships_with_throw(self) -> None:
+        self.assertIn("scripts/shadow_remote_publish.py", mod.REQUIRED_FILES)
+
     def test_local_event_vocabulary_ships_without_a_transport(self) -> None:
         self.assertIn("scripts/shadow_telemetry.py", mod.REQUIRED_FILES)
         self.assertIn("docs/reference/telemetry.md", mod.REQUIRED_FILES)
