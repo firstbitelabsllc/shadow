@@ -87,16 +87,20 @@ ambiguous result retains that claim for the same-seat retry.
 ## Install once
 
 ```bash
-git clone https://github.com/firstbitelabsllc/shadow.git
+git clone --branch shadow-v1.0.0 --depth 1 \
+  https://github.com/firstbitelabsllc/shadow.git
 cd shadow
 bash install.sh
 shadow doctor
 ```
 
 Requirements are Git, Bash, Python 3.10+, and a supported native host. There is
-no Node, npm, database, daemon, or transcript store. The clone is the install;
-`git pull` updates it. `install.sh` mounts the same checkout into the host
-skill roots and writes Shadow's managed standing-goal block into Claude Code
+no Node, npm, database, daemon, or transcript store. The namespaced tag is the
+immutable stable release, and the clone is the install. To update, read GitHub
+Latest, fetch tags, check out that exact `shadow-v*` tag, and rerun
+`install.sh`. Contributors who intentionally want moving development source may
+clone `main` instead. `install.sh` mounts the same checkout into the host skill
+roots and writes Shadow's managed standing-goal block into Claude Code
 and Codex instruction files. Cursor's skill mount and sealed host runner are
 supported, but file-backed cold directive activation is deliberately
 unsupported until Cursor exposes a reviewed user-rule surface.
