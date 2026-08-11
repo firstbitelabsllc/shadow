@@ -14,17 +14,9 @@ sections that stood here until 2026-08-09 are archived at
 
 ## Tasks
 
-### M1 — Method encoded
-- [completed] AGENT.md encodes the core, gate, and steering ~m3k7 | proof: read AGENT.md carries ## The core, ## Folded behavior, ## The proxy stance
-- [completed] method.md contract lands with contract tests ~q8f2 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_grammar_contract | needs: ~m3k7
-- [completed] the Method rides the installed mounts ~w5d9 (DoD) | proof: read shadow doctor -> 11/11 with AGENT.md at root | needs: ~q8f2
+- Archived milestone: [m1-method-encoded](docs/plan-archive/m1-method-encoded.md) <!-- shadow:lifecycle:m1-method-encoded:sha256:4f49331f3d7d6685df21780b6e9c294f590db16333f8f90c7cb13bfb45e74c63:cas:2d11bf680d3804b04900f6e25c946e11b9025f6801aac86951eb4ea7d393f357:head:df367d8bd8f2dbb5db9b614a9a9d2dd7c9fbfff7:blob:2fb49fdd4199e0be515ca4398939446a0e40e5cd:successor:~gsrc -->
 
-### M2 — Board live
-- [completed] scanner serves gated entity/mode/milestone/checkpoint counts ~t2b8 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_status_focus
-- [completed] read-only board view on desktop and phone ~j6n4 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_browser_shell | needs: ~t2b8
-- [completed] full gate matrix green and v3.0.x released ~r9c3 (DoD) | proof: cmd npm run verify | needs: ~j6n4
-
-- Archived milestone: [m3-v4-core](docs/plan-archive/m3-v4-core.md) <!-- shadow:lifecycle:m3-v4-core:sha256:c3de76e0f5eb235331c4a255bce55339d51c6c37a27f32bfa6a1d74d615cf1c1:cas:26447780540ee0c0526d277c322548b1b69d5da4661470c0f62f3d3cbe286a49:head:b719ea4418bb23272aeefc9d69eb50ad57efb166:blob:2e1a8c8853fc67c84b795bb56cf8caf23f728e29:successor:~disc -->
+- Archived milestone: [m2-board-live](docs/plan-archive/m2-board-live.md) <!-- shadow:lifecycle:m2-board-live:sha256:8a0b16386fe6d2c7f697d358dd6c2104e3633595e3f5351795097baee0a026de:cas:ce84f5115fe9381a4336f0d90bab786783b0e88c59ba84be134762fa7e04b766:head:ed976754cd461a449b56f529c9d38e4b17e77384:blob:bcd0484468f882f35ba01f58cba3ca51e19af6e3:successor:~gsrc -->
 
 ### M4 — Amp: the goal is a pointer
 - tools: goal skill, amp docs, Python
@@ -246,7 +238,7 @@ sections that stood here until 2026-08-09 are archived at
 - ~outp observes Snowcubes but never implements or copies its queue | wake: Snowcubes' merged M6 history records the accepted real-input chain plus one concrete M7 successor, and the computer-board history records the matching claim, release, empty orphan set, and resume at that successor
 - the 17-agent trust audit is dispositioned: the release-train wake fired 2026-08-11, the transcript stayed unreachable, and the sweep re-ran against origin/main 93fb6a7 -- grammar duplication REPRODUCES (~gsrc), VERSION grammar REPRODUCES worse than claimed (~vgra), host-receipt collision REPRODUCES fail-closed (~hrcx), atomic-write residuals REPRODUCE in three sibling files (~atwr), packaging globs ALREADY-FIXED (git archive + export-ignore, verified empirically; dev artifacts ship by design), loose-modes and missing-unlink-guards exist nowhere | the accessibility half was not covered by this sweep | wake: the accessibility check runs on the next release train
 - a session-start portfolio brief: a fresh session opens already knowing every project's state, mode, and next move, without being asked | `shadow status` plus the standing goal already gets a cold session to the board, so this is polish on a solved problem | wake: a product cycle names cold-start friction in its own plan
-- harden the sealed-lane argv: `claude --setting-sources user --allowedTools`, `cursor --sandbox enabled` | the flags are verified present in the installed CLIs, but lane behavior under them is unverified and `shadow host run` has never been exercised against a live host | wake: the first real delegated host run
+- harden the sealed-lane argv for claude-code and cursor | `shadow host run` is now proven against a LIVE host: 2026-08-11 codex ran a bounded task end to end (30.6s, host_exit_code 0, changed only the one allowed path, emitted a valid shadow.host-receipt.v1 whose test the lead reproduced green), after the transport fail-closed FOUR times first on distinct guards (identifier_invalid, output_unsafe, worktree_unsealed twice) without ever invoking the host. claude-code and cursor share that code path but were not exercised | wake: the first live delegated run through claude-code or cursor
 - native structured receipts via `codex --output-schema` and `claude --json-schema` | text-scraping the receipt works today and a schema is only better when the scrape breaks | wake: a receipt-shape scrape failure actually occurs
 - packaging pass: fold `shadow-outcome-validate` into tests, fold `shadow_task_lib` into `shadow-host`, delete the unread `schemas/*.json` | shipped surface with no runtime callers, and the schemas are entangled with the browser decision the owner still owns | wake: the browser A/B/C ruling lands, or the next release train
 - six repositories need one `- Plans:` line each before their nested plans return to the board | the Shadow-side rule shipped, but a declaration is a per-repo edit and those repos have their own gates | wake: someone opens one of trysnowcubes-web, ai-leo, leojkwan, resplit-web, ai, or resplit-currency-api and adds its line -- trysnowcubes-web `ai/plans/*/PLAN.md`; ai-leo `plans/*/PLAN.md, vidux/*/PLAN.md, skills/*/PLAN.md`; leojkwan `vidux/**/PLAN.md`; resplit-web, ai, resplit-currency-api `vidux/*/PLAN.md`
@@ -398,43 +390,10 @@ sections that stood here until 2026-08-09 are archived at
   into the spec, then operator review gates any implementation. The spec
   changes no shipped behavior.
 
-- 2026-08-06T04:05:00Z CONTRADICTION recorded: C3~w5d9 was flipped completed
-  on a proof (doctor) that verified mounts but not content — AGENT.md was
-  never in the npm files list, so v3.0.0 installs carried no standing-behavior
-  file. Found by the Round 1 stress adversary. Row demoted to in_progress;
-  v3.0.1 ships the file, doctor now requires it, and a contract test pins the
-  files entry. Re-flip only after reinstall + doctor on the operator machine.
-
-- 2026-08-05T23:05:00Z M1 REPORTION seat=chief — tagged C3~w5d9 as M1's (DoD)
-  row; M1 shipped without one, which its own PLAN-LINT (pass E, milestone
-  shape) flags. Trigger: first lint of this plan under the released grammar.
-- 2026-08-05T23:05:00Z ~w5d9 PROOF seat=chief out=`pilot-puppy doctor` -> 11/11
-  on installed v2.3.2 (mounts resolve to the release package).
-- 2026-08-05T23:05:00Z ~w5d9 DONE seat=chief
-- 2026-08-05T23:05:00Z ~r9c3 PROOF seat=chief out=PRs #247/#248/#249 squash-merged
-  with hosted checks 11 pass / 1 skip each; releases v2.3.0
-  (`6a25eb51…45e2bc`), v2.3.1 (`893e75fe…c0ffd2`), v2.3.2 (`fdc0876d…32be92`)
-  public; full local matrix Python 180/180, Playwright 10/10, vitest 4/4,
-  docs, privacy 0 findings.
-- 2026-08-05T23:05:00Z ~r9c3 DONE seat=chief
-- DOD d1 The Method encoded and installable | C: ~m3k7,~q8f2,~w5d9 | proof: `python3 -m unittest tests.test_method_contract` -> 4/4 + doctor 11/11 on v2.3.2 | status: Verified
-- DOD d2 Board live, read-only, both viewports | C: ~t2b8,~j6n4 | proof: `npm run test:e2e` -> 10/10 incl. zero-write and shell-hidden assertions | status: Verified
 - LESSON folded into docs/reference/method.md and CHANGELOG through v2.3.2:
   worktree pools must be pruned from discovery, and hidden-attribute views
   need explicit display guards — both found by real dogfood, both now pinned
   by regression tests. No further standing-knowledge delta.
-
-- 2026-08-05T21:30:00Z ~m3k7 ~q8f2 ~t2b8 ~j6n4 DONE seat=chief — Method v1
-  build slice from fresh `main@1ed58392`: AGENT.md, docs/reference/method.md,
-  SKILL.md Method section, 4 contract tests, board scanner (3 TDD tests), and
-  the read-only board view (2 e2e specs, desktop+phone). Steal-spec research
-  grounded in source reads of beads (hash IDs, ready predicate), ralph
-  (one-item loops, AGENT.md content law), spec-kit (analyze lint passes),
-  liatrio (DoD coverage matrix), superpowers (skill enforcement), and OpenSpec
-  (lesson-delta archive). Proofs on this head: contract tests 4/4, browser
-  unittest 20/20, playwright 10/10, docs build, privacy scan ok. 'huncho'
-  verified as plastic-labs/honcho — a Postgres+deriver second store; adopt its
-  hook *pattern* only, not the store.
 
 - 2026-08-05T06:20:00Z: R11 is merged, released, installed, and re-proven.
   PR #245 squash-merged to `main@7fd88682` with hosted CI, CodeQL (three
@@ -1555,10 +1514,6 @@ sections that stood here until 2026-08-09 are archived at
 
 - 2026-08-09T00:30:00Z LESSON `shadow accept` runs a cmd proof through shlex.split with NO shell, so a proof containing `&&`, `$(...)`, or a redirect is not a compound command -- the operators arrive as literal arguments to the first binary. This milestone's own DoD proof was written as `bash install.sh ... && shadow --version` and could never have passed: install.sh would have received `&&` as an unknown argument. It was also a false green by construction, since printing a version asserts nothing about it. Rewritten as one `bash -c '...'` token that clones origin/main, installs, and hard-asserts `test "$v" = 0.1.0` plus a doctor run. Verified failing today against main at 4.1.0 (rc=1, "installed 4.1.0"), which is what makes it a gate rather than a printout: a proof that cannot fail before the work is done is not proof. | trigger: reading shadow-accept.py:157 while checking whether my own DoD row was runnable
 
-- 2026-08-09T00:35:00Z ~m3k7 PROOF re-observed: AGENT.md carries ## The core, ## Folded behavior -- one sentence each, ## The proxy stance, ## Appendix. Its npm-era proof `npm run docs:build` retired with npm on 2026-08-09; this row's class changed cmd -> read because the docs build no longer exists and the claim was always about file content. (read)
-- 2026-08-09T00:36:00Z ~q8f2 PROOF scripts/shadow-python.sh -m unittest tests.test_grammar_contract -> Ran 6 tests, OK. Replaces the retired `npm run test:py`; same contract, existing runner. (cmd)
-- 2026-08-09T00:37:00Z ~t2b8 PROOF scripts/shadow-python.sh -m unittest tests.test_status_focus -> Ran 20 tests, OK. Replaces the retired `npm run test:py`. (cmd)
-- 2026-08-09T00:38:00Z ~j6n4 PROOF scripts/shadow-python.sh -m unittest tests.test_browser_shell -> Ran 7 tests, OK. Replaces `npm run test:e2e`, whose playwright board suite was deleted with npm; test_browser_shell ports its four source-contract assertions verbatim. (cmd)
 - 2026-08-09T00:40:00Z STRUCT lint gained COMPLETED-NO-PROOF (blocking): a [completed] row must name a "<ts> <id> PROOF ..." line in ## Progress. Why now: a 5-agent 0.1.0 audit proved the product's central claim false -- in a fresh `shadow init` tree a row hand-flipped to [completed] with zero PROOF lines linted "clean" rc=0, and status then said "every task complete; mint the successor". AGENT.md:4, grammar.md:5 and :58, and README property 3 all named lint as that enforcer; lint checked shape, never truth. Contradicts: nothing -- it makes four documents honest. It immediately caught four of this plan's own rows whose npm-era proof commands died with npm; each was re-pointed at a command that exists and re-run today rather than given a fabricated receipt. One test fixture faked completion by string-replacing states without adding proofs, the same shortcut a careless operator takes; it now carries receipts.
 
 - 2026-08-09T05:04:48Z THROWN ~rsch the five open design questions are answered from evidence, not preference: how a tool safely owns a block in someone's CLAUDE.md, what Cursor's real user-rule surface is, where plans actually live on this machine, how an optional method pack is declared a dependency, and what Langfuse puts on the wire | note: five named agents: host-directive injection, Cursor surface, plan locations on this machine, dependency declaration, Langfuse wire shape
@@ -1750,3 +1705,8 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-11T21:05:24Z AUDIT ~tdch top-down adversarial challenge at HEAD 0c4e556: six read-only adversaries and a judge; attack sets, survived lists, and evidence live in the owner's local Langfuse (shadow-topdown-challenge, trace a212e481eea85e49cc06dda8a876b503). VERDICT: zero launch blockers, five surfaces clean; nothing gates shadow-v1.0.0. Rows minted: ~lgrf, ~bpth (real), ~ldup, ~rmot, ~hscr (latent); ~hrcx re-confirmed; one folds into ~gsrc; parity claim REFUTED; two NON-ISSUE. All fail-closed, loopback-local, or inside the repo trust boundary.
 - 2026-08-11T21:05:24Z ~tdch PROOF read the AUDIT above names each surface, the verdict, every minted row, and its Langfuse trace -> pass (forced form)
 - 2026-08-11T21:25:30Z ~gskl PROOF scripts/shadow-python.sh -m unittest tests.test_grammar_contract -> pass (accept)
+
+- 2026-08-11T21:25:30Z STRUCT archived milestone m1-method-encoded | successor: M4 — Amp: the goal is a pointer | trigger: proven lifecycle compaction
+
+- 2026-08-11T21:25:30Z STRUCT archived milestone m2-board-live | successor: M4 — Amp: the goal is a pointer | trigger: proven lifecycle compaction
+- 2026-08-11T21:47:11Z EVIDENCE the delegation transport works against a live host, and its guards work first. `shadow host run --host codex` was exercised for the first time ever on a real host: four fail-closed refusals (bad task-id shape, --out outside .shadow/evidence, ignored files unsealing the worktree twice -- including __pycache__ written by running the CLI in the worktree, a real chicken-and-egg worth knowing) all with execution.performed=false and zero quota spent, then one clean run: codex edited only the allowed path, ran the declared test, emitted shadow.host-receipt.v1 with status ok, and the lead reproduced the test green before trusting it. Traced to the owner's local Langfuse (service shadow-delegation). Multi-seat coordination is separately proven and live: five real seats held disjoint claims on this board concurrently while this ran. Grok is absent from Shadow by design -- Shadow delegates by HOST and passes no provider selector.
