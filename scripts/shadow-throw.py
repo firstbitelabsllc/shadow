@@ -113,6 +113,7 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
 
 
 def main(argv: list[str] | None = None) -> int:
+    _remote.sanitize_process_git_env()
     started = time.monotonic()
     parser = argparse.ArgumentParser(
         prog="shadow throw",
@@ -248,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
                 project=project["id"],
                 plan_token=plan_token,
                 claimed_at=claimed["claimed_at"],
+                return_by=claimed["return_by"],
+                recovery=claimed["recovery"],
             )
             if remote is not None and remote["status"] != "acquired":
                 try:

@@ -16,13 +16,54 @@ from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 SCHEMA: Final = "shadow.remote-claim.v1"
 FIELDS: Final = {
     "schema", "status", "ref", "entity", "row", "owner", "project",
-    "plan", "winner", "failure",
+    "plan", "claim", "winner", "failure",
 }
+PLAN_FIELDS: Final = {"head", "blob", "relative"}
+CLAIM_FIELDS: Final = {"claimed_at", "return_by", "recovery"}
 HEX_OBJECT: Final = re.compile(r"[0-9a-f]{40,64}\Z")
 ENTITY: Final = re.compile(r"[0-9a-f]{64}\Z")
 ROW: Final = re.compile(r"~[0-9a-z]{4}\Z")
 PROJECT: Final = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
+STAMP: Final = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+RECOVERY: Final = "probe-proof-then-adopt-park-or-close"
 TIMEOUT_SECONDS: Final = 20
+MAX_RECEIPT_BYTES: Final = 8 * 1024
+GIT_INJECTION_VARS: Final = {
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_DIR",
+    "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_INTERNAL_SUPER_PREFIX",
+    "GIT_NAMESPACE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+}
+
+
+def _is_git_injection(name: str) -> bool:
+    return name in GIT_INJECTION_VARS or re.fullmatch(
+        r"GIT_CONFIG_(?:KEY|VALUE)_\d+", name
+    ) is not None
+
+
+def sanitize_process_git_env() -> None:
+    """Remove repository/config redirection without disabling normal auth."""
+    for name in tuple(os.environ):
+        if _is_git_injection(name):
+            os.environ.pop(name)
+    os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
 
 def _git(
@@ -31,12 +72,13 @@ def _git(
     input_bytes: bytes | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
-    env = {
-        **os.environ,
-        "GIT_TERMINAL_PROMPT": "0",
-        "GIT_ASKPASS": "/usr/bin/false",
-        **(extra_env or {}),
-    }
+    env = dict(os.environ)
+    for name in tuple(env):
+        if _is_git_injection(name):
+            env.pop(name)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = "/usr/bin/false"
+    env.update(extra_env or {})
     try:
         return subprocess.run(
             ["git", "-C", str(repo), *args],
@@ -89,6 +131,9 @@ def _receipt(
     owner: str,
     project: str,
     plan_token: dict[str, str],
+    claimed_at: str,
+    return_by: str,
+    recovery: str,
     winner: str | None,
     failure: str | None,
 ) -> dict[str, Any]:
@@ -100,7 +145,12 @@ def _receipt(
         "row": row,
         "owner": owner,
         "project": project,
-        "plan": {"head": plan_token["head"], "blob": plan_token["blob"]},
+        "plan": {key: plan_token[key] for key in ("head", "blob", "relative")},
+        "claim": {
+            "claimed_at": claimed_at,
+            "return_by": return_by,
+            "recovery": recovery,
+        },
         "winner": winner,
         "failure": failure,
     }
@@ -135,6 +185,8 @@ def _commit_receipt(
         repo,
         "commit-tree",
         tree_id,
+        "-p",
+        receipt["plan"]["head"],
         input_bytes=b"shadow remote claim\n",
         extra_env=identity_env,
     )
@@ -154,6 +206,17 @@ def _valid_winner(
     if not isinstance(value, dict) or set(value) != FIELDS:
         return None
     owner = _public_owner(value.get("owner"))
+    claim = value.get("claim")
+    valid_claim = (
+        isinstance(claim, dict)
+        and set(claim) == CLAIM_FIELDS
+        and isinstance(claim.get("claimed_at"), str)
+        and STAMP.fullmatch(claim["claimed_at"]) is not None
+        and isinstance(claim.get("return_by"), str)
+        and STAMP.fullmatch(claim["return_by"]) is not None
+        and claim["return_by"] > claim["claimed_at"]
+        and claim.get("recovery") == RECOVERY
+    )
     if (
         value.get("schema") != SCHEMA
         or value.get("status") != "acquired"
@@ -162,7 +225,8 @@ def _valid_winner(
         or value.get("row") != row
         or value.get("project") != project
         or value.get("plan")
-        != {"head": plan_token["head"], "blob": plan_token["blob"]}
+        != {key: plan_token[key] for key in ("head", "blob", "relative")}
+        or not valid_claim
         or value.get("winner") != owner
         or value.get("failure") is not None
     ):
@@ -188,6 +252,14 @@ def _remote_winner(
     commit_id = fields[0]
     fetched = _git(repo, "fetch", "--quiet", "--no-tags", "origin", ref)
     if fetched.returncode:
+        return None
+    sized = _git(repo, "cat-file", "-s", f"{commit_id}:claim.json")
+    raw_size = sized.stdout.decode("ascii", errors="ignore").strip()
+    if (
+        sized.returncode
+        or not raw_size.isdigit()
+        or int(raw_size) > MAX_RECEIPT_BYTES
+    ):
         return None
     shown = _git(repo, "show", f"{commit_id}:claim.json")
     if shown.returncode:
@@ -215,6 +287,8 @@ def acquire(
     project: str,
     plan_token: dict[str, str],
     claimed_at: str,
+    return_by: str,
+    recovery: str,
 ) -> dict[str, Any] | None:
     """Return None for local-only repos, else one closed public outcome."""
     if not uses_origin_upstream(repo):
@@ -223,13 +297,23 @@ def acquire(
     if (
         _public_owner(owner) is None
         or PROJECT.fullmatch(project) is None
-        or set(plan_token) < {"head", "blob"}
+        or set(plan_token) < PLAN_FIELDS
         or HEX_OBJECT.fullmatch(plan_token["head"]) is None
         or HEX_OBJECT.fullmatch(plan_token["blob"]) is None
+        or not isinstance(plan_token["relative"], str)
+        or not plan_token["relative"]
+        or plan_token["relative"].startswith("/")
+        or "\\" in plan_token["relative"]
+        or any(part in {"", ".", ".."} for part in plan_token["relative"].split("/"))
+        or STAMP.fullmatch(claimed_at) is None
+        or STAMP.fullmatch(return_by) is None
+        or return_by <= claimed_at
+        or recovery != RECOVERY
     ):
         return _receipt(
             status="error", ref=ref, entity=entity, row=row, owner=owner,
-            project=project, plan_token=plan_token, winner=None,
+            project=project, plan_token=plan_token, claimed_at=claimed_at,
+            return_by=return_by, recovery=recovery, winner=None,
             failure="transport_failed",
         )
     acquired = _receipt(
@@ -240,6 +324,9 @@ def acquire(
         owner=owner,
         project=project,
         plan_token=plan_token,
+        claimed_at=claimed_at,
+        return_by=return_by,
+        recovery=recovery,
         winner=owner,
         failure=None,
     )
@@ -264,6 +351,8 @@ def acquire(
         plan_token=plan_token,
     )
     if winner is not None:
+        if winner == acquired:
+            return acquired
         return _receipt(
             status="lost",
             ref=ref,
@@ -272,6 +361,9 @@ def acquire(
             owner=owner,
             project=project,
             plan_token=plan_token,
+            claimed_at=claimed_at,
+            return_by=return_by,
+            recovery=recovery,
             winner=winner["owner"],
             failure="claim_exists",
         )
@@ -283,6 +375,9 @@ def acquire(
         owner=owner,
         project=project,
         plan_token=plan_token,
+        claimed_at=claimed_at,
+        return_by=return_by,
+        recovery=recovery,
         winner=None,
         failure="transport_failed",
     )

@@ -20,6 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_root_board as board  # noqa: E402
+import shadow_remote_claim as remote_claim  # noqa: E402
 
 THROW = ROOT / "scripts" / "shadow-throw.py"
 STATUS = ROOT / "scripts" / "shadow-status.py"
@@ -432,7 +433,7 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
 class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
     RECEIPT_FIELDS = {
         "schema", "status", "ref", "entity", "row", "owner", "project",
-        "plan", "winner", "failure",
+        "plan", "claim", "winner", "failure",
     }
 
     def git(self, repo: Path, *args: str) -> str:
@@ -480,7 +481,11 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         return bare, first, second, seed, main
 
     def throw_process(
-        self, repo: Path, home: Path, seat: str
+        self,
+        repo: Path,
+        home: Path,
+        seat: str,
+        extra_env: dict[str, str] | None = None,
     ) -> subprocess.Popen[str]:
         home.mkdir()
         return subprocess.Popen(
@@ -495,7 +500,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
                 seat,
             ],
             cwd=repo,
-            env={**os.environ, "HOME": str(home)},
+            env={**os.environ, "HOME": str(home), **(extra_env or {})},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -512,8 +517,54 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
                 matches.append(value)
         self.assertEqual(len(matches), 1, stderr)
         self.assertEqual(set(matches[0]), self.RECEIPT_FIELDS)
-        self.assertEqual(set(matches[0]["plan"]), {"head", "blob"})
+        self.assertEqual(set(matches[0]["plan"]), {"head", "blob", "relative"})
+        self.assertEqual(
+            set(matches[0]["claim"]), {"claimed_at", "return_by", "recovery"}
+        )
         return matches[0]
+
+    def publish_receipt(
+        self,
+        repo: Path,
+        receipt: dict,
+        *,
+        padding: int = 0,
+    ) -> str:
+        encoded = (
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+            + (b" " * padding)
+            + b"\n"
+        )
+        blob = subprocess.run(
+            ["git", "-C", str(repo), "hash-object", "-w", "--stdin"],
+            input=encoded,
+            capture_output=True,
+            check=True,
+        ).stdout.decode().strip()
+        tree = subprocess.run(
+            ["git", "-C", str(repo), "mktree"],
+            input=f"100644 blob {blob}\tclaim.json\n".encode(),
+            capture_output=True,
+            check=True,
+        ).stdout.decode().strip()
+        commit = subprocess.run(
+            [
+                "git", "-C", str(repo), "commit-tree", tree,
+                "-p", receipt["plan"]["head"],
+            ],
+            input=b"hostile remote receipt\n",
+            capture_output=True,
+            check=True,
+            env={
+                **os.environ,
+                "GIT_AUTHOR_NAME": "Fixture",
+                "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                "GIT_COMMITTER_NAME": "Fixture",
+                "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+            },
+        ).stdout.decode().strip()
+        self.git(repo, "push", "-q", "origin", f"{commit}:{receipt['ref']}")
+        return commit
 
     def test_protected_main_uses_one_remote_cas_before_printing_one_packet(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -569,6 +620,152 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
                 )
                 expected = 1 if index == winner_index else 0
                 self.assertEqual(len(board_payload["claims"]), expected)
+
+    def test_claim_ref_makes_the_exact_unpushed_plan_authority_reachable(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, original_main = self.protected_fixture(root)
+            with (first / "PLAN.md").open("a", encoding="utf-8") as stream:
+                stream.write("\n- local authority remains unmerged\n")
+            self.git(first, "add", "PLAN.md")
+            self.git(first, "commit", "-qm", "local plan authority")
+            local_head = self.git(first, "rev-parse", "HEAD")
+            missing = subprocess.run(
+                ["git", "-C", str(bare), "cat-file", "-e", f"{local_head}^{{commit}}"],
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(missing.returncode, 0)
+
+            process = self.throw_process(first, root / "home-a", "seat-a")
+            stdout, stderr = process.communicate(timeout=30)
+
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertIn("/goal protected-demo", stdout)
+            receipt = self.receipt(stderr)
+            self.assertEqual(receipt["plan"]["head"], local_head)
+            self.assertEqual(receipt["plan"]["relative"], "PLAN.md")
+            self.assertEqual(self.git(bare, "rev-parse", f"{receipt['ref']}^"), local_head)
+            self.git(bare, "merge-base", "--is-ancestor", local_head, receipt["ref"])
+            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+            local_claim = json.loads(
+                (root / "home-a" / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )["claims"][0]
+            self.assertEqual(
+                receipt["claim"],
+                {
+                    "claimed_at": local_claim["claimed_at"],
+                    "return_by": local_claim["return_by"],
+                    "recovery": local_claim["recovery"],
+                },
+            )
+
+    def test_nonzero_push_that_stored_this_attempt_is_still_acquired(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, _ = self.protected_fixture(root)
+            hook = first / ".git" / "hooks" / "pre-push"
+            hook.write_text(
+                "#!/bin/sh\n"
+                "while read local_ref local_oid remote_ref remote_oid; do\n"
+                "  git push --no-verify \"$2\" \"$local_oid:$remote_ref\" >/dev/null 2>&1 || exit 2\n"
+                "done\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            hook.chmod(0o755)
+
+            process = self.throw_process(first, root / "home-a", "seat-a")
+            stdout, stderr = process.communicate(timeout=30)
+
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertIn("/goal protected-demo", stdout)
+            receipt = self.receipt(stderr)
+            self.assertEqual(receipt["status"], "acquired")
+            self.assertEqual(receipt["winner"], "seat-a")
+            self.assertEqual(
+                json.loads(self.git(bare, "show", f"{receipt['ref']}:claim.json")),
+                receipt,
+            )
+
+    def test_git_config_injection_cannot_redirect_origin_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, _ = self.protected_fixture(root)
+            second = root / "injected.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(second)], check=True)
+            expected_entity = board.entity_id(first / "PLAN.md")
+            process = self.throw_process(
+                first,
+                root / "home-a",
+                "seat-a",
+                {
+                    "GIT_DIR": str(second),
+                    "GIT_WORK_TREE": str(root / "injected-worktree"),
+                    "GIT_CONFIG_COUNT": "2",
+                    "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
+                    "GIT_CONFIG_VALUE_0": str(second),
+                    "GIT_CONFIG_KEY_1": "remote.origin.url",
+                    "GIT_CONFIG_VALUE_1": str(second),
+                },
+            )
+            stdout, stderr = process.communicate(timeout=30)
+
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertIn("/goal protected-demo", stdout)
+            receipt = self.receipt(stderr)
+            self.assertEqual(receipt["entity"], expected_entity)
+            self.assertEqual(
+                receipt["ref"],
+                f"refs/heads/shadow/claims/v1/{expected_entity}/bb22",
+            )
+            self.assertEqual(
+                json.loads(self.git(bare, "show", f"{receipt['ref']}:claim.json")),
+                receipt,
+            )
+            injected_refs = self.git(second, "for-each-ref", "--format=%(refname)")
+            self.assertEqual(injected_refs, "")
+
+    def test_oversized_remote_receipt_is_not_read_or_named_as_a_winner(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, _ = self.protected_fixture(root)
+            token, _ = board.committed_plan_snapshot(first / "PLAN.md")
+            entity = board.entity_id(first / "PLAN.md")
+            ref = remote_claim.claim_ref(entity, "~bb22")
+            hostile = remote_claim._receipt(
+                status="acquired",
+                ref=ref,
+                entity=entity,
+                row="~bb22",
+                owner="other-seat",
+                project="protected-demo",
+                plan_token=token,
+                claimed_at="2026-08-11T12:00:00Z",
+                return_by="2026-08-11T20:00:00Z",
+                recovery=board.RECOVERY_ACTION,
+                winner="other-seat",
+                failure=None,
+            )
+            self.publish_receipt(
+                first,
+                hostile,
+                padding=remote_claim.MAX_RECEIPT_BYTES + 1,
+            )
+
+            process = self.throw_process(first, root / "home-a", "seat-a")
+            stdout, stderr = process.communicate(timeout=30)
+
+            self.assertEqual(process.returncode, 1, stderr)
+            self.assertEqual(stdout, "")
+            receipt = self.receipt(stderr)
+            self.assertEqual(receipt["status"], "error")
+            self.assertEqual(receipt["failure"], "transport_failed")
+            self.assertIsNone(receipt["winner"])
+            board_payload = json.loads(
+                (root / "home-a" / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(board_payload["claims"], [])
 
     def test_transport_error_compensates_exact_local_claim_without_leaking_paths(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
