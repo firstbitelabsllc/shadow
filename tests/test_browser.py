@@ -1172,6 +1172,21 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         self.assertIsNone(change["summary"])
         self.assertNotIn("ghp_", json.dumps(change))
 
+    def test_a_secret_cut_in_half_by_the_length_bound_is_still_withheld(self) -> None:
+        """The bound can cut inside an unbroken token: the stump stops matching
+        the secret shape, but it is still the head of the owner's real token."""
+        plan = self.PLAN.replace(
+            "Final authority read — objective SHA "
+            "`b30773705e835d97f9792ea81e3775fa19dbb238f7d5de13bc1e88160827f5fc`, "
+            "Snowcubes `origin/main` and both clean authority checkouts agree",
+            # One unbroken token straddling the bound: there is no space to cut
+            # at, so the tail of the token is what the bound removes.
+            "x" * 200 + "ghp_" + "a" * 30,
+        )
+        change = board_projection.project_board_brief(plan)["latest_change"]
+        self.assertIsNone(change["summary"])
+        self.assertNotIn("ghp_", json.dumps(change))
+
     def test_a_brief_priority_carrying_a_path_is_withheld(self) -> None:
         plan = self.PLAN.replace(
             "- Project: demo",
