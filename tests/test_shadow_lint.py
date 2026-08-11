@@ -122,6 +122,21 @@ class ANeedsCycleIsNamedNotSilent(unittest.TestCase):
         self.assertNotIn("NEEDS-CYCLE", checks(CLEAN_PLAN))
 
 
+class TheIdGrammarMatchesTheDecisionRecordedInGrammarMd(unittest.TestCase):
+    def test_legacy_mnemonic_is_text_and_the_canonical_tail_is_the_id(self) -> None:
+        migrated = CLEAN_PLAN.replace(
+            "smoke green ~cd34",
+            "P9a~formats smoke green ~cd34",
+        )
+        legacy_only = CLEAN_PLAN.replace(
+            "smoke green ~cd34",
+            "P9a~formats smoke green",
+        )
+
+        self.assertEqual(blocking(migrated), set())
+        self.assertIn("PROOF-MISSING", blocking(legacy_only))
+
+
 class ShadowLintTests(unittest.TestCase):
     def test_clean_v2_plan_has_no_blocking_findings(self) -> None:
         self.assertEqual(blocking(CLEAN_PLAN), set())

@@ -122,6 +122,12 @@ plan.
 - State ∈ `pending | in_progress | blocked | completed`.
 - IDs are four base36 chars (`~ab12`), unique per plan, stable across
   reordering; on a mint collision, re-mint. References always use the hash.
+- A migrated plan may preserve one old mnemonic such as `P9a~formats` at the
+  head of the row text, but the canonical four-character id still appears at
+  the row tail and remains the only board, dependency, proof, and remote-lock
+  address. `shadow throw --task P9a~formats` resolves that exact, unique text
+  alias to the row's canonical id before any claim; an unmapped or duplicate
+  alias refuses. Amp and accept continue with the canonical id from the packet.
 - Proof classes: `cmd <runnable>` (machine-rerunnable), `read <artifact/url
   -> expected observation>` (a human or agent re-reads the real surface), or
   `gate <owner> resume: <predicate>` (person-gated; closes agent-side with a
