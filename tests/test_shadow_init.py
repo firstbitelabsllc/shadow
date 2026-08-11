@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from browser.server import plan_record
 
 
 ROOT = Path(__file__).resolve().parent.parent
 INIT = ROOT / "scripts" / "shadow-init.py"
+SPEC = importlib.util.spec_from_file_location("shadow_init", INIT)
+assert SPEC and SPEC.loader
+shadow_init = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(shadow_init)
 
 
 def run(*args: str, cwd: Path, home: Path) -> subprocess.CompletedProcess[str]:
@@ -55,6 +62,21 @@ class InitTests(unittest.TestCase):
         self.assertIn("- Option A ID: derive-and-execute", plan)
         self.assertNotIn("smallest", plan.lower())
         self.assertNotIn(" ".join(("one", "bounded")), plan.lower())
+
+    def test_exclusive_plan_write_fsyncs_its_file_and_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            destination = Path(dirname) / "nested" / "PLAN.md"
+            destination.parent.mkdir()
+            kinds = {"file": False, "dir": False}
+            real_fsync = os.fsync
+
+            def spy(fd: int) -> None:
+                kinds["dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"] = True
+                real_fsync(fd)
+
+            with mock.patch.object(shadow_init.os, "fsync", side_effect=spy):
+                shadow_init.write_exclusive(destination, "# Plan\n")
+        self.assertEqual(kinds, {"file": True, "dir": True})
 
     def test_refuses_to_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
