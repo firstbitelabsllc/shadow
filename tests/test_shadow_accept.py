@@ -1463,6 +1463,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
         git(repo, "remote", "add", "origin", str(remote))
         git(repo, "push", "-qu", "origin", "HEAD:main")
+        git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
         home = root / "home"
         home.mkdir()
         claimed = run_shadow(
@@ -1537,6 +1538,168 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             self.assertEqual(result, 1, output.getvalue())
             self.assertNotIn("accepted ~ab12", output.getvalue())
             self.assertIn("[completed] x.txt says hello", git(remote, "show", "main:PLAN.md"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+    def test_completed_retry_closes_remote_claim_after_local_claim_was_released(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            plan = repo / "PLAN.md"
+            plan_token, plan_bytes = accept._board.committed_plan_snapshot(plan)
+            plan_text = plan_bytes.decode("utf-8")
+            state = accept._board.entity_state(plan, home=home)
+            claim = state["claims"][0]
+            accept._board.release(
+                plan,
+                "~ab12",
+                owner="seat-a",
+                reason="completed",
+                resumes=["~cd34"],
+                expected_plan=plan_token,
+                expected_text=plan_text,
+                expected_claim=claim,
+                home=home,
+            )
+            git(repo, "checkout", "--detach", plan_token["head"])
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            self.assertEqual(stored["plan"]["head"], git(remote, "rev-parse", "main"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+
+    def test_detached_unpublished_completion_keeps_both_claims_acquired(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            first = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            git(repo, "push", "-qu", "origin", "HEAD:feature")
+            git(repo, "config", "branch.feature.remote", "origin")
+            git(repo, "config", "branch.feature.merge", "refs/heads/feature")
+            git(repo, "checkout", "--detach", "HEAD")
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("not published", retry.stdout + retry.stderr)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("acquired", "acquire"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+    def test_detached_reverted_completion_keeps_both_claims_acquired(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            first = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            completed = git(repo, "rev-parse", "HEAD")
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            git(repo, "revert", "--no-edit", completed)
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            git(repo, "checkout", "--detach", completed)
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("no longer carries", retry.stdout + retry.stderr)
+            self.assertIn("[in_progress] x.txt says hello", git(remote, "show", "main:PLAN.md"))
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("acquired", "acquire"))
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"][0]["owner"], "seat-a")
 
