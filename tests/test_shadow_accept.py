@@ -1772,6 +1772,41 @@ class AChallengedFoundationDoesNotFlipSilently(unittest.TestCase):
             self.assertIn("- [completed] x.txt says hello ~ab12", (repo / "PLAN.md").read_text())
 
 
+class AForgedCompletionCannotBeLaunderedByTheFastPath(unittest.TestCase):
+    """The other end of the backdated-receipt chain (~lgrf). accept's
+    completed fast path republishes an already-completed row after checking a
+    matching receipt TEXT line — so a hand-fabricated commit (flip + typed
+    pre-cutover receipt) could be laundered to other seats instead of proven.
+    The lint gate that fast path already calls is the chokepoint: with
+    grandfathering bound to a frozen id set, a forged receipt makes the plan
+    lint-blocked, and the fast path refuses.
+    """
+
+    def test_the_fast_path_refuses_a_backdated_forged_receipt(self) -> None:
+        forged = PLAN.replace(
+            "- [in_progress] x.txt says hello ~ab12",
+            "- [completed] x.txt says hello ~ab12",
+        ).replace(
+            "## Progress\n",
+            "## Progress\n\n- 2000-01-01T00:00:00Z ~ab12 PROOF i pinky promise it passed\n",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            (repo / "PLAN.md").write_text(forged, encoding="utf-8")
+            git(repo, "commit", "-qam", "forged completion")
+            result = run_accept(repo, "~ab12")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            # Measured refusal reason: the receipt must match the row's actual
+            # proof argv, which prose cannot. The lint gate behind it is the
+            # second layer, not the first.
+            self.assertIn("without a matching accept proof", result.stderr)
+            # The forgery is never republished as proven.
+            self.assertNotIn("already proven", result.stdout)
+            self.assertIn("- [completed] x.txt says hello ~ab12",
+                          (repo / "PLAN.md").read_text(encoding="utf-8"))
+
+
 class NeedsIsAReadinessGate(unittest.TestCase):
     """grammar.md: "a task is ready when it is pending and every needs-target
     is completed". throw enforced that; accept did not, so a row could be
