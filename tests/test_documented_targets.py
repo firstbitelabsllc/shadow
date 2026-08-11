@@ -77,6 +77,29 @@ class DocumentedTargetTests(unittest.TestCase):
         ).stdout
         self.assertNotIn("--all", status)
 
+    def test_remote_claim_docs_keep_the_authority_split(self):
+        grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(
+            encoding="utf-8"
+        )
+        privacy = (ROOT / "docs" / "reference" / "privacy.md").read_text(
+            encoding="utf-8"
+        )
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        for text in (grammar, readme):
+            self.assertIn("refs/heads/shadow/claims/v1/", text)
+            self.assertRegex(text, r"configured\s+`origin`")
+            self.assertIn("local-only", text)
+        self.assertIn("`PLAN.md` remains the only authority", grammar)
+        self.assertIn("append-only acquired/released/completed", grammar)
+        self.assertIn("no packet is emitted", grammar)
+        self.assertIn("There is no remote task or proof authority", privacy)
+        self.assertIn("persisted `claim.json` fields are exactly", privacy)
+        self.assertRegex(
+            privacy, r"those\s+four fields are not persisted in `claim\.json`"
+        )
+        self.assertRegex(privacy, r"Neither shape contains task\s+text")
+
 
 if __name__ == "__main__":
     unittest.main()
