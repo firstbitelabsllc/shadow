@@ -33,5 +33,24 @@ The closed field vocabulary is:
 | `duration_ms` | Bounded elapsed milliseconds. |
 | `outcome` | Lifecycle outcome. |
 
-Endpoint selection and any exact network field subset remain a person-gated
-decision; neither exists here.
+## Local sink — the owner's endpoint decision (2026-08-11)
+
+The owner decided the endpoint: a **Langfuse instance on the owner's own
+machine** (`http://localhost:3000`), for debugging and observability while
+long test jobs run against Shadow. The decision's scope, in plain terms:
+
+- **The product still sends nothing, ever.** The ~obsv verdict — Langfuse
+  KILLED as a product dependency, because Shadow makes zero network calls —
+  stands untouched. No product verb gains network code.
+- **The sink is owner tooling**: `scripts/dev/shadow-observed-gauntlet.py`
+  runs long test jobs and ships their traces (and, optionally, the already
+  allowlisted local event file) to the local Langfuse over OTLP. It refuses
+  to run unless `SHADOW_LANGFUSE_HOST`, `SHADOW_LANGFUSE_PUBLIC_KEY`, and
+  `SHADOW_LANGFUSE_SECRET_KEY` are all set. A machine without those set —
+  every user machine — behaves exactly as it does today.
+- **The approved field subset** for forwarded events is exactly the closed
+  vocabulary above — the forwarder adds job name, exit code, pass/fail,
+  duration, and a home-path-redacted output tail for its own test jobs, and
+  nothing else.
+- The compose file and provisioned keys live outside the repository, on the
+  owner's machine only.
