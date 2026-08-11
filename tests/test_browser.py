@@ -1145,6 +1145,58 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         self.assertIsNone(change["kind"])
         self.assertIn("hand-written note", change["summary"])
 
+    def test_a_private_path_in_a_progress_line_never_reaches_a_card(self) -> None:
+        plan = self.PLAN.replace(
+            "Final authority read — objective SHA "
+            "`b30773705e835d97f9792ea81e3775fa19dbb238f7d5de13bc1e88160827f5fc`, "
+            "Snowcubes `origin/main` and both clean authority checkouts agree ~aa11",
+            "read the canonical plan at /Users/someone/Development/private-client"
+            "/PLAN.md ~aa11",
+        )
+        change = board_projection.project_board_brief(plan)["latest_change"]
+        # Assert over the WHOLE projected change, not just its summary: the
+        # path must not survive in any field the renderer can print.
+        self.assertNotIn("/Users/", json.dumps(change))
+        self.assertNotIn("private-client", json.dumps(change))
+        self.assertIsNone(change["summary"])
+        # The gate is surgical, not a blanket drop: when and kind still speak.
+        self.assertEqual(change["when"], "2026-08-10T14:13:05Z")
+        self.assertEqual(change["kind"], "Plan structure changed")
+
+    def test_a_secret_shaped_progress_line_is_withheld_too(self) -> None:
+        plan = self.PLAN.replace(
+            "Snowcubes `origin/main`",
+            "the token ghp_" + "a" * 30 + " rotated,",
+        )
+        change = board_projection.project_board_brief(plan)["latest_change"]
+        self.assertIsNone(change["summary"])
+        self.assertNotIn("ghp_", json.dumps(change))
+
+    def test_a_brief_priority_carrying_a_path_is_withheld(self) -> None:
+        plan = self.PLAN.replace(
+            "- Project: demo",
+            "- Project: demo\n- Priority: finish /Users/someone/Development/x",
+        )
+        self.assertIsNone(board_projection.project_board_brief(plan)["priority"])
+        safe = self.PLAN.replace(
+            "- Project: demo", "- Project: demo\n- Priority: finish the shortlist"
+        )
+        self.assertEqual(
+            board_projection.project_board_brief(safe)["priority"],
+            "finish the shortlist",
+        )
+
+    def test_the_gallery_record_never_prints_a_private_priority(self) -> None:
+        """The gallery renders checked-in plan TEXT through record_from_text —
+        the same path a fixture with a stray machine path would travel."""
+        plan = self.PLAN.replace(
+            "- Project: demo",
+            "- Project: demo\n- Priority: ship /Users/someone/Development/x",
+        )
+        record = server.record_from_text(plan, "demo/PLAN.md", "demo")
+        self.assertIsNone(record["board"]["priority"])
+        self.assertNotIn("/Users/", json.dumps(record["board"]))
+
 
 if __name__ == "__main__":
     unittest.main()
