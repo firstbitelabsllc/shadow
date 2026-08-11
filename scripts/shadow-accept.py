@@ -624,10 +624,19 @@ def publish_completion(repo: Path, row_id: str, no_push: bool, summary: str) -> 
         )
         return 3
     if pushed.returncode != 0:
+        # Name WHERE the flip commit is parked. Accept commits at the STORED
+        # plan pointer, which may not be the --repo argument the operator
+        # typed — an unnamed location reads as a destroyed commit, and the
+        # operator hand-duplicates the flip (measured 2026-08-11).
+        where = (
+            f"{repo} (branch {branch.stdout.strip()})"
+            if branch.returncode == 0 and branch.stdout.strip()
+            else str(repo)
+        )
         print(
-            f"shadow accept: {row_id} is flipped and committed locally but the push was "
+            f"shadow accept: {row_id} is flipped and committed in {where} but the push was "
             "REJECTED — other seats cannot see the completion. On a protected trunk, "
-            "land the PLAN.md commit through a pull request; on a race, pull and push again.",
+            "land that PLAN.md commit through a pull request; on a race, pull there and push again.",
             file=sys.stderr,
         )
         return 3
