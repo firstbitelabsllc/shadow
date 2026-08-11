@@ -20,7 +20,7 @@ from typing import Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
-from shadow_cmd_proof import script_operand_issue  # noqa: E402
+from shadow_cmd_proof import head_entry, script_operand_issue  # noqa: E402
 import shadow_root_board as _board  # noqa: E402
 
 
@@ -106,7 +106,12 @@ def _shell_operators(command: str) -> list[str]:
     })
 
 
-def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> list[dict]:
+def _check_cmd_proof(
+    command: str,
+    number: int,
+    root: Path | None = None,
+    committed: bool = False,
+) -> list[dict]:
     """A cmd proof must be a runnable argv, because that is how accept runs it."""
     try:
         argv = shlex.split(command)
@@ -126,7 +131,7 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
     # own directory is known — resolving an in-tree path needs it, and guessing
     # would turn an unknowable into a false accusation.
     findings: list[dict] = []
-    if root is not None and not _resolves(argv[0], root):
+    if root is not None and not _resolves(argv[0], root, committed):
         # Severity follows the evidence. A path is answered by the repository
         # itself, so the same text gives the same finding anywhere: blocking.
         # A bare name is answered by this machine's PATH, which is not the
@@ -151,11 +156,20 @@ def _check_cmd_proof(command: str, number: int, root: Path | None = None) -> lis
     return findings
 
 
-def _resolves(program: str, root: Path) -> bool:
+def _resolves(program: str, root: Path, committed: bool = False) -> bool:
+    """Whether argv[0] names something that exists where the proof would run.
+
+    `committed` moves the in-tree answer from the working tree to HEAD, for the
+    caller that runs proofs in a clean checkout. Reading the working tree there
+    would let unrelated local state — a committed script the caller happens to
+    have deleted — block a plan the committed checkout runs fine.
+    """
     if "/" in program:
         candidate = Path(program)
         if candidate.is_absolute():
             return candidate.exists()
+        if committed:
+            return head_entry(root, candidate) is not None
         return (root / program).exists()
     return shutil.which(program) is not None
 
@@ -188,7 +202,13 @@ def _has_section(sections: dict[str, list[tuple[int, str]]], name: str) -> bool:
     return any(h == name or h.startswith(name + " ") for h in sections)
 
 
-def lint_plan(text: str, *, today: date | None = None, root: Path | None = None) -> list[dict]:
+def lint_plan(
+    text: str,
+    *,
+    today: date | None = None,
+    root: Path | None = None,
+    committed: bool = False,
+) -> list[dict]:
     findings: list[dict] = []
     lines = text.splitlines()
     sections = _sections(lines)
@@ -296,7 +316,7 @@ def lint_plan(text: str, *, today: date | None = None, root: Path | None = None)
         elif not PROOF_CLASS_RE.match(proof):
             findings.append(_finding("PROOF-CLASS", number, "blocking", "proof must be classed cmd | read | gate"))
         elif proof.startswith("cmd "):
-            findings.extend(_check_cmd_proof(proof[4:], number, root))
+            findings.extend(_check_cmd_proof(proof[4:], number, root, committed))
         needs_value = fields.get("needs", "").strip()
         if needs_value and NEEDS_VALUE_RE.fullmatch(needs_value) is None:
             findings.append(_finding("NEEDS-SHAPE", number, "blocking", "needs must be ~hash ids only"))

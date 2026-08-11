@@ -48,6 +48,22 @@ class OneSource(unittest.TestCase):
         self.assertTrue(BLOCK.startswith("## Shadow "))
 
 
+class TheBackupKeepsTheModeOfTheFileItCopied(unittest.TestCase):
+    def test_private_and_shared_owner_files_keep_their_mode_in_the_backup(self) -> None:
+        for mode in (0o600, 0o644):
+            with self.subTest(oct(mode)), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "AGENTS.md"
+                path.write_text(BEFORE, encoding="utf-8")
+                path.chmod(mode)
+
+                self.assertEqual(hd.apply(path, BLOCK), "added")
+
+                backup = path.with_suffix(path.suffix + ".bak-shadow")
+                self.assertEqual(path.stat().st_mode & 0o777, mode)
+                self.assertEqual(backup.stat().st_mode & 0o777, mode)
+                self.assertEqual(backup.read_text(encoding="utf-8"), BEFORE)
+
+
 class RemovalLeavesThePersonsTextAlone(unittest.TestCase):
     """The audited floor: --remove takes out at most what adding introduced.
 
