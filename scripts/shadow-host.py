@@ -638,6 +638,11 @@ def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> No
                 os.link(temporary_path, destination)
             except FileExistsError:
                 raise HostError("output_exists", "output exists; use --force to replace it") from None
+        directory = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         temporary_path.unlink(missing_ok=True)
 
