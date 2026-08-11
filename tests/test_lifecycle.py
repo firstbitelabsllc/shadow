@@ -267,10 +267,21 @@ def run(
     *args: str,
     extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict]:
+    # HOME defaults to a scratch directory beside the fixture repo, never the
+    # operator's. A lifecycle verb that claims or registers (any --apply --by)
+    # writes to $HOME/.shadow, so inheriting the real HOME wrote test-fixture
+    # claims onto the operator's live board — measured twice on 2026-08-11,
+    # both times corrupting the real board with temp-path entities. Tests that
+    # need a specific HOME still pass one through extra_env.
+    env = {**os.environ, **(extra_env or {})}
+    if "HOME" not in (extra_env or {}):
+        scratch = repo.parent / "test-home"
+        scratch.mkdir(parents=True, exist_ok=True)
+        env["HOME"] = str(scratch)
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--repo", str(repo), *args, "--json"],
         cwd=repo,
-        env={**os.environ, **(extra_env or {})},
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -417,6 +428,32 @@ class ASharedReceiptStaysLiveInsteadOfBlockingTheArchive(unittest.TestCase):
             self.assertEqual(applied.get("action"), "archived", applied)
             archive = (repo / "docs" / "plan-archive" / "finished-work.md").read_text(encoding="utf-8")
             self.assertNotIn("Receipts left in the live plan", archive)
+
+
+class TestsNeverWriteToTheOperatorsBoard(unittest.TestCase):
+    """A lifecycle verb that claims or registers writes to $HOME/.shadow. If a
+    test inherits the operator's real HOME, its fixture claims land on the
+    operator's LIVE board — measured twice on 2026-08-11, both times leaving
+    temp-path entities that made `shadow status` refuse to load. The helper
+    must supply a scratch HOME by default so no future test can do it.
+    """
+
+    def test_the_helper_never_hands_a_verb_the_real_home(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            real_home = Path(os.environ["HOME"]).resolve()
+            before = (real_home / ".shadow" / "board.json")
+            stamp = before.read_bytes() if before.exists() else None
+            preview = run(repo, "--milestone", "Finished work")[1]
+            run(repo, "--milestone", "Finished work", "--apply",
+                "--expect", preview["cas"], "--by", "leak-canary")
+            after = before.read_bytes() if before.exists() else None
+            self.assertEqual(after, stamp,
+                             "a lifecycle test mutated the operator's real board")
+            scratch_board = repo.parent / "test-home" / ".shadow"
+            self.assertTrue(scratch_board.exists(),
+                            "the verb did not write to the scratch HOME either — check the helper")
 
 
 class BudgetsAreEnforced(unittest.TestCase):
