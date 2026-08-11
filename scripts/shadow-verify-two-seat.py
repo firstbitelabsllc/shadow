@@ -345,7 +345,7 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
             "try:\n"
             "    board = json.loads((home / '.shadow/board.json').read_text(encoding='utf-8'))\n"
             "    owners = sorted(c.get('owner') for c in board.get('claims', []) if isinstance(c, dict))\n"
-            "    event = {'seat': seat, 'session': os.getsid(0), 'ancestors': ancestor_chain(), 'verb': args[0], 'returncode': result.returncode, 'owners': owners}\n"
+            "    event = {'seat': seat, 'session': os.getsid(0), 'ancestors': ancestor_chain(), 'attribution': os.environ.get('SHADOW_TWO_SEAT_ATTRIBUTION', ''), 'verb': args[0], 'returncode': result.returncode, 'owners': owners}\n"
             "    with (home / '.two-seat-command-audit.jsonl').open('a', encoding='utf-8') as stream:\n"
             "        stream.write(json.dumps(event, sort_keys=True) + '\\n')\n"
             "except (OSError, ValueError, json.JSONDecodeError):\n"
@@ -391,6 +391,7 @@ def live_seat(
     scratch: Path,
     env: dict[str, str],
     timeout: int,
+    token: str,
 ) -> tuple[str, ProcessResult, Path]:
     final = scratch / f"{seat}-final.txt"
     stdout = final if seat == "claude" else scratch / f"{seat}-diagnostics.txt"
@@ -399,6 +400,11 @@ def live_seat(
         seat_env = {
             **env,
             "PATH": f"{scratch / 'bin' / seat}{os.pathsep}{env.get('PATH', '')}",
+            # Every process the host spawns inherits this run-scoped seat
+            # token, whatever session or sandbox it runs in; the shim records
+            # it so an audit entry stays attributable where a parent-pid walk
+            # is impossible (codex's sandbox denies `ps`, measured 2026-08-11).
+            "SHADOW_TWO_SEAT_ATTRIBUTION": token,
         }
         # The HOST keeps its real identity: a "real session" is a logged-in
         # one, and both supported hosts resolve their binary and their login
@@ -452,13 +458,16 @@ def claim_history(home: Path) -> dict[str, str]:
     raise HarnessError("seat_overlap_missing")
 
 
-def peer_observation(home: Path, leaders: dict[str, int]) -> None:
-    # ``leaders`` maps each seat to its host's process id. A host is free to
-    # run every command in a fresh OS session (a real Claude session does),
-    # so a seat's audit entry is attributed by descent: the seat's own host
-    # process must appear in the recorded parent-pid chain. An entry a host
-    # fabricated through the OTHER seat's shim still fails, because that
-    # chain descends from the wrong host.
+def peer_observation(home: Path, leaders: dict[str, int], tokens: dict[str, str]) -> None:
+    # ``leaders`` maps each seat to its host's process id and ``tokens`` to
+    # the run-scoped value planted only in that host's environment. A host is
+    # free to run every command in a fresh OS session (a real Claude session
+    # does) and its sandbox may deny `ps` entirely (a real codex session
+    # does), so an entry is attributed to a seat when EITHER its inherited
+    # token matches that seat's or the seat's own host process appears in the
+    # recorded parent-pid chain. Both mechanisms independently name the true
+    # origin: an entry a host fabricated through the OTHER seat's shim
+    # carries the wrong token AND descends from the wrong host.
     try:
         entries = [
             json.loads(line)
@@ -473,12 +482,15 @@ def peer_observation(home: Path, leaders: dict[str, int]) -> None:
             if isinstance(entry, dict) and entry.get("seat") == seat
         ]
 
-        def descended(entry: dict) -> bool:
+        def attributed(entry: dict) -> bool:
+            token = entry.get("attribution")
+            if isinstance(token, str) and token and token == tokens[seat]:
+                return True
             chain = entry.get("ancestors")
             return isinstance(chain, list) and leaders[seat] in chain
 
-        if any(not descended(entry) for entry in own):
-            print(f"two-seat: seat {seat} has audit entries not descended from its own host process", file=sys.stderr)
+        if any(not attributed(entry) for entry in own):
+            print(f"two-seat: seat {seat} has audit entries carrying neither its token nor its host's ancestry", file=sys.stderr)
             raise HarnessError("seat_overlap_missing")
         successful = {
             entry.get("verb")
@@ -634,9 +646,10 @@ def main(argv: list[str] | None = None) -> int:
                     "claude": resolve_host("SHADOW_CLAUDE_CODE_BIN", "claude"),
                     "codex": resolve_host("SHADOW_CODEX_BIN", "codex"),
                 }
+                tokens = {seat: os.urandom(16).hex() for seat in SEATS}
                 with ThreadPoolExecutor(max_workers=2) as pool:
                     futures = [
-                        pool.submit(live_seat, seat, binaries[seat], base.format(seat=seat), scratch, env, args.timeout_seconds)
+                        pool.submit(live_seat, seat, binaries[seat], base.format(seat=seat), scratch, env, args.timeout_seconds, tokens[seat])
                         for seat in SEATS
                     ]
                     host_results = [future.result() for future in futures]
@@ -671,6 +684,7 @@ def main(argv: list[str] | None = None) -> int:
                 peer_observation(
                     home,
                     {seat: result.session_id for seat, result, _ in host_results},
+                    tokens,
                 )
             public["status"] = "pass"
             public["failure"] = None
