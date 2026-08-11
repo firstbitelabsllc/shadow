@@ -43,6 +43,17 @@ PROOF_RECEIPT_PREFIX_RE: Final = re.compile(
 # shape. Preserve those historical completions; receipts from this cutover on
 # must be accepted by the same parser claim return uses.
 STRICT_PROOF_RECEIPT_SINCE: Final = "2026-08-10T22:39:12Z"
+# Grandfathering binds to the EXACT ids that carried a loose pre-cutover
+# receipt when the strict shape landed — never to a typed timestamp. A
+# timestamp is text anyone can write, so the old date-only test let a line
+# like `- 2000-01-01T00:00:00Z ~aaaa PROOF i promise it passed` mark a
+# completed row proven with no proof content at all (found by the 2026-08-11
+# top-down challenge). This set is frozen: it can only shrink as these rows
+# are re-proven under the strict shape, and nothing can join it.
+GRANDFATHERED_PROOF_IDS: Final = frozenset({
+    "~bkts", "~curs", "~debt", "~detv", "~dlaw", "~dreg", "~excs", "~home",
+    "~obsv", "~prot", "~rsch", "~slnk", "~styl", "~uxf1", "~vgal",
+})
 MODE_RE: Final = re.compile(r"^- Mode: (?P<value>.+)$")
 HASH_RE: Final = re.compile(r"~[0-9a-z]{4}\b")
 TS_RE: Final = re.compile(r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ")
@@ -487,7 +498,8 @@ def lint_plan(
         if receipt is not None:
             proven.add(receipt[0])
             continue
-        if prefix.group("ts") < STRICT_PROOF_RECEIPT_SINCE:
+        if (prefix.group("ts") < STRICT_PROOF_RECEIPT_SINCE
+                and prefix.group("id") in GRANDFATHERED_PROOF_IDS):
             proven.add(prefix.group("id"))
             continue
         findings.append(
