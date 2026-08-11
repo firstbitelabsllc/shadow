@@ -13,6 +13,7 @@
 - [Outcome contract](outcome-choice.md)
 - [Configuration](config.md)
 - [Privacy](privacy.md)
+- [Local event vocabulary](telemetry.md) — closed construction fields; no writer or transport
 - [Extension buckets](buckets.md) — the named slots the Method plugs into
 - [honcho](honcho.md) — why it is a pattern here, not a store
 
