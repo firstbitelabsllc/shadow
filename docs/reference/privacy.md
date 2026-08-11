@@ -32,7 +32,10 @@ credential relay, watcher, daemon, background dispatch process, or transcript
 store.
 
 There is no remote telemetry or network transport. Shadow has a closed
-[local event vocabulary](telemetry.md), but its constructor currently writes
-nothing. Local receipts and Git history remain the only observation surfaces.
+[local event vocabulary](telemetry.md). An explicit local-only opt-in may append
+the closed event beneath the current project's `.shadow/evidence/`; it contains
+no plan payload, proof output, environment, provider/account data, or operator
+path and is never authority. Local receipts and Git history remain the only
+durable work/proof surfaces.
 Which provider or account a native host uses is the host CLI's own business —
 Shadow passes no selector and records none.

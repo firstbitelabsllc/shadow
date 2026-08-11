@@ -38,6 +38,7 @@ These environment variables provide runtime defaults:
 | `SHADOW_CODEX_BIN` | Optional Codex executable override. |
 | `SHADOW_CLAUDE_CODE_BIN` | Optional Claude Code executable override. |
 | `SHADOW_CURSOR_BIN` | Optional Cursor executable override. |
+| `SHADOW_TELEMETRY` | Set exactly to `local` to append closed, local-only lifecycle events beneath the current project's `.shadow/evidence/`; unset and every other value write nothing. |
 
 Provider logins remain in their native tools.
 
