@@ -5,8 +5,8 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | Command | Purpose |
 |---|---|
 | `shadow init --here` | Create `PLAN.md` without overwriting one. |
-| `shadow status --by <seat> [--root PATH] [--shadowed]` | Read this computer's root board, show every claim owned by the stable seat, then rank reachable entity checkpoints. `--root` changes only the bounded import root; it never bypasses the board. `--shadowed` adds safe reasons for suppressed or retired copies. |
-| `shadow status --in-flight` | Every root-board claim on this computer, joined at read time to its project-owned text and proof — the recovery view after a chat dies. Add `--json` for a machine-readable end-of-chat footer. |
+| `shadow status --by <seat> [--root PATH] [--shadowed]` | Read this computer's root board, project authenticated active remote coordination locks for known PLAN rows, then rank checkpoints. `--root` changes only the bounded import root; it never bypasses or writes the board. `--shadowed` adds safe reasons for suppressed or retired copies. |
+| `shadow status --in-flight` | Every local claim plus authenticated remote-lock observation, joined at read time to project-owned text and proof — the recovery view after a chat dies. Add `--json` for a machine-readable end-of-chat footer. |
 | `shadow config --explain [--repo PATH]` | Read the optional repository-root `shadow.yaml` declaration, or report the built-in version 1 defaults when it is absent. It prints the attack-then-refute step and active review lenses; the command is read-only and writes no resolved state. |
 | `shadow goal [--install|--remove] [--host HOST]` | Print the static standing goal, or install/remove its managed block in supported host instruction files. Cursor cold directive activation is unsupported until a reviewed writable user-rule surface exists; its skill mount and sealed host runner remain supported. |
 | `shadow amp --entity ID --by <seat>` | Resume a paste-ready packet for a checkpoint already claimed by that seat. It never dispatches unclaimed work. |

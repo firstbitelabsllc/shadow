@@ -190,6 +190,13 @@ and then releases the exact local claim. For a remotely coordinated claim,
 remote lock: other computers cannot be told completion is durable when the
 completed PLAN was not published.
 
+Ordinary `shadow status` derives the exact conventional refs only for the
+bounded row ids in each registered local PLAN, authenticates their receipt and
+named PLAN source, and projects active owners without writing them into the
+computer board. It never scans arbitrary remote branches. An unavailable or
+unauthenticated remote observation makes that entity status unknown instead of
+calling the row reachable; retry when the configured origin can be read.
+
 Every remote transition is create/CAS against one expected object id. After a
 nonzero, timeout, or disconnected result, Shadow reads the exact ref again:
 the intended object is success, the unchanged predecessor is confirmed
