@@ -35,6 +35,24 @@ and Codex directory. Claude, Cursor, and MCP directories keep their own review
 and publishing steps. Submitting any external listing is a publishing action and
 remains a person-authorized release step.
 
+## Cut one immutable source release
+
+The ordinary package check is a development receipt and is never sufficient
+to call moving `main` publishable. Public-release mode requires an annotated
+tag named `shadow-v<version>` at exact `HEAD`; legacy `v*` tags belong to the
+older numbering epoch and never satisfy this check.
+
+```bash
+git tag -a "shadow-v$(cat VERSION)" -m "Shadow $(cat VERSION)"
+scripts/shadow-python.sh scripts/shadow-release-package.py \
+  --public-release --expect-version "$(cat VERSION)" --json
+```
+
+The green receipt names the exact commit, namespaced release ref, and
+reproducible archive SHA-256. Pushing that tag, creating a GitHub Release,
+marking it Latest, and changing the README install command remain separate
+publication/readback steps; none is inferred from the local receipt.
+
 ## The one human brief
 
 Every surface should answer the same questions before it exposes machinery:
