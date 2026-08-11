@@ -96,6 +96,65 @@ class LocalPlanStore(unittest.TestCase):
             self.assertEqual(again["entities"][0]["plan"], str(local_plan.resolve()))
             self.assertEqual(len(again["entities"]), 1)
 
+    def test_a_tracked_shadow_plans_directory_is_not_machine_local(self) -> None:
+        # A source repository may keep `<repo>/.shadow/plans/...`. That plan is
+        # committed and public: classifying it by directory name alone would
+        # skip its clean/committed checks and give it a private identity.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            repo = root / "product"
+            plan = repo / ".shadow" / "plans" / "release" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(PLAN, encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+
+            self.assertFalse(board.is_local_plan(plan, home=home))
+            self.assertNotIn("local-plan:", board.plan_identity_parts(plan)[0])
+
+    def test_repository_shaped_verbs_resolve_the_registered_local_plan(self) -> None:
+        # `shadow status` lists a project whose authority is machine-local, so
+        # `--repo` must reach the same authority instead of refusing work for a
+        # plan that deliberately does not live in the checkout. The block it
+        # prints has to point at this computer: no ref serves that file.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            repo = root / "dev" / "widget"
+            repo.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+            plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(PLAN, encoding="utf-8")
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~aa11"]}],
+                [],
+                home=home,
+            )
+            self.assertEqual(board.local_plan_for_repo(repo, home=home), plan.resolve())
+
+            env = {**os.environ, "HOME": str(home)}
+            claim = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "shadow-throw.py"), "--repo", str(repo), "--task", "~aa11", "--by", "local-seat"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(claim.returncode, 0, claim.stderr)
+
+            block = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "shadow-amp.py"), "--repo", str(repo), "--by", "local-seat"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(block.returncode, 0, block.stderr)
+            self.assertIn("@ this computer", block.stdout)
+            self.assertIn("read that local file directly", block.stdout)
+            self.assertNotIn("current origin ref", block.stdout)
+
     def test_local_plan_claim_is_not_git_tracked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"

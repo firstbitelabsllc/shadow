@@ -81,22 +81,71 @@ def local_plans_root(home: Path | None = None) -> Path:
     return _safe_root(home) / "plans"
 
 
-def _local_plan_root_containing(plan: Path) -> Path | None:
-    """Find a private ``.shadow/plans`` ancestor without consulting Git."""
+def _local_plan_root_containing(plan: Path, home: Path | None = None) -> Path | None:
+    """Return the private plan root that owns ``plan``, or None.
+
+    A directory name is not authority. A source repository may legitimately
+    carry ``<repo>/.shadow/plans/release/PLAN.md``: that plan is committed and
+    public, and must keep its Git identity rather than silently skipping the
+    clean/committed checks. So a plan counts as machine-local only when it
+    sits under the plan root this computer is configured with, or under a
+    ``.shadow/plans`` directory that no enclosing repository tracks.
+    """
     candidate = Path(os.path.abspath(plan))
+    try:
+        root = local_plans_root(home).resolve()
+        candidate.resolve().relative_to(root)
+        return root
+    except (OSError, ValueError, BoardError):
+        pass
     for parent in (candidate.parent, *candidate.parents):
-        if parent.name == "plans" and parent.parent.name == ".shadow":
-            return parent
+        if parent.name != "plans" or parent.parent.name != ".shadow":
+            continue
+        # Walk from the store's own parent: the private board's Git journal
+        # lives inside `.shadow` and must not make its plans look tracked.
+        if _git_marker(parent.parent.parent) is not None:
+            return None
+        return parent
     return None
 
 
 def is_local_plan(plan: Path, *, home: Path | None = None) -> bool:
     """Whether ``plan`` belongs to the machine-only Shadow plan store."""
+    return _local_plan_root_containing(plan, home) is not None
+
+
+def local_plan_slug(name: str) -> str:
+    """One stable, public-safe directory name for a project's local plan."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if len(slug) < 3:
+        slug = f"project-{slug or 'work'}"
+    return slug[:48]
+
+
+def local_plan_for_repo(repo: Path, *, home: Path | None = None) -> Path | None:
+    """Return the registered local authority that stands in for ``repo``.
+
+    A project whose plan is machine-local has no ``<repo>/PLAN.md``, so the
+    repository-shaped verbs (`shadow amp --repo`, `shadow throw --repo`) would
+    otherwise refuse work that `shadow status` happily lists. Only a plan this
+    computer's board already registers is returned: this resolves an existing
+    authority, it never mints one.
+    """
     try:
-        Path(os.path.abspath(plan)).resolve().relative_to(local_plans_root(home).resolve())
-    except (OSError, ValueError):
-        return False
-    return True
+        root = local_plans_root(home)
+    except BoardError:
+        return None
+    registered = {
+        entity.get("plan")
+        for entity in (snapshot(home=home) or {}).get("entities", [])
+    }
+    for directory in dict.fromkeys((repo.name, local_plan_slug(repo.name))):
+        candidate = root / directory / "PLAN.md"
+        if not regular_plan(candidate):
+            continue
+        if str(candidate.resolve()) in registered:
+            return candidate.resolve()
+    return None
 
 
 def _empty() -> dict:
@@ -523,7 +572,7 @@ def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[s
     local_root = _local_plan_root_containing(plan)
     if local_root is not None:
         try:
-            return f"local-plan:{local_root.resolve()}", plan.resolve().relative_to(local_root.resolve()).as_posix()
+            return f"local-plan:{local_root}", plan.resolve().relative_to(local_root).as_posix()
         except (OSError, ValueError) as exc:
             raise BoardError("local plan identity could not be read") from exc
     marker = _git_marker(plan.parent)

@@ -197,14 +197,19 @@ def main(argv: list[str] | None = None) -> int:
     else:
         unresolved_repo = Path(args.repo or ".")
         unresolved_plan = unresolved_repo / "PLAN.md"
+        local_plan = None
         if not _board.regular_plan(unresolved_plan):
-            print(
-                f"shadow throw: no regular, non-symlink plan at {unresolved_plan}",
-                file=sys.stderr,
-            )
-            return 2
+            # A project whose authority is machine-local carries no plan in its
+            # checkout; the board already knows where that authority lives.
+            local_plan = _board.local_plan_for_repo(unresolved_repo.resolve())
+            if local_plan is None:
+                print(
+                    f"shadow throw: no regular, non-symlink plan at {unresolved_plan}",
+                    file=sys.stderr,
+                )
+                return 2
         repo = unresolved_repo.resolve()
-        plan_path = repo / "PLAN.md"
+        plan_path = local_plan or repo / "PLAN.md"
         try:
             existing = _board.entity_state(plan_path)
             if existing is not None and existing["entity"] is not None:
