@@ -2138,6 +2138,69 @@ def migrate_to_local_plan(source: Path, destination: Path, *, home: Path | None 
         return json.loads(json.dumps(payload))
 
 
+def discard_unclaimed_source_alias(
+    source: Path,
+    destination: Path,
+    *,
+    home: Path | None = None,
+) -> dict:
+    """Drop a stale source alias when its private authority already exists.
+
+    This is deliberately narrower than a migration: it cannot move a claim,
+    choose between two resume rows, or make a source checkout authoritative.
+    It only repairs the duplicate aliases produced by an older importer after
+    the local plan is already registered.
+    """
+    source = source.resolve()
+    destination = destination.resolve()
+    if not regular_plan(source) or not regular_plan(destination):
+        raise BoardError("alias cleanup requires regular non-symlink PLAN.md files")
+    if not is_local_plan(destination, home=home):
+        raise BoardError("alias cleanup destination must live below ~/.shadow/plans")
+    source_id = entity_id(source)
+    destination_id = entity_id(destination)
+    if source_id == destination_id:
+        raise BoardError("alias cleanup requires distinct source and local identities")
+    destination_rows = set(ROW_ID.findall(read_plan_bytes(destination).decode("utf-8")))
+    with _transaction(home) as (root, path, payload):
+        source_entity = next((item for item in payload["entities"] if item["id"] == source_id), None)
+        destination_entity = next(
+            (item for item in payload["entities"] if item["id"] == destination_id),
+            None,
+        )
+        if source_entity is None:
+            return json.loads(json.dumps(payload))
+        if destination_entity is None:
+            raise BoardError("alias cleanup requires the private authority to be registered")
+        if any(item["entity"] == source_id for item in payload["claims"]):
+            raise BoardError("alias cleanup refuses a source alias with a live claim")
+        source_resume = source_entity["resume"]
+        if source_resume is not None and source_resume not in destination_rows:
+            raise BoardError("alias cleanup source resume is absent from the private plan")
+        if (
+            source_resume is not None
+            and destination_entity["resume"] is not None
+            and destination_entity["resume"] != source_resume
+        ):
+            raise BoardError("alias cleanup refuses divergent source and local resumes")
+        if destination_entity["resume"] is None and source_resume is not None:
+            destination_entity["resume"] = source_resume
+        payload["entities"] = [
+            item for item in payload["entities"] if item["id"] != source_id
+        ]
+        used_projects = {item["project"] for item in payload["entities"]}
+        payload["projects"] = [
+            item for item in payload["projects"] if item["id"] in used_projects
+        ]
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, "shadow board: remove stale source alias")
+        return json.loads(json.dumps(payload))
+
+
 def claimed_rows(plan: Path, *, home: Path | None = None) -> set[str]:
     state = entity_state(plan, home=home)
     return (

@@ -84,9 +84,17 @@ class LocalPlanStore(unittest.TestCase):
 
             self.assertEqual(payload["entities"][0]["plan"], str(local_plan.resolve()))
             self.assertTrue(board.is_local_plan(Path(payload["entities"][0]["plan"]), home=home))
-            # A second refresh must not rediscover the source checkout.
+            # A stale executable can still append the old source alias once;
+            # the next refresh removes that unclaimed duplicate rather than
+            # letting it become a second authority.
+            board.reconcile(
+                [{"plan": str(source_plan), "project": "demo", "priority": 2, "candidates": ["~aa11"]}],
+                [],
+                home=home,
+            )
             again = importer.reconcile_portfolio(portfolio, status._amp, home=home)
             self.assertEqual(again["entities"][0]["plan"], str(local_plan.resolve()))
+            self.assertEqual(len(again["entities"]), 1)
 
     def test_local_plan_claim_is_not_git_tracked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
