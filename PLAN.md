@@ -14,10 +14,7 @@ sections that stood here until 2026-08-09 are archived at
 
 ## Tasks
 
-### M1 — Method encoded
-- [completed] AGENT.md encodes the core, gate, and steering ~m3k7 | proof: read AGENT.md carries ## The core, ## Folded behavior, ## The proxy stance
-- [completed] method.md contract lands with contract tests ~q8f2 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_grammar_contract | needs: ~m3k7
-- [completed] the Method rides the installed mounts ~w5d9 (DoD) | proof: read shadow doctor -> 11/11 with AGENT.md at root | needs: ~q8f2
+- Archived milestone: [m1-method-encoded](docs/plan-archive/m1-method-encoded.md) <!-- shadow:lifecycle:m1-method-encoded:sha256:4f49331f3d7d6685df21780b6e9c294f590db16333f8f90c7cb13bfb45e74c63:cas:2d11bf680d3804b04900f6e25c946e11b9025f6801aac86951eb4ea7d393f357:head:df367d8bd8f2dbb5db9b614a9a9d2dd7c9fbfff7:blob:2fb49fdd4199e0be515ca4398939446a0e40e5cd:successor:~gsrc -->
 
 ### M2 — Board live
 - [completed] scanner serves gated entity/mode/milestone/checkpoint counts ~t2b8 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_status_focus
@@ -398,26 +395,12 @@ sections that stood here until 2026-08-09 are archived at
   into the spec, then operator review gates any implementation. The spec
   changes no shipped behavior.
 
-- 2026-08-06T04:05:00Z CONTRADICTION recorded: C3~w5d9 was flipped completed
-  on a proof (doctor) that verified mounts but not content — AGENT.md was
-  never in the npm files list, so v3.0.0 installs carried no standing-behavior
-  file. Found by the Round 1 stress adversary. Row demoted to in_progress;
-  v3.0.1 ships the file, doctor now requires it, and a contract test pins the
-  files entry. Re-flip only after reinstall + doctor on the operator machine.
-
-- 2026-08-05T23:05:00Z M1 REPORTION seat=chief — tagged C3~w5d9 as M1's (DoD)
-  row; M1 shipped without one, which its own PLAN-LINT (pass E, milestone
-  shape) flags. Trigger: first lint of this plan under the released grammar.
-- 2026-08-05T23:05:00Z ~w5d9 PROOF seat=chief out=`pilot-puppy doctor` -> 11/11
-  on installed v2.3.2 (mounts resolve to the release package).
-- 2026-08-05T23:05:00Z ~w5d9 DONE seat=chief
 - 2026-08-05T23:05:00Z ~r9c3 PROOF seat=chief out=PRs #247/#248/#249 squash-merged
   with hosted checks 11 pass / 1 skip each; releases v2.3.0
   (`6a25eb51…45e2bc`), v2.3.1 (`893e75fe…c0ffd2`), v2.3.2 (`fdc0876d…32be92`)
   public; full local matrix Python 180/180, Playwright 10/10, vitest 4/4,
   docs, privacy 0 findings.
 - 2026-08-05T23:05:00Z ~r9c3 DONE seat=chief
-- DOD d1 The Method encoded and installable | C: ~m3k7,~q8f2,~w5d9 | proof: `python3 -m unittest tests.test_method_contract` -> 4/4 + doctor 11/11 on v2.3.2 | status: Verified
 - DOD d2 Board live, read-only, both viewports | C: ~t2b8,~j6n4 | proof: `npm run test:e2e` -> 10/10 incl. zero-write and shell-hidden assertions | status: Verified
 - LESSON folded into docs/reference/method.md and CHANGELOG through v2.3.2:
   worktree pools must be pruned from discovery, and hidden-attribute views
@@ -1555,8 +1538,6 @@ sections that stood here until 2026-08-09 are archived at
 
 - 2026-08-09T00:30:00Z LESSON `shadow accept` runs a cmd proof through shlex.split with NO shell, so a proof containing `&&`, `$(...)`, or a redirect is not a compound command -- the operators arrive as literal arguments to the first binary. This milestone's own DoD proof was written as `bash install.sh ... && shadow --version` and could never have passed: install.sh would have received `&&` as an unknown argument. It was also a false green by construction, since printing a version asserts nothing about it. Rewritten as one `bash -c '...'` token that clones origin/main, installs, and hard-asserts `test "$v" = 0.1.0` plus a doctor run. Verified failing today against main at 4.1.0 (rc=1, "installed 4.1.0"), which is what makes it a gate rather than a printout: a proof that cannot fail before the work is done is not proof. | trigger: reading shadow-accept.py:157 while checking whether my own DoD row was runnable
 
-- 2026-08-09T00:35:00Z ~m3k7 PROOF re-observed: AGENT.md carries ## The core, ## Folded behavior -- one sentence each, ## The proxy stance, ## Appendix. Its npm-era proof `npm run docs:build` retired with npm on 2026-08-09; this row's class changed cmd -> read because the docs build no longer exists and the claim was always about file content. (read)
-- 2026-08-09T00:36:00Z ~q8f2 PROOF scripts/shadow-python.sh -m unittest tests.test_grammar_contract -> Ran 6 tests, OK. Replaces the retired `npm run test:py`; same contract, existing runner. (cmd)
 - 2026-08-09T00:37:00Z ~t2b8 PROOF scripts/shadow-python.sh -m unittest tests.test_status_focus -> Ran 20 tests, OK. Replaces the retired `npm run test:py`. (cmd)
 - 2026-08-09T00:38:00Z ~j6n4 PROOF scripts/shadow-python.sh -m unittest tests.test_browser_shell -> Ran 7 tests, OK. Replaces `npm run test:e2e`, whose playwright board suite was deleted with npm; test_browser_shell ports its four source-contract assertions verbatim. (cmd)
 - 2026-08-09T00:40:00Z STRUCT lint gained COMPLETED-NO-PROOF (blocking): a [completed] row must name a "<ts> <id> PROOF ..." line in ## Progress. Why now: a 5-agent 0.1.0 audit proved the product's central claim false -- in a fresh `shadow init` tree a row hand-flipped to [completed] with zero PROOF lines linted "clean" rc=0, and status then said "every task complete; mint the successor". AGENT.md:4, grammar.md:5 and :58, and README property 3 all named lint as that enforcer; lint checked shape, never truth. Contradicts: nothing -- it makes four documents honest. It immediately caught four of this plan's own rows whose npm-era proof commands died with npm; each was re-pointed at a command that exists and re-run today rather than given a fabricated receipt. One test fixture faked completion by string-replacing states without adding proofs, the same shortcut a careless operator takes; it now carries receipts.
@@ -1750,3 +1731,5 @@ sections that stood here until 2026-08-09 are archived at
 - 2026-08-11T21:05:24Z AUDIT ~tdch top-down adversarial challenge at HEAD 0c4e556: six read-only adversaries and a judge; attack sets, survived lists, and evidence live in the owner's local Langfuse (shadow-topdown-challenge, trace a212e481eea85e49cc06dda8a876b503). VERDICT: zero launch blockers, five surfaces clean; nothing gates shadow-v1.0.0. Rows minted: ~lgrf, ~bpth (real), ~ldup, ~rmot, ~hscr (latent); ~hrcx re-confirmed; one folds into ~gsrc; parity claim REFUTED; two NON-ISSUE. All fail-closed, loopback-local, or inside the repo trust boundary.
 - 2026-08-11T21:05:24Z ~tdch PROOF read the AUDIT above names each surface, the verdict, every minted row, and its Langfuse trace -> pass (forced form)
 - 2026-08-11T21:25:30Z ~gskl PROOF scripts/shadow-python.sh -m unittest tests.test_grammar_contract -> pass (accept)
+
+- 2026-08-11T21:25:30Z STRUCT archived milestone m1-method-encoded | successor: M4 — Amp: the goal is a pointer | trigger: proven lifecycle compaction
