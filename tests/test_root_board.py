@@ -1365,6 +1365,90 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
                 importer.board.reconcile = real_reconcile
             self._assert_board_unchanged(fixture)
 
+    def test_every_copy_the_live_supersession_read_is_a_reconcile_predicate(self) -> None:
+        """A live verdict CASes the stale demotion it proved superseded.
+
+        Discovery initially sees an older demotion and a strictly newer live
+        registered copy, so the entity stays live. If the demoted copy commits
+        a newer word before reconciliation, the original verdict is stale and
+        must not be allowed to refresh the board.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._pair(Path(tmp))
+            importer, amp = self._importer_and_amp()
+
+            def commit_at(repo: Path, message: str, when: str) -> None:
+                stamped = {
+                    **os.environ,
+                    "GIT_AUTHOR_DATE": when,
+                    "GIT_COMMITTER_DATE": when,
+                }
+                result = subprocess.run(
+                    ["git", "-C", str(repo), "commit", "--quiet", "-m", message],
+                    capture_output=True,
+                    text=True,
+                    env=stamped,
+                    check=False,
+                )
+                if result.returncode:
+                    raise AssertionError(result.stderr)
+
+            demoted = fixture["sibling"] / "PLAN.md"
+            demoted.write_text(
+                demoted.read_text(encoding="utf-8").replace(
+                    "# Project\n", f"# Project\n\n{self.BANNER}\n", 1
+                ),
+                encoding="utf-8",
+            )
+            git(fixture["sibling"], "add", "PLAN.md")
+            commit_at(
+                fixture["sibling"],
+                "demote stale sibling",
+                "2026-06-24T02:06:40+00:00",
+            )
+
+            live = fixture["healthy"] / "PLAN.md"
+            live.write_text(
+                live.read_text(encoding="utf-8")
+                + "- 2026-08-10T18:15:14Z NOTE current copy remains live\n",
+                encoding="utf-8",
+            )
+            git(fixture["healthy"], "add", "PLAN.md")
+            commit_at(
+                fixture["healthy"],
+                "advance the live registered copy",
+                "2026-08-10T18:15:14+00:00",
+            )
+
+            real_reconcile = importer.board.reconcile
+
+            def revise_the_demoted_copy_then_reconcile(*args, **kwargs):
+                demoted.write_text(
+                    demoted.read_text(encoding="utf-8")
+                    + "- 2026-08-11T00:00:00Z NOTE demotion revised after discovery\n",
+                    encoding="utf-8",
+                )
+                git(fixture["sibling"], "add", "PLAN.md")
+                commit_at(
+                    fixture["sibling"],
+                    "advance demotion after discovery",
+                    "2026-08-11T00:00:00+00:00",
+                )
+                return real_reconcile(*args, **kwargs)
+
+            importer.board.reconcile = revise_the_demoted_copy_then_reconcile
+            try:
+                with self.assertRaisesRegex(
+                    importer.board.BoardError,
+                    "changed during reconciliation",
+                ):
+                    importer.reconcile_portfolio(
+                        fixture["portfolio"], amp, home=fixture["home"]
+                    )
+            finally:
+                importer.board.reconcile = real_reconcile
+            self._assert_board_unchanged(fixture)
+
     def test_duplicate_checkouts_do_not_multiply_the_vetos_git_scans(self) -> None:
         """N copies of one plan cost N commit reads, not N**2.
 
