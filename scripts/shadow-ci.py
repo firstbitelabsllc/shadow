@@ -48,7 +48,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_throw", "tests.test_status_focus")),
     (("scripts/shadow-throw.py", "scripts/shadow_remote_claim.py"), (
         "tests.test_throw", "tests.test_root_board", "tests.test_gauntlet",
-        "tests.test_telemetry",
+        "tests.test_telemetry", "tests.test_return", "tests.test_shadow_accept",
     )),
     (("scripts/shadow-return.py",), ("tests.test_return", "tests.test_root_board", "tests.test_amp")),
     (("scripts/shadow-accept.py",), ("tests.test_shadow_accept", "tests.test_gauntlet", "tests.test_root_board")),

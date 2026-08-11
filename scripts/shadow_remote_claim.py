@@ -32,6 +32,7 @@ STAMP: Final = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 RECOVERY: Final = "probe-proof-then-adopt-park-or-close"
 TIMEOUT_SECONDS: Final = 20
 MAX_RECEIPT_BYTES: Final = 8 * 1024
+MAX_RELATIVE_BYTES: Final = 240
 GIT_INJECTION_VARS: Final = {
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_COMMON_DIR",
@@ -116,6 +117,36 @@ def claim_ref(entity: str, row: str) -> str:
     if ENTITY.fullmatch(entity) is None or ROW.fullmatch(row) is None:
         raise ValueError("remote claim identity is invalid")
     return f"refs/heads/shadow/claims/v1/{entity}/{row[1:]}"
+
+
+def public_safe_plan_token(value: object) -> bool:
+    """True only for a bounded public Git PLAN locator."""
+    if not isinstance(value, dict) or not PLAN_FIELDS.issubset(value):
+        return False
+    head = value.get("head")
+    blob = value.get("blob")
+    relative = value.get("relative")
+    try:
+        relative_bytes = relative.encode("utf-8") if isinstance(relative, str) else b""
+    except UnicodeEncodeError:
+        return False
+    if (
+        not isinstance(head, str)
+        or HEX_OBJECT.fullmatch(head) is None
+        or not isinstance(blob, str)
+        or HEX_OBJECT.fullmatch(blob) is None
+        or not isinstance(relative, str)
+        or not relative
+        or len(relative_bytes) > MAX_RELATIVE_BYTES
+        or not relative.isprintable()
+        or relative.startswith("/")
+        or "\\" in relative
+        or any(part in {"", ".", ".."} for part in relative.split("/"))
+        or PRIVATE_PATH_RE.search(relative)
+        or SECRET_SHAPE_RE.search(relative)
+    ):
+        return False
+    return True
 
 
 def _public_owner(owner: object) -> str | None:
@@ -248,6 +279,7 @@ def _valid_winner(
     )
     if (
         value.get("schema") != SCHEMA
+        or not public_safe_plan_token(value.get("plan"))
         or value.get("entity") != entity
         or value.get("row") != row
         or value.get("project") != project
@@ -301,7 +333,21 @@ def _remote_tip(
     except (UnicodeError, json.JSONDecodeError):
         return None
     token = value.get("plan") if plan_token is None and isinstance(value, dict) else plan_token
+    if not public_safe_plan_token(token):
+        return (commit_id, None)
     if not isinstance(token, dict):
+        return (commit_id, None)
+    ancestor = _git(repo, "merge-base", "--is-ancestor", token["head"], commit_id)
+    resolved_blob = _git(repo, "rev-parse", f"{token['head']}:{token['relative']}")
+    resolved_oid = resolved_blob.stdout.decode("ascii", errors="ignore").strip()
+    object_type = _git(repo, "cat-file", "-t", resolved_oid)
+    if (
+        ancestor.returncode
+        or resolved_blob.returncode
+        or resolved_oid != token["blob"]
+        or object_type.returncode
+        or object_type.stdout.decode("ascii", errors="ignore").strip() != "blob"
+    ):
         return (commit_id, None)
     return (
         commit_id,
@@ -327,6 +373,27 @@ def _result(
     return {**desired, "status": status, "winner": winner, "failure": failure}
 
 
+def _unsafe_plan_result(
+    *, entity: str, row: str, owner: str, project: str, state: str, reason: str
+) -> dict[str, Any]:
+    """One closed error outcome that cannot echo the rejected PLAN locator."""
+    return {
+        "schema": SCHEMA,
+        "status": "error",
+        "ref": claim_ref(entity, row),
+        "entity": entity,
+        "row": row,
+        "owner": _public_owner(owner),
+        "project": project if PROJECT.fullmatch(project) else None,
+        "plan": None,
+        "claim": None,
+        "state": state,
+        "reason": reason,
+        "winner": None,
+        "failure": "unsafe_plan_token",
+    }
+
+
 def acquire(
     repo: Path,
     *,
@@ -344,17 +411,14 @@ def acquire(
     if not uses_origin_upstream(repo):
         return None
     ref = claim_ref(entity, row)
+    if not public_safe_plan_token(plan_token):
+        return _unsafe_plan_result(
+            entity=entity, row=row, owner=owner, project=project,
+            state="acquired", reason="acquire",
+        )
     if (
         _public_owner(owner) is None
         or PROJECT.fullmatch(project) is None
-        or set(plan_token) < PLAN_FIELDS
-        or HEX_OBJECT.fullmatch(plan_token["head"]) is None
-        or HEX_OBJECT.fullmatch(plan_token["blob"]) is None
-        or not isinstance(plan_token["relative"], str)
-        or not plan_token["relative"]
-        or plan_token["relative"].startswith("/")
-        or "\\" in plan_token["relative"]
-        or any(part in {"", ".", ".."} for part in plan_token["relative"].split("/"))
         or STAMP.fullmatch(claimed_at) is None
         or STAMP.fullmatch(return_by) is None
         or return_by <= claimed_at
@@ -467,6 +531,11 @@ def transition(
     """CAS one acquired journal tip to released/completed."""
     if not uses_origin_upstream(repo):
         return None
+    if not public_safe_plan_token(plan_token):
+        return _unsafe_plan_result(
+            entity=entity, row=row, owner=owner, project=project,
+            state=state, reason=reason,
+        )
     ref = claim_ref(entity, row)
     desired = _receipt(
         status="acquired", ref=ref, entity=entity, row=row, owner=owner,

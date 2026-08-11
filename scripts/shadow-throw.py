@@ -191,6 +191,12 @@ def main(argv: list[str] | None = None) -> int:
             if observed_token != plan_token:
                 raise _board.BoardError("project plan changed before the claim committed; retry")
             plan_text = plan_bytes.decode("utf-8")
+            if _remote.uses_origin_upstream(repo) and not _remote.public_safe_plan_token(
+                plan_token
+            ):
+                raise _board.BoardError(
+                    "project plan locator is not public-safe for remote claim transport"
+                )
             if not args.entity:
                 # Normalize/register this exact bounded entity before claiming.
                 # This also rekeys a stored entity after its Git origin changes, so

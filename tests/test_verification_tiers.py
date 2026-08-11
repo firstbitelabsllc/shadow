@@ -59,6 +59,8 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         self.assertFalse(selected.run_all)
         self.assertIn("tests.test_throw", selected.modules)
         self.assertIn("tests.test_root_board", selected.modules)
+        self.assertIn("tests.test_return", selected.modules)
+        self.assertIn("tests.test_shadow_accept", selected.modules)
         self.assertTrue(selected.release_contract)
 
     def test_unknown_or_empty_changes_fall_back_to_full(self) -> None:

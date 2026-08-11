@@ -532,6 +532,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         receipt: dict,
         *,
         padding: int = 0,
+        parents: tuple[str, ...] | None = None,
     ) -> str:
         stored = {key: receipt[key] for key in remote_claim.JOURNAL_FIELDS}
         encoded = (
@@ -551,10 +552,14 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             capture_output=True,
             check=True,
         ).stdout.decode().strip()
+        chosen_parents = (
+            (receipt["plan"]["head"],) if parents is None else parents
+        )
+        parent_args = [item for parent in chosen_parents for item in ("-p", parent)]
         commit = subprocess.run(
             [
                 "git", "-C", str(repo), "commit-tree", tree,
-                "-p", receipt["plan"]["head"],
+                *parent_args,
             ],
             input=b"hostile remote receipt\n",
             capture_output=True,
@@ -569,6 +574,195 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         ).stdout.decode().strip()
         self.git(repo, "push", "-q", "origin", f"{commit}:{receipt['ref']}")
         return commit
+
+    def hostile_receipt(self, repo: Path, *, blob: str | None = None) -> dict:
+        token, _ = board.committed_plan_snapshot(repo / "PLAN.md")
+        if blob is not None:
+            token = {**token, "blob": blob}
+        entity = board.entity_id(repo / "PLAN.md")
+        return remote_claim._receipt(
+            status="acquired",
+            ref=remote_claim.claim_ref(entity, "~bb22"),
+            entity=entity,
+            row="~bb22",
+            owner="hostile-seat",
+            project="protected-demo",
+            plan_token=token,
+            claimed_at="2026-08-11T12:00:00Z",
+            return_by="2099-08-11T20:00:00Z",
+            recovery=board.RECOVERY_ACTION,
+            state="acquired",
+            reason="acquire",
+            winner="hostile-seat",
+            failure=None,
+        )
+
+    def assert_malformed_remote_retains_local_claim(
+        self, root: Path, first: Path, receipt: dict, *, parents: tuple[str, ...]
+    ) -> None:
+        self.publish_receipt(first, receipt, parents=parents)
+        process = self.throw_process(first, root / "home-a", "seat-a")
+        stdout, stderr = process.communicate(timeout=30)
+        self.assertEqual(process.returncode, 1, stderr)
+        self.assertEqual(stdout, "")
+        outcome = self.receipt(stderr)
+        self.assertEqual(outcome["status"], "error")
+        self.assertEqual(outcome["failure"], "ambiguous_remote")
+        payload = json.loads(
+            (root / "home-a" / ".shadow" / "board.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+    def test_remote_tip_without_named_plan_parent_is_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            self.assert_malformed_remote_retains_local_claim(
+                root, first, self.hostile_receipt(first), parents=()
+            )
+
+    def test_remote_tip_with_wrong_parent_is_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            receipt = self.hostile_receipt(first)
+            tree = self.git(first, "write-tree")
+            wrong = subprocess.run(
+                ["git", "-C", str(first), "commit-tree", tree],
+                input=b"wrong parent\n",
+                capture_output=True,
+                check=True,
+                env={
+                    **os.environ,
+                    "GIT_AUTHOR_NAME": "Fixture",
+                    "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                    "GIT_COMMITTER_NAME": "Fixture",
+                    "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+                },
+            ).stdout.decode().strip()
+            self.assert_malformed_remote_retains_local_claim(
+                root, first, receipt, parents=(wrong,)
+            )
+
+    def test_remote_tip_with_wrong_named_plan_blob_is_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            receipt = self.hostile_receipt(first, blob="0" * 40)
+            self.assert_malformed_remote_retains_local_claim(
+                root, first, receipt, parents=(receipt["plan"]["head"],)
+            )
+
+    def test_remote_tip_cannot_name_a_tree_as_the_plan_blob(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            nested = first / "nested"
+            nested.mkdir()
+            (nested / "file.txt").write_text("not a plan\n", encoding="utf-8")
+            self.git(first, "add", "nested/file.txt")
+            self.git(first, "commit", "-qm", "add a tree-shaped decoy")
+            receipt = self.hostile_receipt(first)
+            receipt["plan"] = {
+                "head": self.git(first, "rev-parse", "HEAD"),
+                "blob": self.git(first, "rev-parse", "HEAD:nested"),
+                "relative": "nested",
+            }
+            self.assert_malformed_remote_retains_local_claim(
+                root, first, receipt, parents=(receipt["plan"]["head"],)
+            )
+
+    def test_entity_secret_shaped_relative_refuses_before_local_or_remote_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, _ = self.protected_fixture(root)
+            secret = "sk-abcdefghijklmno"
+            nested = first / secret
+            nested.mkdir()
+            (nested / "PLAN.md").write_text(
+                PLAN.replace("- Project: demo", "- Project: protected-demo"),
+                encoding="utf-8",
+            )
+            self.git(first, "add", f"{secret}/PLAN.md")
+            self.git(first, "commit", "-qm", "nested private locator")
+            home = root / "home-a"
+            home.mkdir()
+            board.reconcile(
+                [
+                    {
+                        "plan": str(nested / "PLAN.md"),
+                        "project": "protected-demo",
+                        "priority": 2,
+                        "candidates": ["~bb22"],
+                    }
+                ],
+                [],
+                home=home,
+            )
+            entity = board.entity_id(nested / "PLAN.md")
+
+            process = subprocess.run(
+                [
+                    sys.executable, str(THROW), "--entity", entity,
+                    "--task", "~bb22", "--by", "seat-a",
+                ],
+                cwd=first,
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertEqual(process.returncode, 1, process.stderr)
+            self.assertEqual(process.stdout, "")
+            self.assertNotIn(secret, process.stdout + process.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
+            self.assertEqual(refs, ["refs/heads/main"])
+
+    def test_direct_helpers_return_closed_null_plan_error_without_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            token, _ = board.committed_plan_snapshot(first / "PLAN.md")
+            secret = "sk-abcdefghijklmno"
+            unsafe = {**token, "relative": f"{secret}/PLAN.md"}
+            entity = board.entity_id(first / "PLAN.md")
+            claim = {
+                "claimed_at": "2026-08-11T12:00:00Z",
+                "return_by": "2099-08-11T20:00:00Z",
+                "recovery": board.RECOVERY_ACTION,
+            }
+            outcomes = (
+                remote_claim.acquire(
+                    first, entity=entity, row="~bb22", owner="seat-a",
+                    project="protected-demo", plan_token=unsafe, **claim,
+                ),
+                remote_claim.transition(
+                    first, entity=entity, row="~bb22", owner="seat-a",
+                    project="protected-demo", plan_token=unsafe, claim=claim,
+                    state="released", reason="handback",
+                ),
+            )
+            for outcome in outcomes:
+                self.assertEqual(set(outcome), self.RECEIPT_FIELDS)
+                self.assertIsNone(outcome["plan"])
+                self.assertIsNone(outcome["claim"])
+                self.assertEqual(outcome["failure"], "unsafe_plan_token")
+                self.assertNotIn(secret, json.dumps(outcome, sort_keys=True))
+
+    def test_public_plan_token_allows_safe_space_and_unicode_components(self) -> None:
+        token = {
+            "head": "a" * 40,
+            "blob": "b" * 40,
+            "relative": "Plans été/Release Plan.md",
+        }
+        self.assertTrue(remote_claim.public_safe_plan_token(token))
+        self.assertFalse(
+            remote_claim.public_safe_plan_token({**token, "relative": "bad\udcff/PLAN.md"})
+        )
 
     def test_protected_main_uses_one_remote_cas_before_printing_one_packet(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
