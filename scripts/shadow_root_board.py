@@ -2146,10 +2146,10 @@ def discard_unclaimed_source_alias(
 ) -> dict:
     """Drop a stale source alias when its private authority already exists.
 
-    This is deliberately narrower than a migration: it cannot move a claim,
-    choose between two resume rows, or make a source checkout authoritative.
-    It only repairs the duplicate aliases produced by an older importer after
-    the local plan is already registered.
+    This cannot choose between two resume rows or make a source checkout
+    authoritative. It only repairs duplicate aliases produced by an older
+    importer after the local plan is already registered. A live claim follows
+    only when its exact row exists exclusively in that private plan.
     """
     source = source.resolve()
     destination = destination.resolve()
@@ -2176,8 +2176,22 @@ def discard_unclaimed_source_alias(
         old_destination_id = destination_entity["id"]
         if source_id == old_destination_id:
             raise BoardError("alias cleanup requires distinct source and local entities")
-        if any(item["entity"] == source_id for item in payload["claims"]):
-            raise BoardError("alias cleanup refuses a source alias with a live claim")
+        source_claims = [item for item in payload["claims"] if item["entity"] == source_id]
+        missing_claim = next(
+            (item["row"] for item in source_claims if item["row"] not in destination_rows),
+            None,
+        )
+        if missing_claim is not None:
+            raise BoardError("alias cleanup source claim is absent from the private plan")
+        destination_claims = {
+            item["row"] for item in payload["claims"] if item["entity"] == old_destination_id
+        }
+        duplicated_claim = next(
+            (item["row"] for item in source_claims if item["row"] in destination_claims),
+            None,
+        )
+        if duplicated_claim is not None:
+            raise BoardError("alias cleanup refuses duplicate source and local claims")
         source_resume = source_entity["resume"]
         if source_resume is not None and source_resume not in destination_rows:
             raise BoardError("alias cleanup source resume is absent from the private plan")
@@ -2201,6 +2215,8 @@ def discard_unclaimed_source_alias(
         destination_entity["id"] = destination_id
         for claim in payload["claims"]:
             if claim["entity"] == old_destination_id:
+                claim["entity"] = destination_id
+            elif claim["entity"] == source_id:
                 claim["entity"] = destination_id
         payload["entities"] = [
             item for item in payload["entities"] if item["id"] != source_id
