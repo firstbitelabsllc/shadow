@@ -528,9 +528,63 @@ def _archive_veto_text(text: str) -> str | None:
     return found.group(0) if found else None
 
 
-def _archive_veto_receipt(paths: list[Path]) -> dict[str, Any] | None:
-    """Freeze the exact source whose self-demotion retires a logical plan."""
+def _archive_veto_receipt(
+    paths: list[Path],
+    *,
+    cache: dict[tuple[str, ...], dict[str, Any] | None] | None = None,
+) -> dict[str, Any] | None:
+    """Freeze the exact source whose self-demotion retires a logical plan.
+
+    The verdict is sought across every copy of one logical plan, because a
+    demotion can sit on a copy no structural rule elects. But "any copy, ever"
+    reads history as if it were the present: a checkout parked on a pre-reset
+    commit keeps serving the banner its repository has since replaced, and it
+    then retires a project whose current plan is live. Measured on the
+    reference machine — `resplit-ios/PLAN.md` at a 2026-06-24 commit demoted
+    the whole identity while `resplit-ios-authority/PLAN.md` at 2026-08-10
+    carried the live plan, so every ordinary reconcile dropped the entity and
+    its claims off the board.
+
+    So a demotion stands unless a STRICTLY newer committed copy of the same
+    plan declines to repeat it. Strictly: a tie, an unknown commit time on
+    either side, or any git failure leaves the demotion in force, so the only
+    behaviour that changes is the case where the repository has provably moved
+    on. A plan that really did retire itself is unaffected — its demotion is
+    its newest word, which is exactly what this compares.
+
+    Every copy the comparison consulted is frozen, not only the demotion that
+    is quoted back. The retirement now depends on the OTHER copies too — a
+    newer live one would have vetoed it — so a token for the demotion alone
+    would let a copy that was demoted at discovery become live before the
+    reconcile transaction and still be retired. The witnesses travel with the
+    receipt and are CASed together with it.
+
+    Boundary: a scratch checkout committing directly under the portfolio root
+    could outrank a repository's canonical copy. The worktree contract already
+    keeps lane checkouts out of that root; this is not defended here.
+
+    `cache` memoizes one discovery pass by locator set. Discovery asks for the
+    same logical plan once per same-identity checkout, and each ask runs a
+    `git log` per copy, so N duplicate clones of one repository cost N**2 Git
+    subprocesses without it. It is a per-call argument, never module state:
+    a receipt frozen in one pass must not decide a later one.
+    """
+    ordered: list[Path] = []
+    resolved: set[str] = set()
     for candidate in paths:
+        absolute = str(Path(os.path.abspath(candidate)))
+        if absolute in resolved:
+            continue
+        resolved.add(absolute)
+        ordered.append(candidate)
+    memo_key = tuple(sorted(resolved))
+    if cache is not None and memo_key in cache:
+        return cache[memo_key]
+    receipt: dict[str, Any] | None = None
+    witnesses: list[dict[str, str]] = []
+    newest_demoted: int | None = None
+    newest_live: int | None = None
+    for candidate in ordered:
         state, content = _root_board.plan_state_snapshot(candidate)
         if content is None:
             continue
@@ -540,13 +594,39 @@ def _archive_veto_receipt(paths: list[Path]) -> dict[str, Any] | None:
         # complete bounded snapshot and file metadata before retirement.
         text = content[:65_536].decode("utf-8", errors="ignore")
         found = _archive_veto_text(text)
+        committed = _root_board.plan_commit_time(candidate)
+        witnesses.append(
+            {"plan": str(candidate.resolve()), "expected_state": state}
+        )
         if found:
-            return {
-                "match": found,
-                "plan": str(candidate.resolve()),
-                "expected_state": state,
-            }
-    return None
+            if receipt is None:
+                receipt = {
+                    "match": found,
+                    "plan": str(candidate.resolve()),
+                    "expected_state": state,
+                }
+            if committed is None:
+                # An undatable demotion can never be proven superseded.
+                newest_demoted = None
+                break
+            newest_demoted = max(newest_demoted or committed, committed)
+        elif committed is not None:
+            newest_live = max(newest_live or committed, committed)
+    if receipt is not None:
+        if (
+            newest_demoted is not None
+            and newest_live is not None
+            and newest_live > newest_demoted
+        ):
+            receipt = None
+        else:
+            # Only the copies actually read above; a locator that offered no
+            # bounded content took no part in the verdict, and CASing it would
+            # make an unreadable sibling able to block every retirement.
+            receipt["witnesses"] = witnesses
+    if cache is not None:
+        cache[memo_key] = receipt
+    return receipt
 
 
 def _archive_veto(paths: list[Path]) -> str | None:
@@ -720,6 +800,11 @@ def discover_plans(
     # key -> the root-relative path that won it, so a suppressed record can
     # name its winner instead of just vanishing.
     seen: dict[tuple[str, str], str] = {}
+    # One veto verdict per locator set for the whole pass. The verdict is
+    # sought before deduplication — a ghost checkout must not be allowed to
+    # veto the copy that already won the key — so without this every extra
+    # same-identity checkout re-reads and re-`git log`s the whole set.
+    veto_cache: dict[tuple[str, ...], dict[str, Any] | None] = {}
     if is_plan_root(root):
         candidates = [root]
     elif root.is_dir():
@@ -822,7 +907,7 @@ def discover_plans(
                 veto_paths = list(instances.get(key, [path]))
                 if registered_plan not in veto_paths:
                     veto_paths.append(registered_plan)
-                veto_receipt = _archive_veto_receipt(veto_paths)
+                veto_receipt = _archive_veto_receipt(veto_paths, cache=veto_cache)
                 veto = veto_receipt["match"] if veto_receipt else None
             # Deduplicate before reading. A broken ghost checkout must not veto
             # the healthy canonical copy that already won this logical key.
@@ -894,7 +979,9 @@ def discover_plans(
                 continue
             seen[key] = record["path"]
             if registered_override is None:
-                veto_receipt = _archive_veto_receipt(instances.get(key, [path]))
+                veto_receipt = _archive_veto_receipt(
+                    instances.get(key, [path]), cache=veto_cache
+                )
                 veto = veto_receipt["match"] if veto_receipt else None
             if veto:
                 record["archived"] = True
@@ -903,6 +990,7 @@ def discover_plans(
                 if capture_tokens:
                     record["_retired_plan"] = veto_receipt["plan"]
                     record["_retired_state"] = veto_receipt["expected_state"]
+                    record["_retired_witnesses"] = veto_receipt["witnesses"]
             records.append(record)
     rank = {"needs_you": 0, "blocked": 1, "working": 2, "not_delivered": 3, "finished_with_proof": 4}
     records.sort(
