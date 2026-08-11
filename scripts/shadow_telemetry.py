@@ -129,14 +129,14 @@ def emit_local(repo: Path, candidate: Mapping[str, object]) -> Path:
         repo_fd = os.open(root, directory_flags)
         state_fd = _open_directory(repo_fd, ".shadow")
         evidence_fd = _open_directory(state_fd, "evidence")
-        event_flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+        event_flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NONBLOCK
         event_flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
         event_fd = os.open(EVENT_FILE, event_flags, 0o600, dir_fd=evidence_fd)
         metadata = os.fstat(event_fd)
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
             raise TelemetryError("local event destination is not a regular file")
         os.fchmod(event_fd, 0o600)
-        fcntl.flock(event_fd, fcntl.LOCK_EX)
+        fcntl.flock(event_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         remaining = memoryview(encoded)
         while remaining:
             written = os.write(event_fd, remaining)

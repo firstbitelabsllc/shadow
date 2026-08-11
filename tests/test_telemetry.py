@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import fcntl
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -91,6 +94,27 @@ class TheAllowlistIsClosed(unittest.TestCase):
 
 
 class EventsCarryNoPayload(unittest.TestCase):
+    def _run_bounded_throw(
+        self, repo: Path, env: dict[str, str], *, seat: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(THROW),
+                "--repo",
+                str(repo),
+                "--task",
+                "~bb22",
+                "--by",
+                seat,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+
     def test_a_real_throw_writes_only_the_closed_local_event(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -172,6 +196,62 @@ class EventsCarryNoPayload(unittest.TestCase):
                 (home / ".shadow" / "board.json").read_text(encoding="utf-8")
             )
             self.assertEqual(board["claims"][0]["row"], "~bb22")
+
+    def test_a_fifo_destination_cannot_hang_after_the_claim_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = throw_fixture(root)
+            evidence = repo / ".shadow" / "evidence"
+            evidence.mkdir(parents=True)
+            destination = evidence / "shadow-events.jsonl"
+            os.mkfifo(destination, 0o600)
+            before = destination.lstat()
+
+            result = self._run_bounded_throw(
+                repo, {**env, "SHADOW_TELEMETRY": "local"}, seat="fifo-seat"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal demo", result.stdout)
+            self.assertIn("~bb22 claimed by fifo-seat", result.stderr)
+            self.assertIn("optional local event was not recorded", result.stderr)
+            after = destination.lstat()
+            self.assertTrue(stat.S_ISFIFO(after.st_mode))
+            self.assertEqual((after.st_dev, after.st_ino), (before.st_dev, before.st_ino))
+            board = json.loads(
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(board["claims"][0]["owner"], "fifo-seat")
+
+    def test_a_held_event_lock_cannot_hang_after_the_claim_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = throw_fixture(root)
+            evidence = repo / ".shadow" / "evidence"
+            evidence.mkdir(parents=True)
+            destination = evidence / "shadow-events.jsonl"
+            destination.write_text("", encoding="utf-8")
+            descriptor = os.open(destination, os.O_RDWR)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                result = self._run_bounded_throw(
+                    repo,
+                    {**env, "SHADOW_TELEMETRY": "local"},
+                    seat="locked-seat",
+                )
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                os.close(descriptor)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("/goal demo", result.stdout)
+            self.assertIn("~bb22 claimed by locked-seat", result.stderr)
+            self.assertIn("optional local event was not recorded", result.stderr)
+            self.assertEqual(destination.read_bytes(), b"")
+            board = json.loads(
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(board["claims"][0]["owner"], "locked-seat")
 
 
 if __name__ == "__main__":
