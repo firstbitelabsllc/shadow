@@ -1410,6 +1410,37 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
+    """The rejection message must make its own advice followable: the flip
+    commit stays on the checkout's branch, and the message NAMES that
+    repository and branch. Accept commits at the STORED plan pointer, which
+    can differ from the --repo argument the operator typed — an unnamed
+    location reads as a destroyed commit, and the operator duplicates the
+    flip by hand (measured 2026-08-11 on this very plan).
+    """
+
+    def test_the_rejection_names_the_repo_and_branch_bearing_the_flip(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            remote = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            git(repo, "remote", "add", "origin", str(remote))
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            hook = remote / "hooks" / "pre-receive"
+            hook.write_text("#!/bin/sh\necho protected >&2\nexit 1\n", encoding="utf-8")
+            hook.chmod(0o755)
+            result = run_accept(repo, "~ab12")
+            self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+            branch = git(repo, "symbolic-ref", "--short", "HEAD")
+            self.assertIn(str(repo), result.stderr, "the rejection must name the repository holding the flip")
+            self.assertIn(f"(branch {branch})", result.stderr, "the rejection must name the branch holding the flip")
+            self.assertEqual(git(repo, "rev-list", "--count", "HEAD"), "2",
+                             "the flip commit must remain reachable on the named branch")
+            self.assertIn("[completed] x.txt says hello ~ab12",
+                          git(repo, "show", "HEAD:PLAN.md"))
+
+
 class NeedsIsAReadinessGate(unittest.TestCase):
     """grammar.md: "a task is ready when it is pending and every needs-target
     is completed". throw enforced that; accept did not, so a row could be
