@@ -1150,7 +1150,7 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
             "Final authority read — objective SHA "
             "`b30773705e835d97f9792ea81e3775fa19dbb238f7d5de13bc1e88160827f5fc`, "
             "Snowcubes `origin/main` and both clean authority checkouts agree ~aa11",
-            "read the canonical plan at /Users/someone/Development/private-client"
+            "read the canonical plan at /Users/person/Development/private-client"
             "/PLAN.md ~aa11",
         )
         change = board_projection.project_board_brief(plan)["latest_change"]
@@ -1175,7 +1175,7 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
     def test_a_brief_priority_carrying_a_path_is_withheld(self) -> None:
         plan = self.PLAN.replace(
             "- Project: demo",
-            "- Project: demo\n- Priority: finish /Users/someone/Development/x",
+            "- Project: demo\n- Priority: finish /Users/person/Development/x",
         )
         self.assertIsNone(board_projection.project_board_brief(plan)["priority"])
         safe = self.PLAN.replace(
@@ -1191,7 +1191,7 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         the same path a fixture with a stray machine path would travel."""
         plan = self.PLAN.replace(
             "- Project: demo",
-            "- Project: demo\n- Priority: ship /Users/someone/Development/x",
+            "- Project: demo\n- Priority: ship /Users/person/Development/x",
         )
         record = server.record_from_text(plan, "demo/PLAN.md", "demo")
         self.assertIsNone(record["board"]["priority"])
