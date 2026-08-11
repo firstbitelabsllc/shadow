@@ -349,7 +349,7 @@ Allowed paths:
 
 Do not change any other path. Run the relevant tests. Finish by emitting exactly
 one JSON object with this shape and no additional JSON objects:
-{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"{task_id}","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":["one-allowed-relative-path"],"tests":[{{"name":"relevant-test","status":"pass"}}]}}
+{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"example-task-id","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":["one-allowed-relative-path"],"tests":[{{"name":"relevant-test","status":"pass"}}]}}
 
 For a successful result, use the exact Task ID above and a lowercase proof_ref
 identifier such as `bounded-proof`. Do not use spaces or prose for proof_ref.
