@@ -124,7 +124,7 @@ class ReleasePackageTests(unittest.TestCase):
         pack["files"].extend({"path": path} for path in extras)
         tracked.update(extras)
         errors = self.errors(plugin, pack, tracked)
-        self.assertTrue(any("exactly the root" in error for error in errors))
+        self.assertTrue(any("native, portable, and goal skills" in error for error in errors))
         self.assertTrue(any("forbidden" in error for error in errors))
 
     def test_dirty_bytes_require_explicit_development_mode(self) -> None:
