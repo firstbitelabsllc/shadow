@@ -10,6 +10,53 @@ ownership, and records proof so a chat can end without losing the task.
 Shadow reconstructs the work, chooses a reachable next move, and keeps the
 loop recoverable.
 
+## The picture
+
+```
+        you  — say what you want, in plain words
+         │
+         ▼
+   computer board   (~/.shadow — one per machine)
+   "who is doing what, right now": project priority, claims, owners, resume
+         │
+         ▼
+   project plans    (PLAN.md — one per repository)
+   "the work itself": milestones → checkpoints → proof receipts
+         │
+         ▼
+   seats            (a Claude session, a Codex session, …)
+   the AI workers — each works under one stable name
+
+   the loop every seat runs:
+   claim a checkpoint → do the work → prove it → accept → pick the next one
+```
+
+Six words carry the whole system, in plain terms:
+
+- **board** — one small ledger per computer saying who is doing what right
+  now. Not the work itself; just ownership, priority, and where to resume.
+- **plans** — each repository's `PLAN.md`: the actual work, broken into
+  checkpoints, each with the test that proves it done.
+- **seats** — the AI workers (a Claude session, a Codex session), each under
+  one stable name so work is always attributable.
+- **claim** — a seat takes a checkpoint atomically before working. Two seats
+  grabbing the same one: exactly one wins, the loser is told who owns it.
+- **proof** — no checkpoint is "done" by assertion. Each carries a named
+  check, and done means that check passed.
+- **accept** — the only way a checkpoint flips to completed: rerun its proof
+  in a clean copy and record the receipt in the plan.
+
+## How you use it
+
+Install once (below), then open a chat in any wired host — Claude Code,
+Codex — and say what you want. The seat reads the board (`shadow status`),
+claims the next reachable checkpoint (`shadow throw`), does the work, and
+closes it with proof (`shadow accept`). You never fill in a form or learn
+the grammar to get value: you speak intent, and you can always see what
+every seat is doing with `shadow status --in-flight` or the local board
+page (`shadow browse`). Kill any chat at any time — the board and the plan
+carry everything needed to resume, which is the point of the whole design.
+
 ## The loop
 
 ```mermaid

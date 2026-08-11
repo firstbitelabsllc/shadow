@@ -88,5 +88,28 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertIn("animation: none", text)
 
 
+class ADiagramAStrangerCanFollow(unittest.TestCase):
+    """The README's first picture must be followable cold: every concept the
+    diagram names is glossed in plain words in the same section, and every
+    command the use path names actually exists in the CLI's own help."""
+
+    def test_the_picture_glosses_every_concept_it_names(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("## The picture", text)
+        section = text.split("## The picture", 1)[1].split("## The loop", 1)[0]
+        for concept in ("board", "plans", "seats", "claim", "proof", "accept"):
+            self.assertIn(f"**{concept}**", section, f"the diagram names {concept} but never explains it")
+
+    def test_the_use_path_names_only_real_commands(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        section = text.split("## How you use it", 1)[1].split("## The loop", 1)[0]
+        help_text = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "--help"], capture_output=True, text=True, check=False
+        ).stdout
+        import re as _re
+        for verb in set(_re.findall(r"`shadow ([a-z-]+)", section)):
+            self.assertIn(f"  {verb} ", help_text, f"README use path names `shadow {verb}` but the CLI help does not")
+
+
 if __name__ == "__main__":
     unittest.main()
