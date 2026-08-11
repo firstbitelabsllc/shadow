@@ -71,7 +71,14 @@ class GrammarContractTests(unittest.TestCase):
             "A goal is a pointer, not a plan",
             "at most 80 words",
             "Stop after planning only when explicitly asked",
-            "request-specific prohibition or human boundary",
+            "one standing Shadow goal",
+            "unchanged and skill-free",
+            "Skills:",
+            "one to four canonical invocation names",
+            "current session's available skill catalog",
+            "plugin-qualified",
+            "filesystem/cache path",
+            "never add a fifth line",
             "brevity must not narrow it to one task",
         ):
             self.assertIn(anchor, normalized_goal, anchor)

@@ -50,12 +50,14 @@ message, or receipt is not acceptance proof by itself.
 
 ## Shape a goal
 
-`skills/goal/SKILL.md` owns goal shaping. Generated goals are normally three
-lines and at most 80 words: outcome, authority plus resume, and proof. Broad
-intent compiles into the owning `PLAN.md`; inventories, rosters, matrices,
-sequencing, and standing policy stay there. Add a fourth line only for a
-request-specific boundary. Shortening the pointer must never narrow the
-outcome.
+`skills/goal/SKILL.md` owns goal shaping. The one standing Shadow goal remains
+unchanged and skill-free. A specific goal is normally four lines and at most 80
+words: outcome, resume, proof, and `Skills:` with one to four canonical names
+resolved from the current local catalog. Broad intent compiles into the owning
+`PLAN.md`; its full tool roster, inventories, matrices, sequencing, fallbacks,
+and standing policy stay there. Fold a request-specific boundary into outcome
+or proof rather than adding a fifth line. Shortening the pointer must never
+narrow the outcome.
 
 `shadow throw --repo <project> --task '~id' --by <seat>` atomically claims the
 checkpoint and returns its deterministic starting block. `shadow amp` resumes
