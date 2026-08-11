@@ -287,7 +287,7 @@ def render_v4(record: dict, seat: str | None = None) -> str:
     claimable = record.get("next_unclaimed")
     if not claimable and not record.get("owner"):
         claimable = record.get("board_resume")
-    if record.get("entity") and claimable:
+    if record.get("entity") and claimable and not record.get("broken"):
         owner = shlex.quote(seat) if seat else "YOUR-STABLE-SEAT"
         lines.append(
             f"  Claim: shadow throw --entity {record['entity']} "
@@ -358,17 +358,22 @@ def projected_claims(
         for milestone in parsed["milestones"]
         for row in milestone["rows"]
     }
+    repo = _remote_claim.managed_repo_for_plan(plan_path)
+    if repo is None:
+        return claims, None
     try:
         token, _ = _board.head_plan_snapshot(plan_path)
+        if Path(token["repo"]) != repo:
+            return claims, "remote claim discovery is unavailable or unauthenticated"
         observed = _remote_claim.discover_active(
-            Path(token["repo"]),
+            repo,
             entity=entity["id"],
             project=project,
             rows=sorted(row_ids),
             relative=token["relative"],
         )
     except _board.BoardError:
-        return claims, None
+        return claims, "remote claim discovery is unavailable or unauthenticated"
     except _remote_claim.RemoteClaimError:
         return claims, "remote claim discovery is unavailable or unauthenticated"
     for journal in observed or []:
@@ -475,6 +480,12 @@ def board_records(payload: dict) -> list[dict]:
             record["resume"] = f"UNKNOWN — {issue}"
             record.pop("resume_human", None)
             record["broken"] = True
+        if remote_issue:
+            record["next_unclaimed"] = None
+            for milestone in record.get("milestones", []):
+                for checkpoint in milestone["checkpoints"]:
+                    if not checkpoint["owners"]:
+                        checkpoint["availability"] = "unknown"
         owner = next(
             (
                 claim["owner"]
@@ -639,7 +650,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--in-flight",
         action="store_true",
-        help="every root-board claim across this computer — the recovery view",
+        help="local claims and authenticated remote locks — the recovery view",
     )
     return result
 

@@ -1288,6 +1288,59 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
             for private in (str(root), private_marker, "branch-only-seat", "the ready row", "cmd true"):
                 self.assertNotIn(private, journal)
 
+    def test_a_configured_origin_with_an_unauthenticated_head_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, second, _, _ = self.protected_fixture(root)
+            claimed = self.throw_process(first, root / "home-a", "seat-a")
+            _, claim_stderr = claimed.communicate(timeout=30)
+            self.assertEqual(claimed.returncode, 0, claim_stderr)
+
+            self.git(second, "rm", "-q", "PLAN.md")
+            self.git(second, "commit", "-qm", "remove committed plan")
+            (second / "PLAN.md").write_text(
+                PLAN.replace("- Project: demo", "- Project: protected-demo"),
+                encoding="utf-8",
+            )
+            home_b = root / "home-b"
+            home_b.mkdir()
+            reports = []
+            for extra in ((), ("--in-flight",)):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(STATUS),
+                        "--root",
+                        str(second),
+                        *extra,
+                        "--json",
+                    ],
+                    cwd=second,
+                    env={**os.environ, "HOME": str(home_b)},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                )
+                self.assertEqual(result.returncode, 1, result.stderr)
+                reports.append(json.loads(result.stdout))
+
+            ordinary, recovery = reports
+            record = ordinary["v4_plans"][0]
+            self.assertTrue(record["broken"])
+            self.assertIn("remote claim discovery", record["resume"])
+            checkpoint = next(
+                checkpoint
+                for milestone in record["milestones"]
+                for checkpoint in milestone["checkpoints"]
+                if checkpoint["id"] == "~bb22"
+            )
+            self.assertEqual(checkpoint["availability"], "unknown")
+            self.assertEqual(ordinary["root_board"]["claims"], [])
+            self.assertEqual(len(recovery["rows"]), 1)
+            self.assertTrue(recovery["rows"][0]["broken"])
+            self.assertEqual(recovery["root_board"]["claims"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -118,6 +118,18 @@ def uses_origin_upstream(repo: Path) -> bool:
     )
 
 
+def managed_repo_for_plan(plan: Path) -> Path | None:
+    """Return the configured-origin repository for a plan, else local-only."""
+    top = _git(plan.parent, "rev-parse", "--show-toplevel")
+    if top.returncode or not top.stdout.strip():
+        return None
+    try:
+        repo = Path(top.stdout.decode("utf-8").strip()).resolve(strict=True)
+    except (OSError, UnicodeError):
+        return None
+    return repo if uses_origin_upstream(repo) else None
+
+
 def claim_ref(entity: str, row: str) -> str:
     if ENTITY.fullmatch(entity) is None or ROW.fullmatch(row) is None:
         raise ValueError("remote claim identity is invalid")
