@@ -40,9 +40,10 @@ over-promise here would be a lie about someone's hand-written instructions:
   directories syncs the file and its immediate directory but not the chain of
   newly created ancestors, whose persistence across power loss is best-effort.
   A killed writer may leave its hidden temp name behind. The next writer removes
-  only an exact owned-temp shape whose regular 0600 inode has no live advisory
-  lock; creation and sweeping share a directory lock, so another cooperating
-  writer's temp cannot appear before its liveness lock exists.
+  it only when a paired, fsynced Shadow receipt authenticates the payload and
+  its lease has no live advisory lock; creation and sweeping share a directory
+  lock, so another cooperating writer's temp cannot appear before its receipt
+  and liveness lock exist. Temp-shaped foreign files have no receipt and stay.
   *Create/backup exclusivity*: a fresh target or a
   `.bak-shadow` is made with `link(2)`, which the kernel refuses atomically if
   the name is already taken — nothing is ever clobbered into existence, and on
@@ -104,10 +105,10 @@ import fcntl
 import importlib.util
 import os
 import re
+import secrets
 import stat
 from pathlib import Path
 import sys
-import tempfile
 from typing import Final
 
 ROOT: Final = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
@@ -332,36 +333,48 @@ _test_between_verify_and_commit = None
 _test_between_final_verify_and_replace = None
 _test_after_temp_is_owned = None
 
-_OWNED_TEMP_RE: Final = re.compile(r"\.shadow-v1-[0-9]+-[A-Za-z0-9_-]{6,32}\.tmp\Z")
+_OWNED_LEASE_RE: Final = re.compile(
+    r"(?P<stem>\.shadow-v1-[0-9]+-[0-9a-f]{16})\.lease\Z"
+)
+_OWNED_RECEIPT: Final = "shadow-owned-temp-v1\n"
+
+
+def _owned_regular(path: Path, *, links: tuple[int, ...]) -> os.stat_result | None:
+    try:
+        found = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if (
+        not stat.S_ISREG(found.st_mode)
+        or stat.S_IMODE(found.st_mode) != 0o600
+        or found.st_nlink not in links
+        or found.st_uid != os.getuid()
+    ):
+        return None
+    return found
 
 
 def _sweep_dead_temps_locked(directory: Path) -> None:
-    """Remove only this writer's unlocked, single-name 0600 temp files.
+    """Remove only payloads authenticated by an unlocked Shadow lease.
 
     The caller holds an advisory lock on the directory descriptor. Every
-    cooperating creator takes that same lock across mkstemp + the temp-file
-    lock, so a sweeper can never observe a newly-created temp before its owner
-    lock exists. A live owner keeps the per-file lock until rename/cleanup;
-    SIGKILL releases it in the kernel, making the abandoned file collectible.
+    cooperating creator takes that same lock across lease + payload creation,
+    so a sweeper can never observe a new payload before its receipt and owner
+    lock exist. A live owner keeps the lease locked until rename/cleanup;
+    SIGKILL releases it in the kernel. A temp-looking file without the paired
+    receipt is foreign and is never touched.
     """
     swept = False
-    for candidate in directory.iterdir():
-        if _OWNED_TEMP_RE.fullmatch(candidate.name) is None:
+    for lease in directory.iterdir():
+        match = _OWNED_LEASE_RE.fullmatch(lease.name)
+        if match is None:
             continue
-        try:
-            before = os.lstat(candidate)
-        except FileNotFoundError:
-            continue
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or stat.S_IMODE(before.st_mode) != 0o600
-            or before.st_nlink != 1
-            or before.st_uid != os.getuid()
-        ):
+        before = _owned_regular(lease, links=(1,))
+        if before is None:
             continue
         flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
         try:
-            descriptor = os.open(candidate, flags)
+            descriptor = os.open(lease, flags)
         except OSError:
             continue
         try:
@@ -372,13 +385,35 @@ def _sweep_dead_temps_locked(directory: Path) -> None:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 continue
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            receipt = os.read(descriptor, 256)
+            payload = directory / f"{match.group('stem')}.tmp"
+            expected = f"{_OWNED_RECEIPT}{payload.name}\n".encode("utf-8")
+            if receipt != expected:
+                continue
             try:
-                current = os.lstat(candidate)
+                current = os.lstat(lease)
             except FileNotFoundError:
                 continue
             if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
                 continue
-            candidate.unlink()
+            payload_before = _owned_regular(payload, links=(1, 2))
+            if payload_before is not None:
+                try:
+                    payload_fd = os.open(payload, flags)
+                except OSError:
+                    continue
+                try:
+                    payload_opened = os.fstat(payload_fd)
+                    if (payload_opened.st_dev, payload_opened.st_ino) != (
+                        payload_before.st_dev,
+                        payload_before.st_ino,
+                    ):
+                        continue
+                    payload.unlink()
+                finally:
+                    os.close(payload_fd)
+            lease.unlink()
             swept = True
         finally:
             os.close(descriptor)
@@ -402,39 +437,63 @@ def _sweep_dead_temps(directory: Path) -> None:
 
 @contextmanager
 def _owned_temp(directory: Path):
-    """Yield a temp descriptor whose liveness survives closure of the writer."""
+    """Yield a payload paired with a locked, fsynced ownership receipt."""
     directory_fd = os.open(
         directory,
         os.O_RDONLY | getattr(os, "O_CLOEXEC", 0),
     )
-    temporary: str | None = None
-    owner_fd: int | None = None
+    temporary: Path | None = None
+    lease: Path | None = None
+    lease_fd: int | None = None
     yielded = False
     handle: int | None = None
     try:
         fcntl.flock(directory_fd, fcntl.LOCK_EX)
         _sweep_dead_temps_locked(directory)
-        handle, temporary = tempfile.mkstemp(
-            dir=str(directory), prefix=f".shadow-v1-{os.getpid()}-", suffix=".tmp"
-        )
-        owner_fd = os.dup(handle)
-        fcntl.flock(owner_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        while True:
+            stem = f".shadow-v1-{os.getpid()}-{secrets.token_hex(8)}"
+            lease = directory / f"{stem}.lease"
+            temporary = directory / f"{stem}.tmp"
+            try:
+                lease_fd = os.open(
+                    lease,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+                    0o600,
+                )
+                break
+            except FileExistsError:
+                continue
+        fcntl.flock(lease_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        receipt = f"{_OWNED_RECEIPT}{temporary.name}\n".encode("utf-8")
+        os.write(lease_fd, receipt)
+        os.fsync(lease_fd)
+        try:
+            handle = os.open(
+                temporary,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+            )
+        except BaseException:
+            lease.unlink(missing_ok=True)
+            raise
         fcntl.flock(directory_fd, fcntl.LOCK_UN)
         if _test_after_temp_is_owned is not None:
-            _test_after_temp_is_owned(Path(temporary))
+            _test_after_temp_is_owned(temporary)
         yielded = True
-        yield handle, temporary
+        yield handle, str(temporary)
     finally:
         try:
             fcntl.flock(directory_fd, fcntl.LOCK_UN)
         except OSError:
             pass
         if temporary is not None:
-            Path(temporary).unlink(missing_ok=True)
+            temporary.unlink(missing_ok=True)
+        if lease is not None:
+            lease.unlink(missing_ok=True)
         if handle is not None and not yielded:
             os.close(handle)
-        if owner_fd is not None:
-            os.close(owner_fd)
+        if lease_fd is not None:
+            os.close(lease_fd)
         os.close(directory_fd)
 
 

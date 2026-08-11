@@ -1432,6 +1432,7 @@ class StaleTempResidueIsSweptSafely(unittest.TestCase):
                 self.assertEqual(hd.apply(concurrent, BLOCK), "current")
                 self.assertFalse(live[0].exists(), "the next apply kept a dead run's temp")
                 self.assertEqual(list(root.glob(".shadow-v1-*.tmp")), [])
+                self.assertEqual(list(root.glob(".shadow-v1-*.lease")), [])
             finally:
                 os.close(ready_read)
                 if child:
@@ -1452,6 +1453,13 @@ class StaleTempResidueIsSweptSafely(unittest.TestCase):
             wrong_mode.chmod(0o644)
             malformed = root / ".shadow-somebody-elses.tmp"
             malformed.write_text("not ours\n", encoding="utf-8")
+            exact_unreceipted = root / ".shadow-v1-42424242-abcdef0123456789.tmp"
+            exact_unreceipted.write_text("foreign exact-shape bytes\n", encoding="utf-8")
+            malformed_lease = root / ".shadow-v1-42424242-fedcba9876543210.lease"
+            malformed_lease.write_text("not a Shadow receipt\n", encoding="utf-8")
+            malformed_lease.chmod(0o600)
+            malformed_payload = root / ".shadow-v1-42424242-fedcba9876543210.tmp"
+            malformed_payload.write_text("paired foreign bytes\n", encoding="utf-8")
 
             self.assertEqual(hd.apply(target, BLOCK), "added")
 
@@ -1459,6 +1467,18 @@ class StaleTempResidueIsSweptSafely(unittest.TestCase):
             self.assertTrue(symlink.is_symlink())
             self.assertEqual(wrong_mode.read_text(encoding="utf-8"), "not ours\n")
             self.assertEqual(malformed.read_text(encoding="utf-8"), "not ours\n")
+            self.assertEqual(
+                exact_unreceipted.read_text(encoding="utf-8"),
+                "foreign exact-shape bytes\n",
+            )
+            self.assertEqual(
+                malformed_lease.read_text(encoding="utf-8"),
+                "not a Shadow receipt\n",
+            )
+            self.assertEqual(
+                malformed_payload.read_text(encoding="utf-8"),
+                "paired foreign bytes\n",
+            )
 
 
 class TheSupportedListInTheDocsDrivesTheWriteTargets(unittest.TestCase):
