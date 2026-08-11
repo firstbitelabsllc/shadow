@@ -1704,6 +1704,74 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             self.assertEqual(payload["claims"][0]["owner"], "seat-a")
 
 
+class AChallengedFoundationDoesNotFlipSilently(unittest.TestCase):
+    """The contradiction triangle: challenger, owner, dependent. A written
+    challenge against a row — or anything in its needs-ancestry — must hold
+    the flip until a person resolves it; nothing gated this before, so a
+    dependent could accept work whose basis was under an undelivered
+    challenge. The one coordination behavior that takes three roles.
+    """
+
+    HELLO_PROOF = (
+        "cmd python3 -c \"import pathlib,sys; "
+        "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\""
+    )
+
+    def _plan(self, tasks: str, contradictions: str) -> str:
+        return (
+            "# Demo\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n## Tasks\n\n"
+            "### M — file speaks\n" + tasks +
+            "\n## Contradictions\n\n" + contradictions +
+            "\n## Progress\n\n- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command\n"
+        )
+
+    def _run(self, plan: str, row: str):
+        context = tempfile.TemporaryDirectory()
+        root = Path(context.name).resolve()
+        repo = make_repo(root)
+        (repo / "PLAN.md").write_text(plan, encoding="utf-8")
+        git(repo, "commit", "-qam", "scenario plan")
+        result = run_accept(repo, row)
+        return context, repo, result
+
+    def test_a_challenge_naming_the_row_holds_its_flip(self) -> None:
+        plan = self._plan(
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF}\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- ~ab12 asserts hello but the file contract under review says goodbye\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("written challenge", result.stderr)
+            self.assertIn("file contract under review", result.stderr)
+            self.assertIn("- [in_progress] x.txt says hello ~ab12", (repo / "PLAN.md").read_text())
+
+    def test_a_challenge_on_a_needs_ancestor_holds_the_dependent(self) -> None:
+        plan = self._plan(
+            f"- [completed] foundation holds ~aa00 | proof: {self.HELLO_PROOF}\n"
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF} | needs: ~aa00\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- ~aa00 was accepted against a fixture that no longer matches production\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("needs-ancestry", result.stderr)
+            self.assertIn("~aa00", result.stderr)
+
+    def test_an_unrelated_or_empty_contradiction_does_not_hold_the_flip(self) -> None:
+        plan = self._plan(
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF}\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- None recorded yet.\n- ~zz99 an unrelated surface disagrees with its docs\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("- [completed] x.txt says hello ~ab12", (repo / "PLAN.md").read_text())
+
+
 class NeedsIsAReadinessGate(unittest.TestCase):
     """grammar.md: "a task is ready when it is pending and every needs-target
     is completed". throw enforced that; accept did not, so a row could be
