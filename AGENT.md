@@ -128,6 +128,19 @@ declared focused falsifier early and dogfood Shadow on Shadow. Trunk runs the
 affected integration set and curates test health. These greens prove only their
 slice.
 
+Five field lessons remain standing because each caught a false conclusion:
+
+- Liveness is proven by the artifact, never the process (2026-08-10: one live
+  worker was declared dead while one dead dispatch was treated as live).
+- A worktree path is not a lane (2026-08-10: a detached L4 worktree had no
+  branch or PR on which its result could land).
+- An accusation grounds on the merge-base diff, never the tip diff
+  (2026-08-10: a clean worker was nearly blamed for another branch's PLAN edit).
+- Every read names its ref; an unfetched tree is presumed stale (2026-08-10: a
+  checkout 1,697 commits behind produced a false plan-authority finding).
+- Green fixtures prove the fixtures, never the field (2026-08-10: initialized
+  picker fixtures passed while the real uninitialized path let money through).
+
 The expensive full build, migration, story-driven end-to-end gauntlet,
 adversarial bug bash, rollback, and stranger-install source proof run on a
 deterministic release train: normally nightly, with an additional or early run
