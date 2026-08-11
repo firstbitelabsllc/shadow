@@ -96,6 +96,15 @@ class LocalPlanStore(unittest.TestCase):
             self.assertEqual(again["entities"][0]["plan"], str(local_plan.resolve()))
             self.assertEqual(len(again["entities"]), 1)
 
+            # Source cleanup can win the race with a board refresh.  The
+            # duplicate source locator then points nowhere, but the local
+            # authority still has every claimed row and resume target.  It is
+            # safe to remove that stale metadata without recreating a plan.
+            source_plan.unlink()
+            missing_source = importer.reconcile_portfolio(portfolio, status._amp, home=home)
+            self.assertEqual(missing_source["entities"][0]["plan"], str(local_plan.resolve()))
+            self.assertEqual(len(missing_source["entities"]), 1)
+
     def test_a_tracked_shadow_plans_directory_is_not_machine_local(self) -> None:
         # A source repository may keep `<repo>/.shadow/plans/...`. That plan is
         # committed and public: classifying it by directory name alone would
