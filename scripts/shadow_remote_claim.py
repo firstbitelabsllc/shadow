@@ -34,6 +34,7 @@ TIMEOUT_SECONDS: Final = 20
 MAX_RECEIPT_BYTES: Final = 8 * 1024
 MAX_RELATIVE_BYTES: Final = 240
 MAX_DISCOVERY_ROWS: Final = 128
+MAX_PLAN_BYTES: Final = 1_000_000
 GIT_INJECTION_VARS: Final = {
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_COMMON_DIR",
@@ -116,6 +117,95 @@ def uses_origin_upstream(repo: Path) -> bool:
         and not merge.returncode
         and merge.stdout.decode().strip().startswith("refs/heads/")
     )
+
+
+def _configured_origin_merge_refs(repo: Path) -> list[str]:
+    configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
+    if configured.returncode:
+        return []
+    refs: set[str] = set()
+    for line in configured.stdout.decode("utf-8", errors="replace").splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) != 2 or fields[1] != "origin":
+            continue
+        key = fields[0]
+        if not key.startswith("branch.") or not key.endswith(".remote"):
+            continue
+        branch = key[len("branch.") : -len(".remote")]
+        merge = _git(repo, "config", "--get", f"branch.{branch}.merge")
+        value = merge.stdout.decode("utf-8", errors="replace").strip()
+        if not merge.returncode and value.startswith("refs/heads/"):
+            refs.add(value)
+    return sorted(refs)
+
+
+def _origin_default(repo: Path) -> tuple[str, str]:
+    listed = _git(repo, "ls-remote", "--symref", "origin", "HEAD")
+    if listed.returncode:
+        raise RemoteClaimError("published completion could not be authenticated")
+    default_ref: str | None = None
+    default_tip: str | None = None
+    for line in listed.stdout.decode("ascii", errors="ignore").splitlines():
+        fields = line.split()
+        if len(fields) == 3 and fields[0] == "ref:" and fields[2] == "HEAD":
+            if default_ref is not None or not fields[1].startswith("refs/heads/"):
+                raise RemoteClaimError("published completion returned an invalid listing")
+            default_ref = fields[1]
+        elif len(fields) == 2 and fields[1] == "HEAD" and HEX_OBJECT.fullmatch(fields[0]):
+            if default_tip is not None:
+                raise RemoteClaimError("published completion returned an invalid listing")
+            default_tip = fields[0]
+        else:
+            raise RemoteClaimError("published completion returned an invalid listing")
+    if default_ref is None or default_tip is None:
+        raise RemoteClaimError("published completion returned an incomplete listing")
+    return default_ref, default_tip
+
+
+def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None:
+    """Read the bounded current PLAN only when default authority contains its head."""
+    if not public_safe_plan_token(plan_token):
+        return None
+    head = plan_token["head"]
+    configured = set(_configured_origin_merge_refs(repo))
+    if not configured:
+        return None
+    default_ref, default_tip = _origin_default(repo)
+    if default_ref not in configured:
+        return None
+    fetched = _git(
+        repo,
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "origin",
+        default_ref,
+    )
+    if fetched.returncode:
+        raise RemoteClaimError("published completion could not be authenticated")
+    if _origin_default(repo) != (default_ref, default_tip):
+        raise RemoteClaimError("published completion changed during authentication")
+    if _git(repo, "merge-base", "--is-ancestor", head, default_tip).returncode:
+        return None
+    located = _git(repo, "rev-parse", f"{default_tip}:{plan_token['relative']}")
+    object_id = located.stdout.decode("ascii", errors="ignore").strip()
+    if located.returncode or HEX_OBJECT.fullmatch(object_id) is None:
+        return None
+    kind = _git(repo, "cat-file", "-t", object_id)
+    if kind.returncode or kind.stdout.strip() != b"blob":
+        raise RemoteClaimError("published completion PLAN is not a regular Git blob")
+    measured = _git(repo, "cat-file", "-s", object_id)
+    try:
+        size = int(measured.stdout.decode("ascii").strip())
+    except (UnicodeError, ValueError) as exc:
+        raise RemoteClaimError("published completion PLAN size is invalid") from exc
+    if measured.returncode or size < 0 or size > MAX_PLAN_BYTES:
+        raise RemoteClaimError("published completion PLAN exceeds its bounded size")
+    content = _git(repo, "cat-file", "blob", object_id)
+    if content.returncode or len(content.stdout) != size:
+        raise RemoteClaimError("published completion PLAN could not be authenticated")
+    return content.stdout
 
 
 def managed_repo_for_plan(plan: Path) -> Path | None:
@@ -407,6 +497,7 @@ def discover_active(
     project: str,
     rows: list[str],
     relative: str,
+    recover_detached: bool = False,
 ) -> list[dict[str, Any]] | None:
     """Project active remote locks for known local PLAN rows without coaching.
 
@@ -415,7 +506,9 @@ def discover_active(
     never enumerated. Returned journals are observations only and must not be
     written into the local root board.
     """
-    if not uses_origin_upstream(repo):
+    if not uses_origin_upstream(repo) and not (
+        recover_detached and _configured_origin_merge_refs(repo)
+    ):
         return None
     unique_rows = sorted(set(rows))
     if (
@@ -636,9 +729,12 @@ def transition(
     claim: dict[str, str],
     state: str,
     reason: str,
+    recover_detached: bool = False,
 ) -> dict[str, Any] | None:
     """CAS one acquired journal tip to released/completed."""
-    if not uses_origin_upstream(repo):
+    if not uses_origin_upstream(repo) and not (
+        recover_detached and _configured_origin_merge_refs(repo)
+    ):
         return None
     if not public_safe_plan_token(plan_token):
         return _unsafe_plan_result(
