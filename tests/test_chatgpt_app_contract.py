@@ -62,6 +62,10 @@ class ChatGPTAppContractTests(unittest.TestCase):
         self.assertIn("createMcpHandler", source)
         self.assertNotIn("McpAgent", source)
 
+    def test_private_deployment_is_not_in_the_portable_release(self) -> None:
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("distribution/chatgpt-app/ export-ignore", attributes)
+
 
 if __name__ == "__main__":
     unittest.main()
