@@ -1404,6 +1404,7 @@ class StaleTempResidueIsSweptSafely(unittest.TestCase):
             child = os.fork()
             if child == 0:
                 os.close(ready_read)
+                os.umask(0o777)
 
                 def pause_after_temp_is_owned(_temporary: Path) -> None:
                     os.write(ready_write, b"1")

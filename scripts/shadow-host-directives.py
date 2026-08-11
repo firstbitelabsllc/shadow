@@ -460,6 +460,7 @@ def _owned_temp(directory: Path):
                     os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
                     0o600,
                 )
+                os.fchmod(lease_fd, 0o600)
                 break
             except FileExistsError:
                 continue
@@ -473,6 +474,7 @@ def _owned_temp(directory: Path):
                 os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
                 0o600,
             )
+            os.fchmod(handle, 0o600)
         except BaseException:
             lease.unlink(missing_ok=True)
             raise
