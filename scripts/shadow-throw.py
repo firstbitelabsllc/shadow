@@ -8,10 +8,12 @@ the authority for task text and proof; claiming never copies or rewrites it.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import importlib.util
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Final
 
@@ -25,6 +27,7 @@ sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_telemetry as _telemetry  # noqa: E402
 
 
 BY_MAX: Final = 40
@@ -108,6 +111,7 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
 
 
 def main(argv: list[str] | None = None) -> int:
+    started = time.monotonic()
     parser = argparse.ArgumentParser(
         prog="shadow throw",
         description="Claim a project-plan row on this computer before work leaves the chat.",
@@ -239,6 +243,28 @@ def main(argv: list[str] | None = None) -> int:
     except (_board.BoardError, LookupError, ValueError) as exc:
         print(f"shadow throw: claim refused: {exc}", file=sys.stderr)
         return 1
+
+    if _telemetry.local_enabled():
+        try:
+            _telemetry.emit_local(
+                repo,
+                {
+                    "recorded_at": datetime.now(timezone.utc)
+                    .isoformat(timespec="milliseconds")
+                    .replace("+00:00", "Z"),
+                    "project": project["id"],
+                    "entity": entity["id"],
+                    "row": args.task,
+                    "verb": "throw",
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "outcome": "claimed",
+                },
+            )
+        except _telemetry.TelemetryError:
+            print(
+                "[throw] the claim succeeded but its optional local event was not recorded",
+                file=sys.stderr,
+            )
 
     sys.stdout.write(block)
     count = len(payload["claims"])

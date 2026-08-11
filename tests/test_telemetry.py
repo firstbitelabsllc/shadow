@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import re
+import stat
 import sys
+import tempfile
 import unittest
 
 
@@ -22,6 +25,8 @@ EXPECTED_FIELDS = (
     "duration_ms",
     "outcome",
 )
+
+from tests.test_throw import THROW, fixture as throw_fixture, run as run_shadow  # noqa: E402
 
 
 def load_telemetry():
@@ -82,7 +87,91 @@ class TheAllowlistIsClosed(unittest.TestCase):
         self.assertEqual(documented, EXPECTED_FIELDS)
         self.assertIn("no network transport", text.lower())
         self.assertIn("unknown input fields are omitted", text.lower())
-        self.assertIn("values remain untrusted", text.lower())
+        self.assertRegex(text.lower(), r"values remain\s+untrusted")
+
+
+class EventsCarryNoPayload(unittest.TestCase):
+    def test_a_real_throw_writes_only_the_closed_local_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = throw_fixture(root)
+            secret = "private-environment-value-that-must-never-be-recorded"
+            env = {
+                **env,
+                "SHADOW_TELEMETRY": "local",
+                "SHADOW_TEST_PRIVATE_VALUE": secret,
+            }
+
+            result = run_shadow(
+                THROW, repo, env, "--task", "~bb22", "--by", "telemetry-seat"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            event_path = repo / ".shadow" / "evidence" / "shadow-events.jsonl"
+            self.assertTrue(event_path.is_file())
+            self.assertEqual(stat.S_IMODE(event_path.stat().st_mode), 0o600)
+            lines = event_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            event = json.loads(lines[0])
+            board = json.loads(
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            claim = board["claims"][0]
+            entity = next(
+                item for item in board["entities"] if item["id"] == claim["entity"]
+            )
+
+            self.assertEqual(tuple(event), EXPECTED_FIELDS)
+            self.assertEqual(event["schema"], "shadow.telemetry.event.v1")
+            self.assertEqual(event["project"], entity["project"])
+            self.assertEqual(event["entity"], claim["entity"])
+            self.assertEqual(event["row"], "~bb22")
+            self.assertEqual(event["verb"], "throw")
+            self.assertEqual(event["outcome"], "claimed")
+            self.assertIsInstance(event["duration_ms"], int)
+            self.assertGreaterEqual(event["duration_ms"], 0)
+            self.assertRegex(
+                event["recorded_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$"
+            )
+
+            serialized = lines[0]
+            forbidden = (
+                secret,
+                str(root),
+                str(repo),
+                str(home),
+                "the ready row",
+                "proof: cmd true",
+                "SHADOW_TEST_PRIVATE_VALUE",
+                "telemetry-seat",
+            )
+            for value in forbidden:
+                self.assertNotIn(value, serialized)
+            self.assertFalse((home / ".shadow" / "evidence").exists())
+
+    def test_a_symlinked_project_state_cannot_redirect_the_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = throw_fixture(root)
+            outside = root / "outside"
+            outside.mkdir()
+            (repo / ".shadow").symlink_to(outside, target_is_directory=True)
+            env = {**env, "SHADOW_TELEMETRY": "local"}
+
+            result = run_shadow(
+                THROW, repo, env, "--task", "~bb22", "--by", "telemetry-seat"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(
+                "the claim succeeded but its optional local event was not recorded",
+                result.stderr,
+            )
+            self.assertFalse((outside / "evidence").exists())
+            board = json.loads(
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(board["claims"][0]["row"], "~bb22")
 
 
 if __name__ == "__main__":
