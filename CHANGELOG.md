@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 — 2026-08-11 — specific goals start with the right skills
+
+- The one standing Shadow goal remains unchanged and skill-free.
+- A specific generated goal now ends with `Skills:` naming the best one to four
+  available canonical skills for its actual work. Plugin-qualified names are
+  preferred; stale paths, conflicts, unavailable skills, and broad rosters are
+  excluded.
+- The entity `PLAN.md` still owns the complete tool surface and fallbacks, so
+  the launcher stays a bounded pointer rather than becoming a second plan.
+
 ## 1.0.0 — 2026-08-11 — durable work from intent to successor
 
 This is the source candidate for Shadow 1.0. It does not by itself claim a
