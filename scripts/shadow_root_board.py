@@ -94,12 +94,9 @@ def _local_plan_root_containing(plan: Path) -> Path | None:
 
 def is_local_plan(plan: Path, *, home: Path | None = None) -> bool:
     """Whether ``plan`` belongs to the machine-only Shadow plan store."""
-    contained = _local_plan_root_containing(plan)
-    if contained is not None:
-        return True
     try:
         Path(os.path.abspath(plan)).resolve().relative_to(local_plans_root(home).resolve())
-    except ValueError:
+    except (OSError, ValueError):
         return False
     return True
 

@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 
+import shadow_root_board as board
+
 
 def repository_root(path: Path) -> Path:
     result = subprocess.run(
@@ -120,10 +122,33 @@ def main(argv: list[str] | None = None) -> int:
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(destination.parent, 0o700)
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    text = plan_text(repo, now)
     try:
-        write_exclusive(destination, plan_text(repo, now))
+        write_exclusive(destination, text)
     except FileExistsError:
         print("shadow init: PLAN.md already exists; refusing to overwrite", file=sys.stderr)
+        return 1
+    size, digest = board.plan_content_token(text)
+    try:
+        board.reconcile(
+            [{
+                "plan": str(destination),
+                "project": public_identifier(repo.name),
+                "priority": 3,
+                "candidates": ["~a1b2"],
+                "rows": ["~a1b2", "~b2c3"],
+                "expected_identity": board.entity_id(destination),
+                "expected_size": size,
+                "expected_sha256": digest,
+            }],
+            [],
+            home=Path.home(),
+        )
+    except board.BoardError as exc:
+        print(
+            f"shadow init: created {destination}, but could not register it: {exc}",
+            file=sys.stderr,
+        )
         return 1
     print(f"created local PLAN.md: {destination}")
     return 0

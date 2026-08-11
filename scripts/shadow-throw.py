@@ -145,6 +145,7 @@ def _validated_target(
     plan["authority_pointer"] = (
         f"{token['relative']} @ {'this computer' if local else token['head']} in {public_repo}"
     )
+    plan["local_authority"] = local
     return repo, plan, token, canonical_task
 
 

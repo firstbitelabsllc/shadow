@@ -752,7 +752,11 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
         f"{board_line}\n"
         "The entity plan owns milestone/checkpoint detail and proof; this block copies "
         "neither. First move:\n"
-        "fetch, read that section at the current origin ref, and state the ref you read."
+        + (
+            "read that local file directly and state its observed timestamp."
+            if plan.get("local_authority")
+            else "fetch, read that section at the current origin ref, and state the ref you read."
+        )
     )
     if dirty:
         # The block was projected from the WORKING TREE; the named ref serves

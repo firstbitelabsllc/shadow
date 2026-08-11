@@ -69,6 +69,8 @@ class LocalPlanStore(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("read that local file directly", result.stdout)
+            self.assertNotIn("current origin ref", result.stdout)
             state = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
             self.assertEqual(state["claims"][0]["row"], "~aa11")
             tracked = subprocess.run(
