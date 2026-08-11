@@ -542,7 +542,7 @@ class AuditBlockRegressionTests(unittest.TestCase):
         # stringifies the full argv, including the absolute worktree path. That
         # detail reaches main()'s handler, so main() must scrub it too.
         timeout = subprocess.TimeoutExpired(
-            cmd=["git", "-C", "/Users/private-operator/secret-worktree", "rev-parse", "--show-toplevel"],
+            cmd=["git", "-C", "/Users/person/secret-worktree", "rev-parse", "--show-toplevel"],
             timeout=5,
         )
         self.assertIn("/Users/", str(timeout), "the induced detail must carry an absolute home path")
