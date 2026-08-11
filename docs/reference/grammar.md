@@ -160,6 +160,18 @@ persisted claim and is told its owner. `shadow status --in-flight` joins the
 pointer back to entity text and proof at read time. Liveness is never asserted
 —probe the entity-owned proof, never a process.
 
+**Claim-safety scope — per computer, in plain terms.** The one-winner
+guarantee above is enforced by this computer's board under its advisory lock,
+so it holds between seats ON ONE MACHINE. Across two computers there is no
+shared lock: each machine's board takes its own claim, and the two collide
+only when their PLAN.md commits meet at push/merge time — after the work has
+already been done twice. A fleet that spans more than one computer can
+double-claim one checkpoint today, and nothing tells either loser until the
+push race. This is a stated boundary, not a bug: cross-computer claim
+serialization gets its own protocol row the moment a real fleet spans two
+machines working one entity — until then, keep one entity's claims on one
+computer.
+
 Historical `THROWN` lines, if present in an imported plan, are provenance only
 and never own live claims or resume selection. Each logical entity consumes
 that historical ownership at most once when it first enters the board.
