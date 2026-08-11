@@ -1050,8 +1050,14 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             self.assertEqual(receipt["failure"], "ambiguous_remote")
             self.assertNotIn(str(root), stdout + stderr)
             # The local claim outlived its unconfirmed remote lock, so the exit
-            # has to name the move that clears it instead of only the state.
-            self.assertIn("shadow return --row ~bb22 --by seat-a", stderr)
+            # has to name the move that clears it instead of only the state. The
+            # locator is the path-free entity id, so the move stays runnable
+            # from the caller's directory without echoing this checkout.
+            self.assertIn(
+                f"shadow return --entity {board.entity_id(first / 'PLAN.md')} "
+                "--row '~bb22' --by seat-a",
+                stderr,
+            )
             board_payload = json.loads(
                 (root / "home-a" / ".shadow" / "board.json").read_text(encoding="utf-8")
             )
@@ -1526,7 +1532,7 @@ class ASharedTrunkWithoutOriginNamesItsDegradation(unittest.TestCase):
             self.assertEqual(self.only_notice(result.stderr)["status"], "acquired")
             self.assertNotIn("another computer can claim", result.stderr)
 
-    def test_a_same_seat_rethrow_names_the_crash_window_recovery(self) -> None:
+    def test_a_confirmed_same_seat_rethrow_is_told_to_continue_not_return(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             clone, env = self.shared_clone(root, "origin")
@@ -1534,11 +1540,44 @@ class ASharedTrunkWithoutOriginNamesItsDegradation(unittest.TestCase):
                 run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a").returncode,
                 0,
             )
+            entity = board.entity_id(clone / "PLAN.md")
 
             again = run(THROW, clone, env, "--task", "~bb22", "--by", "seat-a")
 
             self.assertEqual(again.returncode, 1)
-            self.assertIn("shadow return --row ~bb22 --by seat-a", again.stderr)
+            # The remote lock still names this seat, so returning it would only
+            # hand a live row to another computer.
+            self.assertIn(
+                f"shadow amp --entity {entity} --task '~bb22' --by seat-a", again.stderr
+            )
+            self.assertNotIn("shadow return", again.stderr)
+
+    def test_a_same_seat_rethrow_over_an_unconfirmed_lock_names_the_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            clone, env = self.shared_clone(root, "origin")
+            self.assertEqual(
+                run(THROW, clone, env, "--task", "~bb22", "--by", "seat one").returncode,
+                0,
+            )
+            entity = board.entity_id(clone / "PLAN.md")
+            # Exactly the crash window: the local claim outlived the remote lock.
+            self.git(
+                root / "shared.git",
+                "update-ref",
+                "-d",
+                remote_claim.claim_ref(entity, "~bb22"),
+            )
+
+            again = run(THROW, clone, env, "--task", "~bb22", "--by", "seat one")
+
+            self.assertEqual(again.returncode, 1)
+            # The locator survives so the move runs from the caller's directory,
+            # and a seat with a space stays one shell word.
+            self.assertIn(
+                f"shadow return --entity {entity} --row '~bb22' --by 'seat one'",
+                again.stderr,
+            )
 
 
 if __name__ == "__main__":

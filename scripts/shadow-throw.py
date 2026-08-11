@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import importlib.util
 import json
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -45,9 +46,51 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _recovery(row: str, owner: str) -> str:
+def _locator(entity: str) -> str:
+    """Address the exact project from any directory without echoing a path.
+
+    A caller who reached this repository through `--repo` or `--entity` is not
+    necessarily standing in it, so a printed move that omits the locator would
+    resolve `./PLAN.md` instead. The board-issued entity id is the one locator
+    that is both path-free and addressable from anywhere.
+    """
+    return f" --entity {entity}"
+
+
+def _recovery(row: str, owner: str, locator: str) -> str:
     """The one move that clears a local claim whose remote lock is unconfirmed."""
-    return f"recover with shadow return --row {row} --by {owner}, then throw again"
+    return (
+        f"recover with shadow return{locator} --row {shlex.quote(row)} "
+        f"--by {shlex.quote(owner)}, then throw again"
+    )
+
+
+def _confirmed_same_seat(
+    repo: Path,
+    *,
+    entity: str,
+    project: str,
+    row: str,
+    owner: str,
+    relative: str,
+) -> bool:
+    """Whether this seat's existing claim has nothing remote left unconfirmed.
+
+    A rethrow by the seat already holding the row is both what a crash between
+    the local claim and its remote lock leaves behind AND the ordinary state
+    after a completely successful throw. Only the first wants a release, so ask
+    the trunk who holds the lock before coaching: telling a confirmed owner to
+    return opens the window for another computer to take the row.
+    """
+    try:
+        active = _remote.discover_active(
+            repo, entity=entity, project=project, rows=[row], relative=relative
+        )
+    except (_remote.RemoteClaimError, _board.BoardError):
+        return False  # the trunk could not answer, so nothing is confirmed
+    if active is None:
+        return True  # coordination never applied; the local claim is the whole claim
+    return any(item["row"] == row and item["owner"] == owner for item in active)
 
 
 def _row_line(text: str, task_id: str) -> tuple[str, re.Match[str]] | None:
@@ -180,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.entity and args.repo:
         print("shadow throw: use either --entity or --repo, not both", file=sys.stderr)
         return 2
+    locator = ""
     state = None
     if args.entity:
         if _board.ENTITY_ID.fullmatch(args.entity) is None:
@@ -269,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.entity:
                     raise _board.BoardError("entity is not registered on this computer")
                 raise _board.BoardError("entity did not enter the bounded computer board")
+            locator = _locator(state["entity"]["id"])
             plan["board_revision"] = 9_999_999_999_999_999_999
             plan["root_priority"] = (
                 state["project"]["priority"]
@@ -281,15 +326,47 @@ def main(argv: list[str] | None = None) -> int:
             # write may advance this preview; the claimed block is rebuilt below
             # from the transaction's actual revision.
             block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
-            receipt = _board.claim(
-                plan_path,
-                args.task,
-                args.by,
-                project=plan["brief"]["Project"],
-                priority=_priority(plan),
-                adopt_expired=args.adopt_expired,
-                expected_plan=plan_token,
-            )
+            try:
+                receipt = _board.claim(
+                    plan_path,
+                    args.task,
+                    args.by,
+                    project=plan["brief"]["Project"],
+                    priority=_priority(plan),
+                    adopt_expired=args.adopt_expired,
+                    expected_plan=plan_token,
+                )
+            except _board.AlreadyClaimed as exc:
+                if exc.owner != args.by:
+                    raise
+                if _confirmed_same_seat(
+                    repo,
+                    entity=state["entity"]["id"],
+                    project=state["project"]["id"],
+                    row=args.task,
+                    owner=args.by,
+                    relative=plan_token["relative"],
+                ):
+                    # A confirmed claim is the one this seat is already working:
+                    # releasing it would hand the row to another computer.
+                    print(
+                        f"shadow throw: {args.task} is already claimed by {exc.owner} "
+                        "on this computer and its remote lock is confirmed; continue "
+                        f"that claim with shadow amp{locator} "
+                        f"--task {shlex.quote(args.task)} --by {shlex.quote(args.by)}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                # The exact state a crash between the local claim and its
+                # confirmed remote lock leaves behind, so name the move that
+                # clears it.
+                print(
+                    f"shadow throw: {args.task} was claimed by {exc.owner} on this "
+                    "computer already; its remote lock is not confirmed; "
+                    f"{_recovery(args.task, args.by, locator)}",
+                    file=sys.stderr,
+                )
+                return 1
             payload = receipt["payload"]
             claimed = receipt["claim"]
             entity = receipt["entity"]
@@ -327,7 +404,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
                     print(
                         "shadow throw: remote claim failed and exact local compensation failed; "
-                        f"inspect shadow status --in-flight, then {_recovery(args.task, args.by)}",
+                        "inspect shadow status --in-flight, then "
+                        f"{_recovery(args.task, args.by, locator)}",
                         file=sys.stderr,
                     )
                     return 1
@@ -348,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
                 print(
                     "shadow throw: remote claim state is ambiguous; exact local claim retained; "
-                    f"no work packet emitted; {_recovery(args.task, args.by)}",
+                    f"no work packet emitted; {_recovery(args.task, args.by, locator)}",
                     file=sys.stderr,
                 )
                 return 1
@@ -382,15 +460,6 @@ def main(argv: list[str] | None = None) -> int:
                         file=sys.stderr,
                     )
     except _board.AlreadyClaimed as exc:
-        if exc.owner == args.by:
-            # The exact state a crash between the local claim and its confirmed
-            # remote lock leaves behind, so name the move that clears it.
-            print(
-                f"shadow throw: {args.task} was claimed by {exc.owner} on this computer "
-                f"already; its remote lock may be unconfirmed; {_recovery(args.task, args.by)}",
-                file=sys.stderr,
-            )
-            return 1
         print(
             f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",
             file=sys.stderr,
