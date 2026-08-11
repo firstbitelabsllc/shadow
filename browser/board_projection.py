@@ -93,6 +93,15 @@ def _display(row_text: str) -> str:
     return head
 
 
+def _public_row(row_text: str, fallback: str | None = None) -> str | None:
+    """A bounded row a card may print, or the fallback when it is private.
+
+    The bound runs first so the gate reads the exact string the renderer
+    prints — a path that only survives past the cut is still refused.
+    """
+    return _public(_display(row_text)) or fallback
+
+
 MILESTONE_CODE_RE = re.compile(r"^M\d+\s*[—–:-]+\s*")
 STAMP_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?)\s+")
 HASH_RE = re.compile(r"\b[0-9a-f]{12,64}\b")
@@ -246,12 +255,19 @@ def project_board_brief(text: Any) -> dict[str, Any]:
         current = next((r for r in shown["rows"] if r["state"] == "in_progress"), None)
         nxt = next((r for r in shown["rows"] if r["state"] == "pending"), None)
         dod = next((r for r in shown["rows"] if r["dod"]), None)
+        # Every printed milestone string passes the same gate as the priority
+        # and the latest change. A heading and a DoD still need words for the
+        # card to read, so those withhold to a neutral label; a current/next
+        # line simply drops, which the renderer already handles.
         milestone = {
-            "title": _human_title(shown["title"]),
+            "title": _public(_human_title(shown["title"])) or "Milestone",
             "counts": counts,
-            "current": _display(current["text"]) if current else None,
-            "next": _display(nxt["text"]) if nxt else None,
-            "dod": {"state": dod["state"], "text": _display(dod["text"])} if dod else None,
+            "current": _public_row(current["text"]) if current else None,
+            "next": _public_row(nxt["text"]) if nxt else None,
+            "dod": {
+                "state": dod["state"],
+                "text": _public_row(dod["text"], "Checkpoint text withheld"),
+            } if dod else None,
         }
         if resting:
             state = "resting"

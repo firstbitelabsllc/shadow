@@ -1180,6 +1180,36 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         self.assertEqual(change["when"], "2026-08-10T14:13:05Z")
         self.assertEqual(change["kind"], "Plan structure changed")
 
+    def test_no_milestone_field_can_print_a_private_path_or_secret(self) -> None:
+        """title, current, next and dod.text are card text too — the gate that
+        covers the summary and the priority must cover them or a stray machine
+        path reaches the fallback board card the renderer draws."""
+        private_path = "/" + "Users" + "/someone/Development/client"
+        token = "ghp_" + "a" * 30
+        plan = (
+            "# T\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n## Tasks\n\n"
+            f"### M3 — Fix {private_path} build\n"
+            f"- [in_progress] rerun {private_path}/build.sh ~aa10 | proof: cmd true\n"
+            f"- [pending] rotate the token {token} ~aa11 | proof: cmd true\n"
+            f"- [blocked] done when {private_path} ships ~aa12 (DoD) | proof: gate owner\n"
+        )
+        milestone = board_projection.project_board_brief(plan)["milestone"]
+        blob = json.dumps(milestone)
+        self.assertNotIn(private_path, blob)
+        self.assertNotIn(token, blob)
+        # Withheld, not blank: the card still reads and the counts still speak.
+        self.assertEqual(milestone["title"], "Milestone")
+        self.assertIsNone(milestone["current"])
+        self.assertIsNone(milestone["next"])
+        self.assertEqual(milestone["dod"]["text"], "Checkpoint text withheld")
+        self.assertEqual(milestone["dod"]["state"], "blocked")
+        self.assertEqual(milestone["counts"]["in_progress"], 1)
+
+    def test_a_safe_milestone_still_prints_every_field(self) -> None:
+        milestone = self._board()["milestone"]
+        self.assertEqual(milestone["title"], "Soft cloudy props for tables")
+        self.assertIn("evidence-backed shortlist", milestone["dod"]["text"])
+
     def test_a_secret_shaped_progress_line_is_withheld_too(self) -> None:
         plan = self.PLAN.replace(
             "Snowcubes `origin/main`",
