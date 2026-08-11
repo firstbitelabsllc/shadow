@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -170,7 +171,10 @@ def head_entry(root: Path, relative: Path) -> tuple[bytes, bytes] | None:
     if top.returncode:
         return None
     git_root = Path(top.stdout.strip()).resolve()
-    candidate = (root.resolve() / relative).resolve(strict=False)
+    # Normalize only lexical `.`/`..` components. Resolving the candidate here
+    # would consult dirty worktree symlinks before asking Git about HEAD: a
+    # local symlink could hide an absent HEAD path or redirect a committed one.
+    candidate = Path(os.path.normpath(os.fspath(root.resolve() / relative)))
     try:
         git_relative = candidate.relative_to(git_root)
     except ValueError:
