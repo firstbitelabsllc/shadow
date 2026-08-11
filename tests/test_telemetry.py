@@ -254,5 +254,64 @@ class EventsCarryNoPayload(unittest.TestCase):
             self.assertEqual(board["claims"][0]["owner"], "locked-seat")
 
 
+class NothingSensitiveSurvivesTheEmitter(unittest.TestCase):
+    def test_secret_path_environment_and_proof_values_never_reach_disk(self) -> None:
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo = root / "project"
+            repo.mkdir()
+            secret_prefix = bytes.fromhex("6768705f").decode("ascii")
+            secret = secret_prefix + "0123456789abcdefghijklmnopqrstuvwxyz"
+            operator_home = root / "Users" / "operator"
+            proof_output = (
+                "proof failed: private prompt and complete subprocess output\n"
+                "TOKEN=should-never-be-recorded"
+            )
+            candidate = {
+                "recorded_at": "2026-08-11T04:30:00Z",
+                "project": "shadow",
+                "entity": "a" * 64,
+                "row": "~redk",
+                "verb": "throw",
+                "duration_ms": 23,
+                "outcome": "claimed",
+                "secret": secret,
+                "absolute_home": str(operator_home),
+                "proof_output": proof_output,
+                "environment": {
+                    "SHADOW_TEST_TOKEN": secret,
+                    "HOME": str(operator_home),
+                },
+            }
+
+            destination = telemetry.emit_local(repo, candidate)
+
+            self.assertEqual(
+                destination,
+                repo / ".shadow" / "evidence" / "shadow-events.jsonl",
+            )
+            serialized = destination.read_text(encoding="utf-8")
+            event = json.loads(serialized)
+            self.assertEqual(tuple(event), EXPECTED_FIELDS)
+            self.assertEqual(event["row"], "~redk")
+            for forbidden in (
+                secret,
+                str(root),
+                str(repo),
+                str(operator_home),
+                proof_output,
+                "private prompt",
+                "complete subprocess output",
+                "TOKEN=should-never-be-recorded",
+                "SHADOW_TEST_TOKEN",
+                "HOME",
+                "absolute_home",
+                "environment",
+                "proof_output",
+            ):
+                self.assertNotIn(forbidden, serialized)
+
+
 if __name__ == "__main__":
     unittest.main()
