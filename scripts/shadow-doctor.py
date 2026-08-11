@@ -13,6 +13,9 @@ import subprocess
 import sys
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shadow_version import read_version, VersionError  # noqa: E402
+
 
 ROOT = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 HOSTS = ("codex", "claude-code", "cursor")
@@ -31,9 +34,9 @@ def identity_check() -> dict[str, Any]:
     # No package.json since 2026-08-09: VERSION and the plugin manifest are
     # the only identity sources, and they must agree.
     try:
-        version = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
+        version = read_version(ROOT)
         plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, IndexError) as exc:
+    except (OSError, json.JSONDecodeError, VersionError) as exc:
         return check("product identity", "fail", f"metadata is unreadable: {exc}")
     valid = (
         plugin.get("name") == "shadow"

@@ -54,9 +54,11 @@ shadow_amp = _ilu.module_from_spec(_AMP_SPEC)
 _AMP_SPEC.loader.exec_module(shadow_amp)
 
 
+from shadow_version import read_version  # noqa: E402
+
 PRODUCT = "Shadow"
 STATIC = Path(__file__).resolve().parent / "static"
-VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
+VERSION = read_version(ROOT)
 MAX_REQUEST_BYTES = 16 * 1024
 MAX_PLAN_BYTES = _root_board.MAX_PLAN_BYTES
 MAX_PLANS = 250
