@@ -2150,7 +2150,9 @@ def discard_unclaimed_source_alias(
     if not is_local_plan(destination, home=home):
         raise BoardError("alias cleanup destination must live below ~/.shadow/plans")
     destination_id = entity_id(destination)
-    destination_rows = set(ROW_ID.findall(read_plan_bytes(destination).decode("utf-8")))
+    destination_rows = set(
+        _grammar.HASH_RE.findall(read_plan_bytes(destination).decode("utf-8"))
+    )
     with _transaction(home) as (root, path, payload):
         source_entity = next(
             (item for item in payload["entities"] if item["plan"] == str(source)),
