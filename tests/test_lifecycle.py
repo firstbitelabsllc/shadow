@@ -456,6 +456,81 @@ class TestsNeverWriteToTheOperatorsBoard(unittest.TestCase):
                             "the verb did not write to the scratch HOME either — check the helper")
 
 
+class ADuplicateRowIdCannotDefeatTheArchiveGuards(unittest.TestCase):
+    """The shared-receipt guard and the dependency fold both key on row id.
+    A duplicate id — the same `~xxxx` on an archiving row AND a live one —
+    makes the archiving id its own alias: the receipt naming the live row
+    reads as exclusive and moves out of the plan, and `fold_dependencies`
+    strips a still-live `needs:` that points at the live twin. Uniqueness is
+    asserted across the WHOLE plan before anything is archived.
+    """
+
+    # ~aa11 now names both an archiving row and a live one.
+    DUPLICATE_PLAN = PLAN.replace(
+        "- [pending] next result starts ~cc33 | proof: cmd true | needs: ~bb22\n"
+        "- [pending] next result is accepted ~dd44 (DoD) | proof: cmd true | needs: ~cc33\n",
+        "- [pending] next result starts ~aa11 | proof: cmd true | needs: ~bb22\n"
+        "- [pending] next result is accepted ~dd44 (DoD) | proof: cmd true | needs: ~aa11\n",
+    )
+
+    def test_a_duplicate_id_refuses_the_archive_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname), self.DUPLICATE_PLAN)
+            before = (repo / "PLAN.md").read_bytes()
+            head = git(repo, "rev-parse", "HEAD")
+
+            result, report = run(repo, "--milestone", "Finished work")
+
+            self.assertEqual(result.returncode, 1, report)
+            self.assertIn("duplicate", report["error"])
+            self.assertIn("~aa11", report["error"])
+            self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+
+    def test_a_unique_plan_still_archives(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname), PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+
+
+class AnArchivedReceiptRangeStopsAtTheNextBullet(unittest.TestCase):
+    """The last receipt in the Progress section owns its own continuation
+    lines only. Trailing non-bullet prose after it belongs to the live plan,
+    not to whichever milestone happens to archive next; running that range to
+    EOF silently moved unrelated content into an archive file.
+    """
+
+    TRAILING_PLAN = PLAN.replace(
+        "- 2026-08-10T00:01:00Z ~bb22 PROOF true -> pass\n"
+        "- 2026-08-10T00:02:00Z NOTE unrelated history remains live\n",
+        "- 2026-08-10T00:02:00Z NOTE unrelated history remains live\n"
+        "- 2026-08-10T00:01:00Z ~bb22 PROOF true -> pass\n"
+        "  exact accepted-result detail remains attached\n"
+        "\n"
+        "Receipts above are UTC; this closing note belongs to the live plan.\n",
+    )
+
+    def test_trailing_prose_after_the_last_receipt_stays_live(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname), self.TRAILING_PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+            applied = run(repo, "--milestone", "Finished work", "--apply",
+                          "--expect", preview["cas"], "--by", "seat-a")[1]
+            self.assertEqual(applied.get("action"), "archived", applied)
+
+            live = (repo / "PLAN.md").read_text(encoding="utf-8")
+            archive = (
+                repo / "docs" / "plan-archive" / "finished-work.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("this closing note belongs to the live plan", live)
+            self.assertNotIn("this closing note belongs to the live plan", archive)
+            # The receipt itself, and its own indented continuation, still move.
+            self.assertNotIn("~bb22 PROOF true -> pass", live)
+            self.assertIn("exact accepted-result detail remains attached", archive)
+
+
 class BudgetsAreEnforced(unittest.TestCase):
     def test_all_three_checked_in_limits_have_teeth(self) -> None:
         too_many_rows = "## Tasks\n\n### Too many tasks\n" + "\n".join(
