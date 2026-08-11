@@ -640,6 +640,35 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
         found = _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md"), root=ROOT)
         self.assertNotIn("PROOF-ARGV0", found)
 
+    def test_a_committed_reading_answers_an_in_tree_path_from_head(self) -> None:
+        # Codex (PR #359, P2): accept proves and commits against HEAD, so its
+        # reading of argv[0] must come from HEAD too. A committed executable
+        # the caller deleted locally is still there in the clean checkout that
+        # runs the proof, and blocking on the dirty working tree refused a
+        # plan the committed checkout runs fine.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            (root / "tools" / "proof.sh").write_text("exit 0\n", encoding="utf-8")
+            commit_fixture(root, "tools/proof.sh")
+            (root / "tools" / "proof.sh").unlink()
+            plan = self._plan("cmd tools/proof.sh")
+
+            self.assertIn("PROOF-ARGV0", _checks(plan, root=root))
+            self.assertNotIn("PROOF-ARGV0", _checks(plan, root=root, committed=True))
+
+    def test_a_committed_reading_refuses_a_path_only_the_working_tree_has(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools").mkdir()
+            (root / "tools" / "kept.sh").write_text("exit 0\n", encoding="utf-8")
+            commit_fixture(root, "tools/kept.sh")
+            (root / "tools" / "uncommitted.sh").write_text("exit 0\n", encoding="utf-8")
+            plan = self._plan("cmd tools/uncommitted.sh")
+
+            self.assertNotIn("PROOF-ARGV0", _checks(plan, root=root))
+            self.assertIn("PROOF-ARGV0", _checks(plan, root=root, committed=True))
+
     def test_argv0_is_not_guessed_when_the_root_is_unknown(self) -> None:
         # Guessing would turn an unknowable into a false accusation.
         self.assertNotIn("PROOF-ARGV0", _checks(self._plan("cmd scripts/shadow-lint.py PLAN.md")))

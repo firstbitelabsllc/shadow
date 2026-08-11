@@ -123,10 +123,18 @@ def proof_argv(command: str) -> list[str]:
 
 
 def blocking_lint_finding(text: str, plan_path: Path) -> dict | None:
+    """The first blocking finding this plan text would draw, judged at HEAD.
+
+    Codex (PR #359, P2): accept proves and commits against the committed
+    checkout, so the lint must answer in-tree paths from HEAD too. Reading the
+    working tree made unrelated local state a veto — deleting a committed
+    executable another row's proof names emitted blocking PROOF-ARGV0 and
+    refused a flip the clean checkout runs fine.
+    """
     return next(
         (
             finding
-            for finding in _lint.lint_plan(text, root=plan_path.parent)
+            for finding in _lint.lint_plan(text, root=plan_path.parent, committed=True)
             if finding["severity"] == "blocking"
         ),
         None,

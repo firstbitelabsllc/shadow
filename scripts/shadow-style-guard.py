@@ -137,12 +137,21 @@ def _ending(lines, mark):
     the option's own margin is the message speaking again, whether or not a blank
     line announced it, and that is where the ending starts.
     """
-    rest = lines[mark + 1:]
+    return lines[_body_end(lines, mark):]
+
+
+def _body_end(lines, mark):
+    """Where the option at `mark` stops explaining itself.
+
+    Indentation is what binds a continuation to its option: lines indented past
+    the option marker are still that option's body, and the first line back at
+    its own margin — or the blank line that ends the list — is not.
+    """
     depth = _indent(lines[mark])
-    body = 0
-    while body < len(rest) and rest[body].strip() and _indent(rest[body]) > depth:
-        body += 1
-    return rest[body:]
+    end = mark + 1
+    while end < len(lines) and lines[end].strip() and _indent(lines[end]) > depth:
+        end += 1
+    return end
 
 
 def _indent(line):
@@ -174,7 +183,13 @@ def _passage(lines, first, last):
     # attached to them. Otherwise any later log or code sample buys an
     # exemption for a menu it does not explain. Keep the first following block
     # (including a multi-line fence/table) and stop at the next blank boundary.
-    end = last + 1
+    #
+    # Codex (PR #359, P2): the final option's own continuation is not that
+    # block. Starting at `last + 1` made an indented explanation the "following
+    # block", so the loop stopped at the blank line ending the list and cut off
+    # the fence or table drawn right under it — a menu that does show its work,
+    # blocked for not showing it.
+    end = _body_end(lines, last)
     while end < len(lines) and not lines[end].strip():
         end += 1
     while end < len(lines) and lines[end].strip():

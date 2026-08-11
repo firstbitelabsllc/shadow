@@ -1662,6 +1662,34 @@ class AcceptNeverCommitsAPlanLintBlocks(unittest.TestCase):
             state = accept._board.entity_state(plan, home=repo.parent / "home")
             self.assertEqual(["~cd34"], [claim["row"] for claim in state["claims"]])
 
+    def test_a_locally_deleted_committed_proof_binary_does_not_veto_another_row(self) -> None:
+        # Codex (PR #359, P2): the gate must read the checkout accept proves
+        # and commits against. Judging argv[0] from the dirty working tree let
+        # an unrelated local deletion emit blocking PROOF-ARGV0 and refuse a
+        # flip the committed HEAD — whose clean worktree ran the proof — runs.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            plan = repo / "PLAN.md"
+            tool = repo / "tools" / "proof.sh"
+            tool.parent.mkdir()
+            tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            tool.chmod(0o755)
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "proof: gate leo resume: release cut", "proof: cmd tools/proof.sh"
+                ),
+                encoding="utf-8",
+            )
+            git(repo, "add", "-A")
+            git(repo, "commit", "-qm", "a committed proof executable")
+            tool.unlink()
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[completed] x.txt says hello", plan.read_text(encoding="utf-8"))
+            self.assertFalse(tool.exists(), "accept must not resurrect unrelated local state")
+
     def test_a_completed_retry_cannot_reconcile_a_claim_for_a_lint_blocked_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

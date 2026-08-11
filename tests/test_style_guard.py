@@ -445,6 +445,39 @@ class TheFenceExemptionIsBounded(unittest.TestCase):
         )
         self.assertTrue(guard.violations(text))
 
+    def test_the_drawing_under_an_explained_option_still_counts(self) -> None:
+        # Codex (PR #359, P2): the final option's own indented continuation is
+        # not the block following the menu. Starting the search at the line
+        # after the option made it one, so the passage stopped at the blank
+        # line ending the list and the fence drawn right under the menu was
+        # excluded — a menu that does show its work, blocked for not.
+        guard = _load()
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "  Merging keeps every hash exactly as it was pushed.\n\n"
+            "```diff\n"
+            "-  rebase: one line of history\n"
+            "+  merge: both lines, joined\n"
+            "```\n\n"
+            "Which do you prefer?\n"
+        )
+        self.assertEqual([], guard.violations(text))
+
+    def test_a_later_fence_stays_out_when_the_option_is_explained(self) -> None:
+        guard = _load()
+        text = (
+            "- **A** — rebase onto main\n"
+            "- **B** — merge main in\n"
+            "  Merging keeps every hash exactly as it was pushed.\n\n"
+            "Neither has been chosen. Which do you prefer?\n\n"
+            "Unrelated test output:\n"
+            "```\n"
+            "32 passed\n"
+            "```\n"
+        )
+        self.assertTrue(guard.violations(text))
+
 
 if __name__ == "__main__":
     unittest.main()
