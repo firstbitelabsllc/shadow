@@ -32,22 +32,20 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_plan_grammar as _grammar  # noqa: E402
 
 DEFAULT_MAX_CHARS: Final = 4_000
 MAX_GIT_VALUE: Final = 200
 
-ROW_RE: Final = re.compile(
-    r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
-    r"(?P<text>.+?) (?P<id>~[0-9a-z]{4})(?P<dod> \(DoD\))?(?P<tail>(?: \| [a-z]+:.*)?)$"
-)
-FIELD_RE: Final = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
+ROW_RE = _grammar.ROW_RE
+FIELD_RE = _grammar.FIELD_RE
 BRIEF_KEY_RE: Final = re.compile(r"^- (?P<key>Project|Mode|Priority|Loop): (?P<value>.+)$")
 TOOLS_RE: Final = re.compile(r"^- tools: (?P<value>.+)$")
 PLAN_LEAD_RE: Final = re.compile(
     r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
     r"(?P<kind>LESSON|DECISION) (?P<value>.+)$"
 )
-HASH_RE: Final = re.compile(r"~[0-9a-z]{4}\b")
+HASH_RE = _grammar.HASH_RE
 ROW_SHAPE_RE: Final = re.compile(r"^- \[")
 CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
 CAPABILITY_RE: Final = re.compile(r"(?<![0-9A-Za-z_-])/([a-z][a-z0-9-]{0,31})\b")

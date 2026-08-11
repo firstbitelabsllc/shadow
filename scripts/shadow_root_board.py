@@ -25,13 +25,14 @@ from typing import Iterator
 from urllib.parse import unquote, urlsplit
 
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
+import shadow_plan_grammar as _grammar
 
 
 SCHEMA = "shadow.root-board.v1"
 DEFAULT_CLAIM_HOURS = 8
 COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
-ROW_ID = re.compile(r"~[0-9a-z]{4}")
+ROW_ID = _grammar.ROW_ID_RE
 ENTITY_ID = re.compile(r"[0-9a-f]{64}")
 PROJECT_ID = re.compile(r"[a-z][a-z0-9-]{1,31}")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -45,10 +46,7 @@ MAX_DISCOVERY_WITNESSES = 256
 HOT_PLAN_MAX_BYTES = 256 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
-HOT_TASK_ROW_RE = re.compile(
-    r"^- \[(?:pending|in_progress|blocked|completed)\] .+ "
-    r"~[0-9a-z]{4}(?: \(DoD\))?(?: \|.*)?$"
-)
+HOT_TASK_ROW_RE = _grammar.HOT_TASK_ROW_RE
 
 
 class BoardError(ValueError):
@@ -1897,18 +1895,12 @@ def section_lines(text: str, section: str) -> list[str]:
     return result
 
 
-PROGRESS_PROOF_RECEIPT_RE = re.compile(
-    r"^- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z "
-    r"(?P<row>~[0-9a-z]{4}) PROOF (?P<proof>.+) -> (?P<result>.+)$"
-)
+PROGRESS_PROOF_RECEIPT_RE = _grammar.PROOF_RECEIPT_RE
 
 
 def progress_proof_receipt(line: str) -> tuple[str, str, str] | None:
     """Parse one canonical receipt line for lint and claim-return parity."""
-    match = PROGRESS_PROOF_RECEIPT_RE.match(line)
-    if match is None:
-        return None
-    return match.group("row"), match.group("proof"), match.group("result")
+    return _grammar.progress_proof_receipt(line)
 
 
 def progress_proof_receipts(text: str, row: str) -> list[tuple[str, str]]:

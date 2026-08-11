@@ -30,6 +30,7 @@ if str(ROOT / "scripts") not in sys.path:
 import shadow_root_board as _board  # noqa: E402
 import shadow_remote_claim as _remote_claim  # noqa: E402
 from shadow_cmd_proof import script_operand_issue  # noqa: E402
+import shadow_plan_grammar as _grammar  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_accept_amp", ROOT / "scripts" / "shadow-amp.py"
@@ -46,70 +47,18 @@ sys.modules.setdefault("shadow_accept_lint", _lint)
 _LINT_SPEC.loader.exec_module(_lint)
 
 
-ROW_ID_RE = re.compile(r"^~[0-9a-z]{4}$")
-# Unanchored twin for scanning a `needs:` value, which holds several ids.
-# ROW_ID_RE cannot do this job: its ^...$ anchors make findall return nothing
-# on "~cd34, ~ef56", which would turn the readiness check into a silent no-op.
-NEEDS_REF_RE = re.compile(r"~[0-9a-z]{4}")
-FIELD_RE = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
-# The grammar's row shape, mirrored from scripts/shadow-lint.py: the id is a
-# parsed field, never a substring, so a `needs:` reference or trailing prose
-# mentioning another row's id cannot stand in for the row itself.
-ROW_LINE_RE = re.compile(
-    r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
-    r"(?P<text>.+?) (?P<id>~[0-9a-z]{4})(?P<dod> \(DoD\))?(?P<tail>(?: \| [a-z]+:.*)?)$"
-)
+ROW_ID_RE = _grammar.ROW_ID_RE
+NEEDS_REF_RE = _grammar.NEEDS_REF_RE
+FIELD_RE = _grammar.FIELD_RE
+ROW_LINE_RE = _grammar.ROW_RE
 # Prefix-matched, exactly as lint's `_section` reads a heading: `## Progress —
 # the receipts` is a Progress section to the enforcer, so an exact-string match
 # here would refuse to append the PROOF line after a proof that already passed.
 PROGRESS_HEADING_RE = re.compile(r"^## Progress(?: [^\n]*)?$", re.MULTILINE)
 
 
-# Kept identical to `scripts/shadow-lint.py`: the enforcer and the only flip
-# path must refuse the same proofs, or one of them is decorative.
-SHELL_PUNCTUATION = "();<>|&"
-SHELLS = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
-
-
-def _shell_script_index(argv: list[str]) -> int:
-    """Index of the -c script — the ONE token a deliberate shell interprets.
-
-    Exempting the whole argv here was the same false green one level up:
-    `cmd bash -c 'true' && shadow --version` hands `true` to bash and passes
-    `&&`, `shadow`, `--version` to it as positional arguments it never runs.
-    """
-    if argv[0] not in SHELLS:
-        return -1
-    for index in (1, 2):
-        if index < len(argv) and argv[index] == "-c":
-            return index + 1
-    return -1
-
-
-def _shell_operators(command: str) -> list[str]:
-    """Unquoted shell metacharacters in argument position, worst-first.
-
-    Comparing whole `shlex.split` tokens missed the operator written without a
-    space: `echo done&& false` splits to `done&&`, which equals no operator, so
-    the check passed while accept still ran `echo` alone. A second parse with
-    `punctuation_chars` is the discriminator the plain argv cannot give — it
-    breaks an unquoted metacharacter out into its own token and leaves a quoted
-    `'a&&b'` whole, which is exactly the difference between an operator a shell
-    would have interpreted and a literal the proof means to pass.
-    """
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        tokens = list(lexer)
-    except ValueError:
-        return []  # the caller's own shlex.split already refused this text
-    if not tokens:
-        return []
-    script = _shell_script_index(tokens)
-    return sorted({
-        token for index, token in enumerate(tokens)
-        if index and index != script and all(char in SHELL_PUNCTUATION for char in token)
-    })
+_shell_script_index = _grammar.shell_script_index
+_shell_operators = _grammar.shell_operators
 
 
 class AcceptError(ValueError):
@@ -118,7 +67,7 @@ class AcceptError(ValueError):
 
 def proof_argv(command: str) -> list[str]:
     try:
-        return shlex.split(command)
+        return _grammar.proof_argv(command)
     except ValueError as exc:
         raise AcceptError(f"the proof command cannot be parsed: {exc}") from exc
 
@@ -490,16 +439,18 @@ def completed_plan_text(
 
 
 def _receipt_stamps(plan_text: str, row_id: str, argv: list[str]) -> list[str]:
-    expected = re.escape(shlex.join(argv))
-    pattern = re.compile(
-        rf"^- (?P<stamp>\d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z) "
-        rf"{re.escape(row_id)} PROOF {expected} -> pass \(accept\)$"
-    )
-    return [
-        match.group("stamp")
-        for line in _board.section_lines(plan_text, "Progress")
-        if (match := pattern.match(line)) is not None
-    ]
+    expected = shlex.join(argv)
+    stamps: list[str] = []
+    for line in _board.section_lines(plan_text, "Progress"):
+        receipt = _grammar.progress_proof_receipt(line)
+        match = _grammar.PROOF_RECEIPT_RE.match(line)
+        if (
+            receipt is not None
+            and match is not None
+            and receipt == (row_id, expected, "pass (accept)")
+        ):
+            stamps.append(match.group("ts"))
+    return stamps
 
 
 def _git_blob_for_bytes(repo: Path, content: bytes) -> str:
