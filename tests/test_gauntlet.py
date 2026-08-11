@@ -63,7 +63,7 @@ PLAN_TEMPLATE = """# {title}
 
 ## Progress
 
-- 2026-08-09T12:00:00Z ~aa{n}1 PROOF cmd true — green.
+- 2026-08-09T12:00:00Z ~aa{n}1 PROOF cmd true -> green
 """
 
 PRE_GRAMMAR = """# Old campaign notes
