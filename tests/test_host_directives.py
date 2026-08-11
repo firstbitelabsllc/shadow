@@ -8,7 +8,9 @@ and guessing where an unmarked block ends eats the paragraph after it.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import stat
@@ -1531,6 +1533,62 @@ class StaleTempResidueIsSweptSafely(unittest.TestCase):
             hd.apply(path, BLOCK)
             residue = [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")]
             self.assertEqual(residue, [])
+
+
+class ALinkedWriteDisclosesTargetAndBackup(unittest.TestCase):
+    """"added: claude" against a symlinked host file names neither the file
+    that actually changed nor the safety copy made of it, so recovery starts
+    from the wrong path. The CLI line must carry the resolved target and the
+    backup this run created; a plain unlinked write stays a plain line.
+    """
+
+    def test_the_cli_names_the_resolved_target_and_the_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            tmp = Path(name).resolve()
+            host = tmp / ".claude"
+            host.mkdir()
+            canonical = tmp / "canonical" / "DIRECTIVES.md"
+            canonical.parent.mkdir()
+            canonical.write_text(BEFORE, encoding="utf-8")
+            link = host / "CLAUDE.md"
+            link.symlink_to(canonical)
+            with mock.patch.dict(hd.HOSTS, {"claude-code": link}, clear=True):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    status = hd.main(["--host", "claude-code"])
+            self.assertEqual(status, 0)
+            lines = [l for l in out.getvalue().splitlines() if l.startswith("added:")]
+            self.assertEqual(len(lines), 1)
+            self.assertIn(f"-> wrote {canonical}", lines[0])
+            self.assertIn(f"(backup: {canonical}.bak-shadow)", lines[0])
+            self.assertTrue(link.is_symlink(), "the link must survive the disclosed write")
+            self.assertIn(BLOCK, canonical.read_text(encoding="utf-8"))
+
+    def test_a_plain_unlinked_write_stays_a_plain_line(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            tmp = Path(name).resolve()
+            path = tmp / ".claude" / "CLAUDE.md"
+            path.parent.mkdir()
+            with mock.patch.dict(hd.HOSTS, {"claude-code": path}, clear=True):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    status = hd.main(["--host", "claude-code"])
+            self.assertEqual(status, 0)
+            lines = [l for l in out.getvalue().splitlines() if l.startswith("created:")]
+            self.assertEqual(len(lines), 1)
+            self.assertNotIn("-> wrote", lines[0], "an unlinked create disclosed a redundant target")
+            self.assertNotIn("backup", lines[0], "a fresh create has nothing to back up")
+
+    def test_apply_still_returns_the_plain_action_word(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            tmp = Path(name).resolve()
+            path = tmp / "CLAUDE.md"
+            path.write_text(BEFORE, encoding="utf-8")
+            outcome = hd.apply(path, BLOCK)
+            self.assertEqual(outcome, "added")
+            self.assertIsInstance(outcome, str)
+            self.assertEqual(outcome.target, path)
+            self.assertEqual(outcome.backup, Path(str(path) + ".bak-shadow"))
 
 
 if __name__ == "__main__":
