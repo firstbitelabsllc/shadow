@@ -178,6 +178,36 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertFalse(report["publishable"])
 
 
+class ShadowOneReleaseCandidate(unittest.TestCase):
+    def test_every_shipped_identity_reports_shadow_one(self) -> None:
+        expected = "1.0.0"
+        manifests = (
+            ".claude-plugin/plugin.json",
+            "plugins/shadow/plugin.json",
+            "plugins/shadow/.codex-plugin/plugin.json",
+            "plugins/shadow/.claude-plugin/plugin.json",
+        )
+
+        self.assertEqual(mod.source_version(ROOT), expected)
+        self.assertEqual(mod.changelog_version(ROOT), expected)
+        for relative in manifests:
+            manifest = json.loads((ROOT / relative).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["version"], expected, relative)
+
+        cli = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "--version"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(cli.stdout.strip(), expected)
+
+        identity = mod.inspect_release_identity(ROOT, expected)
+        self.assertEqual(identity["errors"], [])
+
+
 class ReleaseIdentityIsImmutable(unittest.TestCase):
     def make_repo(self, root: Path) -> Path:
         repo = root / "repo"
