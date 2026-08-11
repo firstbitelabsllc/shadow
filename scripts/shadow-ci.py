@@ -237,19 +237,36 @@ def pressure_decision(values: Mapping[str, str]) -> tuple[bool, str]:
 
 def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str, str]:
     """Accepted-change pressure since the newest reachable release tag."""
-    tag = subprocess.run(
-        ["git", "-C", str(root), "describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
+    baseline = ""
+    for describe in (
+        ["describe", "--match", "shadow-v[0-9]*.[0-9]*.[0-9]*", "--abbrev=0"],
+        ["describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
+    ):
+        tag = subprocess.run(
+            ["git", "-C", str(root), *describe],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        baseline = tag.stdout.strip()
+        if not tag.returncode and baseline:
+            break
+    if not baseline:
+        return {
+            "ACCEPTED_CHANGE_COUNT": "0", "OLDEST_ACCEPTED_CHANGE_HOURS": "0",
+            "SEVERITY": "none", "RELEASE_RISK": "none",
+            "RELEASE_BASELINE": "", "RELEASE_BASELINE_COMMIT": "",
+        }
+    baseline_commit = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", f"{baseline}^{{commit}}"],
         capture_output=True,
         text=True,
         timeout=15,
         check=False,
     )
-    baseline = tag.stdout.strip()
-    if tag.returncode or not baseline:
-        return {
-            "ACCEPTED_CHANGE_COUNT": "0", "OLDEST_ACCEPTED_CHANGE_HOURS": "0",
-            "SEVERITY": "none", "RELEASE_RISK": "none",
-        }
+    if baseline_commit.returncode or not baseline_commit.stdout.strip():
+        raise ValueError("release-pressure baseline commit is unreadable")
     log = subprocess.run(
         [
             "git", "-C", str(root), "log", "--no-merges", "--max-count=1001",
@@ -272,6 +289,8 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
         return {
             "ACCEPTED_CHANGE_COUNT": "0", "OLDEST_ACCEPTED_CHANGE_HOURS": "0",
             "SEVERITY": "none", "RELEASE_RISK": "none",
+            "RELEASE_BASELINE": baseline,
+            "RELEASE_BASELINE_COMMIT": baseline_commit.stdout.strip(),
         }
     changed = subprocess.run(
         ["git", "-C", str(root), "diff", "--name-only", "--no-renames", baseline, "HEAD", "--"],
@@ -300,6 +319,8 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
         "OLDEST_ACCEPTED_CHANGE_HOURS": str(min(oldest, 8760)),
         "SEVERITY": severity,
         "RELEASE_RISK": risk,
+        "RELEASE_BASELINE": baseline,
+        "RELEASE_BASELINE_COMMIT": baseline_commit.stdout.strip(),
     }
 
 
