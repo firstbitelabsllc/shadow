@@ -119,6 +119,74 @@ def uses_origin_upstream(repo: Path) -> bool:
     )
 
 
+def local_only_degradation(repo: Path) -> str | None:
+    """Name why a checkout that can reach a shared trunk still claims locally.
+
+    Coordination opts in only on a configured `origin` upstream, so a clone
+    whose branch tracks `upstream`, a detached HEAD, and a branch with no
+    upstream all fall back to a per-computer claim: two computers can then hold
+    the same row at once with no collision. Returning the exact cause lets the
+    public verbs say so instead of looking identical to a coordinated claim. A
+    checkout with no remote at all shares no trunk to collide over, so it keeps
+    the ordinary quiet local behavior and returns None.
+    """
+    if uses_origin_upstream(repo):
+        return None
+    remotes = _git(repo, "remote")
+    if remotes.returncode or not remotes.stdout.strip():
+        return None
+    branch = _git(repo, "symbolic-ref", "--short", "HEAD")
+    name = branch.stdout.decode("utf-8", errors="replace").strip()
+    if branch.returncode or not name:
+        return "detached_head"
+    tracked = _git(repo, "config", "--get", f"branch.{name}.remote")
+    value = tracked.stdout.decode("utf-8", errors="replace").strip()
+    if tracked.returncode or not value:
+        return "branch_without_upstream"
+    # The remote's own name is never echoed: only this closed vocabulary is.
+    return "upstream_not_origin" if value != "origin" else "upstream_not_a_branch"
+
+
+def local_only_result(
+    repo: Path,
+    *,
+    entity: str,
+    row: str,
+    owner: str,
+    project: str,
+    plan_token: dict[str, str],
+    claimed_at: str,
+    return_by: str,
+    recovery: str,
+) -> dict[str, Any] | None:
+    """One closed public outcome for an uncoordinated shared trunk, else None."""
+    degradation = local_only_degradation(repo)
+    if degradation is None:
+        return None
+    if not public_safe_plan_token(plan_token):
+        rejected = _unsafe_plan_result(
+            entity=entity, row=row, owner=owner, project=project,
+            state="acquired", reason="acquire",
+        )
+        return {**rejected, "status": "local-only", "failure": degradation}
+    return _receipt(
+        status="local-only",
+        ref=claim_ref(entity, row),
+        entity=entity,
+        row=row,
+        owner=owner,
+        project=project,
+        plan_token=plan_token,
+        claimed_at=claimed_at,
+        return_by=return_by,
+        recovery=recovery,
+        state="acquired",
+        reason="acquire",
+        winner=None,
+        failure=degradation,
+    )
+
+
 def _configured_origin_merge_refs(repo: Path) -> list[str]:
     configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
     if configured.returncode:
