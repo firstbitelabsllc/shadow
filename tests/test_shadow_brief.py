@@ -80,6 +80,7 @@ class SourceBoundaryTests(unittest.TestCase):
         self.assertNotIn("cursor-agent", source)
         self.assertNotIn("shadow-bidaily-digest", source)
         self.assertNotIn("/plans/", source)
+        self.assertNotIn("noreply.github.com", source)
 
     def test_public_command_dispatches_to_the_owned_producer(self):
         result = subprocess.run(
