@@ -65,6 +65,7 @@ class GrammarContractTests(unittest.TestCase):
     def test_goal_compiler_keeps_launchers_bounded_and_plan_owned(self) -> None:
         root_skill = SKILL.read_text(encoding="utf-8")
         goal_skill = GOAL_SKILL.read_text(encoding="utf-8")
+        normalized_root = " ".join(root_skill.split())
         normalized_goal = " ".join(goal_skill.split())
 
         self.assertIn("`skills/goal/SKILL.md` owns goal shaping", root_skill)
@@ -88,6 +89,10 @@ class GrammarContractTests(unittest.TestCase):
         self.assertNotIn("60-100 word", root_skill + goal_skill)
         self.assertNotIn("do not touch <prohibited paths>", goal_skill)
         self.assertNotIn("Authority: <refreshed computer board>", goal_skill)
+        self.assertNotIn("PLAN.md at committed ref", goal_skill)
+        self.assertIn("committed ref when source-backed", normalized_goal)
+        self.assertIn("this computer when machine-local", normalized_goal)
+        self.assertIn("this computer for a machine-local plan", normalized_root)
 
     def test_only_shadow_is_an_invented_name(self) -> None:
         # Standard vocabulary only: the old fun terms must not resurface in law.

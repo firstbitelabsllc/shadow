@@ -63,9 +63,10 @@ narrow the outcome.
 `shadow throw --repo <project> --task '~id' --by <seat>` atomically claims the
 checkpoint and returns its deterministic starting block. `shadow amp` resumes
 only a checkpoint the named seat already owns. The block points at the entity
-plan — committed ref, checkpoint, proof, and milestone capabilities — within
-one paste budget. Put any new durable requirement from the conversation in the
-owning `PLAN.md` in the same move or it did not happen.
+plan — a committed ref for source-backed authority or this computer for a
+machine-local plan, plus the checkpoint, proof, and milestone capabilities —
+within one paste budget. Put any new durable requirement from the conversation
+in the owning `PLAN.md` in the same move or it did not happen.
 
 When the request is a loose steer rather than a task ("use adversaries", "dial
 in jordan mode", "focus on details"), translate it with

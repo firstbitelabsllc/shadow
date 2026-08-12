@@ -20,7 +20,7 @@ outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 
 ```text
 Outcome: <finite end state and what the person stops supervising>.
-Resume: <refreshed board + PLAN.md at committed ref>; continue owned claims, then the highest-value reachable checkpoint.
+Resume: <refreshed board + canonical PLAN authority>; name its committed ref when source-backed, or this computer when machine-local; continue owned claims, then the highest-value reachable checkpoint.
 Proof: <mechanical finish line>; keep source, merge, install/deploy, and live distinct.
 Skills: <one to four canonical invocation names from the current session's available skill catalog>.
 ```
