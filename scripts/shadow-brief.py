@@ -2961,6 +2961,7 @@ def deliver_superhuman(
 
 def launch_agent_plist(program: Path) -> dict[str, Any]:
     python = sys.executable
+    home = Path.home()
     return {
         "Label": LABEL,
         "ProgramArguments": [
@@ -2979,8 +2980,18 @@ def launch_agent_plist(program: Path) -> dict[str, Any]:
         "StandardOutPath": str(LOG_DIR / "launchd.out.log"),
         "StandardErrorPath": str(LOG_DIR / "launchd.err.log"),
         "EnvironmentVariables": {
-            "HOME": str(Path.home()),
-            "PATH": "/Users/leokwan/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": str(home),
+            "PATH": ":".join(
+                [
+                    str(home / ".local" / "bin"),
+                    "/opt/homebrew/bin",
+                    "/usr/local/bin",
+                    "/usr/bin",
+                    "/bin",
+                    "/usr/sbin",
+                    "/sbin",
+                ]
+            ),
             "SHADOW_PORTFOLIO_ROOT": str(portfolio_root()),
         },
     }
