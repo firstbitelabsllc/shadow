@@ -41,6 +41,18 @@ SEND_ATTEMPT_LOG = LOG_DIR / "send-attempts.jsonl"
 MAILBOX_READBACK_LOG = LOG_DIR / "mailbox-readbacks.jsonl"
 SELF_MAIL = "leojkwan@gmail.com"
 SNOWCUBES_BUSINESS_MAIL = "trysnowcubes@gmail.com"
+SNOWCUBES_SHOPIFY_STORE = "939cf1-24"
+SNOWCUBES_NATIVE_LINKS = {
+    "commerce": f"https://admin.shopify.com/store/{SNOWCUBES_SHOPIFY_STORE}/orders",
+    "funnel": "https://app.posthog.com/",
+    "search": "https://search.google.com/search-console",
+    "local": "https://business.google.com/",
+    "lifecycle": "https://resend.com/overview",
+    "seo": "https://app.ahrefs.com/",
+    "shadow": "https://github.com/firstbitelabsllc/shadow",
+    "deploy": "https://vercel.com/dashboard",
+    "m12": "https://github.com/firstbitelabsllc/trysnowcubes-web/blob/main/scripts/cafe-doctor.py",
+}
 WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v2"
 MAILBOX_READBACK_SCHEMA = "shadow.superhuman-mailbox-readback.v1"
 SUPERHUMAN_MCP_RESOURCE = "https://mcp.mail.superhuman.com/mcp"
@@ -556,7 +568,7 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
     cursor_limit = 0
     human = 0
     unread = 0
-    signals: list[dict[str, str]] = []
+    signals: list[dict[str, Any]] = []
     for row in threads:
         subject = str(row.get("subject") or "")
         snippet = str(row.get("snippet") or "")
@@ -576,10 +588,27 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
         if "usage limit" in combined or "usage/spend limit" in combined:
             cursor_limit += 1
         if len(signals) < 5:
+            # The connector occasionally supplies a direct thread URL. Keep it
+            # only when it is a real HTTPS URL; never manufacture a provider URL
+            # from an opaque ID. Thread IDs stay in the private packet so the
+            # reader can reconcile a signal without copying the inbox.
+            native_link = next(
+                (
+                    str(row.get(key)).strip()
+                    for key in ("native_link", "thread_url", "web_url", "url", "link")
+                    if str(row.get(key) or "").strip().startswith(("https://", "http://"))
+                ),
+                None,
+            )
+            thread_id = row.get("thread_id") or row.get("id")
+            labels = {str(label).lower() for label in (row.get("labels") or [])}
             signals.append({
                 "subject": subject[:160],
                 "last_message_at": str(row.get("last_message_at") or ""),
                 "kind": "github" if "github" in combined else "human_or_other",
+                "thread_id": str(thread_id)[:200] if thread_id else None,
+                "unread": "unread" in labels,
+                "native_link": native_link,
             })
     return {
         "available": True,
@@ -595,7 +624,166 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
     }
 
 
-def collect_snowcubes_context() -> dict[str, Any]:
+def _snowcubes_surface(
+    *,
+    name: str,
+    state: str,
+    now: str,
+    next_action: str,
+    source: str,
+    observed_at: str,
+    wake: str | None = None,
+    native_link: str | None = None,
+    proposal: str | None = None,
+    thread_id: str | None = None,
+) -> dict[str, Any]:
+    """Create one source-labelled card without creating a task or business record."""
+    card: dict[str, Any] = {
+        "name": name,
+        "state": state,
+        "now": now,
+        "next": next_action,
+        "source": source,
+        "observed_at": observed_at,
+    }
+    if wake:
+        card["wake"] = wake
+    if native_link:
+        card["native_link"] = native_link
+    if proposal:
+        card["proposal"] = proposal
+    if thread_id:
+        # This is private evidence for reconciliation, not a customer queue.
+        card["thread_id"] = thread_id
+    return card
+
+
+def _snowcubes_vercel_surface(vercel: dict[str, Any], observed_at: str) -> dict[str, Any]:
+    rows = [
+        row
+        for row in (vercel.get("deployments") or [])
+        if isinstance(row, dict)
+        and "snowcube" in str(row.get("name") or "").lower()
+    ]
+    if not vercel.get("available"):
+        return _snowcubes_surface(
+            name="Deploy",
+            state="unavailable",
+            now="No current deployment fact is claimed.",
+            next_action="Reconcile the Snowcubes deployment from the provider before calling the storefront live.",
+            source="Vercel",
+            observed_at=observed_at,
+            wake="Authenticate the Vercel CLI, then run the next natural morning window; no deploy is started by this brief.",
+            native_link=SNOWCUBES_NATIVE_LINKS["deploy"],
+        )
+    if not rows:
+        return _snowcubes_surface(
+            name="Deploy",
+            state="unavailable",
+            now="Vercel was read, but no Snowcubes project was identified in the bounded result.",
+            next_action="Confirm the exact Snowcubes Vercel project identity before treating a deployment as live.",
+            source="Vercel",
+            observed_at=observed_at,
+            wake="Name or authorize the Snowcubes Vercel project for the read-only producer; the next natural window will retry.",
+            native_link=SNOWCUBES_NATIVE_LINKS["deploy"],
+        )
+    states = ", ".join(
+        f"{row.get('name')}: {row.get('state') or 'unknown'}"
+        for row in rows[:3]
+    )
+    link = next(
+        (
+            str(row.get("url"))
+            for row in rows
+            if str(row.get("url") or "").startswith(("https://", "http://"))
+        ),
+        SNOWCUBES_NATIVE_LINKS["deploy"],
+    )
+    return _snowcubes_surface(
+        name="Deploy",
+        state="available",
+        now=f"Vercel read completed for the identified Snowcubes project: {states}.",
+        next_action="Open the native deployment receipt before claiming the public storefront is shipped.",
+        source="Vercel",
+        observed_at=observed_at,
+        native_link=link,
+    )
+
+
+def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
+    repo = portfolio_root() / "trysnowcubes-web"
+    script = repo / "scripts" / "cafe-doctor.py"
+    if not script.is_file():
+        return _snowcubes_surface(
+            name="M12 cafe-doctor",
+            state="unavailable",
+            now="The canonical cafe doctor could not be located; no balance or collection fact is inferred.",
+            next_action="Restore the canonical Snowcubes checkout and read the doctor before any money action.",
+            source="Snowcubes M12 cafe-doctor",
+            observed_at=observed_at,
+            wake=f"Make {script} readable from the canonical Snowcubes checkout; the next natural window will retry.",
+            native_link=SNOWCUBES_NATIVE_LINKS["m12"],
+        )
+    try:
+        proc = _run([sys.executable, str(script), "--json"], cwd=repo, timeout=45)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return _snowcubes_surface(
+            name="M12 cafe-doctor",
+            state="unavailable",
+            now="The read-only doctor could not complete; no balance or collection fact is inferred.",
+            next_action="Keep money actions suppressed until the canonical doctor can be read fresh.",
+            source="Snowcubes M12 cafe-doctor",
+            observed_at=observed_at,
+            wake=f"Run {script} --json successfully ({exc}); no provider mutation is performed here.",
+            native_link=SNOWCUBES_NATIVE_LINKS["m12"],
+        )
+    try:
+        result = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        result = {}
+    checks = result.get("checks") if isinstance(result, dict) else []
+    blocking = [
+        str(check.get("name"))
+        for check in checks
+        if isinstance(check, dict) and not check.get("ok") and check.get("tier") == "BLOCK"
+    ]
+    if proc.returncode != 0 or not isinstance(result, dict):
+        detail = ", ".join(blocking[:4]) or (proc.stderr or "doctor did not return JSON")
+        return _snowcubes_surface(
+            name="M12 cafe-doctor",
+            state="attention",
+            now=f"The read-only doctor needs attention: {detail[:220]}.",
+            next_action="Keep any money or collection action suppressed until the named checks are reconciled.",
+            source="Snowcubes M12 cafe-doctor",
+            observed_at=observed_at,
+            wake=f"Run {script} --json and resolve the named BLOCK checks; no provider mutation is performed here.",
+            native_link=SNOWCUBES_NATIVE_LINKS["m12"],
+        )
+    return _snowcubes_surface(
+        name="M12 cafe-doctor",
+        state="available" if result.get("ok") else "attention",
+        now=(
+            "The read-only doctor accepted the current ledger checks; this is not a settled balance receipt."
+            if result.get("ok")
+            else "The read-only doctor found a discrepancy; no balance or collection action is proposed."
+        ),
+        next_action="Keep the source-labelled result separate from money truth and require fresh native settlement coverage.",
+        source="Snowcubes M12 cafe-doctor",
+        observed_at=observed_at,
+        wake=(
+            None
+            if result.get("ok")
+            else f"Run {script} --json and resolve the named BLOCK checks before any money action."
+        ),
+        native_link=SNOWCUBES_NATIVE_LINKS["m12"],
+    )
+
+
+def collect_snowcubes_context(
+    *,
+    vercel: dict[str, Any] | None = None,
+    board: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Read the bounded business-mail signal and name every missing authority.
 
     This is deliberately a companion inside the one Shadow producer: it is not
@@ -605,6 +793,7 @@ def collect_snowcubes_context() -> dict[str, Any]:
     mail = collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
     if mail.get("available"):
         human = [row for row in mail.get("signals") or [] if row.get("kind") == "human_or_other"]
+        newest = human[0] if human else {}
         reply = (
             "Reply now: review the newest human thread before any automated notification."
             if human
@@ -617,42 +806,143 @@ def collect_snowcubes_context() -> dict[str, Any]:
         )
         mail_state = "available"
         mail_wake = None
+        mail_link = newest.get("native_link")
+        mail_thread_id = newest.get("thread_id")
+        proposal = (
+            "Proposal only: open this thread in Superhuman and prepare a reply for Leo to approve; no draft or send was created."
+            if human
+            else None
+        )
     else:
         reply = "Reply priority is unavailable; no inbox state is inferred."
         relationship = "Relationship follow-up is unavailable; no customer action is invented."
         mail_state = "unavailable"
         mail_wake = "Link trysnowcubes@gmail.com in Superhuman, then run the bounded read-only 24-hour thread query."
+        mail_link = None
+        mail_thread_id = None
+        proposal = None
 
     unavailable = {
-        "commerce": "Shopify read-only order and fulfillment adapter is not configured for this producer.",
-        "funnel": "PostHog read-only Snowcubes project adapter is not configured for this producer.",
-        "search": "Search Console read-only property adapter is not configured for this producer.",
-        "local": "Google Business Profile read-only location adapter is not configured for this producer.",
-        "lifecycle": "Resend/Supabase read-only lifecycle adapter is not configured for this producer.",
+        "Commerce": (
+            "Shopify read-only order and fulfillment adapter is not configured for this producer.",
+            "Authorize a read-only Shopify adapter for store 939cf1-24; the next natural window will read it.",
+            "Shopify",
+            "Link the Shopify Admin read-only adapter for store 939cf1-24; no Admin mutation is performed here.",
+            "commerce",
+        ),
+        "Funnel": (
+            "PostHog read-only Snowcubes project adapter is not configured for this producer.",
+            "Authenticate the named PostHog project and read behavior in the next natural window.",
+            "PostHog",
+            "Authenticate the Snowcubes PostHog project for a read-only query; no event or property write is performed.",
+            "funnel",
+        ),
+        "Search": (
+            "Search Console read-only property adapter is not configured for this producer.",
+            "Authenticate the canonical Search Console property and read current query coverage next window.",
+            "Google Search Console",
+            "Authorize the canonical Search Console property for read-only access; the brief never changes it.",
+            "search",
+        ),
+        "Local profile": (
+            "Google Business Profile read-only location adapter is not configured for this producer.",
+            "Authenticate the Snowcubes location and read profile health next window.",
+            "Google Business Profile",
+            "Authorize the Snowcubes location in GBP for a read-only read; no profile edit or review reply is sent.",
+            "local",
+        ),
+        "Lifecycle email": (
+            "Resend/Supabase read-only lifecycle adapter is not configured for this producer.",
+            "Read aggregate event and delivery health from Supabase/Resend next window.",
+            "Supabase + Resend",
+            "Authorize read-only Supabase/Resend project access; no campaign, draft, or send is created.",
+            "lifecycle",
+        ),
+        "SEO": (
+            "SEO acquisition read is not configured for this producer.",
+            "Read the named SEO provider next window and keep acquisition separate from storefront truth.",
+            "Ahrefs",
+            "Authorize the Ahrefs read-only workspace; no keyword, backlink, or campaign mutation is performed.",
+            "seo",
+        ),
     }
     surfaces = [
-        {
-            "name": "Reply and relationships",
-            "state": mail_state,
-            "now": reply,
-            "next": relationship,
-            "source": "Superhuman business inbox",
-            "observed_at": observed_at,
-            "wake": mail_wake,
-        },
+        _snowcubes_surface(
+            name="Reply and relationships",
+            state=mail_state,
+            now=reply,
+            next_action=relationship,
+            source="Superhuman business inbox (trysnowcubes@gmail.com)",
+            observed_at=observed_at,
+            wake=mail_wake,
+            native_link=mail_link,
+            proposal=proposal,
+            thread_id=mail_thread_id,
+        ),
+        _snowcubes_surface(
+            name="Relationships to nurture",
+            state=mail_state,
+            now=relationship,
+            next_action=(
+                "Keep the relationship visible after Leo reviews the reply-now item."
+                if mail_state == "available"
+                else "No relationship action is inferred until the business inbox can be read."
+            ),
+            source="Superhuman business inbox (trysnowcubes@gmail.com)",
+            observed_at=observed_at,
+            wake=mail_wake,
+            native_link=mail_link,
+            proposal=(
+                "Proposal only: after Leo approves the reply, keep a short personal follow-up in view; no draft or send was created."
+                if mail_state == "available" and human
+                else None
+            ),
+            thread_id=mail_thread_id,
+        ),
         *[
-            {
-                "name": name.title(),
-                "state": "unavailable",
-                "now": "No current business fact is claimed.",
-                "next": reason,
-                "source": name,
-                "observed_at": observed_at,
-                "wake": f"Configure the read-only Snowcubes {name} adapter; the next natural morning window will read it.",
-            }
-            for name, reason in unavailable.items()
+            _snowcubes_surface(
+                name=name,
+                state="unavailable",
+                now="No current business fact is claimed.",
+                next_action=next_action,
+                source=source,
+                observed_at=observed_at,
+                wake=wake,
+                native_link=SNOWCUBES_NATIVE_LINKS[link_key],
+            )
+            for name, (reason, next_action, source, wake, link_key) in unavailable.items()
         ],
     ]
+    # Shadow is the implementation authority for this companion; exposing its
+    # revision is useful evidence, not a new Snowcubes queue.
+    board = board if isinstance(board, dict) else collect_board()
+    if board.get("revision") is not None:
+        surfaces.append(
+            _snowcubes_surface(
+                name="Shadow work",
+                state="available",
+                now=f"Shadow board revision {board.get('revision')} is the only execution authority; no duplicate Snowcubes queue is created.",
+                next_action="Keep implementation claims on Shadow and the canonical Snowcubes PLAN; show receipts separately.",
+                source="Shadow computer board",
+                observed_at=observed_at,
+                native_link=SNOWCUBES_NATIVE_LINKS["shadow"],
+            )
+        )
+    else:
+        surfaces.append(
+            _snowcubes_surface(
+                name="Shadow work",
+                state="unavailable",
+                now="The Shadow board could not be read; no execution state is inferred.",
+                next_action="Restore the local Shadow board read before ranking work.",
+                source="Shadow computer board",
+                observed_at=observed_at,
+                wake="Run shadow status --by leo and repair the local board read; do not create a second queue.",
+                native_link=SNOWCUBES_NATIVE_LINKS["shadow"],
+            )
+        )
+    surfaces.append(_snowcubes_vercel_surface(vercel or {}, observed_at))
+    surfaces.append(_snowcubes_m12_surface(observed_at))
     return {"observed_at": observed_at, "surfaces": surfaces}
 
 
@@ -1204,7 +1494,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
     supabase = collect_supabase()
     nia = collect_nia_status()
     mail = collect_superhuman_context()
-    snowcubes = collect_snowcubes_context()
+    snowcubes = collect_snowcubes_context(vercel=vercel)
     growth_health = collect_growth_source_status()
     paint_health = {
         "local_git": build_local_git_health(root, repos),
@@ -1694,6 +1984,12 @@ def render_html(packet: dict[str, Any]) -> str:
         f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
         f"<p>{_esc(item.get('now'))}</p><p class='meta'>{_esc(item.get('next'))}</p>"
         f"<p class='meta'>Source: {_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}"
+        + (f"<br/>Proposal: {_esc(item.get('proposal'))}" if item.get("proposal") else "")
+        + (
+            f"<br/><a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
+            if item.get("native_link")
+            else ""
+        )
         + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
         + "</p></article>"
         for item in (snowcubes.get("surfaces") or [])
