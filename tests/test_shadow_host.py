@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -173,11 +176,35 @@ class ShadowHostTests(unittest.TestCase):
         self.assertIn(digest, prompt)
         self.assertIn("result.txt", prompt)
         self.assertIn("shadow.host-receipt.v1", prompt)
-        self.assertIn('"task_id":"bounded-task"', prompt)
+        self.assertIn('"task_id":"example-task-id"', prompt)
         self.assertIn('"proof_ref":"bounded-proof"', prompt)
         self.assertIn("Do not use spaces or prose for proof_ref.", prompt)
         self.assertIn("with status `blocked`", prompt)
         self.assertIn("`proof_ref`: null", prompt)
+
+    def test_echoing_the_prompt_example_cannot_satisfy_the_real_receipt(self) -> None:
+        task = "Change the bounded file."
+        digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
+        prompt = shadow_host.host_prompt(task, "bounded-task", ["result.txt"], digest)
+
+        example = shadow_host.extract_host_receipt([prompt])
+        with self.assertRaises(shadow_host.HostError) as raised:
+            shadow_host.validate_host_receipt(example, "bounded-task", ["result.txt"])
+        self.assertEqual(raised.exception.kind, "host_receipt_invalid")
+
+    def test_attempt_receipt_fsyncs_its_file_and_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            destination = Path(dirname) / "evidence" / "attempt.json"
+            kinds = {"file": False, "dir": False}
+            real_fsync = os.fsync
+
+            def spy(fd: int) -> None:
+                kinds["dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"] = True
+                real_fsync(fd)
+
+            with mock.patch.object(shadow_host.os, "fsync", side_effect=spy):
+                shadow_host.write_json(str(destination), {"schema": "test"})
+        self.assertEqual(kinds, {"file": True, "dir": True})
 
     def test_receipt_rejects_private_paths_and_secret_shaped_text(self) -> None:
         for field, value in (
@@ -534,6 +561,59 @@ class AuditBlockRegressionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("output_exists", result.stdout + result.stderr)
         self.assertFalse(captured.exists(), "the host must not run when the receipt would be clobbered")
+
+    def test_failure_before_the_run_is_scrubbed_and_classified_like_any_block(self) -> None:
+        # A git subprocess timeout raised before run_attempt's inner handler
+        # stringifies the full argv, including the absolute worktree path. That
+        # detail reaches main()'s handler, so main() must scrub it too.
+        timeout = subprocess.TimeoutExpired(
+            cmd=["git", "-C", "/Users/person/secret-worktree", "rev-parse", "--show-toplevel"],
+            timeout=5,
+        )
+        self.assertIn("/Users/", str(timeout), "the induced detail must carry an absolute home path")
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            task = root / "task.txt"
+            task.write_text("Do the bounded thing.\n", encoding="utf-8")
+            stream = io.StringIO()
+            with mock.patch.object(shadow_host.subprocess, "run", side_effect=timeout):
+                with contextlib.redirect_stdout(stream):
+                    code = shadow_host.main(
+                        [
+                            "run",
+                            "--host",
+                            "cursor",
+                            "--binary",
+                            str(root / "fake-host"),
+                            "--repo",
+                            str(root),
+                            "--task-file",
+                            str(task),
+                            "--task-id",
+                            "add-proof",
+                            "--allowed-path",
+                            "result.txt",
+                            "--out",
+                            "-",
+                            "--json",
+                        ]
+                    )
+            emitted = stream.getvalue()
+
+        payload = json.loads(emitted)
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["blocked"]["kind"], "git_unavailable")
+        self.assertIn("<redacted-path>", payload["blocked"]["detail"])
+        self.assertNotIn("/Users/", emitted)
+
+    def test_refusal_status_separates_environmental_failures_from_blocks(self) -> None:
+        for kind in ("host_failed", "host_launch_failed", "host_timeout"):
+            with self.subTest(kind=kind):
+                self.assertEqual(shadow_host._refusal_status(kind), "failed")
+        for kind in ("git_unavailable", "worktree_dirty", "scope_violation"):
+            with self.subTest(kind=kind):
+                self.assertEqual(shadow_host._refusal_status(kind), "blocked")
 
     def test_nested_evidence_directories_do_not_unseal_the_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

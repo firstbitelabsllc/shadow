@@ -18,11 +18,27 @@ returns only bounded display text.
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
+import sys
 from typing import Any
+
+_SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+if str(_SCRIPTS) not in sys.path:  # this module is imported before server.py
+    sys.path.insert(0, str(_SCRIPTS))
+
+from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE  # noqa: E402
 
 
 BOARD_SCHEMA = "shadow.board-brief.v1"
+# Every free-text field a person typed on their own machine passes the same
+# canonical gate the title path uses. A Progress line or a Brief priority can
+# name /Users/<someone>/… or carry a token; the loopback board is a page an
+# owner screenshots, so a private shape is withheld rather than printed.
+UNSAFE_TEXT_RE = re.compile(
+    f"(?:{PRIVATE_PATH_RE.pattern}|{SECRET_SHAPE_RE.pattern})",
+    re.IGNORECASE,
+)
 MAX_ROW_TEXT = 220
 ROW_RE = re.compile(
     r"^- \[(pending|in_progress|blocked|completed)\]\s+(.*)$"
@@ -31,6 +47,17 @@ ID_SPLIT_RE = re.compile(r"\s+~[0-9a-z]{4}\b")
 FIELD_RE = re.compile(r"^[-*]\s*([A-Za-z][A-Za-z0-9 /_-]*)\s*:\s*(.+)$")
 DOD_RE = re.compile(r"\(DoD\)")
 STATES = ("pending", "in_progress", "blocked", "completed")
+
+
+def _public(text: str | None) -> str | None:
+    """The text a card may print, or None when it carries a private shape.
+
+    Withholding beats redacting here: a card that says nothing is honest,
+    while a half-scrubbed path still tells a stranger whose machine this is.
+    """
+    if not text:
+        return None
+    return None if UNSAFE_TEXT_RE.search(text) else text
 
 
 def _section(text: str, name: str) -> list[str]:
@@ -64,6 +91,15 @@ def _display(row_text: str) -> str:
             cut = cut[: cut.rfind(" ")]
         head = cut.rstrip(" ,;:—–-") + "…"
     return head
+
+
+def _public_row(row_text: str, fallback: str | None = None) -> str | None:
+    """A bounded row a card may print, or the fallback when it is private.
+
+    The bound runs first so the gate reads the exact string the renderer
+    prints — a path that only survives past the cut is still refused.
+    """
+    return _public(_display(row_text)) or fallback
 
 
 MILESTONE_CODE_RE = re.compile(r"^M\d+\s*[—–:-]+\s*")
@@ -117,7 +153,9 @@ def _human_change(raw: str) -> dict[str, Any]:
         if " " in cut:
             cut = cut[: cut.rfind(" ")]
         text = cut.rstrip(" ,;:—–-") + "…"
-    return {"when": when, "kind": kind, "summary": text or None}
+    # Gate the FINAL text: truncation and hash-stripping run first, so a
+    # path that survives either of them is still refused here.
+    return {"when": when, "kind": kind, "summary": _public(text)}
 
 
 def _milestones(task_lines: list[str]) -> list[dict[str, Any]]:
@@ -217,12 +255,19 @@ def project_board_brief(text: Any) -> dict[str, Any]:
         current = next((r for r in shown["rows"] if r["state"] == "in_progress"), None)
         nxt = next((r for r in shown["rows"] if r["state"] == "pending"), None)
         dod = next((r for r in shown["rows"] if r["dod"]), None)
+        # Every printed milestone string passes the same gate as the priority
+        # and the latest change. A heading and a DoD still need words for the
+        # card to read, so those withhold to a neutral label; a current/next
+        # line simply drops, which the renderer already handles.
         milestone = {
-            "title": _human_title(shown["title"]),
+            "title": _public(_human_title(shown["title"])) or "Milestone",
             "counts": counts,
-            "current": _display(current["text"]) if current else None,
-            "next": _display(nxt["text"]) if nxt else None,
-            "dod": {"state": dod["state"], "text": _display(dod["text"])} if dod else None,
+            "current": _public_row(current["text"]) if current else None,
+            "next": _public_row(nxt["text"]) if nxt else None,
+            "dod": {
+                "state": dod["state"],
+                "text": _public_row(dod["text"], "Checkpoint text withheld"),
+            } if dod else None,
         }
         if resting:
             state = "resting"
@@ -238,7 +283,7 @@ def project_board_brief(text: Any) -> dict[str, Any]:
     return {
         "schema": BOARD_SCHEMA,
         "state": state,
-        "priority": fields.get("priority") or None,
+        "priority": _public(fields.get("priority")),
         "milestone": milestone,
         "contradictions_open": _open_contradictions(text),
         "latest_change": _human_change(latest) if (latest := _latest_progress(text)) else None,

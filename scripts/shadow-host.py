@@ -45,6 +45,9 @@ CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 ABSOLUTE_PATH_RE = re.compile(r"(?:^|[\s\"'=])/(?!/)[A-Za-z0-9._-]+(?:/[^\s\"']*)?")
 
 
+ENVIRONMENTAL_KINDS = frozenset({"host_failed", "host_launch_failed", "host_timeout"})
+
+
 class HostError(ValueError):
     """A fail-closed host adapter error."""
 
@@ -69,6 +72,22 @@ def _scrub_detail(text: str) -> str:
     clean = PRIVATE_PATH_RE.sub("<redacted-path>", clean)
     clean = SECRET_SHAPE_RE.sub("<redacted-secret>", clean)
     return clean
+
+
+def _blocked_reason(exc: "HostError") -> dict[str, str]:
+    """The one shape a refusal may take on stdout. Every detail — including a
+    git subprocess timeout that stringifies the full argv — is scrubbed here,
+    so no emission path can leak a raw machine path by forgetting to call it."""
+
+    return {"kind": exc.kind, "detail": _scrub_detail(exc.detail)}
+
+
+def _refusal_status(kind: str) -> str:
+    """Classify one refusal kind. Environmental host failures are `failed`;
+    every other kind — including a failure raised before the host ever ran —
+    is an ordinary blocked kind."""
+
+    return "failed" if kind in ENVIRONMENTAL_KINDS else "blocked"
 
 
 def resolve_binary(host: str, explicit: str | None) -> str:
@@ -330,7 +349,7 @@ Allowed paths:
 
 Do not change any other path. Run the relevant tests. Finish by emitting exactly
 one JSON object with this shape and no additional JSON objects:
-{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"{task_id}","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":["one-allowed-relative-path"],"tests":[{{"name":"relevant-test","status":"pass"}}]}}
+{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"example-task-id","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":["one-allowed-relative-path"],"tests":[{{"name":"relevant-test","status":"pass"}}]}}
 
 For a successful result, use the exact Task ID above and a lowercase proof_ref
 identifier such as `bounded-proof`. Do not use spaces or prose for proof_ref.
@@ -619,6 +638,11 @@ def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> No
                 os.link(temporary_path, destination)
             except FileExistsError:
                 raise HostError("output_exists", "output exists; use --force to replace it") from None
+        directory = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -660,7 +684,7 @@ def probe(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "schema": PROBE_SCHEMA,
             "host": args.host,
             "available": False,
-            "blocked": {"kind": exc.kind, "detail": exc.detail},
+            "blocked": _blocked_reason(exc),
             "execution": {"performed": False, "projection_only": True},
         }, 1
 
@@ -746,8 +770,8 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             if status == "ok" and not host_receipt["proof_ref"]:
                 raise HostError("proof_missing", "host returned success without proof")
         except HostError as exc:
-            blocked_reason = {"kind": exc.kind, "detail": _scrub_detail(exc.detail)}
-            status = "blocked" if exc.kind not in {"host_failed", "host_launch_failed", "host_timeout"} else "failed"
+            blocked_reason = _blocked_reason(exc)
+            status = _refusal_status(exc.kind)
         payload = {
             "schema": ATTEMPT_SCHEMA,
             "revision": 1,
@@ -806,8 +830,8 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "schema": PROBE_SCHEMA if args.command == "probe" else ATTEMPT_SCHEMA,
             "host": getattr(args, "host", None),
-            "status": "blocked",
-            "blocked": {"kind": exc.kind, "detail": exc.detail},
+            "status": _refusal_status(exc.kind),
+            "blocked": _blocked_reason(exc),
             "execution": {"performed": False, "projection_only": True},
         }
         code = 1

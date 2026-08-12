@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the repository-owned Shadow PLAN.md."""
+"""Create one machine-local Shadow PLAN.md for the current project."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import re
 import subprocess
 import sys
 import tempfile
+
+import shadow_root_board as board
 
 
 def repository_root(path: Path) -> Path:
@@ -72,7 +74,7 @@ def plan_text(repo: Path, now: str) -> str:
 
 ## Progress
 
-- {now}: Shadow initialized the repository-owned plan; full-outcome definition is the only unresolved product decision.
+- {now}: Shadow initialized the machine-local plan; full-outcome definition is the only unresolved product decision.
 """
 
 
@@ -90,6 +92,11 @@ def write_exclusive(path: Path, text: str) -> None:
             os.link(temporary_path, path)
         except FileExistsError:
             raise FileExistsError(path) from None
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -97,7 +104,7 @@ def write_exclusive(path: Path, text: str) -> None:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="shadow init",
-        description="Create PLAN.md in the current Git project without overwriting.",
+        description="Create a local PLAN.md under ~/.shadow/plans without overwriting.",
     )
     result.add_argument("--here", action="store_true", help="initialize the current Git project")
     return result
@@ -116,14 +123,39 @@ def main(argv: list[str] | None = None) -> int:
     if current != repo:
         print("shadow init: run --here from the Git project root", file=sys.stderr)
         return 2
-    destination = repo / "PLAN.md"
+    destination = Path.home() / ".shadow" / "plans" / public_identifier(repo.name) / "PLAN.md"
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(destination.parent, 0o700)
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    text = plan_text(repo, now)
     try:
-        write_exclusive(destination, plan_text(repo, now))
+        write_exclusive(destination, text)
     except FileExistsError:
         print("shadow init: PLAN.md already exists; refusing to overwrite", file=sys.stderr)
         return 1
-    print("created PLAN.md")
+    size, digest = board.plan_content_token(text)
+    try:
+        board.reconcile(
+            [{
+                "plan": str(destination),
+                "project": public_identifier(repo.name),
+                "priority": 3,
+                "candidates": ["~a1b2"],
+                "rows": ["~a1b2", "~b2c3"],
+                "expected_identity": board.entity_id(destination),
+                "expected_size": size,
+                "expected_sha256": digest,
+            }],
+            [],
+            home=Path.home(),
+        )
+    except board.BoardError as exc:
+        print(
+            f"shadow init: created {destination}, but could not register it: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"created local PLAN.md: {destination}")
     return 0
 
 

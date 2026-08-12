@@ -25,20 +25,18 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_plan_grammar as _grammar  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
 MAX_TASK_ROWS = _board.HOT_PLAN_MAX_TASK_ROWS
 MAX_MILESTONES = _board.HOT_PLAN_MAX_MILESTONES
-ROW_RE = re.compile(
-    r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
-    r"(?P<text>.+?) (?P<id>~[0-9a-z]{4})(?P<dod> \(DoD\))?"
-    r"(?P<tail>(?: \| [a-z]+:.*)?)$"
-)
-ROW_LOOSE_RE = re.compile(r"^- \[[^\]]*\] ")
-FIELD_RE = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
-HASH_RE = re.compile(r"~[0-9a-z]{4}\b")
-PROOF_LINE_RE = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
+ROW_RE = _grammar.ROW_RE
+ROW_LOOSE_RE = _grammar.ROW_LOOSE_RE
+FIELD_RE = _grammar.FIELD_RE
+HASH_RE = _grammar.HASH_RE
+PROOF_LINE_RE = _grammar.PROOF_LINE_RE
+PROOF_CLASS_RE = _grammar.PROOF_CLASS_RE
 STAMP_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ", re.MULTILINE)
 TOMBSTONE_RE_TEMPLATE = (
     r"<!-- shadow:lifecycle:{slug}:sha256:(?P<digest>[0-9a-f]{{64}}):"
@@ -227,15 +225,25 @@ def progress_items(lines: list[str]) -> list[tuple[int, int, str]]:
         (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
         len(lines),
     )
-    bullets = [index for index in range(start, end) if lines[index].startswith("- ")]
-    return [
-        (
-            item_start,
-            bullets[position + 1] if position + 1 < len(bullets) else end,
-            "".join(lines[item_start : bullets[position + 1] if position + 1 < len(bullets) else end]),
-        )
-        for position, item_start in enumerate(bullets)
+    # A receipt owns its bullet plus the blank and INDENTED continuation lines
+    # under it, and nothing else. Any other top-level line — the next bullet, a
+    # nested heading, a closing paragraph — starts content this receipt does not
+    # own. The last receipt is bounded the same way instead of running to the
+    # end of the section, which at EOF swallowed unrelated trailing prose into
+    # the archive and deleted it from the live plan.
+    boundaries = [
+        index
+        for index in range(start, end)
+        if lines[index].startswith("- ")
+        or (lines[index].strip() and not lines[index][:1].isspace())
     ]
+    items: list[tuple[int, int, str]] = []
+    for position, index in enumerate(boundaries):
+        if not lines[index].startswith("- "):
+            continue
+        stop = boundaries[position + 1] if position + 1 < len(boundaries) else end
+        items.append((index, stop, "".join(lines[index:stop])))
+    return items
 
 
 def validate_milestone(
@@ -254,14 +262,23 @@ def validate_milestone(
         raise LifecycleError("milestone is not fully completed")
     for row in rows:
         proof = row["fields"].get("proof", "").strip()  # type: ignore[union-attr]
-        if re.match(r"^(?:cmd|read|gate) \S", proof) is None:
+        if PROOF_CLASS_RE.match(proof) is None:
             raise LifecycleError(f"{row['id']} has no typed proof")
 
-    all_ids = {
+    # Row ids are the only key the shared-receipt guard and the dependency fold
+    # have. A duplicate id makes the archiving row its own alias: `all_ids - ids`
+    # cannot see the live twin, so its receipt reads as exclusive and moves out
+    # of the plan, and fold_dependencies strips a still-live `needs:`. Refuse the
+    # whole archive while the plan is ambiguous.
+    plan_ids = [
         match.group("id")
         for line in lines
         if (match := ROW_RE.match(line.rstrip("\r\n")))
-    }
+    ]
+    duplicates = sorted({row_id for row_id in plan_ids if plan_ids.count(row_id) > 1})
+    if duplicates:
+        raise LifecycleError("plan has duplicate task ids: " + ", ".join(duplicates))
+    all_ids = set(plan_ids)
     selected = []
     shared: list[str] = []
     proven: set[str] = set()
@@ -570,8 +587,8 @@ def atomic_write(path: Path, payload: bytes, mode: int = 0o644) -> None:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
             stream.flush()
-            os.fsync(stream.fileno())
             os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
         os.replace(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY)
         try:

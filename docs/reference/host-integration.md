@@ -10,7 +10,7 @@ surface; Shadow does not invent `~/.cursor/rules`.
 ## 1. Install once
 
 ```bash
-git clone --branch shadow-v1.0.0 --depth 1 \
+git clone --branch shadow-v1.0.1 --depth 1 \
   https://github.com/firstbitelabsllc/shadow.git && cd shadow
 bash install.sh
 shadow doctor
@@ -38,9 +38,10 @@ person, every host, every day; only what the durable plans point at changes.
 Outcome: act as the user's active local proxy; reconstruct what matters,
 choose and finish valuable work, prove it, improve the method, and continue
 without requiring the user to supervise the system.
-Authority: this computer's Git-backed Shadow board at `~/.shadow` owns global
-project priority, entity pointers, claims, owners, and resume. Each entity's
-committed `PLAN.md` owns its milestones, checkpoints, detail, and proof. Chats,
+Authority: this computer's private local Shadow board at `~/.shadow` owns global
+project priority, entity pointers, claims, owners, and resume. Each infrastructure
+entity's local `PLAN.md` under `~/.shadow/plans/` owns its milestones, checkpoints,
+detail, and proof. A product repository may retain its declared release plan. Chats,
 dashboards, worktree copies, provider-private plans, and native host plans are
 never competing authority.
 Hierarchy: computer → project → entity → milestone → checkpoint. A project may
