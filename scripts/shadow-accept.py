@@ -673,7 +673,7 @@ def ensure_completion_published(
     summary: str,
 ) -> int | None:
     """Publish on a tracking branch or authenticate an already-merged retry."""
-    if _remote_claim.uses_origin_upstream(repo):
+    if _remote_claim.upstream_remote(repo) is not None:
         result = publish_completion(repo, row_id, False, summary, announce=False)
         return result or None
     try:
@@ -765,7 +765,7 @@ def finalize_completion(
 ) -> int:
     """Publish authority, close its remote journal, then release locally."""
     receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
-    managed = _remote_claim.uses_origin_upstream(repo) or receipt is not None
+    managed = _remote_claim.upstream_remote(repo) is not None or receipt is not None
     if no_push and managed:
         return publish_completion(repo, row_id, True, summary)
     if managed:

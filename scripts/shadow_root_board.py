@@ -414,9 +414,40 @@ def validate_owner(owner: object) -> str:
 
 def origin_of(repo: Path) -> str:
     marker = _git_marker(repo)
+    # Entity identity follows the configured upstream remote, not its local
+    # nickname.  Two clones can call the same shared remote ``origin``,
+    # ``upstream``, or any project-specific name; hashing the nickname would
+    # split one PLAN into competing board entities and remote lock refs.
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(repo), "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        branch = None
+    remote_name = "origin"
+    if branch is not None and branch.returncode == 0 and branch.stdout.strip():
+        try:
+            configured = subprocess.run(
+                [
+                    "git", "-C", str(repo), "config", "--get",
+                    f"branch.{branch.stdout.strip()}.remote",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            configured = None
+        if configured is not None and configured.returncode == 0 and configured.stdout.strip():
+            remote_name = configured.stdout.strip()
     try:
         result = subprocess.run(
-            ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
+            ["git", "-C", str(repo), "config", "--get", f"remote.{remote_name}.url"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -424,13 +455,13 @@ def origin_of(repo: Path) -> str:
         )
     except (OSError, subprocess.SubprocessError):
         result = None
-    origin = (
+    identity = (
         normalized_repo_origin(repo, result.stdout.strip())
         if result is not None and result.returncode == 0
         else ""
     )
-    if origin:
-        return origin
+    if identity:
+        return identity
     # Linked worktrees share one common Git directory even when the repository
     # has no remote.  The checkout path does not: using it let two worktrees of
     # one local repository both claim the same logical row.

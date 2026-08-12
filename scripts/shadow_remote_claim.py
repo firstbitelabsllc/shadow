@@ -103,30 +103,65 @@ def _git(
         return subprocess.CompletedProcess(args, 1, b"", b"")
 
 
-def uses_origin_upstream(repo: Path) -> bool:
-    """Only clones tracking origin opt into remote claim transport."""
+def upstream_remote(repo: Path, *, recover_detached: bool = False) -> str | None:
+    """Return the one configured upstream remote eligible for coordination.
+
+    A remote's local name is not an authority boundary: repositories commonly
+    call their shared trunk ``upstream`` or a project-specific name.  The
+    checked-out branch chooses it.  A detached accept checkout may recover the
+    same choice only when its repository configuration has exactly one such
+    remote; otherwise the caller must stay fail-closed.
+    """
     branch = _git(repo, "symbolic-ref", "--short", "HEAD")
     name = branch.stdout.decode("utf-8", errors="replace").strip()
-    if branch.returncode or not name:
-        return False
-    remote = _git(repo, "config", "--get", f"branch.{name}.remote")
-    merge = _git(repo, "config", "--get", f"branch.{name}.merge")
-    return (
-        not remote.returncode
-        and remote.stdout.decode().strip() == "origin"
-        and not merge.returncode
-        and merge.stdout.decode().strip().startswith("refs/heads/")
-    )
+    if not branch.returncode and name:
+        remote = _git(repo, "config", "--get", f"branch.{name}.remote")
+        merge = _git(repo, "config", "--get", f"branch.{name}.merge")
+        value = remote.stdout.decode("utf-8", errors="replace").strip()
+        if (
+            not remote.returncode
+            and value
+            and value.isprintable()
+            and not merge.returncode
+            and merge.stdout.decode().strip().startswith("refs/heads/")
+        ):
+            return value
+    if not recover_detached:
+        return None
+    remotes = _configured_upstream_remotes(repo)
+    return remotes[0] if len(remotes) == 1 else None
 
 
-def _configured_origin_merge_refs(repo: Path) -> list[str]:
+def _configured_upstream_remotes(repo: Path) -> list[str]:
+    """Return configured remote names with at least one branch merge target."""
+    configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
+    if configured.returncode:
+        return []
+    remotes: set[str] = set()
+    for line in configured.stdout.decode("utf-8", errors="replace").splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) != 2 or not fields[1] or not fields[1].isprintable():
+            continue
+        key = fields[0]
+        if not key.startswith("branch.") or not key.endswith(".remote"):
+            continue
+        branch = key[len("branch.") : -len(".remote")]
+        merge = _git(repo, "config", "--get", f"branch.{branch}.merge")
+        value = merge.stdout.decode("utf-8", errors="replace").strip()
+        if not merge.returncode and value.startswith("refs/heads/"):
+            remotes.add(fields[1])
+    return sorted(remotes)
+
+
+def _configured_remote_merge_refs(repo: Path, remote_name: str) -> list[str]:
+    """Return all configured branch merge refs using one chosen remote."""
     configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
     if configured.returncode:
         return []
     refs: set[str] = set()
     for line in configured.stdout.decode("utf-8", errors="replace").splitlines():
         fields = line.split(maxsplit=1)
-        if len(fields) != 2 or fields[1] != "origin":
+        if len(fields) != 2 or fields[1] != remote_name:
             continue
         key = fields[0]
         if not key.startswith("branch.") or not key.endswith(".remote"):
@@ -139,8 +174,8 @@ def _configured_origin_merge_refs(repo: Path) -> list[str]:
     return sorted(refs)
 
 
-def _origin_default(repo: Path) -> tuple[str, str]:
-    listed = _git(repo, "ls-remote", "--symref", "origin", "HEAD")
+def _remote_default(repo: Path, remote_name: str) -> tuple[str, str]:
+    listed = _git(repo, "ls-remote", "--symref", remote_name, "HEAD")
     if listed.returncode:
         raise RemoteClaimError("published completion could not be authenticated")
     default_ref: str | None = None
@@ -167,10 +202,13 @@ def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None
     if not public_safe_plan_token(plan_token):
         return None
     head = plan_token["head"]
-    configured = set(_configured_origin_merge_refs(repo))
+    remote_name = upstream_remote(repo, recover_detached=True)
+    if remote_name is None:
+        return None
+    configured = set(_configured_remote_merge_refs(repo, remote_name))
     if not configured:
         return None
-    default_ref, default_tip = _origin_default(repo)
+    default_ref, default_tip = _remote_default(repo, remote_name)
     if default_ref not in configured:
         return None
     fetched = _git(
@@ -179,12 +217,12 @@ def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None
         "--quiet",
         "--no-tags",
         "--no-write-fetch-head",
-        "origin",
+        remote_name,
         default_ref,
     )
     if fetched.returncode:
         raise RemoteClaimError("published completion could not be authenticated")
-    if _origin_default(repo) != (default_ref, default_tip):
+    if _remote_default(repo, remote_name) != (default_ref, default_tip):
         raise RemoteClaimError("published completion changed during authentication")
     if _git(repo, "merge-base", "--is-ancestor", head, default_tip).returncode:
         return None
@@ -209,7 +247,7 @@ def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None
 
 
 def managed_repo_for_plan(plan: Path) -> Path | None:
-    """Return the configured-origin repository for a plan, else local-only."""
+    """Return the configured-upstream repository for a plan, else local-only."""
     top = _git(plan.parent, "rev-parse", "--show-toplevel")
     if top.returncode or not top.stdout.strip():
         return None
@@ -217,7 +255,7 @@ def managed_repo_for_plan(plan: Path) -> Path | None:
         repo = Path(top.stdout.decode("utf-8").strip()).resolve(strict=True)
     except (OSError, UnicodeError):
         return None
-    return repo if uses_origin_upstream(repo) else None
+    return repo if upstream_remote(repo) is not None else None
 
 
 def claim_ref(entity: str, row: str) -> str:
@@ -457,13 +495,14 @@ def _validated_tip_commit(
 def _remote_tip(
     repo: Path,
     *,
+    remote_name: str,
     ref: str,
     entity: str,
     row: str,
     project: str,
     plan_token: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, Any] | None] | None:
-    listed = _git(repo, "ls-remote", "--refs", "origin", ref)
+    listed = _git(repo, "ls-remote", "--refs", remote_name, ref)
     if listed.returncode:
         return None
     listing = listed.stdout.decode("ascii", errors="ignore").strip()
@@ -473,7 +512,7 @@ def _remote_tip(
     if len(fields) != 2 or HEX_OBJECT.fullmatch(fields[0]) is None or fields[1] != ref:
         return None
     commit_id = fields[0]
-    fetched = _git(repo, "fetch", "--quiet", "--no-tags", "origin", ref)
+    fetched = _git(repo, "fetch", "--quiet", "--no-tags", remote_name, ref)
     if fetched.returncode:
         return None
     return (
@@ -506,9 +545,8 @@ def discover_active(
     never enumerated. Returned journals are observations only and must not be
     written into the local root board.
     """
-    if not uses_origin_upstream(repo) and not (
-        recover_detached and _configured_origin_merge_refs(repo)
-    ):
+    remote_name = upstream_remote(repo, recover_detached=recover_detached)
+    if remote_name is None:
         return None
     unique_rows = sorted(set(rows))
     if (
@@ -522,7 +560,7 @@ def discover_active(
     if not unique_rows:
         return []
     expected = {claim_ref(entity, row): row for row in unique_rows}
-    listed = _git(repo, "ls-remote", "--refs", "origin", *expected)
+    listed = _git(repo, "ls-remote", "--refs", remote_name, *expected)
     if listed.returncode:
         raise RemoteClaimError("remote claim discovery is unavailable")
     lines = listed.stdout.decode("ascii", errors="ignore").splitlines()
@@ -543,7 +581,7 @@ def discover_active(
         return []
     fetched = _git(
         repo, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
-        "origin", *tips,
+        remote_name, *tips,
     )
     if fetched.returncode:
         raise RemoteClaimError("remote claim discovery could not authenticate its receipts")
@@ -564,9 +602,13 @@ def discover_active(
     return active
 
 
-def _push(repo: Path, ref: str, commit_id: str, previous: str | None) -> bool:
+def _push(
+    repo: Path, remote_name: str, ref: str, commit_id: str, previous: str | None
+) -> bool:
     lease = f"--force-with-lease={ref}:{previous or ''}"
-    return _git(repo, "push", "--porcelain", lease, "origin", f"{commit_id}:{ref}").returncode == 0
+    return _git(
+        repo, "push", "--porcelain", lease, remote_name, f"{commit_id}:{ref}"
+    ).returncode == 0
 
 
 def _result(
@@ -610,7 +652,8 @@ def acquire(
     adopt_expired: bool = False,
 ) -> dict[str, Any] | None:
     """Return None for local-only repos, else one closed public outcome."""
-    if not uses_origin_upstream(repo):
+    remote_name = upstream_remote(repo)
+    if remote_name is None:
         return None
     ref = claim_ref(entity, row)
     if not public_safe_plan_token(plan_token):
@@ -649,7 +692,8 @@ def acquire(
         failure=None,
     )
     tip = _remote_tip(
-        repo, ref=ref, entity=entity, row=row, project=project, plan_token=None
+        repo, remote_name=remote_name, ref=ref, entity=entity, row=row,
+        project=project, plan_token=None
     )
     if tip is None:
         return _result(acquired, "error", winner=None, failure="ambiguous_remote")
@@ -668,10 +712,10 @@ def acquire(
         acquired["reason"] = "adopt"
     commit_id = _commit_receipt(repo, acquired, claimed_at, previous)
     if commit_id is not None:
-        if _push(repo, ref, commit_id, previous):
+        if _push(repo, remote_name, ref, commit_id, previous):
             return acquired
     observed = _remote_tip(
-        repo,
+        repo, remote_name=remote_name,
         ref=ref,
         entity=entity,
         row=row,
@@ -732,9 +776,8 @@ def transition(
     recover_detached: bool = False,
 ) -> dict[str, Any] | None:
     """CAS one acquired journal tip to released/completed."""
-    if not uses_origin_upstream(repo) and not (
-        recover_detached and _configured_origin_merge_refs(repo)
-    ):
+    remote_name = upstream_remote(repo, recover_detached=recover_detached)
+    if remote_name is None:
         return None
     if not public_safe_plan_token(plan_token):
         return _unsafe_plan_result(
@@ -748,15 +791,19 @@ def transition(
         return_by=claim["return_by"], recovery=claim["recovery"], state=state,
         reason=reason, winner=owner, failure=None,
     )
-    tip = _remote_tip(repo, ref=ref, entity=entity, row=row, project=project)
+    tip = _remote_tip(
+        repo, remote_name=remote_name, ref=ref, entity=entity, row=row, project=project
+    )
     if tip is None:
         return _result(desired, "error", winner=None, failure="ambiguous_remote")
     previous, current = tip
     if not previous and current is None:
         commit_id = _commit_receipt(repo, desired, claim["claimed_at"])
-        if commit_id is not None and _push(repo, ref, commit_id, None):
+        if commit_id is not None and _push(repo, remote_name, ref, commit_id, None):
             return desired
-        observed = _remote_tip(repo, ref=ref, entity=entity, row=row, project=project)
+        observed = _remote_tip(
+            repo, remote_name=remote_name, ref=ref, entity=entity, row=row, project=project
+        )
         if observed is not None and observed[1] == _journal(desired):
             return desired
         return _result(desired, "error", winner=None, failure="ambiguous_remote")
@@ -778,9 +825,11 @@ def transition(
     ):
         return _result(desired, "lost", winner=current["owner"], failure="claim_changed")
     commit_id = _commit_receipt(repo, desired, claim["claimed_at"], previous)
-    if commit_id is not None and _push(repo, ref, commit_id, previous):
+    if commit_id is not None and _push(repo, remote_name, ref, commit_id, previous):
         return desired
-    observed = _remote_tip(repo, ref=ref, entity=entity, row=row, project=project)
+    observed = _remote_tip(
+        repo, remote_name=remote_name, ref=ref, entity=entity, row=row, project=project
+    )
     if observed is not None and observed[1] == _journal(desired):
         return desired
     return _result(desired, "error", winner=None, failure="ambiguous_remote")

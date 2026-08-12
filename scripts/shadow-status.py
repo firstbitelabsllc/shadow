@@ -537,7 +537,7 @@ def board_in_flight(payload: dict) -> list[dict]:
                 "milestone": "remote claim discovery",
                 "id": pointer["resume"] or "UNKNOWN",
                 "text": f"UNKNOWN — {issue}",
-                "proof": "MISSING — retry when the configured origin can be read",
+                "proof": "MISSING — retry when the configured upstream can be read",
                 "thrown_at": None,
                 "return_by": None,
                 "by": None,

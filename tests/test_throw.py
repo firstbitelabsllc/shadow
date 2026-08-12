@@ -1095,6 +1095,52 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             self.assertEqual(self.git(bare, "rev-parse", f"{final_tip}^"), released_tip)
             self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
 
+    def test_named_upstream_remote_coordinates_claim_return_and_reclaim(self) -> None:
+        """The coordination remote follows branch config, not the word origin."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, second, _, original_main = self.protected_fixture(root)
+            for clone in (first, second):
+                self.git(clone, "remote", "rename", "origin", "coordination")
+                self.assertEqual(
+                    self.git(clone, "config", "--get", "branch.main.remote"),
+                    "coordination",
+                )
+                self.assertEqual(self.git(clone, "remote"), "coordination")
+
+            first_throw = self.throw_process(first, root / "home-a", "seat-a")
+            first_stdout, first_stderr = first_throw.communicate(timeout=30)
+            self.assertEqual(first_throw.returncode, 0, first_stderr)
+            self.assertIn("/goal protected-demo", first_stdout)
+            acquired = self.receipt(first_stderr)
+            acquired_tip = self.git(bare, "rev-parse", acquired["ref"])
+
+            returned = subprocess.run(
+                [
+                    sys.executable, str(RETURN), "--repo", str(first),
+                    "--row", "~bb22", "--by", "seat-a",
+                ],
+                cwd=first,
+                env={**os.environ, "HOME": str(root / "home-a")},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(returned.returncode, 0, returned.stderr)
+            released_tip = self.git(bare, "rev-parse", acquired["ref"])
+            self.assertEqual(self.git(bare, "rev-parse", f"{released_tip}^"), acquired_tip)
+
+            second_throw = self.throw_process(second, root / "home-b", "seat-b")
+            second_stdout, second_stderr = second_throw.communicate(timeout=30)
+            self.assertEqual(second_throw.returncode, 0, second_stderr)
+            self.assertIn("/goal protected-demo", second_stdout)
+            reacquired = self.receipt(second_stderr)
+            self.assertEqual(reacquired["ref"], acquired["ref"])
+            self.assertEqual(reacquired["owner"], "seat-b")
+            self.assertEqual((reacquired["state"], reacquired["reason"]), ("acquired", "acquire"))
+            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+
     def test_existing_acquired_tip_survives_an_unrelated_plan_head_advance(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()

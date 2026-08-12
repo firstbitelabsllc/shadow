@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             if observed_token != plan_token:
                 raise _board.BoardError("project plan changed before the claim committed; retry")
             plan_text = plan_bytes.decode("utf-8")
-            if _remote.uses_origin_upstream(repo) and not _remote.public_safe_plan_token(
+            if _remote.upstream_remote(repo) is not None and not _remote.public_safe_plan_token(
                 plan_token
             ):
                 raise _board.BoardError(

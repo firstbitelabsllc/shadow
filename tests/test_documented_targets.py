@@ -88,7 +88,8 @@ class DocumentedTargetTests(unittest.TestCase):
 
         for text in (grammar, readme):
             self.assertIn("refs/heads/shadow/claims/v1/", text)
-            self.assertRegex(text, r"configured\s+`origin`")
+            self.assertIn("configured upstream", text)
+            self.assertIn("`upstream`", text)
             self.assertIn("local-only", text)
         self.assertIn("`PLAN.md` remains the only authority", grammar)
         self.assertIn("append-only acquired/released/completed", grammar)

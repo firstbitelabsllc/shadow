@@ -75,12 +75,13 @@ owners, and resume. Infrastructure entities keep plans locally below
 their source. The browser, a chat transcript, a worktree copy, or a provider's
 private plan is never a competing authority.
 
-When the current branch tracks configured `origin`, `shadow throw` also takes
+When the current branch tracks a configured upstream remote, `shadow throw` also takes
 one deterministic Git coordination lock under
 `refs/heads/shadow/claims/v1/<entity>/<row>` before work leaves the seat. Its
 closed public receipt contains no task or proof text and never becomes
 authority. The tracked branch stays untouched; the repository ruleset must
-permit the claim namespace. Without a configured origin upstream, Shadow keeps
+permit the claim namespace. The remote may be named `origin`, `upstream`, or a
+project-specific name. Without a configured upstream, Shadow keeps
 the same local-only behavior. A refused or ambiguous coordination write prints
 no work packet; confirmed loss compensates its exact local attempt, while an
 ambiguous result retains that claim for the same-seat retry.

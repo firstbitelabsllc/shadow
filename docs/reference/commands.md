@@ -10,7 +10,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow config --explain [--repo PATH]` | Read the optional repository-root `shadow.yaml` declaration, or report the built-in version 1 defaults when it is absent. It prints the attack-then-refute step and active review lenses; the command is read-only and writes no resolved state. |
 | `shadow goal [--install|--remove] [--host HOST]` | Print the static standing goal, or install/remove its managed block in supported host instruction files. Cursor cold directive activation is unsupported until a reviewed writable user-rule surface exists; its skill mount and sealed host runner remain supported. |
 | `shadow amp --entity ID --by <seat>` | Resume a paste-ready packet for a checkpoint already claimed by that seat. It never dispatches unclaimed work. |
-| `shadow throw --task '~hash' --by <seat> [--repo PATH\|--entity ID]` | Atomically claim an entity checkpoint before work leaves the seat, then print its packet. A unique legacy text alias such as `P9a~formats` may be supplied, but it resolves to the row's canonical `~hash` before the claim. The board records pointer, canonical row id, owner, lease, and recovery action; the entity plan is unchanged. A configured origin upstream also requires the deterministic remote coordination CAS. `--adopt-expired` replaces only an overdue claim after proof was probed. |
+| `shadow throw --task '~hash' --by <seat> [--repo PATH\|--entity ID]` | Atomically claim an entity checkpoint before work leaves the seat, then print its packet. A unique legacy text alias such as `P9a~formats` may be supplied, but it resolves to the row's canonical `~hash` before the claim. The board records pointer, canonical row id, owner, lease, and recovery action; the entity plan is unchanged. Any configured branch upstream requires the deterministic remote coordination CAS, whether it is named `origin`, `upstream`, or another safe Git remote name. `--adopt-expired` replaces only an overdue claim after proof was probed. |
 | `shadow return --row '~hash' --by <seat> [--repo PATH\|--entity ID]` | Idempotently append a remote released tombstone when remote coordination is active, then close the named owner's exact local claim after a committed manual proof, a committed blocked state plus one Deferred wake, or an explicit handback. |
 | `shadow priority --value 1..5 --repo PATH` | Change the root-board priority under the same local transaction. The project plan's bootstrap value is unchanged and later discovery cannot overwrite the root decision. |
 | `shadow accept --row '~hash' --repo PATH --by <seat> [--no-push]` | Require that seat's live claim and rerun the committed `cmd` proof in a clean detached checkout. Normally it flips and publishes the paired PROOF commit, appends the remote completed tombstone, then closes the local claim. For a remotely coordinated claim, `--no-push` keeps both claims open for a later publishing retry. |
@@ -24,7 +24,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 
 ## Remote coordination boundary
 
-When the current branch tracks configured `origin`, claim transitions use the
+When the current branch tracks a configured upstream remote, claim transitions use the
 single deterministic branch
 `refs/heads/shadow/claims/v1/<entity-id>/<row-id-without-tilde>`. It is a Git
 coordination lock, not a remote task board: PLAN owns task state and proof, and
@@ -36,7 +36,7 @@ The remote ruleset must permit create and fast-forward CAS in the
 refused or lost CAS emits no packet and compensates the exact local attempt. An
 unreadable result is ambiguous, not a guessed failure: Shadow emits no packet
 and retains the local claim for the same seat to retry. Without a configured
-origin upstream, all three verbs retain their local-only behavior and no claim
+upstream, all three verbs retain their local-only behavior and no claim
 ref is written.
 
 ## Verifying a host actually works

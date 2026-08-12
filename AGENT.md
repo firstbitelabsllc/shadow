@@ -98,14 +98,16 @@ keeps the hot plan inside its versioned row, byte, and open-milestone budgets.
 
 `shadow throw` is the only public claim boundary. Under the computer-board
 lock it rereads the board and frozen entity snapshot, records owner and
-return time, then atomically replaces the local board file.
-A checkout whose current branch tracks configured `origin` also acquires the
+return time, then atomically replaces the local board file. A checkout whose
+current branch tracks a configured upstream remote also acquires the
 deterministic `refs/heads/shadow/claims/v1/<entity>/<row>` coordination lock by
 create-or-CAS before it emits a packet. The ref contains a closed public receipt
 and makes the exact PLAN commit reachable; it never contains task or proof text
-and never becomes task, proof, priority, or resume authority. With no configured
-origin upstream, claims remain local-only. Two eligible seats racing one
-checkpoint produce one winner; the loser is told the persisted owner.
+and never becomes task, proof, priority, or resume authority. The remote's
+local name is irrelevant (`origin`, `upstream`, or a project-specific name all
+work). With no configured upstream, claims remain local-only. Two eligible
+seats racing one checkpoint produce one winner; the loser is told the persisted
+owner.
 
 Fan out only bounded, path-disjoint claims with a declared independent need.
 Every handoff names allowed paths, expected return, proof, and recovery action.
