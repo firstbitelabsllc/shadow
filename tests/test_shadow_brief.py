@@ -72,7 +72,68 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(reply["state"], "unavailable")
         self.assertIn("no inbox state is inferred", reply["now"])
         self.assertIn(brief.SNOWCUBES_BUSINESS_MAIL, reply["wake"])
-        self.assertTrue(all(item["state"] == "unavailable" for item in context["surfaces"][1:]))
+        by_name = {item["name"]: item for item in context["surfaces"]}
+        for name in ("Commerce", "Funnel", "Search", "Local profile", "Lifecycle email", "SEO"):
+            self.assertEqual(by_name[name]["state"], "unavailable")
+            self.assertTrue(by_name[name].get("native_link"))
+            self.assertTrue(by_name[name].get("wake"))
+        self.assertIn("Shadow work", by_name)
+        self.assertIn("Deploy", by_name)
+        self.assertIn("M12 cafe-doctor", by_name)
+        self.assertEqual(by_name["Relationships to nurture"]["state"], "unavailable")
+
+    def test_business_signal_has_private_thread_identity_and_proposal_not_draft(self):
+        signal = {
+            "subject": "Some Knicks swag from Snowcubes",
+            "last_message_at": "2026-08-12T00:17:20Z",
+            "kind": "human_or_other",
+            "thread_id": "19f5396bf1f4ab27",
+            "native_link": "https://mail.superhuman.com/thread/opaque",
+        }
+        with mock.patch.object(
+            brief,
+            "collect_superhuman_context",
+            return_value={"available": True, "signals": [signal]},
+        ), mock.patch.object(brief, "collect_board", return_value={"revision": 9}), mock.patch.object(
+            brief, "_snowcubes_m12_surface", return_value={"name": "M12 cafe-doctor", "state": "unavailable"}
+        ):
+            context = brief.collect_snowcubes_context(vercel={"available": False})
+        reply = context["surfaces"][0]
+        self.assertEqual(reply["thread_id"], signal["thread_id"])
+        self.assertEqual(reply["native_link"], signal["native_link"])
+        self.assertIn("Proposal only", reply["proposal"])
+        self.assertIn("no draft or send was created", reply["proposal"])
+        nurture = next(item for item in context["surfaces"] if item["name"] == "Relationships to nurture")
+        self.assertIn("Proposal only", nurture["proposal"])
+
+    def test_rendered_companion_shows_native_link_and_proposal(self):
+        packet = {
+            "slot": "morning",
+            "generated_at": "2026-08-12T08:00:00-04:00",
+            "board": {"revision": 9, "entities": [], "claims": []},
+            "repos": [],
+            "github_open_prs": [],
+            "recommendations": [],
+            "analysis": {},
+            "snowcubes_context": {
+                "surfaces": [
+                    {
+                        "name": "Reply and relationships",
+                        "state": "available",
+                        "now": "Reply now",
+                        "next": "Nurture next",
+                        "source": "Superhuman business inbox",
+                        "observed_at": "2026-08-12T12:00:00Z",
+                        "proposal": "Proposal only: prepare for Leo's approval.",
+                        "native_link": "https://mail.superhuman.com/thread/opaque",
+                    }
+                ]
+            },
+        }
+        html = brief.render_html(packet)
+        self.assertIn("Open native source", html)
+        self.assertIn("Proposal only", html)
+        self.assertIn("Superhuman business inbox", html)
 
 
 class SourceBoundaryTests(unittest.TestCase):
