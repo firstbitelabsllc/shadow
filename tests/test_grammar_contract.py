@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 import re
+import sys
 import unittest
 
 
@@ -129,6 +131,47 @@ class GrammarContractTests(unittest.TestCase):
             self.assertIn(f"Mode: {mode}", grammar.replace("explore | ship", f"Mode: {mode}"))
         for legacy in ("spike-mode", "defer-mode", "broad", "close"):
             self.assertNotIn(legacy, mode_re.group(1))
+
+    def test_task_consumers_import_one_executable_grammar(self) -> None:
+        """A task row means the same thing to lint, accept, projection, and recovery."""
+        scripts = ROOT / "scripts"
+        sys.path.insert(0, str(scripts))
+        try:
+            import shadow_plan_grammar as grammar
+            import shadow_root_board as board
+
+            def load(name: str, filename: str):
+                spec = importlib.util.spec_from_file_location(name, scripts / filename)
+                assert spec and spec.loader
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[name] = module
+                spec.loader.exec_module(module)
+                return module
+
+            lint = load("grammar_contract_lint", "shadow-lint.py")
+            accept = load("grammar_contract_accept", "shadow-accept.py")
+            amp = load("grammar_contract_amp", "shadow-amp.py")
+            lifecycle = load("grammar_contract_lifecycle", "shadow-lifecycle.py")
+        finally:
+            sys.path.pop(0)
+
+        self.assertIs(lint.ROW_RE, grammar.ROW_RE)
+        self.assertIs(accept.ROW_LINE_RE, grammar.ROW_RE)
+        self.assertIs(amp.ROW_RE, grammar.ROW_RE)
+        self.assertIs(lifecycle.ROW_RE, grammar.ROW_RE)
+        self.assertIs(board.HOT_TASK_ROW_RE, grammar.HOT_TASK_ROW_RE)
+        self.assertIs(lint.FIELD_RE, grammar.FIELD_RE)
+        self.assertIs(accept.FIELD_RE, grammar.FIELD_RE)
+        self.assertIs(amp.FIELD_RE, grammar.FIELD_RE)
+        self.assertIs(lifecycle.FIELD_RE, grammar.FIELD_RE)
+        self.assertIs(lint.NEEDS_VALUE_RE, grammar.NEEDS_VALUE_RE)
+        self.assertIs(accept.NEEDS_REF_RE, grammar.NEEDS_REF_RE)
+        self.assertIs(lint.PROOF_CLASS_RE, grammar.PROOF_CLASS_RE)
+        self.assertIs(lifecycle.PROOF_CLASS_RE, grammar.PROOF_CLASS_RE)
+        self.assertIs(board.ROW_ID, grammar.ROW_ID_RE)
+        self.assertIs(board.PROGRESS_PROOF_RECEIPT_RE, grammar.PROOF_RECEIPT_RE)
+        self.assertIs(lint._shell_operators, grammar.shell_operators)
+        self.assertIs(accept._shell_operators, grammar.shell_operators)
 
 
 if __name__ == "__main__":

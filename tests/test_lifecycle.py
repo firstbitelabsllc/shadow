@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -668,6 +669,33 @@ class RetirementManifestSchemaMatchesRuntime(unittest.TestCase):
         )
         self.assertIsNone(
             re.fullmatch(expiry_pattern, "2026-08-10T12:34:56-04:00")
+        )
+
+
+class AtomicWritesAreDurable(unittest.TestCase):
+    def test_lifecycle_fsyncs_the_final_mode_before_replacing(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            destination = Path(dirname) / "archive.md"
+            observed: list[tuple[str, int]] = []
+            real_fchmod = os.fchmod
+            real_fsync = os.fsync
+
+            def fchmod(fd: int, mode: int) -> None:
+                observed.append(("fchmod", mode))
+                real_fchmod(fd, mode)
+
+            def fsync(fd: int) -> None:
+                observed.append(("fsync", stat.S_IMODE(os.fstat(fd).st_mode)))
+                real_fsync(fd)
+
+            with (
+                mock.patch.object(lifecycle.os, "fchmod", side_effect=fchmod),
+                mock.patch.object(lifecycle.os, "fsync", side_effect=fsync),
+            ):
+                lifecycle.atomic_write(destination, b"archive\n", 0o640)
+        self.assertLess(
+            next(index for index, item in enumerate(observed) if item[0] == "fchmod"),
+            next(index for index, item in enumerate(observed) if item == ("fsync", 0o640)),
         )
 
 

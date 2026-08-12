@@ -6,7 +6,7 @@ description: "Compile loose intent into the canonical PLAN and a bounded Shadow 
 # Shape a goal
 
 A goal is a pointer, not a plan. The computer board owns priority, entity
-pointers, claims, owners, and resume. The entity's committed `PLAN.md` owns the
+pointers, claims, owners, and resume. The entity's local `PLAN.md` owns the
 outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 
 ## Compile

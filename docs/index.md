@@ -33,5 +33,5 @@ features:
 
 This screenshot is retained as a historical v4 demo, not a current product
 contract. Its fictional projects show the earlier one-card-per-project view;
-the current board is the Git-backed computer board at `~/.shadow`, projecting
-project → entity → milestone → checkpoint from each committed `PLAN.md`.
+the current board is the private local computer board at `~/.shadow`, projecting
+project → entity → milestone → checkpoint from each local infrastructure plan.

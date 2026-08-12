@@ -124,8 +124,13 @@ jobs:
           scripts/shadow-python.sh scripts/shadow-ci.py run
           --run-all "$RUN_ALL" --modules-json "$MODULES_JSON"
       - name: Plan lint
+        # Shadow's operational plan is machine-local and never committed, so
+        # this gate runs against the plan `shadow init` mints into the scratch
+        # HOME above: the gate must accept what the product writes.
         if: needs.plan.result == 'success' && matrix.python-version == '3.12'
-        run: scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md
+        run: |
+          scripts/shadow-python.sh scripts/shadow-init.py --here
+          scripts/shadow-python.sh scripts/shadow-lint.py "$HOME/.shadow/plans/shadow/PLAN.md"
       - name: Affected release contract
         if: >-
           needs.plan.result == 'success' &&
