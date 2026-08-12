@@ -378,6 +378,41 @@ class AuthorityScopeTests(unittest.TestCase):
             self.assertEqual(row["scheduled_for"], scheduled_for)
             self.assertEqual(row["slot"], "morning")
 
+    def test_delivery_evidence_requires_two_consecutive_mornings(self):
+        morning = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "scheduled_for": "2026-08-12T08:00:00-04:00",
+            "slot": "morning",
+            "trigger": "launchd-calendar",
+        }
+        evening = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "scheduled_for": "2026-08-12T20:00:00-04:00",
+            "slot": "evening",
+            "trigger": "launchd-calendar",
+        }
+
+        result = brief.verify_window_receipts([morning, evening])
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["windows"], [morning["scheduled_for"]])
+        self.assertIn("need two distinct current-schema natural 08:00 windows; found 1", result["problems"])
+        self.assertEqual(result["ignored_nonmorning_windows"], [evening["scheduled_for"]])
+        self.assertTrue(
+            brief.morning_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-12T08:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-13T08:00:00-04:00"),
+            )
+        )
+        self.assertFalse(
+            brief.morning_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-12T08:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-12T20:00:00-04:00"),
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
