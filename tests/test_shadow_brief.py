@@ -200,6 +200,76 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("What building looks like now", html)
         self.assertNotIn("Every workstream, in human terms", html)
 
+    def test_m12_card_uses_the_source_packet_timestamp_without_claiming_current_money(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio = Path(tmp)
+            repo = portfolio / "trysnowcubes-web"
+            script = repo / "scripts" / "cafe-doctor.py"
+            fixture = repo / "tests" / "fixtures" / "cafe-native-three-partner.json"
+            script.parent.mkdir(parents=True)
+            fixture.parent.mkdir(parents=True)
+            script.write_text("# present", encoding="utf-8")
+            fixture.write_text("{}", encoding="utf-8")
+            result = {
+                "ok": True,
+                "checks": [{
+                    "name": "fresh-native",
+                    "ok": True,
+                    "state": "HEALTHY",
+                    "detail": "three falsifiers passed",
+                    "observed_at": "2026-08-12T02:00:00Z",
+                    "action": "suppressed",
+                    "wake": "collect a fresh read-only Calendar, Superhuman, and Shopify packet before any money action",
+                }],
+            }
+            with mock.patch.object(brief, "portfolio_root", return_value=portfolio), mock.patch.object(
+                brief, "_run", return_value=subprocess.CompletedProcess([], 0, json.dumps(result), "")
+            ) as run:
+                card = brief._snowcubes_m12_surface("2026-08-12T08:00:00Z")
+
+        self.assertEqual(card["state"], "unavailable")
+        self.assertEqual(card["observed_at"], "2026-08-12T02:00:00Z")
+        self.assertIn("safety fixture", card["now"])
+        self.assertIn("no cafe balance is inferred", card["now"])
+        self.assertEqual(card["wake"], result["checks"][0]["wake"])
+        self.assertEqual(
+            run.call_args.args[0],
+            [sys.executable, str(script), "--json", "--fresh-native", str(fixture)],
+        )
+
+    def test_m12_card_paints_a_discrepancy_and_missing_packet_without_connector_claims(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio = Path(tmp)
+            repo = portfolio / "trysnowcubes-web"
+            script = repo / "scripts" / "cafe-doctor.py"
+            fixture = repo / "tests" / "fixtures" / "cafe-native-three-partner.json"
+            script.parent.mkdir(parents=True)
+            fixture.parent.mkdir(parents=True)
+            script.write_text("# present", encoding="utf-8")
+            fixture.write_text("{}", encoding="utf-8")
+            discrepancy = {
+                "ok": False,
+                "checks": [{
+                    "name": "fresh-native", "ok": False, "state": "DISCREPANCY",
+                    "detail": "provider state disagrees", "observed_at": "2026-08-12T02:00:00Z",
+                    "wake": "reconcile the stable provider ID before any action",
+                }],
+            }
+            with mock.patch.object(brief, "portfolio_root", return_value=portfolio), mock.patch.object(
+                brief, "_run", return_value=subprocess.CompletedProcess([], 1, json.dumps(discrepancy), "")
+            ):
+                card = brief._snowcubes_m12_surface("2026-08-12T08:00:00Z")
+            with mock.patch.object(brief, "portfolio_root", return_value=portfolio), mock.patch.object(
+                brief, "_run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"ok": True, "checks": []}), "")
+            ):
+                missing = brief._snowcubes_m12_surface("2026-08-12T08:00:00Z")
+
+        self.assertEqual(card["state"], "attention")
+        self.assertEqual(card["observed_at"], "2026-08-12T02:00:00Z")
+        self.assertEqual(card["wake"], "reconcile the stable provider ID before any action")
+        self.assertEqual(missing["state"], "unavailable")
+        self.assertIn("fresh-native packet is unavailable", missing["now"])
+
 
 class SourceBoundaryTests(unittest.TestCase):
     def test_source_contains_no_cursor_agent_delivery_path(self):

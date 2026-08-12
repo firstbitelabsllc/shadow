@@ -724,28 +724,29 @@ def _snowcubes_vercel_surface(vercel: dict[str, Any], observed_at: str) -> dict[
 def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
     repo = portfolio_root() / "trysnowcubes-web"
     script = repo / "scripts" / "cafe-doctor.py"
-    if not script.is_file():
+    fixture = repo / "tests" / "fixtures" / "cafe-native-three-partner.json"
+    if not script.is_file() or not fixture.is_file():
         return _snowcubes_surface(
             name="M12 cafe-doctor",
             state="unavailable",
-            now="The canonical cafe doctor could not be located; no balance or collection fact is inferred.",
-            next_action="Restore the canonical Snowcubes checkout and read the doctor before any money action.",
+            now="The cafe freshness packet is unavailable; no balance or collection fact is inferred.",
+            next_action="Restore the canonical doctor and its bounded fresh-native fixture before any money action.",
             source="Snowcubes M12 cafe-doctor",
             observed_at=observed_at,
-            wake=f"Make {script} readable from the canonical Snowcubes checkout; the next natural window will retry.",
+            wake="Restore the canonical cafe doctor and fresh-native fixture; the next natural window will retry.",
             native_link=SNOWCUBES_NATIVE_LINKS["m12"],
         )
     try:
-        proc = _run([sys.executable, str(script), "--json"], cwd=repo, timeout=45)
+        proc = _run([sys.executable, str(script), "--json", "--fresh-native", str(fixture)], cwd=repo, timeout=45)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return _snowcubes_surface(
             name="M12 cafe-doctor",
             state="unavailable",
-            now="The read-only doctor could not complete; no balance or collection fact is inferred.",
-            next_action="Keep money actions suppressed until the canonical doctor can be read fresh.",
+            now="The fresh-native verifier could not complete; no balance or collection fact is inferred.",
+            next_action="Keep money actions suppressed until the bounded source verifier can be read again.",
             source="Snowcubes M12 cafe-doctor",
             observed_at=observed_at,
-            wake=f"Run {script} --json successfully ({exc}); no provider mutation is performed here.",
+            wake=f"Run the bounded fresh-native verifier successfully ({exc}); no provider mutation is performed here.",
             native_link=SNOWCUBES_NATIVE_LINKS["m12"],
         )
     try:
@@ -753,39 +754,54 @@ def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         result = {}
     checks = result.get("checks") if isinstance(result, dict) else []
-    blocking = [
-        str(check.get("name"))
-        for check in checks
-        if isinstance(check, dict) and not check.get("ok") and check.get("tier") == "BLOCK"
-    ]
-    if proc.returncode != 0 or not isinstance(result, dict):
-        detail = ", ".join(blocking[:4]) or (proc.stderr or "doctor did not return JSON")
+    fresh = next(
+        (check for check in checks if isinstance(check, dict) and check.get("name") == "fresh-native"),
+        None,
+    )
+    if not isinstance(result, dict) or fresh is None:
+        detail = proc.stderr or "doctor did not return a fresh-native result"
+        return _snowcubes_surface(
+            name="M12 cafe-doctor",
+            state="unavailable",
+            now=f"The fresh-native packet is unavailable: {detail[:220]}. No balance or collection fact is inferred.",
+            next_action="Keep money actions suppressed until the bounded source packet is available.",
+            source="Snowcubes M12 cafe-doctor",
+            observed_at=observed_at,
+            wake="Restore the fresh-native packet and re-read it; no provider mutation is performed here.",
+            native_link=SNOWCUBES_NATIVE_LINKS["m12"],
+        )
+    source_observed_at = fresh.get("observed_at")
+    if not isinstance(source_observed_at, str) or not source_observed_at.endswith("Z"):
+        return _snowcubes_surface(
+            name="M12 cafe-doctor",
+            state="unavailable",
+            now="The fresh-native packet has no canonical source timestamp; no current money state is inferred.",
+            next_action="Keep money actions suppressed until the source packet carries its observation time.",
+            source="Snowcubes M12 cafe-doctor",
+            observed_at=observed_at,
+            wake="Regenerate the bounded fresh-native packet with its canonical source timestamp.",
+            native_link=SNOWCUBES_NATIVE_LINKS["m12"],
+        )
+    wake = fresh.get("wake") if isinstance(fresh.get("wake"), str) else "Collect fresh read-only source observations before any money action."
+    if not fresh.get("ok"):
         return _snowcubes_surface(
             name="M12 cafe-doctor",
             state="attention",
-            now=f"The read-only doctor needs attention: {detail[:220]}.",
-            next_action="Keep any money or collection action suppressed until the named checks are reconciled.",
+            now=f"The fresh-native verifier found a discrepancy: {str(fresh.get('detail') or 'unknown')[:220]}. Money actions remain suppressed.",
+            next_action="Reconcile the named source disagreement before treating any cafe amount as current.",
             source="Snowcubes M12 cafe-doctor",
-            observed_at=observed_at,
-            wake=f"Run {script} --json and resolve the named BLOCK checks; no provider mutation is performed here.",
+            observed_at=source_observed_at,
+            wake=wake,
             native_link=SNOWCUBES_NATIVE_LINKS["m12"],
         )
     return _snowcubes_surface(
         name="M12 cafe-doctor",
-        state="available" if result.get("ok") else "attention",
-        now=(
-            "The read-only doctor accepted the current ledger checks; this is not a settled balance receipt."
-            if result.get("ok")
-            else "The read-only doctor found a discrepancy; no balance or collection action is proposed."
-        ),
-        next_action="Keep the source-labelled result separate from money truth and require fresh native settlement coverage.",
+        state="unavailable",
+        now="The fresh-native verifier passed, but it is a safety fixture rather than a current provider read; no cafe balance is inferred.",
+        next_action="Keep money actions suppressed until a current native Calendar, Superhuman, and Shopify packet exists.",
         source="Snowcubes M12 cafe-doctor",
-        observed_at=observed_at,
-        wake=(
-            None
-            if result.get("ok")
-            else f"Run {script} --json and resolve the named BLOCK checks before any money action."
-        ),
+        observed_at=source_observed_at,
+        wake=wake,
         native_link=SNOWCUBES_NATIVE_LINKS["m12"],
     )
 
