@@ -2455,14 +2455,14 @@ def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
     }
 
 
-def scheduled_windows_are_consecutive(first: datetime, second: datetime) -> bool:
+def morning_windows_are_consecutive(first: datetime, second: datetime) -> bool:
     if any(value != 0 for value in (first.minute, first.second, second.minute, second.second)):
         return False
-    if first.hour == 8:
-        return second.date() == first.date() and second.hour == 20
-    if first.hour == 20:
-        return second.date() == first.date() + timedelta(days=1) and second.hour == 8
-    return False
+    return (
+        first.hour == 8
+        and second.hour == 8
+        and second.date() == first.date() + timedelta(days=1)
+    )
 
 
 def launch_trigger_proof() -> dict[str, Any]:
@@ -2507,24 +2507,32 @@ def verify_window_receipts(
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
         and row.get("trigger") != "launchd-calendar"
     ]
+    ignored_nonmorning = [
+        str(row["scheduled_for"])
+        for row in scheduled
+        if row.get("schema") == WINDOW_RECEIPT_SCHEMA
+        and row.get("trigger") == "launchd-calendar"
+        and row.get("slot") != "morning"
+    ]
     eligible = [
         row
         for row in scheduled
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
         and row.get("trigger") == "launchd-calendar"
+        and row.get("slot") == "morning"
     ]
     latest_by_window = {str(row["scheduled_for"]): row for row in eligible}
     latest = [latest_by_window[key] for key in sorted(latest_by_window)[-2:]]
     problems: list[str] = []
     if len(latest) != 2:
         problems.append(
-            f"need two distinct current-schema scheduled windows; found {len(latest)}"
+            f"need two distinct current-schema natural 08:00 windows; found {len(latest)}"
         )
     else:
         first = datetime.fromisoformat(str(latest[0]["scheduled_for"]))
         second = datetime.fromisoformat(str(latest[1]["scheduled_for"]))
-        if not scheduled_windows_are_consecutive(first, second):
-            problems.append("latest scheduled windows are not consecutive")
+        if not morning_windows_are_consecutive(first, second):
+            problems.append("latest natural 08:00 windows are not consecutive")
         for row in latest:
             scheduled_for = str(row["scheduled_for"])
             receipt = row.get("receipt") or {}
@@ -2683,6 +2691,7 @@ def verify_window_receipts(
         "message_ids": [(row.get("receipt") or {}).get("message_id") for row in latest],
         "ignored_legacy_windows": ignored_legacy,
         "ignored_noncalendar_windows": ignored_noncalendar,
+        "ignored_nonmorning_windows": ignored_nonmorning,
     }
 
 
@@ -3821,6 +3830,7 @@ def cmd_verify_windows(_args: argparse.Namespace) -> int:
             for row in rows
             if row.get("schema") == WINDOW_RECEIPT_SCHEMA
             and row.get("trigger") == "launchd-calendar"
+            and row.get("slot") == "morning"
         }
         latest = [by_window[str(value)] for value in result["windows"]]
         mailbox = verify_mailbox_readbacks(latest, _read_jsonl(MAILBOX_READBACK_LOG))
