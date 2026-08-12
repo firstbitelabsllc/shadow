@@ -12,6 +12,7 @@ import argparse
 from datetime import date, datetime
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Final
@@ -480,8 +481,25 @@ def lint_plan(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        help="source checkout for a registered machine-local plan",
+    )
     parser.add_argument("plans", nargs="+", type=Path)
     args = parser.parse_args(argv)
+    proof_root: Path | None = None
+    if args.repo is not None:
+        repo = args.repo.resolve()
+        top = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if top.returncode or not top.stdout.strip():
+            parser.error("--repo must name a Git source checkout")
+        proof_root = Path(top.stdout.strip()).resolve()
     worst = 0
     for path in args.plans:
         try:
@@ -490,7 +508,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{path}: unreadable: {exc}")
             worst = 1
             continue
-        findings = lint_plan(text, root=path.resolve().parent)
+        plan = path.resolve()
+        if proof_root is not None:
+            state = _board.entity_state(plan)
+            if (
+                not _board.is_local_plan(plan)
+                or state is None
+                or state["entity"] is None
+                or Path(state["entity"]["plan"]).resolve() != plan
+            ):
+                print(f"{path}: --repo is only valid for a registered machine-local PLAN.md")
+                worst = 1
+                continue
+            findings = lint_plan(text, root=proof_root, committed=True)
+        else:
+            findings = lint_plan(text, root=plan.parent)
         for finding in findings:
             print(f"{path}:{finding['line']}: {finding['check']} [{finding['severity']}] {finding['detail']}")
             if finding["severity"] == "blocking":
