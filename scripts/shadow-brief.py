@@ -579,7 +579,8 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
     cursor_limit = 0
     human = 0
     unread = 0
-    signals: list[dict[str, Any]] = []
+    human_signals: list[dict[str, Any]] = []
+    other_signals: list[dict[str, Any]] = []
     for row in threads:
         subject = str(row.get("subject") or "")
         snippet = str(row.get("snippet") or "")
@@ -590,37 +591,56 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
             if isinstance(message, dict)
         )
         combined = f"{subject} {snippet} {participants} {message_text}".lower()
+        automated = any(
+            marker in combined
+            for marker in (
+                "noreply",
+                "no-reply",
+                "do-not-reply",
+                "mailer-daemon",
+                "notifications@",
+                "@t.shopifyemail.com",
+                "shopifyemail.com",
+            )
+        )
         if "unread" in [str(label).lower() for label in (row.get("labels") or [])]:
             unread += 1
         if "github" in combined:
             github += 1
-        elif "noreply" not in combined and "no-reply" not in combined:
+            kind = "github"
+        elif automated:
+            kind = "automated"
+        else:
             human += 1
+            kind = "human_or_other"
         if "usage limit" in combined or "usage/spend limit" in combined:
             cursor_limit += 1
-        if len(signals) < 5:
-            # The connector occasionally supplies a direct thread URL. Keep it
-            # only when it is a real HTTPS URL; never manufacture a provider URL
-            # from an opaque ID. Thread IDs stay in the private packet so the
-            # reader can reconcile a signal without copying the inbox.
-            native_link = next(
-                (
-                    str(row.get(key)).strip()
-                    for key in ("native_link", "thread_url", "web_url", "url", "link")
-                    if str(row.get(key) or "").strip().startswith(("https://", "http://"))
-                ),
-                None,
-            )
-            thread_id = row.get("thread_id") or row.get("id")
-            labels = {str(label).lower() for label in (row.get("labels") or [])}
-            signals.append({
-                "subject": subject[:160],
-                "last_message_at": str(row.get("last_message_at") or ""),
-                "kind": "github" if "github" in combined else "human_or_other",
-                "thread_id": str(thread_id)[:200] if thread_id else None,
-                "unread": "unread" in labels,
-                "native_link": native_link,
-            })
+        # The connector occasionally supplies a direct thread URL. Keep it
+        # only when it is a real HTTPS URL; never manufacture a provider URL
+        # from an opaque ID. Thread IDs stay in the private packet so the
+        # reader can reconcile a signal without copying the inbox.
+        native_link = next(
+            (
+                str(row.get(key)).strip()
+                for key in ("native_link", "thread_url", "web_url", "url", "link")
+                if str(row.get(key) or "").strip().startswith(("https://", "http://"))
+            ),
+            None,
+        )
+        thread_id = row.get("thread_id") or row.get("id")
+        labels = {str(label).lower() for label in (row.get("labels") or [])}
+        signal = {
+            "subject": subject[:160],
+            "last_message_at": str(row.get("last_message_at") or ""),
+            "kind": kind,
+            "thread_id": str(thread_id)[:200] if thread_id else None,
+            "unread": "unread" in labels,
+            "native_link": native_link,
+        }
+        if kind == "human_or_other" and len(human_signals) < 5:
+            human_signals.append(signal)
+        elif len(other_signals) < 5:
+            other_signals.append(signal)
     return {
         "available": True,
         "acting_email": acting_email,
@@ -631,7 +651,7 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
         "github_notification_threads": github,
         "human_or_other_threads": human,
         "cursor_limit_threads": cursor_limit,
-        "signals": signals,
+        "signals": (human_signals + other_signals)[:5],
     }
 
 
@@ -820,26 +840,31 @@ def collect_snowcubes_context(
     mail = collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
     if mail.get("available"):
         human = [row for row in mail.get("signals") or [] if row.get("kind") == "human_or_other"]
-        newest = human[0] if human else {}
-        reply = (
-            "Reply now: review the newest human thread before any automated notification."
-            if human
-            else "No human reply was surfaced in the bounded 24-hour read."
-        )
-        relationship = (
-            "Nurture: keep the next non-automated relationship visible after the reply-now item."
-            if human
-            else "Nurture: no relationship follow-up is inferred from an empty bounded read."
-        )
-        mail_state = "available"
-        mail_wake = None
-        mail_link = newest.get("native_link")
-        mail_thread_id = newest.get("thread_id")
-        proposal = (
-            "Proposal only: open this thread in Superhuman and prepare a reply for Leo to approve; no draft or send was created."
-            if human
-            else None
-        )
+        newest = next((row for row in human if row.get("native_link")), None)
+        if newest:
+            reply = "Reply now: review the newest linked human thread before any automated notification."
+            relationship = "Nurture: keep the next linked non-automated relationship visible after the reply-now item."
+            mail_state = "available"
+            mail_wake = None
+            mail_link = newest.get("native_link")
+            mail_thread_id = newest.get("thread_id")
+            proposal = "Proposal only: open this thread in Superhuman and prepare a reply for Leo to approve; no draft or send was created."
+        elif human:
+            reply = "A possible human thread was read, but the connector did not supply a verified Superhuman link; it is not ranked as a reply."
+            relationship = "No relationship follow-up is inferred until a direct native thread route is available."
+            mail_state = "unknown"
+            mail_wake = "Return a verified Superhuman thread URL from the bounded business-inbox read; do not manufacture a URL from an opaque thread ID."
+            mail_link = None
+            mail_thread_id = None
+            proposal = None
+        else:
+            reply = "No human correspondence with a verified Superhuman link was surfaced in the bounded 24-hour read."
+            relationship = "No relationship follow-up is inferred from the bounded read."
+            mail_state = "unknown"
+            mail_wake = "Return a bounded human correspondence result with a verified Superhuman thread URL; no inbox state is inferred from automated notices."
+            mail_link = None
+            mail_thread_id = None
+            proposal = None
     else:
         reply = "Reply priority is unavailable; no inbox state is inferred."
         relationship = "Relationship follow-up is unavailable; no customer action is invented."
@@ -913,7 +938,7 @@ def collect_snowcubes_context(
             next_action=(
                 "Keep the relationship visible after Leo reviews the reply-now item."
                 if mail_state == "available"
-                else "No relationship action is inferred until the business inbox can be read."
+                else "No relationship action is inferred until the business read includes a verified native thread route."
             ),
             source="Superhuman business inbox (trysnowcubes@gmail.com)",
             observed_at=observed_at,
@@ -921,7 +946,7 @@ def collect_snowcubes_context(
             native_link=mail_link,
             proposal=(
                 "Proposal only: after Leo approves the reply, keep a short personal follow-up in view; no draft or send was created."
-                if mail_state == "available" and human
+                if mail_state == "available" and newest
                 else None
             ),
             thread_id=mail_thread_id,
