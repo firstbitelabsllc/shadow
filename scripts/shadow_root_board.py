@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""One local, Git-backed board for this computer.
+"""One local, privately journaled board for this computer.
 
-Entity plans keep milestone/checkpoint text, proof, and evidence.  This file
-stores only project priority, entity-plan locators and resume checkpoints, and
-claims.  It never becomes a second task authority.
+Entity plans keep milestone/checkpoint text, proof, and evidence under the
+private Shadow home. This file stores only project priority, entity-plan
+locators and resume checkpoints, and claims. It never becomes a second task
+authority or a source-controlled queue.
 """
 
 from __future__ import annotations
@@ -24,13 +25,14 @@ from typing import Iterator
 from urllib.parse import unquote, urlsplit
 
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
+import shadow_plan_grammar as _grammar
 
 
 SCHEMA = "shadow.root-board.v1"
 DEFAULT_CLAIM_HOURS = 8
 COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
-ROW_ID = re.compile(r"~[0-9a-z]{4}")
+ROW_ID = _grammar.ROW_ID_RE
 ENTITY_ID = re.compile(r"[0-9a-f]{64}")
 PROJECT_ID = re.compile(r"[a-z][a-z0-9-]{1,31}")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -44,10 +46,7 @@ MAX_DISCOVERY_WITNESSES = 256
 HOT_PLAN_MAX_BYTES = 256 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
-HOT_TASK_ROW_RE = re.compile(
-    r"^- \[(?:pending|in_progress|blocked|completed)\] .+ "
-    r"~[0-9a-z]{4}(?: \(DoD\))?(?: \|.*)?$"
-)
+HOT_TASK_ROW_RE = _grammar.HOT_TASK_ROW_RE
 
 
 class BoardError(ValueError):
@@ -75,6 +74,78 @@ def _safe_root(home: Path | None = None) -> Path:
     except OSError as exc:
         raise BoardError("root board directory is unsafe or unavailable") from exc
     return root
+
+
+def local_plans_root(home: Path | None = None) -> Path:
+    """Return this computer's private, intentionally untracked plan root."""
+    return _safe_root(home) / "plans"
+
+
+def _local_plan_root_containing(plan: Path, home: Path | None = None) -> Path | None:
+    """Return the private plan root that owns ``plan``, or None.
+
+    A directory name is not authority. A source repository may legitimately
+    carry ``<repo>/.shadow/plans/release/PLAN.md``: that plan is committed and
+    public, and must keep its Git identity rather than silently skipping the
+    clean/committed checks. So a plan counts as machine-local only when it
+    sits under the plan root this computer is configured with, or under a
+    ``.shadow/plans`` directory that no enclosing repository tracks.
+    """
+    candidate = Path(os.path.abspath(plan))
+    try:
+        root = local_plans_root(home).resolve()
+        candidate.resolve().relative_to(root)
+        return root
+    except (OSError, ValueError, BoardError):
+        pass
+    for parent in (candidate.parent, *candidate.parents):
+        if parent.name != "plans" or parent.parent.name != ".shadow":
+            continue
+        # Walk from the store's own parent: the private board's Git journal
+        # lives inside `.shadow` and must not make its plans look tracked.
+        if _git_marker(parent.parent.parent) is not None:
+            return None
+        return parent
+    return None
+
+
+def is_local_plan(plan: Path, *, home: Path | None = None) -> bool:
+    """Whether ``plan`` belongs to the machine-only Shadow plan store."""
+    return _local_plan_root_containing(plan, home) is not None
+
+
+def local_plan_slug(name: str) -> str:
+    """One stable, public-safe directory name for a project's local plan."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if len(slug) < 3:
+        slug = f"project-{slug or 'work'}"
+    return slug[:48]
+
+
+def local_plan_for_repo(repo: Path, *, home: Path | None = None) -> Path | None:
+    """Return the registered local authority that stands in for ``repo``.
+
+    A project whose plan is machine-local has no ``<repo>/PLAN.md``, so the
+    repository-shaped verbs (`shadow amp --repo`, `shadow throw --repo`) would
+    otherwise refuse work that `shadow status` happily lists. Only a plan this
+    computer's board already registers is returned: this resolves an existing
+    authority, it never mints one.
+    """
+    try:
+        root = local_plans_root(home)
+    except BoardError:
+        return None
+    registered = {
+        entity.get("plan")
+        for entity in (snapshot(home=home) or {}).get("entities", [])
+    }
+    for directory in dict.fromkeys((repo.name, local_plan_slug(repo.name))):
+        candidate = root / directory / "PLAN.md"
+        if not regular_plan(candidate):
+            continue
+        if str(candidate.resolve()) in registered:
+            return candidate.resolve()
+    return None
 
 
 def _empty() -> dict:
@@ -498,6 +569,12 @@ def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[s
     if require_regular and not regular_plan(plan):
         raise BoardError("entity identity requires a regular, non-symlink PLAN.md")
     plan = Path(os.path.abspath(plan))
+    local_root = _local_plan_root_containing(plan)
+    if local_root is not None:
+        try:
+            return f"local-plan:{local_root}", plan.resolve().relative_to(local_root).as_posix()
+        except (OSError, ValueError) as exc:
+            raise BoardError("local plan identity could not be read") from exc
     marker = _git_marker(plan.parent)
     result = _git(plan.parent, "rev-parse", "--show-toplevel")
     if result.returncode == 0 and result.stdout.strip():
@@ -597,20 +674,46 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     return token, content
 
 
+def frozen_plan_snapshot(plan: Path, *, home: Path | None = None) -> tuple[dict[str, str], bytes]:
+    """Freeze either a product's committed plan or one local-only plan.
+
+    Product repositories remain free to keep a release plan with their source.
+    Shadow, ``ai``, and ``ai-leo`` operational plans are deliberately different:
+    their authority lives below ``~/.shadow/plans`` and is never committed.
+    """
+    if not is_local_plan(plan, home=home):
+        return committed_plan_snapshot(plan)
+    content = read_plan_bytes(plan)
+    digest = hashlib.sha256(content).hexdigest()
+    return (
+        {
+            "repo": str(plan.parent.resolve()),
+            "relative": plan.name,
+            "head": f"local:{digest}",
+            "blob": digest,
+        },
+        content,
+    )
+
+
 @contextmanager
 def project_lock(plan: Path) -> Iterator[None]:
     """Serialize one entity plan's local lifecycle across every public verb."""
     if not regular_plan(plan):
         raise BoardError("project lifecycle lock requires a regular, non-symlink PLAN.md")
-    common = _git(plan.parent, "rev-parse", "--git-common-dir")
-    if common.returncode or not common.stdout.strip():
-        raise BoardError("project Git common directory could not be resolved")
-    common_dir = Path(common.stdout.strip())
-    if not common_dir.is_absolute():
-        common_dir = (plan.parent / common_dir).resolve()
-    if common_dir.is_symlink() or not common_dir.is_dir():
-        raise BoardError("project Git common directory is unsafe")
-    lock = common_dir / ".shadow-lifecycle.lock"
+    if is_local_plan(plan):
+        common_dir = plan.parent
+        lock = common_dir / ".shadow-lifecycle.lock"
+    else:
+        common = _git(plan.parent, "rev-parse", "--git-common-dir")
+        if common.returncode or not common.stdout.strip():
+            raise BoardError("project Git common directory could not be resolved")
+        common_dir = Path(common.stdout.strip())
+        if not common_dir.is_absolute():
+            common_dir = (plan.parent / common_dir).resolve()
+        if common_dir.is_symlink() or not common_dir.is_dir():
+            raise BoardError("project Git common directory is unsafe")
+        lock = common_dir / ".shadow-lifecycle.lock"
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(lock, flags, 0o600)
@@ -767,11 +870,10 @@ def _write(path: Path, payload: dict) -> None:
 
 
 def _initialize_git(root: Path) -> None:
+    """Maintain a private crash-recovery journal for board pointers only."""
     git_dir = root / ".git"
     if git_dir.is_symlink() or (git_dir.exists() and not git_dir.is_dir()):
         raise BoardError("root board Git directory must not be a symlink or file")
-    # `git init` is idempotent and repairs a process that died after creating a
-    # partial .git directory. Merely checking is_dir() left that board wedged.
     result = subprocess.run(
         ["git", "init", "--quiet", str(root)], capture_output=True, text=True, check=False
     )
@@ -781,26 +883,23 @@ def _initialize_git(root: Path) -> None:
     if index_lock.exists() or index_lock.is_symlink():
         if index_lock.is_symlink() or not index_lock.is_file():
             raise BoardError("root board Git receipt lock is unsafe")
-        try:
-            index_lock.unlink()
-        except OSError as exc:
-            raise BoardError("root board Git receipt lock could not be recovered") from exc
+        index_lock.unlink()
     _git(root, "config", "user.name", "Shadow")
     _git(root, "config", "user.email", "shadow@localhost")
     exclude = root / ".git" / "info" / "exclude"
-    try:
-        ignored = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
-        if LOCK_NAME not in ignored.splitlines():
-            exclude.parent.mkdir(parents=True, exist_ok=True)
-            exclude.write_text(ignored.rstrip("\n") + f"\n{LOCK_NAME}\n", encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        raise BoardError("root board Git exclude could not protect its transaction lock") from exc
+    ignored = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    protected = {LOCK_NAME, "plans/", "archives/"}
+    missing = [entry for entry in protected if entry not in ignored.splitlines()]
+    if missing:
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(ignored.rstrip("\n") + "\n" + "\n".join(missing) + "\n", encoding="utf-8")
 
 
 def _commit(root: Path, message: str) -> None:
+    """Journal board metadata only; plan files live outside this repository."""
     added = _git(root, "add", "--", BOARD_NAME)
     if added.returncode:
-        raise BoardError("root board could not record its local Git receipt")
+        raise BoardError("root board could not record its local receipt")
     if not _git(root, "diff", "--cached", "--quiet", "--", BOARD_NAME).returncode:
         return
     committed = _git(
@@ -812,7 +911,7 @@ def _commit(root: Path, message: str) -> None:
         "commit", "--quiet", "--only", "-m", message, "--", BOARD_NAME,
     )
     if committed.returncode:
-        raise BoardError("root board could not commit its local Git receipt")
+        raise BoardError("root board could not journal its local receipt")
 
 
 @contextmanager
@@ -839,18 +938,13 @@ def _transaction(home: Path | None = None) -> Iterator[tuple[Path, Path, dict]]:
                 os.chmod(path, 0o600)
             except OSError as exc:
                 raise BoardError("root board file could not be protected") from exc
-            # A process can die after the atomic replace and before its Git
-            # receipt. The local file already counts; the next transaction
-            # repairs history from those authoritative bytes before deciding.
             _commit(root, "shadow board: recover local authority")
         else:
             head = _git(root, "rev-parse", "--verify", "HEAD")
             if head.returncode == 0:
                 historical = _git(root, "show", f"HEAD:{BOARD_NAME}")
                 if historical.returncode:
-                    raise BoardError(
-                        "root board history exists but HEAD has no recoverable board.json"
-                    )
+                    raise BoardError("root board history exists but board.json is missing")
                 try:
                     payload = _validate(json.loads(historical.stdout))
                 except json.JSONDecodeError as exc:
@@ -881,7 +975,7 @@ def snapshot(*, home: Path | None = None) -> dict | None:
     if path.is_file() or path.is_symlink():
         return _read(path)
     if (root / ".git").exists():
-        raise BoardError("root board Git history exists but board.json is missing")
+        raise BoardError("root board history exists but board.json is missing")
     return None
 
 
@@ -1146,7 +1240,7 @@ def claim(
     claimed = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     returned = claimed + timedelta(hours=DEFAULT_CLAIM_HOURS)
     if expected_plan is not None:
-        preflight_plan, preflight_content = committed_plan_snapshot(plan)
+        preflight_plan, preflight_content = frozen_plan_snapshot(plan, home=home)
         if preflight_plan != expected_plan:
             raise BoardError("project plan changed before the claim committed; retry")
     else:
@@ -1154,7 +1248,7 @@ def claim(
     assert_hot_plan_budget(preflight_content)
     with _transaction(home) as (root, path, payload):
         if expected_plan is not None:
-            observed, observed_content = committed_plan_snapshot(plan)
+            observed, observed_content = frozen_plan_snapshot(plan, home=home)
             if observed != expected_plan:
                 raise BoardError("project plan changed before the claim committed; retry")
         else:
@@ -1850,18 +1944,12 @@ def section_lines(text: str, section: str) -> list[str]:
     return result
 
 
-PROGRESS_PROOF_RECEIPT_RE = re.compile(
-    r"^- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z "
-    r"(?P<row>~[0-9a-z]{4}) PROOF (?P<proof>.+) -> (?P<result>.+)$"
-)
+PROGRESS_PROOF_RECEIPT_RE = _grammar.PROOF_RECEIPT_RE
 
 
 def progress_proof_receipt(line: str) -> tuple[str, str, str] | None:
     """Parse one canonical receipt line for lint and claim-return parity."""
-    match = PROGRESS_PROOF_RECEIPT_RE.match(line)
-    if match is None:
-        return None
-    return match.group("row"), match.group("proof"), match.group("result")
+    return _grammar.progress_proof_receipt(line)
 
 
 def progress_proof_receipts(text: str, row: str) -> list[tuple[str, str]]:
@@ -1897,7 +1985,7 @@ def _reserve_claim_receipt(
     plan = plan.resolve()
     with _transaction(home) as (root, path, payload):
         if expected_plan is not None:
-            observed, _ = committed_plan_snapshot(plan)
+            observed, _ = frozen_plan_snapshot(plan, home=home)
             if observed != expected_plan:
                 raise BoardError("project plan changed while its proof ran; retry")
         entity = _entity_for(payload, plan)
@@ -1969,7 +2057,7 @@ def release(
         return None
     with _transaction(home) as (root, path, payload):
         if expected_plan is not None:
-            observed, observed_bytes = committed_plan_snapshot(plan)
+            observed, observed_bytes = frozen_plan_snapshot(plan, home=home)
             try:
                 observed_text = observed_bytes.decode("utf-8")
             except UnicodeError as exc:
@@ -2045,6 +2133,157 @@ def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict
         _validate(payload)
         _write(path, payload)
         _commit(root, f"shadow board: set project priority {priority}")
+        return json.loads(json.dumps(payload))
+
+
+def migrate_to_local_plan(source: Path, destination: Path, *, home: Path | None = None) -> dict:
+    """Move one registered authority to a byte-identical local plan atomically.
+
+    This is intentionally a migration primitive, not another plan registry. It
+    preserves a live claim while removing a source checkout from the board.
+    """
+    source = source.resolve()
+    destination = destination.resolve()
+    if not regular_plan(source) or not regular_plan(destination):
+        raise BoardError("plan migration requires regular non-symlink PLAN.md files")
+    if not is_local_plan(destination, home=home):
+        raise BoardError("plan migration destination must live below ~/.shadow/plans")
+    source_bytes = read_plan_bytes(source)
+    if source_bytes != read_plan_bytes(destination):
+        raise BoardError("plan migration requires byte-identical source and local copies")
+    board = snapshot(home=home)
+    for claim in board.get("claims", []) if board else []:
+        if claim.get("entity") == entity_id(source) and claim.get("row", "") not in source_bytes.decode("utf-8", errors="ignore"):
+            raise BoardError("plan migration source no longer carries a live claim row")
+    old_id = entity_id(source)
+    new_id = entity_id(destination)
+    with _transaction(home) as (root, path, payload):
+        entity = next((item for item in payload["entities"] if item["id"] == old_id), None)
+        if entity is None:
+            raise BoardError("source plan is not registered on this computer")
+        if any(item["id"] == new_id for item in payload["entities"] if item is not entity):
+            raise BoardError("local plan already has a registered authority")
+        if read_plan_bytes(source) != source_bytes or read_plan_bytes(destination) != source_bytes:
+            raise BoardError("plan changed during local migration; retry")
+        entity["id"] = new_id
+        entity["plan"] = str(destination)
+        for claim in payload["claims"]:
+            if claim["entity"] == old_id:
+                claim["entity"] = new_id
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, "shadow board: move authority to local plan")
+        return json.loads(json.dumps(payload))
+
+
+def discard_unclaimed_source_alias(
+    source: Path,
+    destination: Path,
+    *,
+    home: Path | None = None,
+) -> dict:
+    """Drop a stale source alias when its private authority already exists.
+
+    This cannot choose between two resume rows or make a source checkout
+    authoritative. It only repairs duplicate aliases produced by an older
+    importer after the local plan is already registered. A live claim follows
+    only when its exact row exists exclusively in that private plan.
+    """
+    source = source.resolve()
+    destination = destination.resolve()
+    # The source side is deliberately allowed to be absent.  Once an
+    # operational plan has been moved under ``~/.shadow/plans``, a later
+    # source cleanup can remove the old file before an older board entry is
+    # refreshed.  The registered source locator is then only stale metadata;
+    # the private plan and its rows remain the authority.  A present source
+    # must still be a regular file, so a symlink cannot smuggle a different
+    # authority into this cleanup path.
+    if source.exists() and not regular_plan(source):
+        raise BoardError("alias cleanup source is not a regular non-symlink PLAN.md file")
+    if not regular_plan(destination):
+        raise BoardError("alias cleanup requires a regular non-symlink private PLAN.md")
+    if not is_local_plan(destination, home=home):
+        raise BoardError("alias cleanup destination must live below ~/.shadow/plans")
+    destination_id = entity_id(destination)
+    destination_rows = set(
+        _grammar.HASH_RE.findall(read_plan_bytes(destination).decode("utf-8"))
+    )
+    with _transaction(home) as (root, path, payload):
+        source_entity = next(
+            (item for item in payload["entities"] if item["plan"] == str(source)),
+            None,
+        )
+        destination_entity = next(
+            (item for item in payload["entities"] if item["plan"] == str(destination)),
+            None,
+        )
+        if source_entity is None:
+            return json.loads(json.dumps(payload))
+        if destination_entity is None:
+            raise BoardError("alias cleanup requires the private authority to be registered")
+        source_id = source_entity["id"]
+        old_destination_id = destination_entity["id"]
+        if source_id == old_destination_id:
+            raise BoardError("alias cleanup requires distinct source and local entities")
+        source_claims = [item for item in payload["claims"] if item["entity"] == source_id]
+        missing_claim = next(
+            (item["row"] for item in source_claims if item["row"] not in destination_rows),
+            None,
+        )
+        if missing_claim is not None:
+            raise BoardError("alias cleanup source claim is absent from the private plan")
+        destination_claims = {
+            item["row"] for item in payload["claims"] if item["entity"] == old_destination_id
+        }
+        duplicated_claim = next(
+            (item["row"] for item in source_claims if item["row"] in destination_claims),
+            None,
+        )
+        if duplicated_claim is not None:
+            raise BoardError("alias cleanup refuses duplicate source and local claims")
+        source_resume = source_entity["resume"]
+        if source_resume is not None and source_resume not in destination_rows:
+            raise BoardError("alias cleanup source resume is absent from the private plan")
+        if (
+            source_resume is not None
+            and destination_entity["resume"] is not None
+            and destination_entity["resume"] != source_resume
+        ):
+            raise BoardError("alias cleanup refuses divergent source and local resumes")
+        if destination_entity["resume"] is None and source_resume is not None:
+            destination_entity["resume"] = source_resume
+        if (
+            old_destination_id != destination_id
+            and any(
+                item["id"] == destination_id
+                for item in payload["entities"]
+                if item is not destination_entity
+            )
+        ):
+            raise BoardError("alias cleanup local identity collides with another entity")
+        destination_entity["id"] = destination_id
+        for claim in payload["claims"]:
+            if claim["entity"] == old_destination_id:
+                claim["entity"] = destination_id
+            elif claim["entity"] == source_id:
+                claim["entity"] = destination_id
+        payload["entities"] = [
+            item for item in payload["entities"] if item["id"] != source_id
+        ]
+        used_projects = {item["project"] for item in payload["entities"]}
+        payload["projects"] = [
+            item for item in payload["projects"] if item["id"] in used_projects
+        ]
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, "shadow board: remove stale source alias")
         return json.loads(json.dumps(payload))
 
 

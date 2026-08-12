@@ -283,7 +283,9 @@ if MODE == "cross_shim":
     raise SystemExit(0)
 
 claimed = None
-deadline = time.monotonic() + 15
+# CI can spend several seconds scheduling the two fake hosts under load. Keep
+# the rendezvous bounded, but leave enough room for both processes to start.
+deadline = time.monotonic() + 25
 completions = 2 if MODE == "one_seat" and SEAT == "claude" else 1
 for completion in range(completions):
     claimed = None
@@ -499,7 +501,7 @@ class ThreeSeatsCoordinateOffline(unittest.TestCase):
 
 
 class LiveTwoSeatProof(unittest.TestCase):
-    def _run(self, mode: str = "complete", timeout_seconds: int = 20):
+    def _run(self, mode: str = "complete", timeout_seconds: int = 30):
         context = tempfile.TemporaryDirectory()
         root = Path(context.name).resolve()
         fixture = Fixture(root)

@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -175,11 +176,35 @@ class ShadowHostTests(unittest.TestCase):
         self.assertIn(digest, prompt)
         self.assertIn("result.txt", prompt)
         self.assertIn("shadow.host-receipt.v1", prompt)
-        self.assertIn('"task_id":"bounded-task"', prompt)
+        self.assertIn('"task_id":"example-task-id"', prompt)
         self.assertIn('"proof_ref":"bounded-proof"', prompt)
         self.assertIn("Do not use spaces or prose for proof_ref.", prompt)
         self.assertIn("with status `blocked`", prompt)
         self.assertIn("`proof_ref`: null", prompt)
+
+    def test_echoing_the_prompt_example_cannot_satisfy_the_real_receipt(self) -> None:
+        task = "Change the bounded file."
+        digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
+        prompt = shadow_host.host_prompt(task, "bounded-task", ["result.txt"], digest)
+
+        example = shadow_host.extract_host_receipt([prompt])
+        with self.assertRaises(shadow_host.HostError) as raised:
+            shadow_host.validate_host_receipt(example, "bounded-task", ["result.txt"])
+        self.assertEqual(raised.exception.kind, "host_receipt_invalid")
+
+    def test_attempt_receipt_fsyncs_its_file_and_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            destination = Path(dirname) / "evidence" / "attempt.json"
+            kinds = {"file": False, "dir": False}
+            real_fsync = os.fsync
+
+            def spy(fd: int) -> None:
+                kinds["dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"] = True
+                real_fsync(fd)
+
+            with mock.patch.object(shadow_host.os, "fsync", side_effect=spy):
+                shadow_host.write_json(str(destination), {"schema": "test"})
+        self.assertEqual(kinds, {"file": True, "dir": True})
 
     def test_receipt_rejects_private_paths_and_secret_shaped_text(self) -> None:
         for field, value in (
