@@ -72,7 +72,12 @@ def proof_argv(command: str) -> list[str]:
         raise AcceptError(f"the proof command cannot be parsed: {exc}") from exc
 
 
-def blocking_lint_finding(text: str, plan_path: Path) -> dict | None:
+def blocking_lint_finding(
+    text: str,
+    plan_path: Path,
+    *,
+    proof_root: Path | None = None,
+) -> dict | None:
     """The first blocking finding this plan text would draw, judged at HEAD.
 
     Codex (PR #359, P2): accept proves and commits against the committed
@@ -84,15 +89,24 @@ def blocking_lint_finding(text: str, plan_path: Path) -> dict | None:
     return next(
         (
             finding
-            for finding in _lint.lint_plan(text, root=plan_path.parent, committed=True)
+            for finding in _lint.lint_plan(
+                text,
+                root=proof_root or plan_path.parent,
+                committed=True,
+            )
             if finding["severity"] == "blocking"
         ),
         None,
     )
 
 
-def refuse_lint_blocked_plan(text: str, plan_path: Path) -> None:
-    finding = blocking_lint_finding(text, plan_path)
+def refuse_lint_blocked_plan(
+    text: str,
+    plan_path: Path,
+    *,
+    proof_root: Path | None = None,
+) -> None:
+    finding = blocking_lint_finding(text, plan_path, proof_root=proof_root)
     if finding is not None:
         raise AcceptError(
             "the completed plan would fail shadow lint "
@@ -308,6 +322,125 @@ def remove_review_worktree(repo: Path, destination: Path) -> None:
     pruned = git_completed(repo, "worktree", "prune", timeout=15)
     if pruned.returncode:
         raise AcceptError("retired lead review checkout could not be pruned")
+
+
+def accept_local_plan(
+    repo: Path,
+    plan_path: Path,
+    row_id: str,
+    owner: str,
+    timeout_seconds: int,
+) -> int:
+    """Accept a private PLAN while reviewing its declared source checkout.
+
+    Local plans are the machine authority, so their flip is an atomic local
+    replacement, not a source commit.  Their cmd proofs remain source code:
+    run those only from a detached clean checkout of the explicit ``--repo``.
+    """
+    try:
+        plan_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
+        plan_text = plan_bytes.decode("utf-8")
+    except (_board.BoardError, OSError, UnicodeError) as exc:
+        raise AcceptError(f"local plan cannot be frozen before proof: {exc}") from exc
+    _, _, state, proof, needs = find_row(plan_text, row_id)
+    claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+    if state == "completed":
+        if not proof.startswith("cmd "):
+            raise AcceptError("the completed local row was not accepted from a cmd proof")
+        argv = proof_argv(proof[4:])
+        if not _board.has_accept_proof_receipt(plan_text, row_id, argv):
+            raise AcceptError("the local row is completed without a matching accept proof")
+        refuse_lint_blocked_plan(plan_text, plan_path, proof_root=repo)
+        if claim is not None:
+            parsed = _amp._parse(plan_text)
+            parsed["claimed"] = set()
+            _board.release(
+                plan_path,
+                row_id,
+                owner=owner,
+                reason="completed",
+                resumes=_amp._candidate_ids(parsed),
+                expected_plan=plan_token,
+                expected_text=plan_text,
+                expected_claim=claim,
+            )
+        print(f"accepted {row_id}: local completion already proven; root claim reconciled")
+        return 0
+    if claim is None:
+        raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
+    blocked_by = unmet_needs(plan_text, needs)
+    if blocked_by:
+        raise AcceptError(f"{row_id} still needs {', '.join(blocked_by)}")
+    challenged = contradiction_challenges(plan_text, row_id, needs)
+    if challenged:
+        raise AcceptError(f"{row_id} is under a written challenge: {challenged[0]}")
+    if not proof.startswith("cmd "):
+        raise AcceptError("only cmd proofs are machine-rerunnable")
+    argv = proof_argv(proof[4:])
+    if not argv:
+        raise AcceptError("the proof command is empty")
+    offenders = _shell_operators(proof[4:])
+    if offenders:
+        raise AcceptError(f"the proof passes {' '.join(offenders)} as literal shell operators")
+    head = git_completed(repo, "rev-parse", "HEAD")
+    if head.returncode or not head.stdout.strip():
+        raise AcceptError("source checkout HEAD cannot be read")
+    pool = repo.parent / f"{repo.name}-shadow-accept"
+    pool.mkdir(exist_ok=True)
+    git_completed(repo, "worktree", "prune", timeout=15)
+    review = create_lead_review_worktree(repo, pool, row_id.lstrip("~"), head.stdout.strip())
+    try:
+        issue = script_operand_issue(argv, review)
+        if issue:
+            raise AcceptError(f"the proof's {issue}; nothing was changed")
+        passed = lead_review_passes(review, argv, timeout_seconds)
+    finally:
+        remove_review_worktree(repo, review)
+        try:
+            pool.rmdir()
+        except OSError:
+            pass
+    if not passed:
+        raise AcceptError("the proof did not pass in a clean source checkout; nothing was changed")
+    with _board.project_lock(plan_path):
+        fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
+        try:
+            fresh_text = fresh_bytes.decode("utf-8")
+        except UnicodeError as exc:
+            raise AcceptError("local plan is not UTF-8") from exc
+        if fresh_token != plan_token or fresh_text != plan_text:
+            raise AcceptError("the local plan changed while the proof ran; retry")
+        _, _, fresh_state, fresh_proof, fresh_needs = find_row(fresh_text, row_id)
+        if fresh_state != state or fresh_proof != proof:
+            raise AcceptError("the local row changed while the proof ran; retry")
+        if unmet_needs(fresh_text, fresh_needs) or contradiction_challenges(fresh_text, row_id, fresh_needs):
+            raise AcceptError("the local row is no longer ready; nothing was changed")
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        updated = completed_plan_text(fresh_text, row_id, argv, stamp)
+        refuse_lint_blocked_plan(updated, plan_path, proof_root=repo)
+        claim_token = _board.reserve_completion(
+            plan_path,
+            row_id,
+            owner,
+            expected_plan=fresh_token,
+        )
+        atomic_write_text(plan_path, updated)
+        completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
+        completed_text = completed_bytes.decode("utf-8")
+        parsed = _amp._parse(completed_text)
+        parsed["claimed"] = set()
+        _board.release(
+            plan_path,
+            row_id,
+            owner=owner,
+            reason="completed",
+            resumes=_amp._candidate_ids(parsed),
+            expected_plan=completed_token,
+            expected_text=completed_text,
+            expected_claim=claim_token,
+        )
+    print(f"accepted {row_id}: proof passed in a clean source checkout; local row flipped with its PROOF line")
+    return 0
 
 
 def unmet_needs(plan_text: str, needs: str) -> list[str]:
@@ -853,7 +986,27 @@ def main(argv: list[str] | None = None) -> int:
         except _board.BoardError as exc:
             raise AcceptError(f"--by is unsafe: {exc}") from exc
         try:
+            source_top = git_completed(repo, "rev-parse", "--show-toplevel")
+            if source_top.returncode or not source_top.stdout.strip():
+                raise AcceptError("--repo must name a Git source checkout")
             requested_plan = repo / "PLAN.md"
+            source_root = Path(source_top.stdout.strip()).resolve()
+            local_plan = None
+            if not _board.regular_plan(requested_plan):
+                # Preserve a declared nested entity (`--repo plans/widget`)
+                # for the ordinary path.  A machine-local plan has no file at
+                # that location, so its proof source is the checkout root.
+                local_plan = _board.local_plan_for_repo(repo) or _board.local_plan_for_repo(source_root)
+            if local_plan is not None:
+                local_state = _board.entity_state(local_plan)
+                owned_claim(local_state, row_id, owner)
+                return accept_local_plan(
+                    source_root,
+                    local_plan,
+                    row_id,
+                    owner,
+                    args.timeout_seconds,
+                )
             state = _board.entity_state(requested_plan)
             owned_claim(state, row_id, owner)
             plan_path = _board.canonical_plan(requested_plan, repair_missing=True)

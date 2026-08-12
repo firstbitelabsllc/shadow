@@ -207,3 +207,91 @@ class LocalPlanStore(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(tracked.stdout, "")
+
+    def test_lint_and_accept_run_a_local_plan_against_its_source_checkout(self) -> None:
+        """A private authority still proves work from its registered source repo.
+
+        The local plan deliberately has no Git checkout of its own.  A public
+        `shadow lint --repo` and `shadow accept --repo` must therefore use the
+        clean source checkout for the proof while leaving the completed PLAN
+        private to this computer.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            repo = root / "dev" / "widget"
+            repo.mkdir(parents=True)
+            (repo / "proof.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
+            for args in (
+                ("init", "--quiet"),
+                ("config", "user.email", "shadow-test@example.invalid"),
+                ("config", "user.name", "Shadow Test"),
+                ("add", "proof.py"),
+                ("commit", "--quiet", "-m", "seed proof"),
+            ):
+                result = subprocess.run(
+                    ["git", "-C", str(repo), *args],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+            plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(
+                PLAN.replace("cmd true", "cmd python3 proof.py", 1).replace("[pending]", "[in_progress]", 1),
+                encoding="utf-8",
+            )
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~aa11"]}],
+                [],
+                home=home,
+            )
+            board.claim(plan, "~aa11", "local-seat", project="widget", priority=2, home=home)
+            env = {**os.environ, "HOME": str(home)}
+
+            lint = subprocess.run(
+                [str(ROOT / "bin" / "shadow"), "lint", "--repo", str(repo), str(plan)],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(lint.returncode, 0, lint.stderr)
+
+            accept_argv = [
+                str(ROOT / "bin" / "shadow"), "accept", "--repo", str(repo),
+                "--row", "~aa11", "--by", "local-seat",
+            ]
+            before = plan.read_text(encoding="utf-8")
+            failed = subprocess.run(
+                accept_argv,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(failed.returncode, 1)
+            self.assertIn("proof did not pass in a clean source checkout", failed.stderr)
+            self.assertEqual(plan.read_text(encoding="utf-8"), before)
+            self.assertEqual(len(board.entity_state(plan, home=home)["claims"]), 1)
+
+            (repo / "proof.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "proof.py"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "--quiet", "-m", "fix proof"], check=True)
+            accepted = subprocess.run(
+                accept_argv,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            text = plan.read_text(encoding="utf-8")
+            self.assertIn("[completed] prove local authority ~aa11", text)
+            self.assertIn("~aa11 PROOF python3 proof.py -> pass (accept)", text)
+            self.assertEqual(board.entity_state(plan, home=home)["claims"], [])
+            self.assertEqual(subprocess.run(
+                ["git", "-C", str(repo), "status", "--porcelain"],
+                capture_output=True, text=True, check=False,
+            ).stdout, "")
