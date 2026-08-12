@@ -531,7 +531,7 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
         combined = f"{subject} {snippet} {participants} {message_text}".lower()
         if "unread" in [str(label).lower() for label in (row.get("labels") or [])]:
             unread += 1
-        if "github" in combined or "noreply.github.com" in combined:
+        if "github" in combined:
             github += 1
         elif "noreply" not in combined and "no-reply" not in combined:
             human += 1
@@ -541,7 +541,7 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
             signals.append({
                 "subject": subject[:160],
                 "last_message_at": str(row.get("last_message_at") or ""),
-                "kind": "github" if "github" in combined or "noreply.github.com" in combined else "human_or_other",
+                "kind": "github" if "github" in combined else "human_or_other",
             })
     return {
         "available": True,
