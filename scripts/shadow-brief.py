@@ -105,6 +105,33 @@ class Recommendation:
     source: str
 
 
+def _row_id(value: Any) -> str:
+    """Normalize a checkpoint/claim row ID without losing entity scope."""
+    return str(value or "").lstrip("~")
+
+
+def _entity_id(entity: dict[str, Any]) -> str:
+    """Return the board entity identity used to scope claims."""
+    return str(entity.get("entity_id") or entity.get("id") or "")
+
+
+def _claim_key(entity_id: Any, row_id: Any) -> tuple[str, str]:
+    return (str(entity_id or ""), _row_id(row_id))
+
+
+def _claim_key_for(entity: dict[str, Any], checkpoint: dict[str, Any]) -> tuple[str, str]:
+    return _claim_key(_entity_id(entity), checkpoint.get("id"))
+
+
+def _claim_index(claims: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Index claims by (entity, row); row IDs are not globally unique."""
+    return {
+        _claim_key(claim.get("entity"), claim.get("row")): claim
+        for claim in claims
+        if claim.get("entity") and claim.get("row")
+    }
+
+
 def _run(
     argv: list[str],
     *,
@@ -211,14 +238,21 @@ def collect_board() -> dict[str, Any]:
     if not BOARD_PATH.is_file():
         return {"revision": None, "entities": [], "projects": [], "error": "board missing"}
     board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
+    project_priorities = {
+        str(row.get("id") or row.get("project") or ""): row.get("priority")
+        for row in (board.get("projects") or [])
+        if isinstance(row, dict) and row.get("priority") is not None
+    }
     entities: list[EntityBrief] = []
     for ent in board.get("entities") or []:
         plan_path = Path(ent.get("plan") or "")
         if not plan_path.is_file():
+            board_project = str(ent.get("project") or "unknown")
             entities.append(
                 EntityBrief(
-                    project=str(ent.get("project") or "unknown"),
+                    project=board_project,
                     plan=str(plan_path),
+                    priority=project_priorities.get(board_project),
                     resume=ent.get("resume"),
                     entity_id=str(ent.get("id") or ""),
                     open_checkpoints=[],
@@ -230,6 +264,10 @@ def collect_board() -> dict[str, Any]:
         brief = parse_plan(plan_path)
         brief.resume = ent.get("resume")
         brief.entity_id = str(ent.get("id") or "")
+        board_project = str(ent.get("project") or brief.project or "")
+        if board_project in project_priorities:
+            # Project priority belongs to the root board, not a stale PLAN copy.
+            brief.priority = project_priorities[board_project]
         if not brief.project:
             brief.project = str(ent.get("project") or brief.project)
         entities.append(brief)
@@ -684,11 +722,7 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
     claims = board.get("claims") or []
 
     # Focus: live claim first (what this computer is already doing), else priority resume.
-    claimed_ids = {
-        str(c.get("row") or c.get("task") or c.get("id") or "").lstrip("~")
-        for c in claims
-        if isinstance(c, dict)
-    }
+    claim_keys = _claim_index([c for c in claims if isinstance(c, dict)])
     ranked = sorted(
         entities,
         key=lambda e: (e.get("priority") is None, e.get("priority") or 99, e.get("project") or ""),
@@ -698,7 +732,7 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
     for ent in ranked:
         opens = ent.get("open_checkpoints") or []
         for cp in opens:
-            if str(cp.get("id") or "") in claimed_ids:
+            if _claim_key_for(ent, cp) in claim_keys:
                 focus_ent, focus_cp = ent, cp
                 break
         if focus_ent:
@@ -877,7 +911,7 @@ def build_chief_of_staff_analysis(
 
     entities = board.get("entities") or []
     claims = [row for row in (board.get("claims") or []) if isinstance(row, dict)]
-    claim_rows = {str(row.get("row") or "").lstrip("~"): row for row in claims}
+    claim_rows = _claim_index(claims)
     ranked = sorted(
         entities,
         key=lambda row: (row.get("priority") is None, row.get("priority") or 99, row.get("project") or ""),
@@ -887,8 +921,8 @@ def build_chief_of_staff_analysis(
     for entity in ranked:
         open_rows.extend((entity, cp) for cp in (entity.get("open_checkpoints") or []))
         blocked_rows.extend((entity, cp) for cp in (entity.get("blocked") or []))
-    claimed = [pair for pair in open_rows if str(pair[1].get("id") or "") in claim_rows]
-    unclaimed = [pair for pair in open_rows if str(pair[1].get("id") or "") not in claim_rows]
+    claimed = [pair for pair in open_rows if _claim_key_for(*pair) in claim_rows]
+    unclaimed = [pair for pair in open_rows if _claim_key_for(*pair) not in claim_rows]
     dirty = [repo for repo in repos if repo.dirty]
     stale = [repo for repo in repos if repo.stale]
     healthy_vercel = sum(
@@ -1084,7 +1118,7 @@ def build_chief_of_staff_analysis(
 
     etas: list[dict[str, str]] = []
     for entity, cp in claimed[:5]:
-        claim = claim_rows.get(str(cp.get("id") or ""), {})
+        claim = claim_rows.get(_claim_key_for(entity, cp), {})
         checkpoint = readable_outcome(cp.get("title"))
         etas.append({
             "project": human_project_label(entity.get("project") or "unknown"),
@@ -1362,11 +1396,7 @@ def render_html(packet: dict[str, Any]) -> str:
             return "prove the morning and evening report arrives correctly"
         return text
 
-    claimed_ids = {
-        str(c.get("row") or c.get("task") or c.get("id") or "").lstrip("~")
-        for c in claims
-        if isinstance(c, dict)
-    }
+    claim_keys = _claim_index([c for c in claims if isinstance(c, dict)])
     active_entities = [
         ent for ent in entities if (ent.get("open_checkpoints") or ent.get("blocked"))
     ]
@@ -1374,7 +1404,7 @@ def render_html(packet: dict[str, Any]) -> str:
     focus_cp = None
     for ent in active_entities:
         for cp in ent.get("open_checkpoints") or []:
-            if str(cp.get("id") or "") in claimed_ids:
+            if _claim_key_for(ent, cp) in claim_keys:
                 focus_ent, focus_cp = ent, cp
                 break
         if focus_ent:
@@ -1395,7 +1425,7 @@ def render_html(packet: dict[str, Any]) -> str:
         quoted_focus = focus_title.rstrip(".!?") + "."
         motion = (
             "It is already in motion."
-            if str((focus_cp or {}).get("id") or "") in claimed_ids
+            if _claim_key_for(focus_ent or {}, focus_cp or {}) in claim_keys
             else "It is ready to move."
         )
         summary = (
@@ -1447,7 +1477,7 @@ def render_html(packet: dict[str, Any]) -> str:
     for ent in active_entities[:6]:
         opens = ent.get("open_checkpoints") or []
         blocked = ent.get("blocked") or []
-        moving = [cp for cp in opens if str(cp.get("id") or "") in claimed_ids]
+        moving = [cp for cp in opens if _claim_key_for(ent, cp) in claim_keys]
         if moving:
             state = "Moving"
             outcome = checkpoint_title(moving[0].get("title"), ent.get("project"))
@@ -1502,7 +1532,7 @@ def render_html(packet: dict[str, Any]) -> str:
             else "No ready next step."
         )
         already_moving = any(
-            str(cp.get("id") or "") in claimed_ids for cp in opens
+            _claim_key_for(ent, cp) in claim_keys for cp in opens
         )
         if already_moving:
             copy = f"Already in motion. The current job is “{first.rstrip('.!?')}.”"
@@ -2301,7 +2331,17 @@ def append_scheduled_window(
 ) -> None:
     if not scheduled_trigger_is_authorized(scheduled_trigger, summary.get("trigger_proof")):
         return
-    window = scheduled_window(now)
+    recorded_window = summary.get("scheduled_window")
+    if isinstance(recorded_window, dict) and recorded_window.get("scheduled_for"):
+        # Keep the launchd slot captured before collection/delivery. Delivery may
+        # finish after minute 30, but it still belongs to the accepted trigger.
+        window = {
+            "on_schedule": True,
+            "slot": recorded_window.get("slot"),
+            "scheduled_for": recorded_window.get("scheduled_for"),
+        }
+    else:
+        window = scheduled_window(now)
     if not window["on_schedule"]:
         return
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -3146,6 +3186,7 @@ def run_exit_code(
 
 def cmd_run(args: argparse.Namespace) -> int:
     trigger_proof: dict[str, Any] = {}
+    trigger_window: dict[str, Any] = {}
     if args.scheduled_trigger:
         trigger_proof = launch_trigger_proof()
         if not scheduled_trigger_is_authorized(True, trigger_proof):
@@ -3209,6 +3250,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 "generated_at": packet.get("generated_at"),
                 "board_revision": (packet.get("board") or {}).get("revision"),
                 "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
                 "scheduled_for": trigger_window.get("scheduled_for"),
                 "wake": f"{reason}; do not notify or send again",
             }
@@ -3242,6 +3284,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     summary = {
         "schema": WINDOW_RECEIPT_SCHEMA,
         "trigger_proof": trigger_proof,
+        "scheduled_window": trigger_window,
+        "scheduled_for": trigger_window.get("scheduled_for"),
         "generated_at": packet["generated_at"],
         "board_revision": packet.get("board", {}).get("revision"),
         "json": str(json_path),

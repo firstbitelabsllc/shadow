@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -93,6 +94,66 @@ class SourceBoundaryTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("verify-windows", result.stdout)
+
+
+class AuthorityScopeTests(unittest.TestCase):
+    def test_claims_are_scoped_by_entity_and_row(self):
+        claims = [
+            {"entity": "entity-a", "row": "~aa11", "return_by": "a"},
+            {"entity": "entity-b", "row": "~aa11", "return_by": "b"},
+        ]
+        index = brief._claim_index(claims)
+        self.assertEqual(index[("entity-a", "aa11")]["return_by"], "a")
+        self.assertEqual(index[("entity-b", "aa11")]["return_by"], "b")
+        self.assertNotIn(("entity-c", "aa11"), index)
+
+    def test_board_project_priority_overrides_plan_priority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "snowcubes" / "PLAN.md"
+            plan.parent.mkdir()
+            plan.write_text("- Project: snowcubes\n- Priority: 99\n", encoding="utf-8")
+            board = root / "board.json"
+            board.write_text(
+                json.dumps(
+                    {
+                        "revision": 4,
+                        "projects": [{"id": "snowcubes", "priority": 3}],
+                        "entities": [{"id": "entity-snow", "project": "snowcubes", "plan": str(plan)}],
+                        "claims": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(brief, "BOARD_PATH", board):
+                entities = brief.collect_board()["entities"]
+            self.assertEqual(entities[0]["priority"], 3)
+
+    def test_scheduled_receipt_keeps_original_trigger_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log = root / "windows.jsonl"
+            scheduled_for = "2026-08-12T08:00:00-04:00"
+            summary = {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "trigger_proof": {"source": "launchd"},
+                "scheduled_window": {
+                    "on_schedule": True,
+                    "slot": "morning",
+                    "scheduled_for": scheduled_for,
+                },
+            }
+            with mock.patch.object(brief, "WINDOW_LOG", log), mock.patch.object(
+                brief, "LOG_DIR", root
+            ), mock.patch.object(brief, "scheduled_trigger_is_authorized", return_value=True):
+                brief.append_scheduled_window(
+                    summary,
+                    scheduled_trigger=True,
+                    now=brief.datetime.fromisoformat("2026-08-12T09:45:00-04:00"),
+                )
+            row = json.loads(log.read_text(encoding="utf-8"))
+            self.assertEqual(row["scheduled_for"], scheduled_for)
+            self.assertEqual(row["slot"], "morning")
 
 
 if __name__ == "__main__":
