@@ -35,8 +35,9 @@ ownership and reviewability; it is never a session, campaign, or ambition cap.
 1. Establish one stable public seat name and run `shadow status --by <seat>`;
    the computer board supplies global priority, ownership, entity pointers,
    and resume from any directory.
-2. Read the selected entity's repository instructions and committed `PLAN.md`,
-   then inspect its exact Git revision, worktree state, and named proof.
+2. Read the selected entity's repository instructions and its local plan under
+   `~/.shadow/plans/` (or a product's declared release plan), then inspect the
+   relevant source revision, worktree state, and named proof.
 3. Resume every checkpoint owned by that seat; otherwise atomically claim the
    highest reachable checkpoint and fan out path-disjoint claims when useful.
 4. Drive claimed lanes to recorded results and run their real repository gates.
@@ -97,9 +98,10 @@ in a task receipt.
 ## Flip a task
 
 `shadow accept --row '~hash' --repo <project> --by <seat>` is the only code path that flips
-a task to completed: it reruns the task's `cmd` proof in a detached clean
-checkout of HEAD and, only on a pass, rewrites the task and appends its
-paired PROOF line in one commit carrying `PLAN.md` alone. `read` and `gate`
+a source-backed task to completed: it reruns the task's `cmd` proof in a
+detached clean checkout of HEAD and, only on a pass, rewrites the source plan
+and appends its paired PROOF line. Infrastructure plans remain local under
+`~/.shadow/plans/` and are never committed. `read` and `gate`
 proofs are person judgments — re-observe them yourself and append the PROOF
 line with the flip.
 

@@ -227,7 +227,10 @@ class ReleaseIdentityIsImmutable(unittest.TestCase):
 
     def clone_release_checkout(self, root: Path) -> Path:
         repo = root / "shadow"
-        subprocess.run(["git", "clone", "-q", "--no-local", str(ROOT), str(repo)], check=True)
+        subprocess.run(
+            ["git", "clone", "-q", "--no-local", "--no-tags", str(ROOT), str(repo)],
+            check=True,
+        )
         git(repo, "config", "user.email", "release@example.invalid")
         git(repo, "config", "user.name", "Release Test")
         git(repo, "remote", "set-url", "origin", "https://github.com/firstbitelabsllc/shadow.git")
