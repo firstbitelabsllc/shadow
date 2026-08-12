@@ -135,6 +135,71 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("Proposal only", html)
         self.assertIn("Superhuman business inbox", html)
 
+    def test_morning_brief_is_snowcubes_first_and_compact(self):
+        names = [
+            "Reply and relationships",
+            "Relationships to nurture",
+            "Commerce",
+            "Funnel",
+            "Search",
+            "Local profile",
+            "Lifecycle email",
+            "Shadow work",
+            "Deploy",
+        ]
+        packet = {
+            "slot": "morning",
+            "generated_at": "2026-08-12T08:00:00-04:00",
+            "board": {"revision": 9, "entities": [], "claims": []},
+            "repos": [],
+            "github_open_prs": [],
+            "recommendations": [],
+            "analysis": {},
+            "snowcubes_context": {
+                "surfaces": [
+                    {
+                        "name": name,
+                        "state": "available" if index == 0 else "unavailable",
+                        "now": f"{name} observation",
+                        "next": f"{name} next move",
+                        "source": f"{name} source",
+                        "observed_at": "2026-08-12T12:00:00Z",
+                        "native_link": f"https://example.test/{index}",
+                        "wake": None if index == 0 else f"Restore {name} read access.",
+                        "proposal": "Proposal only: Leo approves before any send."
+                        if index == 0
+                        else None,
+                    }
+                    for index, name in enumerate(names)
+                ]
+            },
+        }
+
+        html = brief.render_html(packet)
+
+        self.assertEqual(
+            brief.brief_subject("morning", packet["generated_at"]),
+            "Snowcubes morning brief — 2026-08-12T08:00:00-04:00",
+        )
+        self.assertEqual(
+            brief.brief_subject("evening", packet["generated_at"]),
+            "Shadow evening brief — 2026-08-12T08:00:00-04:00",
+        )
+        self.assertIn("Snowcubes chief-of-staff brief", html)
+        self.assertLess(
+            html.index("Snowcubes: now → then → waiting"),
+            html.index("Business coverage"),
+        )
+        self.assertLess(html.index("Priority 1"), html.index("Priority 2"))
+        self.assertLess(html.index("Priority 2"), html.index("Priority 3"))
+        for name in names:
+            self.assertIn(name, html)
+        self.assertIn("Proposal only: Leo approves before any send.", html)
+        self.assertIn("Open native source", html)
+        self.assertIn("This email is a read-only projection, not a plan or task store.", html)
+        self.assertNotIn("What building looks like now", html)
+        self.assertNotIn("Every workstream, in human terms", html)
+
 
 class SourceBoundaryTests(unittest.TestCase):
     def test_source_contains_no_cursor_agent_delivery_path(self):

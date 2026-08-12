@@ -53,7 +53,9 @@ SNOWCUBES_NATIVE_LINKS = {
     "deploy": "https://vercel.com/dashboard",
     "m12": "https://github.com/firstbitelabsllc/trysnowcubes-web/blob/main/scripts/cafe-doctor.py",
 }
-WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v2"
+# v3 starts a fresh proof series for the Snowcubes-first morning format; old
+# generic Shadow notes remain private history, not evidence for this outcome.
+WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v3"
 MAILBOX_READBACK_SCHEMA = "shadow.superhuman-mailbox-readback.v1"
 SUPERHUMAN_MCP_RESOURCE = "https://mcp.mail.superhuman.com/mcp"
 SUPERHUMAN_TOKEN_ENDPOINT = "https://mcp.auth.mail.superhuman.com/oauth2/token"
@@ -71,6 +73,15 @@ TASK_RE = re.compile(
 )
 MILESTONE_RE = re.compile(r"^### (?P<title>.+)\s*$")
 BRIEF_RE = re.compile(r"^- (?P<key>Project|Mode|Priority): (?P<val>.+)$")
+
+
+def brief_subject(slot: Any, generated_at: Any) -> str:
+    """Keep the single delivery path while making the 08:00 purpose explicit."""
+    normalized_slot = str(slot or "brief").strip().lower()
+    when = str(generated_at or "")
+    if normalized_slot == "morning":
+        return f"Snowcubes morning brief — {when}"
+    return f"Shadow {normalized_slot} brief — {when}"
 
 
 @dataclass
@@ -1619,6 +1630,7 @@ def render_html(packet: dict[str, Any]) -> str:
     claims = board.get("claims") or []
     analysis = packet.get("analysis") or {}
     snowcubes = packet.get("snowcubes_context") or {}
+    is_snowcubes_morning = str(slot).strip().lower() == "morning"
 
     open_n = sum(len(e.get("open_checkpoints") or []) for e in entities)
     blocked_n = sum(len(e.get("blocked") or []) for e in entities)
@@ -1979,6 +1991,9 @@ def render_html(packet: dict[str, Any]) -> str:
         else "<p class='empty'>Every supporting source was available for this note.</p>"
     )
 
+    snowcubes_surfaces = [
+        item for item in (snowcubes.get("surfaces") or []) if isinstance(item, dict)
+    ]
     snowcubes_cards = "".join(
         "<article class='story'>"
         f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
@@ -1992,13 +2007,51 @@ def render_html(packet: dict[str, Any]) -> str:
         )
         + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
         + "</p></article>"
-        for item in (snowcubes.get("surfaces") or [])
-        if isinstance(item, dict)
+        for item in snowcubes_surfaces
     ) or "<p class='empty'>Snowcubes sources were not collected.</p>"
     snowcubes_html = (
         "<p class='section-intro'>One read-only morning companion. Reply and relationship signals rank first; every unavailable business source is explicit rather than guessed.</p>"
         + snowcubes_cards
     )
+    snowcubes_priorities = "".join(
+        "<article class='story'>"
+        f"<p class='meta'>Priority {rank}</p>"
+        f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
+        f"<p>{_esc(item.get('now'))}</p><p class='meta'>{_esc(item.get('next'))}</p>"
+        f"<p class='meta'>Source: {_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}"
+        + (f"<br/>Proposal: {_esc(item.get('proposal'))}" if item.get("proposal") else "")
+        + (
+            f"<br/><a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
+            if item.get("native_link")
+            else ""
+        )
+        + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
+        + "</p></article>"
+        for rank, item in enumerate(snowcubes_surfaces[:3], start=1)
+    ) or "<p class='empty'>Snowcubes sources were not collected. Restore the named source before acting.</p>"
+    snowcubes_coverage = "<ul class='coverage-list'>" + "".join(
+        "<li>"
+        f"<strong>{_esc(item.get('name'))}</strong> · {_esc(str(item.get('state') or 'unknown').upper())} — "
+        f"{_esc(item.get('source'))}"
+        + (
+            f" · <a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
+            if item.get("native_link")
+            else ""
+        )
+        + (f" · Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
+        + "</li>"
+        for item in snowcubes_surfaces
+    ) + "</ul>" if snowcubes_surfaces else "<p class='empty'>Snowcubes sources were not collected.</p>"
+    if is_snowcubes_morning:
+        first = snowcubes_surfaces[0] if snowcubes_surfaces else {}
+        second = snowcubes_surfaces[1] if len(snowcubes_surfaces) > 1 else {}
+        first_name = str(first.get("name") or "the Snowcubes business read")
+        second_name = str(second.get("name") or "the next source-labelled signal")
+        headline = "Snowcubes chief-of-staff brief"
+        summary = (
+            f"Start with {first_name}, then {second_name}. "
+            "The three priorities below are the only proposed moves; the coverage read names every unavailable source instead of guessing."
+        )
 
     evidence_html = f"""
       <p class="evidence-intro">These details support the read above. They are receipts, not a second list of work.</p>
@@ -2103,7 +2156,39 @@ def render_html(packet: dict[str, Any]) -> str:
       <p class="meta">{_esc(reasoning.get('rule') or 'Missing evidence lowers confidence; it never becomes zero activity.')}</p>
     """
 
-    title = f"Shadow {slot.title()} Note — {when}"
+    if is_snowcubes_morning:
+        title = f"Snowcubes Morning Brief — {when}"
+        report_body = (
+            section("Snowcubes: now → then → waiting", snowcubes_priorities)
+            + section(
+                "Business coverage",
+                "<p class='section-intro'>Replies and relationships rank first; commerce, funnel, search, local profile, lifecycle email, and development follow in source order.</p>"
+                + snowcubes_coverage,
+            )
+            + section(
+                "What can wait",
+                "<p>This email is a read-only projection, not a plan or task store. The existing Shadow board, the canonical Snowcubes plan, and each provider remain the only authorities.</p>",
+            )
+        )
+    else:
+        title = f"Shadow {slot.title()} Note — {when}"
+        report_body = (
+            section("How this note thinks", source_flow_html)
+            + section("Snowcubes morning companion", snowcubes_html)
+            + section("What building looks like now", building_html)
+            + section("Where attention is going", map_html + attention_html)
+            + section("Every workstream, in human terms", workstreams_html)
+            + section("The deeper read", executive_html)
+            + section("Decided for you", decided_html)
+            + section("Needs Leo now", needs_leo_html)
+            + section("Architecture decisions you need to know about", architecture_html)
+            + section("Questions I’m challenging you on", questions_html)
+            + section("ETAs for completion", etas_html)
+            + section("Work that is stalling — and how to improve it", stalling_html)
+            + section("What can wait", what_can_wait_html)
+            + section("Supporting evidence", evidence_html)
+            + section("If a source could not be checked", recovery_html)
+        )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2288,21 +2373,7 @@ def render_html(packet: dict[str, Any]) -> str:
       <p class="summary">{_esc(summary)}</p>
     </header>
 
-    {section("How this note thinks", source_flow_html)}
-    {section("Snowcubes morning companion", snowcubes_html)}
-    {section("What building looks like now", building_html)}
-    {section("Where attention is going", map_html + attention_html)}
-    {section("Every workstream, in human terms", workstreams_html)}
-    {section("The deeper read", executive_html)}
-    {section("Decided for you", decided_html)}
-    {section("Needs Leo now", needs_leo_html)}
-    {section("Architecture decisions you need to know about", architecture_html)}
-    {section("Questions I’m challenging you on", questions_html)}
-    {section("ETAs for completion", etas_html)}
-    {section("Work that is stalling — and how to improve it", stalling_html)}
-    {section("What can wait", what_can_wait_html)}
-    {section("Supporting evidence", evidence_html)}
-    {section("If a source could not be checked", recovery_html)}
+    {report_body}
 
     <footer>
       <strong>Supporting checks inform the note; they do not create another to-do list.</strong>
@@ -2458,7 +2529,7 @@ def verify_window_receipts(
                 or receipt.get("to") != [SELF_MAIL]
             ):
                 problems.append(f"{scheduled_for}: exact self-mail route missing")
-            expected_subject = f"Shadow {row.get('slot')} brief — {row.get('generated_at')}"
+            expected_subject = brief_subject(row.get("slot"), row.get("generated_at"))
             if receipt.get("subject") != expected_subject:
                 problems.append(f"{scheduled_for}: sent-message subject mismatch")
             try:
@@ -2511,6 +2582,16 @@ def verify_window_receipts(
                 if f"board rev {row.get('board_revision')}" not in rendered:
                     problems.append(f"{scheduled_for}: archived HTML board revision mismatch")
                 required_html = (
+                    "<!DOCTYPE html>",
+                    'name="viewport"',
+                    str(row.get("generated_at") or ""),
+                    "Today’s read",
+                    "Snowcubes chief-of-staff brief",
+                    "Snowcubes: now → then → waiting",
+                    "Business coverage",
+                    "What can wait",
+                    "Supporting checks inform the note; they do not create another to-do list.",
+                ) if row.get("slot") == "morning" else (
                     "<!DOCTYPE html>",
                     'name="viewport"',
                     str(row.get("generated_at") or ""),
@@ -3568,7 +3649,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     archive_html_path.write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
     archive_json_path = EVIDENCE_DIR / f"brief-{stamp}.json"
     archive_json_path.write_bytes(json_path.read_bytes())
-    subject = f"Shadow {packet['slot']} brief — {packet['generated_at']}"
+    subject = brief_subject(packet["slot"], packet["generated_at"])
     notification = macos_notify(
         "Shadow brief ready",
         f"{packet['slot']} · board rev {packet.get('board', {}).get('revision')}",
@@ -3620,7 +3701,7 @@ def cmd_deliver(args: argparse.Namespace) -> int:
         packet = json.loads(packet_path.read_text(encoding="utf-8"))
         slot = packet.get("slot") or slot
         when = packet.get("generated_at") or when
-    subject = args.subject or f"Shadow {slot} brief — {when}"
+    subject = args.subject or brief_subject(slot, when)
     receipt = deliver_superhuman(
         html_path,
         subject=subject,
