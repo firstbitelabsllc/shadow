@@ -211,14 +211,23 @@ def collect_board() -> dict[str, Any]:
     if not BOARD_PATH.is_file():
         return {"revision": None, "entities": [], "projects": [], "error": "board missing"}
     board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
+    # The root board owns project priority; a plan's own Priority line is stale
+    # as soon as `shadow priority --value` moves the board-owned value.
+    board_priority = {
+        str(project.get("id") or ""): project.get("priority")
+        for project in (board.get("projects") or [])
+        if isinstance(project, dict) and isinstance(project.get("priority"), int)
+    }
     entities: list[EntityBrief] = []
     for ent in board.get("entities") or []:
+        project_id = str(ent.get("project") or "")
         plan_path = Path(ent.get("plan") or "")
         if not plan_path.is_file():
             entities.append(
                 EntityBrief(
-                    project=str(ent.get("project") or "unknown"),
+                    project=project_id or "unknown",
                     plan=str(plan_path),
+                    priority=board_priority.get(project_id),
                     resume=ent.get("resume"),
                     entity_id=str(ent.get("id") or ""),
                     open_checkpoints=[],
@@ -231,7 +240,9 @@ def collect_board() -> dict[str, Any]:
         brief.resume = ent.get("resume")
         brief.entity_id = str(ent.get("id") or "")
         if not brief.project:
-            brief.project = str(ent.get("project") or brief.project)
+            brief.project = project_id or brief.project
+        if project_id in board_priority:
+            brief.priority = board_priority[project_id]
         entities.append(brief)
     return {
         "revision": board.get("revision"),
@@ -877,7 +888,21 @@ def build_chief_of_staff_analysis(
 
     entities = board.get("entities") or []
     claims = [row for row in (board.get("claims") or []) if isinstance(row, dict)]
-    claim_rows = {str(row.get("row") or "").lstrip("~"): row for row in claims}
+    # The board identifies a claim by entity *and* row, so two projects can reuse
+    # the same row id without one project's claim leaking onto the other.
+    def claim_key(entity: dict[str, Any], checkpoint: dict[str, Any]) -> tuple[str, str]:
+        return (
+            str(entity.get("entity_id") or "").lstrip("~"),
+            str(checkpoint.get("id") or "").lstrip("~"),
+        )
+
+    claim_rows = {
+        (
+            str(row.get("entity") or "").lstrip("~"),
+            str(row.get("row") or "").lstrip("~"),
+        ): row
+        for row in claims
+    }
     ranked = sorted(
         entities,
         key=lambda row: (row.get("priority") is None, row.get("priority") or 99, row.get("project") or ""),
@@ -887,8 +912,8 @@ def build_chief_of_staff_analysis(
     for entity in ranked:
         open_rows.extend((entity, cp) for cp in (entity.get("open_checkpoints") or []))
         blocked_rows.extend((entity, cp) for cp in (entity.get("blocked") or []))
-    claimed = [pair for pair in open_rows if str(pair[1].get("id") or "") in claim_rows]
-    unclaimed = [pair for pair in open_rows if str(pair[1].get("id") or "") not in claim_rows]
+    claimed = [pair for pair in open_rows if claim_key(*pair) in claim_rows]
+    unclaimed = [pair for pair in open_rows if claim_key(*pair) not in claim_rows]
     dirty = [repo for repo in repos if repo.dirty]
     stale = [repo for repo in repos if repo.stale]
     healthy_vercel = sum(
@@ -1084,7 +1109,7 @@ def build_chief_of_staff_analysis(
 
     etas: list[dict[str, str]] = []
     for entity, cp in claimed[:5]:
-        claim = claim_rows.get(str(cp.get("id") or ""), {})
+        claim = claim_rows.get(claim_key(entity, cp), {})
         checkpoint = readable_outcome(cp.get("title"))
         etas.append({
             "project": human_project_label(entity.get("project") or "unknown"),
@@ -2298,11 +2323,15 @@ def append_scheduled_window(
     *,
     scheduled_trigger: bool = False,
     now: datetime | None = None,
+    window: dict[str, Any] | None = None,
 ) -> None:
     if not scheduled_trigger_is_authorized(scheduled_trigger, summary.get("trigger_proof")):
         return
-    window = scheduled_window(now)
-    if not window["on_schedule"]:
+    # Record the window this run was admitted under, not the window it happens to
+    # finish in; a send that crosses minute 30 must still leave a durable receipt.
+    if window is None:
+        window = scheduled_window(now)
+    if not window.get("on_schedule"):
         return
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     row = {**window, "trigger": "launchd-calendar", **summary}
@@ -3184,6 +3213,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             encoding="utf-8",
         )
         return 1
+    trigger_window: dict[str, Any] | None = None
     if args.scheduled_trigger:
         try:
             trigger_window = scheduled_window(
@@ -3256,7 +3286,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
     print(json.dumps(summary, indent=2))
     (LOG_DIR / "last-run.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    append_scheduled_window(summary, scheduled_trigger=args.scheduled_trigger)
+    append_scheduled_window(
+        summary,
+        scheduled_trigger=args.scheduled_trigger,
+        window=trigger_window,
+    )
     return run_exit_code(receipt, notification, scheduled_trigger=args.scheduled_trigger)
 
 
