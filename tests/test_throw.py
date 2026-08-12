@@ -1141,6 +1141,32 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             self.assertEqual((reacquired["state"], reacquired["reason"]), ("acquired", "acquire"))
             self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
 
+    def test_option_shaped_branch_remote_never_reaches_git(self) -> None:
+        """An option-shaped upstream name is rejected before any git transport."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            marker = root / "pwned"
+            config = first / ".git" / "config"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "remote = origin", f"remote = --upload-pack=touch {marker}"
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                self.git(first, "config", "--get", "branch.main.remote"),
+                f"--upload-pack=touch {marker}",
+            )
+
+            self.assertIsNone(remote_claim.upstream_remote(first))
+            self.assertIsNone(remote_claim.upstream_remote(first, recover_detached=True))
+
+            process = self.throw_process(first, root / "home-a", "seat-a")
+            _, stderr = process.communicate(timeout=30)
+
+            self.assertFalse(marker.exists(), stderr)
+
     def test_existing_acquired_tip_survives_an_unrelated_plan_head_advance(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()

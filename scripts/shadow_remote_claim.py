@@ -103,6 +103,28 @@ def _git(
         return subprocess.CompletedProcess(args, 1, b"", b"")
 
 
+def _is_safe_remote_name(name: str) -> bool:
+    """Reject empty, option-shaped, or unquotable configured remote names."""
+    return (
+        bool(name)
+        and name.isprintable()
+        and not name.startswith("-")
+        and name.split() == [name]
+    )
+
+
+def _defined_remotes(repo: Path) -> set[str]:
+    """Return the remote names git itself defines for this repository."""
+    listed = _git(repo, "remote")
+    if listed.returncode:
+        return set()
+    return {
+        line
+        for line in listed.stdout.decode("utf-8", errors="replace").splitlines()
+        if _is_safe_remote_name(line)
+    }
+
+
 def upstream_remote(repo: Path, *, recover_detached: bool = False) -> str | None:
     """Return the one configured upstream remote eligible for coordination.
 
@@ -110,7 +132,10 @@ def upstream_remote(repo: Path, *, recover_detached: bool = False) -> str | None
     call their shared trunk ``upstream`` or a project-specific name.  The
     checked-out branch chooses it.  A detached accept checkout may recover the
     same choice only when its repository configuration has exactly one such
-    remote; otherwise the caller must stay fail-closed.
+    remote; otherwise the caller must stay fail-closed.  A configured value is
+    honoured only when git defines a remote of that name and the name cannot be
+    read as a command-line option, so ``branch.main.remote = --upload-pack=...``
+    never reaches ``ls-remote``, ``fetch``, or ``push``.
     """
     branch = _git(repo, "symbolic-ref", "--short", "HEAD")
     name = branch.stdout.decode("utf-8", errors="replace").strip()
@@ -120,10 +145,10 @@ def upstream_remote(repo: Path, *, recover_detached: bool = False) -> str | None
         value = remote.stdout.decode("utf-8", errors="replace").strip()
         if (
             not remote.returncode
-            and value
-            and value.isprintable()
+            and _is_safe_remote_name(value)
             and not merge.returncode
             and merge.stdout.decode().strip().startswith("refs/heads/")
+            and value in _defined_remotes(repo)
         ):
             return value
     if not recover_detached:
@@ -137,10 +162,11 @@ def _configured_upstream_remotes(repo: Path) -> list[str]:
     configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
     if configured.returncode:
         return []
+    defined = _defined_remotes(repo)
     remotes: set[str] = set()
     for line in configured.stdout.decode("utf-8", errors="replace").splitlines():
         fields = line.split(maxsplit=1)
-        if len(fields) != 2 or not fields[1] or not fields[1].isprintable():
+        if len(fields) != 2 or fields[1] not in defined:
             continue
         key = fields[0]
         if not key.startswith("branch.") or not key.endswith(".remote"):
