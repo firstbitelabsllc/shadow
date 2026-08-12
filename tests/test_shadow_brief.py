@@ -58,6 +58,21 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(plist["ProgramArguments"][1], str(program))
         self.assertEqual(plist["ProgramArguments"][-1], "--scheduled-trigger")
 
+    def test_snowcubes_companion_keeps_missing_business_sources_explicit(self):
+        with mock.patch.object(
+            brief,
+            "collect_superhuman_context",
+            return_value={"available": False, "error": "account not linked"},
+        ):
+            context = brief.collect_snowcubes_context()
+
+        reply = context["surfaces"][0]
+        self.assertEqual(reply["name"], "Reply and relationships")
+        self.assertEqual(reply["state"], "unavailable")
+        self.assertIn("no inbox state is inferred", reply["now"])
+        self.assertIn(brief.SNOWCUBES_BUSINESS_MAIL, reply["wake"])
+        self.assertTrue(all(item["state"] == "unavailable" for item in context["surfaces"][1:]))
+
 
 class SourceBoundaryTests(unittest.TestCase):
     def test_source_contains_no_cursor_agent_delivery_path(self):

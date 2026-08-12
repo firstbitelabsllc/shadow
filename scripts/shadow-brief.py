@@ -40,6 +40,7 @@ WINDOW_LOG = LOG_DIR / "scheduled-windows.jsonl"
 SEND_ATTEMPT_LOG = LOG_DIR / "send-attempts.jsonl"
 MAILBOX_READBACK_LOG = LOG_DIR / "mailbox-readbacks.jsonl"
 SELF_MAIL = "leojkwan@gmail.com"
+SNOWCUBES_BUSINESS_MAIL = "trysnowcubes@gmail.com"
 WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v2"
 MAILBOX_READBACK_SCHEMA = "shadow.superhuman-mailbox-readback.v1"
 SUPERHUMAN_MCP_RESOURCE = "https://mcp.mail.superhuman.com/mcp"
@@ -452,7 +453,7 @@ def collect_growth_source_status() -> dict[str, dict[str, Any]]:
     }
 
 
-def collect_superhuman_context() -> dict[str, Any]:
+def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, Any]:
     """Collect a privacy-bounded 24-hour mailbox signal rollup, never full bodies."""
     import urllib.error
     import urllib.request
@@ -500,7 +501,7 @@ def collect_superhuman_context() -> dict[str, Any]:
             "params": {
                 "name": "list_threads",
                 "arguments": {
-                    "acting_email": SELF_MAIL,
+                    "acting_email": acting_email,
                     "start_date": start,
                     "limit": 25,
                     "sort": "newest",
@@ -544,6 +545,7 @@ def collect_superhuman_context() -> dict[str, Any]:
             })
     return {
         "available": True,
+        "acting_email": acting_email,
         "window_hours": 24,
         "threads_returned": len(threads),
         "total_estimate": payload.get("total_estimate"),
@@ -553,6 +555,67 @@ def collect_superhuman_context() -> dict[str, Any]:
         "cursor_limit_threads": cursor_limit,
         "signals": signals,
     }
+
+
+def collect_snowcubes_context() -> dict[str, Any]:
+    """Read the bounded business-mail signal and name every missing authority.
+
+    This is deliberately a companion inside the one Shadow producer: it is not
+    a storefront mirror, customer database, or separate task queue.
+    """
+    observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    mail = collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
+    if mail.get("available"):
+        human = [row for row in mail.get("signals") or [] if row.get("kind") == "human_or_other"]
+        reply = (
+            "Reply now: review the newest human thread before any automated notification."
+            if human
+            else "No human reply was surfaced in the bounded 24-hour read."
+        )
+        relationship = (
+            "Nurture: keep the next non-automated relationship visible after the reply-now item."
+            if human
+            else "Nurture: no relationship follow-up is inferred from an empty bounded read."
+        )
+        mail_state = "available"
+        mail_wake = None
+    else:
+        reply = "Reply priority is unavailable; no inbox state is inferred."
+        relationship = "Relationship follow-up is unavailable; no customer action is invented."
+        mail_state = "unavailable"
+        mail_wake = "Link trysnowcubes@gmail.com in Superhuman, then run the bounded read-only 24-hour thread query."
+
+    unavailable = {
+        "commerce": "Shopify read-only order and fulfillment adapter is not configured for this producer.",
+        "funnel": "PostHog read-only Snowcubes project adapter is not configured for this producer.",
+        "search": "Search Console read-only property adapter is not configured for this producer.",
+        "local": "Google Business Profile read-only location adapter is not configured for this producer.",
+        "lifecycle": "Resend/Supabase read-only lifecycle adapter is not configured for this producer.",
+    }
+    surfaces = [
+        {
+            "name": "Reply and relationships",
+            "state": mail_state,
+            "now": reply,
+            "next": relationship,
+            "source": "Superhuman business inbox",
+            "observed_at": observed_at,
+            "wake": mail_wake,
+        },
+        *[
+            {
+                "name": name.title(),
+                "state": "unavailable",
+                "now": "No current business fact is claimed.",
+                "next": reason,
+                "source": name,
+                "observed_at": observed_at,
+                "wake": f"Configure the read-only Snowcubes {name} adapter; the next natural morning window will read it.",
+            }
+            for name, reason in unavailable.items()
+        ],
+    ]
+    return {"observed_at": observed_at, "surfaces": surfaces}
 
 
 def build_paint_health(
@@ -1107,6 +1170,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
     supabase = collect_supabase()
     nia = collect_nia_status()
     mail = collect_superhuman_context()
+    snowcubes = collect_snowcubes_context()
     growth_health = collect_growth_source_status()
     paint_health = {
         "local_git": build_local_git_health(root, repos),
@@ -1185,6 +1249,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "supabase": supabase,
         "nia": nia,
         "superhuman_context": mail,
+        "snowcubes_context": snowcubes,
         "paint_health": paint_health,
         "analysis": analysis,
         "recommendations": [asdict(r) for r in recs],
@@ -1229,6 +1294,7 @@ def render_html(packet: dict[str, Any]) -> str:
     recs = packet.get("recommendations") or []
     claims = board.get("claims") or []
     analysis = packet.get("analysis") or {}
+    snowcubes = packet.get("snowcubes_context") or {}
 
     open_n = sum(len(e.get("open_checkpoints") or []) for e in entities)
     blocked_n = sum(len(e.get("blocked") or []) for e in entities)
@@ -1593,6 +1659,21 @@ def render_html(packet: dict[str, Any]) -> str:
         else "<p class='empty'>Every supporting source was available for this note.</p>"
     )
 
+    snowcubes_cards = "".join(
+        "<article class='story'>"
+        f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
+        f"<p>{_esc(item.get('now'))}</p><p class='meta'>{_esc(item.get('next'))}</p>"
+        f"<p class='meta'>Source: {_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}"
+        + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
+        + "</p></article>"
+        for item in (snowcubes.get("surfaces") or [])
+        if isinstance(item, dict)
+    ) or "<p class='empty'>Snowcubes sources were not collected.</p>"
+    snowcubes_html = (
+        "<p class='section-intro'>One read-only morning companion. Reply and relationship signals rank first; every unavailable business source is explicit rather than guessed.</p>"
+        + snowcubes_cards
+    )
+
     evidence_html = f"""
       <p class="evidence-intro">These details support the read above. They are receipts, not a second list of work.</p>
       <div class="evidence-grid">
@@ -1882,6 +1963,7 @@ def render_html(packet: dict[str, Any]) -> str:
     </header>
 
     {section("How this note thinks", source_flow_html)}
+    {section("Snowcubes morning companion", snowcubes_html)}
     {section("What building looks like now", building_html)}
     {section("Where attention is going", map_html + attention_html)}
     {section("Every workstream, in human terms", workstreams_html)}
