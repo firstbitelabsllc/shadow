@@ -7,12 +7,12 @@ the user to supervise the system.
 
 ## Authority and hierarchy
 
-There is one Git-backed Shadow board per computer at `~/.shadow`. It owns only
+There is one private local Shadow board per computer at `~/.shadow`. It owns only
 global coordination: project priority, entity pointers, checkpoint claims,
 owners, leases, and each entity's resume checkpoint. Its local file is the
-immediate authority; a private remote may be lagging recovery but never gates a
-local write. The board stores pointers, never checkpoint text, proof, milestone
-detail, transcripts, or evidence.
+immediate authority. Its private journal records `board.json` for recovery
+only; it never tracks plan files, checkpoint text, proof, milestone detail,
+transcripts, or evidence.
 
 The operating hierarchy is:
 
@@ -22,8 +22,10 @@ computer board → project → entity → milestone → checkpoint
 
 - A project groups related work and owns one global priority. It may span many
   repositories or other independently steerable entities.
-- An entity is one committed `PLAN.md`, addressed by a durable logical identity.
-  It owns its milestones, checkpoints, decisions, proof, and evidence pointers.
+- An infrastructure entity is one local `PLAN.md` beneath `~/.shadow/plans/`,
+  addressed by a durable logical identity. It owns its milestones, checkpoints,
+  decisions, proof, and evidence pointers. Product repositories can separately
+  keep source-bound release plans when their source is the authority.
 - A milestone is a bounded outcome stage: two to seven checkpoints plus one
   definition-of-done checkpoint.
 - A checkpoint is the smallest claim and proof unit. It describes a state the
@@ -95,8 +97,8 @@ keeps the hot plan inside its versioned row, byte, and open-milestone budgets.
 ## Multi-seat work
 
 `shadow throw` is the only public claim boundary. Under the computer-board
-lock it rereads the board and committed entity snapshot, records owner and
-return time, atomically replaces the board, and commits a local Git receipt.
+lock it rereads the board and frozen entity snapshot, records owner and
+return time, then atomically replaces the local board file.
 A checkout whose current branch tracks configured `origin` also acquires the
 deterministic `refs/heads/shadow/claims/v1/<entity>/<row>` coordination lock by
 create-or-CAS before it emits a packet. The ref contains a closed public receipt

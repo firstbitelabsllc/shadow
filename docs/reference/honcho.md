@@ -17,8 +17,8 @@ drift from `PLAN.md`, one more daemon to keep honest.
 
 | The honcho idea | Where it actually lives |
 |---|---|
-| Durable global coordination | This computer's Git-backed root board — project priority, entity pointers, claims, owners, leases, and entity resume checkpoints. |
-| Durable detail about what work is trying to achieve | Each entity's committed `PLAN.md` — milestones, checkpoints, decisions, proof, and Progress. Git is the cross-computer sync layer. |
+| Durable global coordination | This computer's private local root board — project priority, entity pointers, claims, owners, leases, and entity resume checkpoints. Its recovery journal tracks `board.json` only. |
+| Durable detail about what work is trying to achieve | Each infrastructure entity's local `PLAN.md` — milestones, checkpoints, decisions, proof, and Progress. Product source is kept separately. |
 | "It just knows which tools/flows fit this work" | The milestone's `- tools:` line, written by whoever worked the milestone; `shadow amp` projects it into every goal block. Knowledge rides IN the plan. |
 | Continuity across CLIs and providers on one computer | `shadow status --by <seat>` reads the root board and dereferences its entity plan pointers. A chat is only a projection. |
 | Continuity across computers | Project Git remotes carry committed entity plans and proof; each computer reconstructs its own root board. One computer never impersonates another's live coordination state. |
