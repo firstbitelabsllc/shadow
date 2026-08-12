@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import http.client
+import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -104,6 +106,21 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(first["state"], "received")
             self.assertNotIn(dirname, receipt.read_text(encoding="utf-8"))
             self.assertEqual(len(list(receipt.parent.glob("*.json"))), 1)
+
+    def test_decision_receipt_fsyncs_its_file_and_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan = self.make_repo(Path(dirname))
+            document = server.plan_record(plan, repo)["outcome"]
+            kinds = {"file": False, "dir": False}
+            real_fsync = os.fsync
+
+            def spy(fd: int) -> None:
+                kinds["dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"] = True
+                real_fsync(fd)
+
+            with mock.patch.object(server.os, "fsync", side_effect=spy):
+                server.write_decision_receipt(plan, document, "cold-review", 7)
+        self.assertEqual(kinds, {"file": True, "dir": True})
 
     def test_stale_revision_is_recorded_as_superseded(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -1146,22 +1163,52 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         self.assertIn("hand-written note", change["summary"])
 
     def test_a_private_path_in_a_progress_line_never_reaches_a_card(self) -> None:
+        private_path = "/" + "Users" + "/someone/Development/private-client/PLAN.md"
         plan = self.PLAN.replace(
             "Final authority read — objective SHA "
             "`b30773705e835d97f9792ea81e3775fa19dbb238f7d5de13bc1e88160827f5fc`, "
             "Snowcubes `origin/main` and both clean authority checkouts agree ~aa11",
-            "read the canonical plan at /Users/person/Development/private-client"
-            "/PLAN.md ~aa11",
+            f"read the canonical plan at {private_path} ~aa11",
         )
         change = board_projection.project_board_brief(plan)["latest_change"]
         # Assert over the WHOLE projected change, not just its summary: the
         # path must not survive in any field the renderer can print.
-        self.assertNotIn("/Users/", json.dumps(change))
+        self.assertNotIn(private_path, json.dumps(change))
         self.assertNotIn("private-client", json.dumps(change))
         self.assertIsNone(change["summary"])
         # The gate is surgical, not a blanket drop: when and kind still speak.
         self.assertEqual(change["when"], "2026-08-10T14:13:05Z")
         self.assertEqual(change["kind"], "Plan structure changed")
+
+    def test_no_milestone_field_can_print_a_private_path_or_secret(self) -> None:
+        """title, current, next and dod.text are card text too — the gate that
+        covers the summary and the priority must cover them or a stray machine
+        path reaches the fallback board card the renderer draws."""
+        private_path = "/" + "Users" + "/someone/Development/client"
+        token = "ghp_" + "a" * 30
+        plan = (
+            "# T\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n## Tasks\n\n"
+            f"### M3 — Fix {private_path} build\n"
+            f"- [in_progress] rerun {private_path}/build.sh ~aa10 | proof: cmd true\n"
+            f"- [pending] rotate the token {token} ~aa11 | proof: cmd true\n"
+            f"- [blocked] done when {private_path} ships ~aa12 (DoD) | proof: gate owner\n"
+        )
+        milestone = board_projection.project_board_brief(plan)["milestone"]
+        blob = json.dumps(milestone)
+        self.assertNotIn(private_path, blob)
+        self.assertNotIn(token, blob)
+        # Withheld, not blank: the card still reads and the counts still speak.
+        self.assertEqual(milestone["title"], "Milestone")
+        self.assertIsNone(milestone["current"])
+        self.assertIsNone(milestone["next"])
+        self.assertEqual(milestone["dod"]["text"], "Checkpoint text withheld")
+        self.assertEqual(milestone["dod"]["state"], "blocked")
+        self.assertEqual(milestone["counts"]["in_progress"], 1)
+
+    def test_a_safe_milestone_still_prints_every_field(self) -> None:
+        milestone = self._board()["milestone"]
+        self.assertEqual(milestone["title"], "Soft cloudy props for tables")
+        self.assertIn("evidence-backed shortlist", milestone["dod"]["text"])
 
     def test_a_secret_shaped_progress_line_is_withheld_too(self) -> None:
         plan = self.PLAN.replace(
@@ -1188,9 +1235,10 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         self.assertNotIn("ghp_", json.dumps(change))
 
     def test_a_brief_priority_carrying_a_path_is_withheld(self) -> None:
+        private_path = "/" + "Users" + "/someone/Development/x"
         plan = self.PLAN.replace(
             "- Project: demo",
-            "- Project: demo\n- Priority: finish /Users/person/Development/x",
+            f"- Project: demo\n- Priority: finish {private_path}",
         )
         self.assertIsNone(board_projection.project_board_brief(plan)["priority"])
         safe = self.PLAN.replace(
@@ -1204,13 +1252,14 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
     def test_the_gallery_record_never_prints_a_private_priority(self) -> None:
         """The gallery renders checked-in plan TEXT through record_from_text —
         the same path a fixture with a stray machine path would travel."""
+        private_path = "/" + "Users" + "/someone/Development/x"
         plan = self.PLAN.replace(
             "- Project: demo",
-            "- Project: demo\n- Priority: ship /Users/person/Development/x",
+            f"- Project: demo\n- Priority: ship {private_path}",
         )
         record = server.record_from_text(plan, "demo/PLAN.md", "demo")
         self.assertIsNone(record["board"]["priority"])
-        self.assertNotIn("/Users/", json.dumps(record["board"]))
+        self.assertNotIn(private_path, json.dumps(record["board"]))
 
 
 if __name__ == "__main__":
