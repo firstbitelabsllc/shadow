@@ -106,6 +106,33 @@ class PrivateStoreTests(unittest.TestCase):
         nurture = next(item for item in context["surfaces"] if item["name"] == "Relationships to nurture")
         self.assertIn("Proposal only", nurture["proposal"])
 
+    def test_linkless_business_signal_is_unknown_not_a_reply_prompt(self):
+        signal = {
+            "subject": "A real person wrote",
+            "last_message_at": "2026-08-12T00:17:20Z",
+            "kind": "human_or_other",
+            "thread_id": "opaque-thread-id",
+            "native_link": None,
+        }
+        with mock.patch.object(
+            brief,
+            "collect_superhuman_context",
+            return_value={"available": True, "signals": [signal]},
+        ), mock.patch.object(brief, "collect_board", return_value={"revision": 9}), mock.patch.object(
+            brief, "_snowcubes_m12_surface", return_value={"name": "M12 cafe-doctor", "state": "unavailable"}
+        ):
+            context = brief.collect_snowcubes_context(vercel={"available": False})
+
+        reply = context["surfaces"][0]
+        nurture = next(item for item in context["surfaces"] if item["name"] == "Relationships to nurture")
+        self.assertEqual(reply["state"], "unknown")
+        self.assertIn("not ranked as a reply", reply["now"])
+        self.assertIn("do not manufacture", reply["wake"])
+        self.assertNotIn("native_link", reply)
+        self.assertNotIn("proposal", reply)
+        self.assertEqual(nurture["state"], "unknown")
+        self.assertNotIn("proposal", nurture)
+
     def test_rendered_companion_shows_native_link_and_proposal(self):
         packet = {
             "slot": "morning",
