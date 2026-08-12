@@ -38,9 +38,12 @@ HASH_RE = _grammar.HASH_RE
 PROOF_LINE_RE = _grammar.PROOF_LINE_RE
 PROOF_CLASS_RE = _grammar.PROOF_CLASS_RE
 STAMP_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ", re.MULTILINE)
+# A machine-local authority is content-addressed, not commit-addressed:
+# `frozen_plan_snapshot` stamps its head as `local:<sha256>`. The reader must
+# accept that shape or lifecycle mints receipts its own parser rejects.
 TOMBSTONE_RE_TEMPLATE = (
     r"<!-- shadow:lifecycle:{slug}:sha256:(?P<digest>[0-9a-f]{{64}}):"
-    r"cas:(?P<cas>[0-9a-f]{{64}}):head:(?P<head>[0-9a-f]{{40,64}}):"
+    r"cas:(?P<cas>[0-9a-f]{{64}}):head:(?P<head>(?:local:)?[0-9a-f]{{40,64}}):"
     r"blob:(?P<blob>[0-9a-f]{{40,64}}):"
     r"successor:(?P<successor>~[0-9a-z]{{4}}|none) -->"
 )
@@ -608,7 +611,7 @@ def committed_snapshot(repo_value: Path) -> tuple[Path, Path, dict[str, str], st
         raise LifecycleError("repository path must not be a symlink")
     plan = expanded.resolve() / "PLAN.md"
     try:
-        token, payload = _board.committed_plan_snapshot(plan)
+        token, payload = _board.frozen_plan_snapshot(plan)
     except _board.BoardError as exc:
         raise LifecycleError(str(exc)) from None
     repo = Path(token["repo"]).resolve()
@@ -639,6 +642,13 @@ def commit_archive_candidate(
     archive_relative: Path,
     slug: str,
 ) -> str:
+    if _board.is_local_plan(repo / plan_relative):
+        # A machine-local authority is never committed, so the archive is
+        # finished by the atomic writes the caller already made. Its identity
+        # is the same content address `frozen_plan_snapshot` stamps, which is
+        # what the tombstone reader expects to find in the head field.
+        digest = hashlib.sha256((repo / plan_relative).read_bytes()).hexdigest()
+        return f"local:{digest}"
     git(repo, "add", "--", plan_relative.as_posix(), archive_relative.as_posix())
     git(
         repo,
