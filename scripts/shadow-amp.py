@@ -357,21 +357,28 @@ def _git(repo: Path, *args: str) -> str:
         return ""
 
 
-def _pointer(repo: Path, plan_path: Path) -> tuple[str, bool]:
-    """(pointer, dirty). `dirty` is true when the plan on disk differs from
-    the ref the pointer names — amp read the working tree, so the block must
-    say so rather than advertise a ref that serves different content."""
+def _pointer(repo: Path, plan_path: Path) -> tuple[str, bool, bool]:
+    """(pointer, dirty, local). `dirty` is true when the plan on disk differs
+    from the ref the pointer names — amp read the working tree, so the block
+    must say so rather than advertise a ref that serves different content.
+    A machine-local plan names no ref at all: nothing can fetch it, and no ref
+    ever serves it, so it is never dirty and always points at this computer."""
+    local = _board.is_local_plan(plan_path)
     branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
     sha = _git(repo, "rev-parse", "--short", "HEAD")
     rel = plan_path.name if plan_path.parent == repo else str(plan_path.relative_to(repo))
-    dirty = bool(sha) and bool(_git(repo, "status", "--porcelain", "--", str(plan_path)))
-    at = f" @ {branch}@{sha}" if sha else ""
+    dirty = (
+        not local
+        and bool(sha)
+        and bool(_git(repo, "status", "--porcelain", "--", str(plan_path)))
+    )
+    at = " @ this computer" if local else (f" @ {branch}@{sha}" if sha else "")
     if dirty:
         at += " +UNCOMMITTED"
     public = _board.public_plan_locator(plan_path)
     suffix = f"/{rel}"
     where = public[: -len(suffix)] if public.endswith(suffix) else public
-    return f"{rel}{at} in {where}", dirty
+    return f"{rel}{at} in {where}", dirty, local
 
 
 _BUCKETS: object | None = None
@@ -730,8 +737,9 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     outcome = re.sub(r"^[A-Z]+\d+\s*[—-]\s*", "", milestone["title"])
     header = f"/goal {project} — {outcome}"
     pointer = plan.get("authority_pointer")
+    local_authority = bool(plan.get("local_authority"))
     if pointer is None:
-        pointer, dirty = _pointer(repo, plan_path)
+        pointer, dirty, local_authority = _pointer(repo, plan_path)
     else:
         pointer, dirty = _clean(str(pointer), 512), False
     revision = plan.get("board_revision")
@@ -750,7 +758,11 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
         f"{board_line}\n"
         "The entity plan owns milestone/checkpoint detail and proof; this block copies "
         "neither. First move:\n"
-        "fetch, read that section at the current origin ref, and state the ref you read."
+        + (
+            "read that local file directly and state its observed timestamp."
+            if local_authority
+            else "fetch, read that section at the current origin ref, and state the ref you read."
+        )
     )
     if dirty:
         # The block was projected from the WORKING TREE; the named ref serves
@@ -892,6 +904,11 @@ def main(argv: list[str] | None = None) -> int:
             plan_path = unresolved.resolve()
         else:
             plan_path = repo / "PLAN.md"
+            if not _board.regular_plan(plan_path):
+                # A project whose authority is machine-local carries no plan in
+                # its checkout; the board already knows where that authority
+                # lives, so the repository-shaped verb still resolves it.
+                plan_path = _board.local_plan_for_repo(repo) or plan_path
     if args.task and not re.fullmatch(r"~[0-9a-z]{4}", args.task):
         print(f"shadow amp: --task wants a four-char id like ~ab12, got {args.task}",
               file=sys.stderr)
