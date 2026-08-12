@@ -238,21 +238,23 @@ def collect_board() -> dict[str, Any]:
     if not BOARD_PATH.is_file():
         return {"revision": None, "entities": [], "projects": [], "error": "board missing"}
     board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
-    project_priorities = {
-        str(row.get("id") or row.get("project") or ""): row.get("priority")
-        for row in (board.get("projects") or [])
-        if isinstance(row, dict) and row.get("priority") is not None
+    # The root board owns project priority; a plan's own Priority line is stale
+    # as soon as `shadow priority --value` moves the board-owned value.
+    board_priority = {
+        str(project.get("id") or ""): project.get("priority")
+        for project in (board.get("projects") or [])
+        if isinstance(project, dict) and isinstance(project.get("priority"), int)
     }
     entities: list[EntityBrief] = []
     for ent in board.get("entities") or []:
+        project_id = str(ent.get("project") or "")
         plan_path = Path(ent.get("plan") or "")
         if not plan_path.is_file():
-            board_project = str(ent.get("project") or "unknown")
             entities.append(
                 EntityBrief(
-                    project=board_project,
+                    project=project_id or "unknown",
                     plan=str(plan_path),
-                    priority=project_priorities.get(board_project),
+                    priority=board_priority.get(project_id),
                     resume=ent.get("resume"),
                     entity_id=str(ent.get("id") or ""),
                     open_checkpoints=[],
@@ -264,12 +266,10 @@ def collect_board() -> dict[str, Any]:
         brief = parse_plan(plan_path)
         brief.resume = ent.get("resume")
         brief.entity_id = str(ent.get("id") or "")
-        board_project = str(ent.get("project") or brief.project or "")
-        if board_project in project_priorities:
-            # Project priority belongs to the root board, not a stale PLAN copy.
-            brief.priority = project_priorities[board_project]
         if not brief.project:
-            brief.project = str(ent.get("project") or brief.project)
+            brief.project = project_id or brief.project
+        if project_id in board_priority:
+            brief.priority = board_priority[project_id]
         entities.append(brief)
     return {
         "revision": board.get("revision"),
@@ -2328,21 +2328,25 @@ def append_scheduled_window(
     *,
     scheduled_trigger: bool = False,
     now: datetime | None = None,
+    window: dict[str, Any] | None = None,
 ) -> None:
     if not scheduled_trigger_is_authorized(scheduled_trigger, summary.get("trigger_proof")):
         return
-    recorded_window = summary.get("scheduled_window")
-    if isinstance(recorded_window, dict) and recorded_window.get("scheduled_for"):
-        # Keep the launchd slot captured before collection/delivery. Delivery may
-        # finish after minute 30, but it still belongs to the accepted trigger.
-        window = {
-            "on_schedule": True,
-            "slot": recorded_window.get("slot"),
-            "scheduled_for": recorded_window.get("scheduled_for"),
-        }
-    else:
-        window = scheduled_window(now)
-    if not window["on_schedule"]:
+    # Record the window this run was admitted under, not the window it happens to
+    # finish in; a send that crosses minute 30 must still leave a durable receipt.
+    if window is None:
+        recorded_window = summary.get("scheduled_window")
+        if isinstance(recorded_window, dict) and recorded_window.get("scheduled_for"):
+            # Keep the launchd slot captured before collection/delivery. Delivery may
+            # finish after minute 30, but it still belongs to the accepted trigger.
+            window = {
+                "on_schedule": True,
+                "slot": recorded_window.get("slot"),
+                "scheduled_for": recorded_window.get("scheduled_for"),
+            }
+        else:
+            window = scheduled_window(now)
+    if not window.get("on_schedule"):
         return
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     row = {**window, "trigger": "launchd-calendar", **summary}
@@ -3300,7 +3304,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
     print(json.dumps(summary, indent=2))
     (LOG_DIR / "last-run.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    append_scheduled_window(summary, scheduled_trigger=args.scheduled_trigger)
+    append_scheduled_window(
+        summary,
+        scheduled_trigger=args.scheduled_trigger,
+        window=trigger_window,
+    )
     return run_exit_code(receipt, notification, scheduled_trigger=args.scheduled_trigger)
 
 
