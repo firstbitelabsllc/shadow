@@ -63,6 +63,10 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("scripts/shadow-lint.py", "scripts/shadow_task_lib.py", "scripts/shadow-init.py"), (
         "tests.test_shadow_lint", "tests.test_shadow_init", "tests.test_grammar_contract",
     )),
+    (("scripts/shadow_plan_grammar.py",), (
+        "tests.test_shadow_lint", "tests.test_shadow_accept", "tests.test_amp",
+        "tests.test_lifecycle", "tests.test_root_board", "tests.test_grammar_contract",
+    )),
     (("install.sh", "scripts/shadow-doctor.py", "scripts/shadow-host-directives.py", "scripts/shadow-verify-host.sh"), (
         "tests.test_install_doctor", "tests.test_host_directives", "tests.test_verify_host",
         "tests.test_standing_goal", "tests.test_release_package",

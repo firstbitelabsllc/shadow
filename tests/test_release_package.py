@@ -113,6 +113,9 @@ class ReleasePackageTests(unittest.TestCase):
     def test_cmd_proof_validator_ships_with_lint_and_accept(self) -> None:
         self.assertIn("scripts/shadow_cmd_proof.py", mod.REQUIRED_FILES)
 
+    def test_plan_grammar_ships_with_its_consumers(self) -> None:
+        self.assertIn("scripts/shadow_plan_grammar.py", mod.REQUIRED_FILES)
+
     def test_remote_claim_transport_ships_with_throw(self) -> None:
         self.assertIn("scripts/shadow_remote_claim.py", mod.REQUIRED_FILES)
 
@@ -228,6 +231,11 @@ class ReleaseIdentityIsImmutable(unittest.TestCase):
         git(repo, "config", "user.email", "release@example.invalid")
         git(repo, "config", "user.name", "Release Test")
         git(repo, "remote", "set-url", "origin", "https://github.com/firstbitelabsllc/shadow.git")
+        # The public checkout may already carry this real release tag. This
+        # fixture owns its own tag at its cloned HEAD, so discard the inherited
+        # name before minting that isolated identity.
+        subprocess.run(["git", "-C", str(repo), "tag", "-d", f"shadow-v{VERSION}"],
+                       capture_output=True, text=True, check=False)
         git(repo, "tag", "-a", f"shadow-v{VERSION}", "-m", f"Shadow {VERSION}")
         return repo
 
