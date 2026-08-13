@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -281,6 +282,167 @@ class CandidateLayoutComparison(unittest.TestCase):
 
 
 class PlanTreeMigrationHarness(unittest.TestCase):
+    def test_local_apply_and_rollback_preserve_plan_bytes_and_board(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            home = root / "home"
+            plan_path = home / ".shadow" / "plans" / "alpha" / "PLAN.md"
+            plan_path.parent.mkdir(parents=True)
+            content = plan("alpha", "~aa11")
+            plan_path.write_text(content, encoding="utf-8")
+            archive = plan_path.parent / "docs" / "plan-archive" / "old-work.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("# Old work\n", encoding="utf-8")
+            board = home / ".shadow" / "board.json"
+            board.write_text(
+                json.dumps(
+                    {
+                        "schema": "shadow.root-board.v1",
+                        "revision": 9,
+                        "projects": [{"id": "alpha", "priority": 1}],
+                        "entities": [{
+                            "id": "a" * 64,
+                            "project": "alpha",
+                            "plan": str(plan_path),
+                            "resume": "~aa11",
+                        }],
+                        "claims": [{
+                            "entity": "a" * 64,
+                            "row": "~aa11",
+                            "owner": "cold-seat",
+                            "claimed_at": "2026-08-12T00:00:00Z",
+                            "return_by": "2026-08-13T00:00:00Z",
+                            "recovery": "probe-proof-then-adopt-park-or-close",
+                        }],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            before_plan = plan_path.read_bytes()
+            before_board = board.read_bytes()
+            report = scale._store.dry_run_migration(plan_path, board=board)
+
+            applied = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "shadow-plan.py"),
+                    "migrate",
+                    str(plan_path),
+                    "--apply",
+                    "--expect",
+                    report.source_sha256,
+                    "--board",
+                    str(board),
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            payload = json.loads(applied.stdout or "{}")
+            self.assertEqual(applied.returncode, 0, (applied.stderr, payload))
+            self.assertEqual(scale._store.PlanSnapshot.open(plan_path).materialize(), before_plan)
+            self.assertEqual(board.read_bytes(), before_board)
+            self.assertEqual(payload["action"], "migrated")
+
+            rolled_back = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "shadow-plan.py"),
+                    "rollback",
+                    str(plan_path),
+                    "--expect",
+                    payload["root_sha256"],
+                    "--board",
+                    str(board),
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(rolled_back.returncode, 0, rolled_back.stderr)
+            self.assertEqual(plan_path.read_bytes(), before_plan)
+            self.assertEqual(board.read_bytes(), before_board)
+
+    def test_git_apply_and_rollback_commit_the_root_and_objects_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "-C", str(repo), "init", "--quiet"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Plan Test"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "plan@example.invalid"], check=True)
+            plan_path = repo / "PLAN.md"
+            before_plan = plan("alpha", "~aa11").encode("utf-8")
+            plan_path.write_bytes(before_plan)
+            archive = repo / "docs" / "plan-archive" / "old-work.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("# Old work\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "--quiet", "-m", "seed"], check=True)
+            report = scale._store.dry_run_migration(plan_path, board=None)
+
+            applied = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "shadow-plan.py"),
+                    "migrate",
+                    str(plan_path),
+                    "--apply",
+                    "--expect",
+                    report.source_sha256,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            payload = json.loads(applied.stdout or "{}")
+            self.assertEqual(applied.returncode, 0, (applied.stderr, payload))
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "status", "--porcelain=v1"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+                "",
+            )
+            changed = subprocess.run(
+                ["git", "-C", str(repo), "show", "--pretty=", "--name-only", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertIn("PLAN.md", changed)
+            self.assertIn("PLAN.d/objects/sha256/", changed)
+
+            rolled_back = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "shadow-plan.py"),
+                    "rollback",
+                    str(plan_path),
+                    "--expect",
+                    payload["root_sha256"],
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(rolled_back.returncode, 0, rolled_back.stderr)
+            self.assertEqual(plan_path.read_bytes(), before_plan)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "status", "--porcelain=v1"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+                "",
+            )
+
     def test_dry_run_is_lossless_rebuildable_and_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

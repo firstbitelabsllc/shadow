@@ -1211,6 +1211,31 @@ def rollback(plan: Path, *, expected_root: str) -> PublishReceipt:
     )
 
 
+def restore_exact_root(
+    plan: Path,
+    *,
+    expected_current_root: str,
+    target_root_bytes: bytes,
+) -> PlanSnapshot:
+    """CAS-restore one previously verified root whose objects still exist."""
+    target_root = _parse_root(target_root_bytes)
+    if target_root is None:
+        _text(target_root_bytes)
+    target = PlanSnapshot(Path(os.path.abspath(plan)), target_root_bytes, target_root)
+    target.materialize()
+    with _root_lock(target.plan):
+        current = _safe_read(target.plan, 1_000_000)
+        if digest_bytes(current) != expected_current_root:
+            raise PlanStoreError("plan root changed before exact restore")
+        mode = stat.S_IMODE(os.stat(target.plan, follow_symlinks=False).st_mode)
+        _atomic_replace(target.plan, target_root_bytes, mode)
+    restored = PlanSnapshot.open(target.plan)
+    if restored.root_bytes != target_root_bytes:
+        raise PlanStoreError("exact root restore readback mismatch")
+    restored.materialize()
+    return restored
+
+
 def _reachable_objects(snapshot: PlanSnapshot) -> set[str]:
     if snapshot.root is None:
         return set()
