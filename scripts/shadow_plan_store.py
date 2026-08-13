@@ -6,7 +6,9 @@ format mechanics only; the private root board continues to own coordination.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+import fcntl
 import hashlib
 import json
 import os
@@ -14,7 +16,8 @@ from pathlib import Path
 import re
 import stat
 import sys
-from typing import Any, Iterable, Iterator
+import tempfile
+from typing import Any, Callable, Iterable, Iterator
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +101,16 @@ class PlanProvenance:
 class PlanResult:
     content: bytes
     provenance: PlanProvenance
+
+
+@dataclass(frozen=True)
+class PublishReceipt:
+    schema: str
+    previous_root_sha256: str
+    root_sha256: str
+    logical_sha256: str
+    generation: int
+    object_writes: int
 
 
 @dataclass(frozen=True)
@@ -640,6 +653,14 @@ def _parse_root(content: bytes) -> dict[str, Any] | None:
             raise PlanStoreError(f"plan-tree root {key} is malformed")
     if not isinstance(payload.get("logical_bytes"), int) or payload["logical_bytes"] < 0:
         raise PlanStoreError("plan-tree logical byte count is malformed")
+    if not isinstance(payload.get("generation"), int) or payload["generation"] < 0:
+        raise PlanStoreError("plan-tree generation is malformed")
+    previous = payload.get("previous_root")
+    if previous is not None and (
+        not isinstance(previous, str)
+        or re.fullmatch(r"[0-9a-f]{64}", previous) is None
+    ):
+        raise PlanStoreError("plan-tree previous root is malformed")
     return payload
 
 
@@ -916,6 +937,275 @@ class PlanSnapshot:
                 source_bytes=counters[1],
             ),
         )
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _atomic_replace(path: Path, content: bytes, mode: int) -> None:
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    except OSError as exc:
+        raise PlanStoreError("plan-tree root could not be replaced atomically") from exc
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+@contextmanager
+def _root_lock(plan: Path) -> Iterator[None]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(plan, flags)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise PlanStoreError("plan-tree root is not a regular file")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+    except PlanStoreError:
+        if "descriptor" in locals():
+            os.close(descriptor)
+        raise
+    except OSError as exc:
+        if "descriptor" in locals():
+            os.close(descriptor)
+        raise PlanStoreError("plan-tree root lock is unavailable") from exc
+    try:
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _object_destination(plan: Path, digest: str) -> Path:
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise PlanStoreError("object digest is malformed")
+    plan_dir = plan.parent
+    tree_dir = plan_dir / "PLAN.d"
+    objects = tree_dir / "objects"
+    algorithm = objects / "sha256"
+    bucket = algorithm / digest[:2]
+    for directory in (tree_dir, objects, algorithm, bucket):
+        try:
+            if directory.exists():
+                if directory.is_symlink() or not directory.is_dir():
+                    raise PlanStoreError("plan-tree object directory is unsafe")
+            else:
+                directory.mkdir()
+                _fsync_directory(directory.parent)
+        except PlanStoreError:
+            raise
+        except OSError as exc:
+            raise PlanStoreError("plan-tree object directory is unavailable") from exc
+    return bucket / digest
+
+
+def _publish_object(plan: Path, digest: str, content: bytes) -> bool:
+    if digest_bytes(content) != digest:
+        raise PlanStoreError("object content does not match its digest")
+    destination = _object_destination(plan, digest)
+    if destination.exists() or destination.is_symlink():
+        existing = _safe_read(destination, max(len(content), 1_000_000))
+        if existing != content:
+            raise PlanStoreError("existing content-addressed object is corrupt")
+        return False
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".object.tmp-", dir=destination.parent
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            existing = _safe_read(destination, max(len(content), 1_000_000))
+            if existing != content:
+                raise PlanStoreError("existing content-addressed object is corrupt")
+            return False
+        _fsync_directory(destination.parent)
+        return True
+    except PlanStoreError:
+        raise
+    except OSError as exc:
+        raise PlanStoreError("content-addressed object could not be published") from exc
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def _with_lineage(
+    build: PlanTreeBuild,
+    *,
+    generation: int,
+    previous_root: str,
+) -> PlanTreeBuild:
+    root = dict(build.root)
+    root["generation"] = generation
+    root["previous_root"] = previous_root
+    return PlanTreeBuild(
+        root_bytes=_root_bytes(root, DEFAULT_LIMITS),
+        root=root,
+        objects=build.objects,
+        row_routes=build.row_routes,
+        tag_routes=build.tag_routes,
+    )
+
+
+class PlanTransaction:
+    """One CAS-protected logical mutation of a legacy plan or plan tree."""
+
+    def __init__(self, snapshot: PlanSnapshot) -> None:
+        self.snapshot = snapshot
+        self.plan = snapshot.plan
+        self.expected_root = snapshot.root_sha256
+        self.original_root_bytes = snapshot.root_bytes
+        self.original_content = snapshot.materialize()
+        self.candidate_content = self.original_content
+        self.closed = False
+
+    @classmethod
+    def begin(
+        cls,
+        plan: Path,
+        *,
+        expected_root: str | None = None,
+        expected_generation: int | None = None,
+    ) -> "PlanTransaction":
+        snapshot = PlanSnapshot.open(plan)
+        if expected_root is not None and snapshot.root_sha256 != expected_root:
+            raise PlanStoreError("plan root changed before transaction began")
+        generation = snapshot.root["generation"] if snapshot.root is not None else 0
+        if expected_generation is not None and generation != expected_generation:
+            raise PlanStoreError("plan generation changed before transaction began")
+        return cls(snapshot)
+
+    def replace_content(self, content: bytes) -> "PlanTransaction":
+        if self.closed:
+            raise PlanStoreError("plan transaction is already closed")
+        _text(content)
+        self.candidate_content = content
+        return self
+
+    def append_receipt(self, receipt: bytes) -> "PlanTransaction":
+        if self.closed:
+            raise PlanStoreError("plan transaction is already closed")
+        if not receipt.startswith(b"- ") or not receipt.endswith(b"\n"):
+            raise PlanStoreError("progress receipt must be one canonical list line")
+        marker = b"\n## Progress"
+        if marker not in self.candidate_content:
+            raise PlanStoreError("plan has no Progress section")
+        if not self.candidate_content.endswith(b"\n"):
+            self.candidate_content += b"\n"
+        self.candidate_content += receipt
+        return self
+
+    def publish(
+        self,
+        *,
+        fault: Callable[[str], None] | None = None,
+    ) -> PublishReceipt:
+        if self.closed:
+            raise PlanStoreError("plan transaction is already closed")
+        build = build_tree(self.candidate_content)
+        previous_generation = (
+            self.snapshot.root["generation"] if self.snapshot.root is not None else 0
+        )
+        candidate = _with_lineage(
+            build,
+            generation=previous_generation + 1,
+            previous_root=self.expected_root,
+        )
+        if materialize_build(candidate) != self.candidate_content:
+            raise PlanStoreError("candidate tree is not lossless")
+        writes = 0
+        with _root_lock(self.plan):
+            current = _safe_read(self.plan, 1_000_000)
+            if digest_bytes(current) != self.expected_root or current != self.original_root_bytes:
+                raise PlanStoreError("plan root changed before publish")
+            rollback_objects = {self.expected_root: self.original_root_bytes}
+            for digest, content in {**candidate.objects, **rollback_objects}.items():
+                if _publish_object(self.plan, digest, content):
+                    writes += 1
+            if fault is not None:
+                fault("objects-published")
+            current = _safe_read(self.plan, 1_000_000)
+            if digest_bytes(current) != self.expected_root or current != self.original_root_bytes:
+                raise PlanStoreError("plan root changed before publish")
+            if fault is not None:
+                fault("before-root-replace")
+            mode = stat.S_IMODE(os.stat(self.plan, follow_symlinks=False).st_mode)
+            _atomic_replace(self.plan, candidate.root_bytes, mode)
+            if fault is not None:
+                fault("after-root-replace")
+        published = PlanSnapshot.open(self.plan)
+        if published.root_sha256 != digest_bytes(candidate.root_bytes):
+            raise PlanStoreError("published root readback mismatch")
+        if published.materialize() != self.candidate_content:
+            raise PlanStoreError("published plan readback mismatch")
+        self.closed = True
+        return PublishReceipt(
+            schema="shadow.plan-publish.v1",
+            previous_root_sha256=self.expected_root,
+            root_sha256=published.root_sha256,
+            logical_sha256=digest_bytes(self.candidate_content),
+            generation=candidate.root["generation"],
+            object_writes=writes,
+        )
+
+    def abort(self) -> None:
+        self.closed = True
+
+
+def rollback(plan: Path, *, expected_root: str) -> PublishReceipt:
+    """Restore the exact previous root named by the current generation."""
+    snapshot = PlanSnapshot.open(plan)
+    if snapshot.root is None:
+        raise PlanStoreError("legacy plan has no previous tree root")
+    if snapshot.root_sha256 != expected_root:
+        raise PlanStoreError("plan root changed before rollback")
+    previous = snapshot.root.get("previous_root")
+    if not isinstance(previous, str):
+        raise PlanStoreError("plan tree has no previous root")
+    previous_bytes = snapshot._read_object(previous, 1_000_000, [0, 0])
+    previous_root = _parse_root(previous_bytes)
+    previous_snapshot = PlanSnapshot(snapshot.plan, previous_bytes, previous_root)
+    previous_content = previous_snapshot.materialize()
+    with _root_lock(snapshot.plan):
+        current = _safe_read(snapshot.plan, ROOT_MAX_BYTES)
+        if digest_bytes(current) != expected_root or current != snapshot.root_bytes:
+            raise PlanStoreError("plan root changed before rollback")
+        mode = stat.S_IMODE(os.stat(snapshot.plan, follow_symlinks=False).st_mode)
+        _atomic_replace(snapshot.plan, previous_bytes, mode)
+    restored = PlanSnapshot.open(snapshot.plan)
+    if restored.root_sha256 != previous or restored.materialize() != previous_content:
+        raise PlanStoreError("rollback readback mismatch")
+    generation = restored.root["generation"] if restored.root is not None else 0
+    return PublishReceipt(
+        schema="shadow.plan-rollback.v1",
+        previous_root_sha256=expected_root,
+        root_sha256=restored.root_sha256,
+        logical_sha256=digest_bytes(previous_content),
+        generation=generation,
+        object_writes=0,
+    )
 
 
 def _validate_archives(plan: Path, content: bytes) -> int:

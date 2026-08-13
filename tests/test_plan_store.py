@@ -235,5 +235,138 @@ class DryRunMigrationTests(unittest.TestCase):
         self.assertNotIn("first result", result.stdout + result.stderr)
 
 
+class PlanTransactionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.source = plan()
+        self.plan_path = self.root / "PLAN.md"
+        self.plan_path.write_bytes(self.source)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def changed(self, label: bytes = b"second result revised") -> bytes:
+        return self.source.replace(b"second result", label)
+
+    def test_legacy_publish_and_rollback_are_byte_exact(self) -> None:
+        original = self.plan_path.read_bytes()
+        published = (
+            store.PlanTransaction.begin(self.plan_path)
+            .replace_content(self.changed())
+            .publish()
+        )
+
+        self.assertTrue(store.PlanSnapshot.open(self.plan_path).is_tree)
+        self.assertEqual(
+            store.PlanSnapshot.open(self.plan_path).materialize(),
+            self.changed(),
+        )
+        restored = store.rollback(self.plan_path, expected_root=published.root_sha256)
+
+        self.assertEqual(self.plan_path.read_bytes(), original)
+        self.assertEqual(store.PlanSnapshot.open(self.plan_path).materialize(), original)
+        self.assertEqual(restored.root_sha256, hashlib.sha256(original).hexdigest())
+
+    def test_stale_writer_loses_the_root_cas(self) -> None:
+        first = store.PlanTransaction.begin(self.plan_path)
+        second = store.PlanTransaction.begin(self.plan_path)
+        first.replace_content(self.changed()).publish()
+
+        with self.assertRaisesRegex(store.PlanStoreError, "root changed"):
+            second.replace_content(self.changed(b"another revision")).publish()
+
+        self.assertEqual(
+            store.PlanSnapshot.open(self.plan_path).materialize(),
+            self.changed(),
+        )
+
+    def test_failure_before_root_replace_leaves_original_authority(self) -> None:
+        def fail(point: str) -> None:
+            if point == "before-root-replace":
+                raise RuntimeError("injected crash")
+
+        with self.assertRaisesRegex(RuntimeError, "injected crash"):
+            (
+                store.PlanTransaction.begin(self.plan_path)
+                .replace_content(self.changed())
+                .publish(fault=fail)
+            )
+
+        self.assertEqual(self.plan_path.read_bytes(), self.source)
+        self.assertEqual(store.PlanSnapshot.open(self.plan_path).materialize(), self.source)
+
+    def test_failure_after_root_replace_leaves_new_authority_readable(self) -> None:
+        def fail(point: str) -> None:
+            if point == "after-root-replace":
+                raise RuntimeError("injected crash")
+
+        with self.assertRaisesRegex(RuntimeError, "injected crash"):
+            (
+                store.PlanTransaction.begin(self.plan_path)
+                .replace_content(self.changed())
+                .publish(fault=fail)
+            )
+
+        snapshot = store.PlanSnapshot.open(self.plan_path)
+        self.assertTrue(snapshot.is_tree)
+        self.assertEqual(snapshot.materialize(), self.changed())
+
+    def test_corrupt_existing_object_refuses_before_root_change(self) -> None:
+        candidate = store.build_tree(self.changed())
+        digest, body = next(iter(candidate.objects.items()))
+        destination = (
+            self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+        )
+        destination.parent.mkdir(parents=True)
+        destination.write_bytes(body + b"corrupt")
+
+        with self.assertRaisesRegex(
+            store.PlanStoreError,
+            "existing content-addressed object is corrupt",
+        ):
+            (
+                store.PlanTransaction.begin(self.plan_path)
+                .replace_content(self.changed())
+                .publish()
+            )
+
+        self.assertEqual(self.plan_path.read_bytes(), self.source)
+
+    def test_tree_mutation_reuses_unchanged_objects(self) -> None:
+        install_tree(self.root, self.source)
+        before = {
+            path.name
+            for path in (self.root / "PLAN.d" / "objects" / "sha256").glob("*/*")
+        }
+        receipt = (
+            store.PlanTransaction.begin(self.plan_path)
+            .replace_content(self.changed())
+            .publish()
+        )
+        after = {
+            path.name
+            for path in (self.root / "PLAN.d" / "objects" / "sha256").glob("*/*")
+        }
+
+        self.assertTrue(before & after)
+        self.assertLess(receipt.object_writes, len(store.build_tree(self.changed()).objects) + 1)
+
+    def test_rollback_requires_the_current_root(self) -> None:
+        receipt = (
+            store.PlanTransaction.begin(self.plan_path)
+            .replace_content(self.changed())
+            .publish()
+        )
+
+        with self.assertRaisesRegex(store.PlanStoreError, "root changed"):
+            store.rollback(self.plan_path, expected_root="0" * 64)
+
+        self.assertEqual(
+            store.PlanSnapshot.open(self.plan_path).root_sha256,
+            receipt.root_sha256,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
