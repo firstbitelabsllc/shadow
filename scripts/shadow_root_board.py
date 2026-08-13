@@ -140,7 +140,14 @@ def local_plan_for_repo(repo: Path, *, home: Path | None = None) -> Path | None:
         entity.get("plan")
         for entity in (snapshot(home=home) or {}).get("entities", [])
     }
-    for directory in dict.fromkeys((repo.name, local_plan_slug(repo.name))):
+    directories = [repo.name, local_plan_slug(repo.name)]
+    origin = _git(repo, "config", "--get", "remote.origin.url")
+    if origin.returncode == 0 and origin.stdout.strip():
+        identity = normalized_origin(origin.stdout.strip())
+        remote_name = identity.rstrip("/").rsplit("/", 1)[-1]
+        if remote_name:
+            directories.extend((remote_name, local_plan_slug(remote_name)))
+    for directory in dict.fromkeys(directories):
         candidate = root / directory / "PLAN.md"
         if not regular_plan(candidate):
             continue
