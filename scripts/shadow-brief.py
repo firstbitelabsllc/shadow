@@ -28,8 +28,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import shadow_root_board as _shadow_board
+
 LABEL = "com.leokwan.shadow-bidaily-brief"
 SLOT_HOURS = (8, 20)
+REPORT_LOOKBACK_HOURS = 14
 GITHUB_PR_LIMIT = 20
 BOARD_PATH = Path.home() / ".shadow" / "board.json"
 DEFAULT_PORTFOLIO = Path.home() / "Development"
@@ -53,9 +56,10 @@ SNOWCUBES_NATIVE_LINKS = {
     "deploy": "https://vercel.com/dashboard",
     "m12": "https://github.com/firstbitelabsllc/trysnowcubes-web/blob/main/scripts/cafe-doctor.py",
 }
-# v3 starts a fresh proof series for the Snowcubes-first morning format; old
-# generic Shadow notes remain private history, not evidence for this outcome.
-WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v3"
+# v4 starts a fresh proof series for one reader-first umbrella brief at both
+# natural windows. Older Snowcubes-first and generic notes remain private
+# history, not evidence for this outcome.
+WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v4"
 MAILBOX_READBACK_SCHEMA = "shadow.superhuman-mailbox-readback.v1"
 SUPERHUMAN_MCP_RESOURCE = "https://mcp.mail.superhuman.com/mcp"
 SUPERHUMAN_TOKEN_ENDPOINT = "https://mcp.auth.mail.superhuman.com/oauth2/token"
@@ -76,11 +80,9 @@ BRIEF_RE = re.compile(r"^- (?P<key>Project|Mode|Priority): (?P<val>.+)$")
 
 
 def brief_subject(slot: Any, generated_at: Any) -> str:
-    """Keep the single delivery path while making the 08:00 purpose explicit."""
+    """Keep one umbrella report identity at both natural delivery windows."""
     normalized_slot = str(slot or "brief").strip().lower()
     when = str(generated_at or "")
-    if normalized_slot == "morning":
-        return f"Snowcubes morning brief — {when}"
     return f"Shadow {normalized_slot} brief — {when}"
 
 
@@ -121,6 +123,7 @@ class RepoPaint:
     behind: int = 0
     last_commit_age_h: float | None = None
     last_subject: str = ""
+    recent_commits: list[str] = field(default_factory=list)
     stale: bool = False
 
 
@@ -182,7 +185,10 @@ def portfolio_root() -> Path:
 
 
 def parse_plan(path: Path) -> EntityBrief:
-    text = path.read_text(encoding="utf-8", errors="replace")
+    # Plans may be legacy Markdown or a content-addressed plan tree. The report
+    # must read the same logical bytes as Shadow itself; parsing the tiny tree
+    # pointer destroys the context needed for a real portfolio read.
+    text = _shadow_board.read_plan_text(path)
     project = path.parent.name
     mode = ""
     priority: int | None = None
@@ -242,8 +248,10 @@ def parse_plan(path: Path) -> EntityBrief:
             section_name = line[3:].strip().lower()
             continue
         clean = line.strip()
-        if section_name == "contradictions" and clean.startswith("- ") and "| winner:" in clean:
-            decisions.append(clean[2:])
+        if section_name == "contradictions" and clean.startswith("- ") and (
+            "| winner:" in clean or "| provisional winner:" in clean
+        ):
+            decisions.append(clean[2:].replace("| provisional winner:", "| winner:"))
         elif section_name == "progress" and clean.startswith("- "):
             recent_progress.append(clean[2:])
 
@@ -359,7 +367,7 @@ def collect_board() -> dict[str, Any]:
             continue
         try:
             brief = parse_plan(plan_path)
-        except OSError as exc:
+        except (OSError, _shadow_board.BoardError) as exc:
             entities.append(
                 unavailable_plan_brief(
                     entity=ent,
@@ -400,9 +408,21 @@ def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
     if not root.is_dir():
         return paints
     now = time.time()
-    for child in sorted(root.iterdir()):
+    candidates = list(root.iterdir())
+    installed_shadow = Path.home() / ".local" / "share" / "shadow"
+    if installed_shadow.is_dir():
+        candidates.append(installed_shadow)
+    seen_paths: set[str] = set()
+    for child in sorted(candidates, key=lambda path: str(path)):
         if not child.is_dir() or child.name.startswith("."):
             continue
+        try:
+            canonical_path = str(child.resolve())
+        except OSError:
+            canonical_path = str(child)
+        if canonical_path in seen_paths:
+            continue
+        seen_paths.add(canonical_path)
         if not (child / ".git").exists():
             continue
         # Skip worktree pools and archives — paint product roots only
@@ -431,6 +451,22 @@ def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
                 if len(parts) == 2:
                     behind, ahead = int(parts[0]), int(parts[1])
             stale = bool(age_h is not None and age_h > max_age_h and dirty)
+            recent_log = _run(
+                [
+                    "git",
+                    "-C",
+                    str(child),
+                    "log",
+                    f"--since={REPORT_LOOKBACK_HOURS} hours ago",
+                    "--max-count=6",
+                    "--format=%s",
+                ]
+            )
+            recent_commits = [
+                line.strip()
+                for line in recent_log.stdout.splitlines()
+                if line.strip()
+            ] if recent_log.returncode == 0 else []
             paints.append(
                 RepoPaint(
                     name=child.name,
@@ -441,6 +477,7 @@ def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
                     behind=behind,
                     last_commit_age_h=round(age_h, 1) if age_h is not None else None,
                     last_subject=subject[:120],
+                    recent_commits=recent_commits,
                     stale=stale,
                 )
             )
@@ -1319,6 +1356,7 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
 def human_project_label(value: Any) -> str:
     """Translate internal entity keys into stable reader-facing product names."""
     text = str(value or "This work").replace("_", " ").strip()
+    lowered = text.lower()
     friendly = {
         "ai-leo": "Twice-daily report",
         "resplit-ios": "Resplit",
@@ -1326,10 +1364,335 @@ def human_project_label(value: Any) -> str:
         "local workspaces": "Local work",
         "portfolio": "All products",
     }
-    if text.lower() in friendly:
-        return friendly[text.lower()]
+    if lowered in friendly:
+        return friendly[lowered]
+    families = (
+        (("snowcubes",), "Snowcubes"),
+        (("resplit",), "Resplit"),
+        (("strongyes",), "StrongYes"),
+        (("shadow",), "Shadow"),
+        (("takeoff",), "Takeoff"),
+        (("vidux",), "Vidux"),
+        (("moussey",), "Moussey"),
+        (("pilot-puppy", "pilot puppy"), "Pilot Puppy"),
+        (("ai-leo",), "Twice-daily report"),
+        (("skill-education", "ai-skill-source", "skill source"), "Skill system"),
+    )
+    for needles, label in families:
+        if any(needle in lowered for needle in needles):
+            return label
     words = text.replace("-", " ").split()
     return " ".join("iOS" if word.lower() == "ios" else word.capitalize() for word in words)
+
+
+def clean_change_subject(value: Any) -> str:
+    """Turn a source-history subject into evidence prose without branch/row plumbing."""
+    text = " ".join(str(value or "").replace("`", "").split())
+    text = re.sub(r"^\d{4}-\d{2}-\d{2}T\S+\s+", "", text)
+    text = re.sub(r"^(?:feat|fix|docs|test|refactor|perf|chore|build|ci)(?:\([^)]*\))?[!:]?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^(?:STRUCT|PROOF|DECISION|SUCCESSOR|CHECKPOINT)\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"~[a-z0-9]{4}\b", "", text)
+    text = re.sub(r"\s*\(#\d+\)\s*$", "", text)
+    text = re.sub(r"\b(?:origin/main|plan-scale-live|HEAD)\b", "the current source", text, flags=re.IGNORECASE)
+    replacements = {
+        "root cas": "version guard",
+        "root CAS": "version guard",
+        "cmd proof": "automated proof",
+        "plan tree": "large plan",
+        "plan trees": "large plans",
+    }
+    for source, replacement in replacements.items():
+        text = text.replace(source, replacement)
+    text = re.sub(r"\s+", " ", text).strip(" .:-")
+    if not text:
+        return "A source change was recorded"
+    return text[0].upper() + text[1:]
+
+
+def repo_project_label(value: Any) -> str:
+    """Name a source repository as a product, not as an operating-plan entity."""
+    lowered = str(value or "").lower()
+    if "ai-leo" in lowered or "skill-source" in lowered:
+        return "AI toolchain"
+    if "expenses-web" in lowered:
+        return "Expenses Web"
+    return human_project_label(value)
+
+
+def _change_theme(project: str, subjects: list[str]) -> tuple[str, str]:
+    """Explain the product consequence of a bounded set of recent source facts."""
+    raw = " ".join(subjects).lower()
+    if "brief" in raw or "report" in raw or "digest" in raw:
+        return (
+            "The twice-daily brief is being rebuilt around judgment, not activity",
+            "This is a trust repair. The useful outcome is not a prettier engineering inventory; it is a note that can explain what changed, what remains unproven, and where Leo’s attention changes the result.",
+        )
+    if project == "Expenses Web" and any(token in raw for token in ("switchboard", "weekly", "forecast", "backup")):
+        return (
+            "Expenses Web repaired the operating surface behind weekly planning",
+            "The product consequence is a planning view that is less likely to omit money, lose older history, or collapse on a narrow screen. A fresh production read is still needed before that reliability can be called live.",
+        )
+    if project == "Resplit" and any(token in raw for token in ("defer", "wake", "admission", "cross-platform proof")):
+        return (
+            "Resplit’s Group Link work is waiting on real-device proof",
+            "This is an honest stall at verification, not a new traveler-facing improvement. The lane needs a usable device and browser environment before the cross-platform promise can be closed.",
+        )
+    if project == "Takeoff" and "adoption" in raw:
+        return (
+            "Takeoff verified the Resplit web train at scale",
+            "The run is strong evidence that the shared source train is internally coherent. It is not evidence that a traveler received or successfully used the resulting experience.",
+        )
+    if project == "AI toolchain" and any(token in raw for token in ("python 3.9", "xcb", "import")):
+        return (
+            "The local AI toolchain fixed a Python compatibility break",
+            "This removes one failure mode from unattended local work. It matters operationally, but it should stay below customer-facing product changes unless it was blocking a named outcome.",
+        )
+    if project == "Shadow" and any(token in raw for token in ("configured upstream", "shared trunk", "local-only claim")):
+        return (
+            "Shadow is making multi-computer ownership safer",
+            "The proposal gives a second computer a discoverable claim without pretending a local-only receipt is globally durable. Review and a real protected-trunk exercise still separate the design from proven coordination.",
+        )
+    if any(token in raw for token in ("plan tree", "partition", "shard", "large plan")):
+        return (
+            "Shadow made large operating plans readable again",
+            "The change removes a scaling failure that could blank an entire project from status and reporting. It improves the coordination substrate; it does not by itself prove any product shipped.",
+        )
+    if "allergen" in raw:
+        return (
+            "Snowcubes closed a product-truth gap on food pages",
+            "The meaningful improvement is customer safety and clarity: missing per-product data can no longer make a food page imply that no allergen risk exists.",
+        )
+    if "switchboard" in raw or "operator" in raw:
+        return (
+            "Snowcubes is making its operating view more trustworthy",
+            "The point is faster, safer operating judgment—not another dashboard. The remaining proof is whether the live surface reflects the same facts the business actually uses.",
+        )
+    if "gift" in raw or "gifting" in raw:
+        return (
+            "Snowcubes is organizing discovery around how people actually shop",
+            "This is a merchandising decision, not just navigation cleanup: gifting becomes the primary customer intent and narrower occasions sit beneath it.",
+        )
+    if any(token in raw for token in ("group link", "trip link", "shared trip")):
+        return (
+            "Resplit is hardening how people enter a shared trip",
+            "The work matters only if access stays private and the join path remains understandable across real devices; source proof and released-device proof stay separate.",
+        )
+    if any(token in raw for token in ("lifecycle", "retention", "account deletion")):
+        return (
+            "Resplit is moving sensitive lifecycle rules to the server",
+            "That reduces the chance that different clients silently disagree about deletion, expiry, or retention. It is risk reduction first; production behavior still needs its own readback.",
+        )
+    if any(token in raw for token in ("testflight", "app store", "release", "screenshot")):
+        return (
+            f"{project} tightened the path from source change to release evidence",
+            "The improvement is a clearer proof boundary: source, review, deployment, and customer availability are reported separately instead of collapsing into ‘shipped.’",
+        )
+    if "backfill" in raw:
+        return (
+            f"{project} is closing visibility gaps across the portfolio",
+            "This makes missing operating history explicit so future decisions do not mistake an empty view for no activity.",
+        )
+    if any(token in raw for token in ("security", "auth", "token", "permission")):
+        return (
+            f"{project} reduced an access-control risk",
+            "The consequence is safer failure behavior. It should be treated as verified source work until the affected live path is exercised.",
+        )
+    if any(token in raw for token in ("cache", "stale")):
+        return (
+            f"{project} corrected stale customer-facing state",
+            "The value is consistency between what was changed and what a person can actually see; deployment and live readback remain the deciding evidence.",
+        )
+    if any(token in raw for token in ("proof", "receipt", "test", "guard")):
+        return (
+            f"{project} strengthened what it can honestly call finished",
+            "This is verification work. It lowers the chance of reporting a green check as customer-visible completion, but it is not itself a new customer feature.",
+        )
+    return (
+        f"{project} moved in source, but the product consequence is still unclear",
+        "The evidence shows related implementation or review activity, but not yet one coherent change a customer or operator can feel. This remains supporting evidence until that consequence is named and proved.",
+    )
+
+
+def _material_change_fact(project: str, subjects: list[str], reviews: list[str]) -> str:
+    """Summarize the bounded source facts without publishing commit plumbing."""
+    raw = " ".join(subjects + reviews).lower()
+    if ("brief" in raw or "report" in raw or "digest" in raw) and any(
+        token in raw for token in ("plan", "reader", "prose", "chief", "html")
+    ):
+        return (
+            "The collector now reconstructs complete large plans instead of reading their pointer files, "
+            "and the morning and evening editions now share one reader-first editorial contract."
+        )
+    if project == "Expenses Web" and any(token in raw for token in ("switchboard", "weekly", "forecast", "backup")):
+        return (
+            "The weekly planning view was restored and protected against a narrow-screen regression. "
+            "Scheduled backups now include the older transaction store and continue through long result sets instead of silently stopping at the first page."
+        )
+    if project == "Resplit" and any(token in raw for token in ("defer", "wake", "admission", "cross-platform proof")):
+        return (
+            "No new traveler-facing behavior was established in this window. The team recorded that cross-platform Group Link proof "
+            "and Android admission checks still cannot run on the current host."
+        )
+    if project == "Snowcubes" and "switchboard" in raw:
+        return (
+            "The Snowcubes operating Switchboard was rechecked in production and its boundaries were clarified. "
+            "The next kit workflow remains deliberately paused at Leo’s physical-batch decision."
+        )
+    if project == "Shadow" and any(token in raw for token in ("configured upstream", "shared trunk", "local-only claim")):
+        return (
+            "Two related proposals define how ownership should remain discoverable when work begins from a second computer, "
+            "including an explicit degraded mode when the shared trunk cannot safely hold the receipt."
+        )
+    if project == "Takeoff" and "adoption" in raw:
+        match = re.search(r"unit=(\d+)\s+parity=(\d+)\s+smoke=(\d+)", raw)
+        if match:
+            return (
+                f"A broad Resplit web verification run passed {int(match.group(1)):,} unit checks, "
+                f"{int(match.group(2))} parity checks, and {int(match.group(3))} smoke checks."
+            )
+        return "Takeoff recorded a broad Resplit web verification run across unit, parity, and smoke coverage."
+    if project == "AI toolchain" and any(token in raw for token in ("python 3.9", "xcb", "import")):
+        return "The local display-lock helper can now load under the system Python 3.9 runtime instead of failing at import time."
+    if subjects and reviews:
+        return (
+            f"This window contains {len(subjects)} related source updates and {len(reviews)} open review"
+            f"{'s' if len(reviews) != 1 else ''}, but their titles do not yet establish one product-level outcome."
+        )
+    if subjects:
+        return (
+            f"This window contains {len(subjects)} related source update{'s' if len(subjects) != 1 else ''}, "
+            "but their titles do not yet establish one product-level outcome."
+        )
+    return (
+        f"{len(reviews)} related proposal{'s are' if len(reviews) != 1 else ' is'} awaiting review, "
+        "but the review titles do not yet establish one product-level outcome."
+    )
+
+
+def _material_change_weight(subjects: list[str], reviews: list[str]) -> int:
+    """Prefer substantive implementation over receipts while keeping both visible."""
+    weight = len(reviews)
+    for subject in subjects:
+        lowered = subject.lower()
+        if any(token in lowered for token in ("brief", "report", "digest")):
+            weight += 8
+        if re.match(r"^(?:feat|fix|perf|refactor|backup|gate|test)(?:\([^)]*\))?[!:]", lowered):
+            weight += 4
+        elif any(token in lowered for token in ("allergen", "cache", "account deletion", "retention")):
+            weight += 3
+        elif re.match(r"^(?:docs|shadow|adoption|proof|record|defer|checkpoint)(?:\([^)]*\))?[!:]", lowered):
+            weight += 0
+        else:
+            weight += 1
+    return weight
+
+
+def build_material_changes(
+    *,
+    board: dict[str, Any],
+    repos: list[RepoPaint],
+    github: list[dict[str, Any]],
+    vercel: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Pool recent source facts by product, then add a separate bounded judgment."""
+    groups: dict[str, dict[str, Any]] = {}
+
+    def group(label: str) -> dict[str, Any]:
+        return groups.setdefault(
+            label,
+            {"subjects": [], "reviews": [], "links": [], "ahead": False, "plan": False},
+        )
+
+    for repo in repos:
+        if not repo.recent_commits:
+            continue
+        label = repo_project_label(repo.name)
+        bucket = group(label)
+        bucket["subjects"].extend(repo.recent_commits[:6])
+        bucket["ahead"] = bucket["ahead"] or repo.ahead > 0 or repo.dirty
+
+    for row in github:
+        if not isinstance(row, dict) or row.get("error") or not row.get("title"):
+            continue
+        repository = row.get("repository") or {}
+        repo_name = repository.get("nameWithOwner") if isinstance(repository, dict) else repository
+        label = repo_project_label(repo_name or "Code review")
+        bucket = group(label)
+        bucket["reviews"].append(str(row.get("title")))
+        if row.get("url"):
+            bucket["links"].append({"label": "Open review", "url": str(row.get("url"))})
+
+    project_priorities = {
+        human_project_label(project.get("id")): int(project.get("priority"))
+        for project in (board.get("projects") or [])
+        if isinstance(project, dict) and isinstance(project.get("priority"), int)
+    }
+    claimed_projects: set[str] = set()
+    entity_projects = {
+        str(entity.get("id") or ""): human_project_label(entity.get("project"))
+        for entity in (board.get("entities") or [])
+        if isinstance(entity, dict)
+    }
+    for claim in (board.get("claims") or []):
+        if isinstance(claim, dict) and claim.get("entity") in entity_projects:
+            claimed_projects.add(entity_projects[str(claim.get("entity"))])
+    for entity in (board.get("entities") or []):
+        if not isinstance(entity, dict):
+            continue
+        label = human_project_label(entity.get("project"))
+        if label in groups and entity.get("recent_progress"):
+            groups[label]["plan"] = True
+
+    ready_products = {
+        human_project_label(row.get("name"))
+        for row in (vercel.get("deployments") or [])
+        if isinstance(row, dict) and str(row.get("state") or "").upper() == "READY"
+    }
+    ranked = sorted(
+        groups.items(),
+        key=lambda item: (
+            -_material_change_weight(item[1]["subjects"], item[1]["reviews"]),
+            item[0] not in claimed_projects,
+            project_priorities.get(item[0], 99),
+            -len(item[1]["subjects"]),
+            -len(item[1]["reviews"]),
+            item[0],
+        ),
+    )
+    changes: list[dict[str, Any]] = []
+    for project, facts in ranked[:5]:
+        subjects = list(dict.fromkeys(facts["subjects"]))[:4]
+        reviews = list(dict.fromkeys(facts["reviews"]))[:2]
+        evidence_subjects = subjects or reviews
+        if not evidence_subjects:
+            continue
+        headline, meaning = _change_theme(project, evidence_subjects)
+        fact = _material_change_fact(project, subjects, reviews)
+        if subjects:
+            status = "local work in progress" if facts["ahead"] else "verified in source"
+        else:
+            status = "awaiting review"
+        if project in ready_products:
+            status = "live web receipt"
+        evidence = [
+            f"{len(subjects)} recent source change{'s' if len(subjects) != 1 else ''}"
+            if subjects
+            else f"{len(reviews)} open review{'s' if len(reviews) != 1 else ''}"
+        ]
+        if facts["plan"]:
+            evidence.append("current operating-plan receipts")
+        if reviews and subjects:
+            evidence.append(f"{len(reviews)} open review{'s' if len(reviews) != 1 else ''}")
+        changes.append({
+            "project": project,
+            "status": status,
+            "headline": headline,
+            "fact": fact,
+            "meaning": meaning,
+            "evidence": evidence,
+            "links": facts["links"][:2],
+        })
+    return changes
 
 
 def build_chief_of_staff_analysis(
@@ -1345,6 +1708,7 @@ def build_chief_of_staff_analysis(
     """Turn source facts into bounded judgments without inventing dates or authority."""
     def readable_outcome(value: Any) -> str:
         text = " ".join(str(value or "the next proof").split())
+        text = re.sub(r"~[a-z0-9]{4}\b", "", text)
         lowered = text.lower()
         if "customer/support loop" in lowered:
             return "prove the customer and support loop works end to end"
@@ -1415,6 +1779,13 @@ def build_chief_of_staff_analysis(
         1 for row in (supabase.get("projects") or []) if "HEALTHY" in str(row.get("status") or "").upper()
     )
     source_gaps = [name for name, health in source_health.items() if not health.get("available")]
+    decision_source_gaps = [name for name in source_gaps if name != "nia"]
+    material_changes = build_material_changes(
+        board=board,
+        repos=repos,
+        github=github,
+        vercel=vercel,
+    )
 
     if unavailable_entities:
         unavailable_count = len(unavailable_entities)
@@ -1439,6 +1810,17 @@ def build_chief_of_staff_analysis(
             f"{'s are' if unavailable_count != 1 else ' is'} unavailable, so portfolio-wide priority, "
             f"ownership, and open-work totals are UNKNOWN. {visible_motion}"
         )
+    elif material_changes:
+        lead = material_changes[0]
+        ownership = (
+            f" {len(claimed)} concrete outcome{'s are' if len(claimed) != 1 else ' is'} actively owned, so there is an accountable path from this work to proof."
+            if claimed
+            else " No outcome is visibly owned, so the work does not yet have an accountable path to proof."
+        )
+        opening = (
+            f"{lead['project']} carries the most consequential change in this window. {lead['headline']}. "
+            f"{lead['meaning']}{ownership}"
+        )
     elif claimed:
         first_entity, first_cp = claimed[0]
         first_project = human_project_label(first_entity.get("project") or "the current priority")
@@ -1453,15 +1835,29 @@ def build_chief_of_staff_analysis(
             f"The portfolio has {len(open_rows)} open outcomes but none is visibly owned. "
             "That is a coordination failure, not a shortage of possible work."
         )
-    operations = (
-        f"The delivery surface is mixed but legible: {len(github)} proposed change"
-        f"{'s are' if len(github) != 1 else ' is'} waiting for review; {healthy_vercel} web product"
-        f"{'s are' if healthy_vercel != 1 else ' is'} ready; and {healthy_db} data service"
-        f"{'s report' if healthy_db != 1 else ' reports'} healthy. "
-        f"Local work is much noisier—{len(dirty)} projects have unfinished changes"
-        + (f", including {len(stale)} older workspaces" if stale else "")
-        + "—so unfinished local changes should explain risk, not become a parallel agenda."
-    )
+    if material_changes:
+        secondary = material_changes[1:3]
+        secondary_read = " ".join(
+            (
+                f"{change['project']} deserves attention for a different reason. "
+                if index == 0
+                else f"{change['project']} is moving too. "
+            )
+            + f"{str(change['headline']).rstrip('.')}. {change['meaning']}"
+            for index, change in enumerate(secondary)
+        )
+        operations = secondary_read + (
+            f" Across the supporting systems, {len(github)} proposed change"
+            f"{'s remain' if len(github) != 1 else ' remains'} in review, {healthy_vercel} web product"
+            f"{'s have' if healthy_vercel != 1 else ' has'} a ready provider receipt, and {healthy_db} data service"
+            f"{'s report' if healthy_db != 1 else ' reports'} healthy. These are different proof levels, not a single ‘shipped’ count. "
+            f"The {len(dirty)} projects with unfinished local changes stay in the evidence appendix unless one overlaps an owned outcome."
+        )
+    else:
+        operations = (
+            "No recent product-level source movement could be reconstructed from the reporting window. "
+            "That is an evidence gap, not a claim that nothing changed."
+        )
     if mail.get("available"):
         if mail.get("cursor_limit_threads"):
             mail_read = (
@@ -1478,15 +1874,14 @@ def build_chief_of_staff_analysis(
             )
     else:
         mail_read = "Mail could not be read, so external requests and review notifications are an acknowledged blind spot in this note."
-    if source_gaps:
+    if decision_source_gaps:
         missing_labels = {
-            "nia": "fresh project history",
             "astro_aso": "App Store search visibility",
             "ahrefs_seo": "web search visibility",
             "app_store_connect": "App Store delivery status",
         }
         mail_read += " The note is also missing " + ", ".join(
-            missing_labels.get(name, name.replace("_", " ")) for name in source_gaps[:5]
+            missing_labels.get(name, name.replace("_", " ")) for name in decision_source_gaps[:5]
         ) + "; those absences lower confidence rather than being treated as zero activity."
 
     decided: list[dict[str, Any]] = []
@@ -1511,6 +1906,23 @@ def build_chief_of_staff_analysis(
             "evidence": ["active ownership records", "current product plans"],
             "confidence": "high",
         })
+    if material_changes:
+        lead = material_changes[0]
+        proof_boundary = {
+            "local work in progress": "The change exists only in unfinished local work.",
+            "verified in source": "The change is recorded in source but has not yet been proved on a live surface.",
+            "awaiting review": "The change is still a proposal under review.",
+            "live web receipt": "A web provider reports a live release, but customer use is still a separate question.",
+        }.get(str(lead.get("status") or ""), "The strongest receipt is still upstream of customer use.")
+        decided.append({
+            "title": f"Keep {lead['project']} on the right side of the proof boundary",
+            "prose": (
+                f"{proof_boundary} I am treating “{lead['headline']}” as real progress while holding release, live use, "
+                "and customer consequence to their own receipts."
+            ),
+            "evidence": list(lead.get("evidence") or []),
+            "confidence": "high",
+        })
     if mail.get("cursor_limit_threads"):
         decided.append({
             "title": "Treat Cursor’s review limit as degraded capacity, not a veto",
@@ -1530,20 +1942,9 @@ def build_chief_of_staff_analysis(
         "evidence": ["agreed next check-in dates", "evidence required to call work done"],
         "confidence": "high",
     })
-    if not source_health.get("nia", {}).get("available"):
-        decided.append({
-            "title": "Keep Nia as historical context until unattended freshness is proven",
-            "prose": (
-                "Nia surfaced valuable product history, but the automatic history check could not sign in and some indexed evidence predates today’s plans. "
-                "Its conclusions may challenge a current decision; they may not silently replace today’s active plans."
-            ),
-            "evidence": ["Nia project-history research", "automatic Nia history check", "today’s portfolio snapshot"],
-            "confidence": "high",
-        })
-
     architecture: list[dict[str, Any]] = []
     for entity in ranked:
-        for raw in (entity.get("decisions") or [])[-2:]:
+        for raw in (entity.get("decisions") or [])[-1:]:
             left, _, rest = str(raw).partition("| winner:")
             winner, marker, status_tail = re.split(r"\| (closed|opened)\s+", rest, maxsplit=1) if re.search(r"\| (closed|opened)\s+", rest) else (rest, "", "")
             if not winner:
@@ -1566,6 +1967,15 @@ def build_chief_of_staff_analysis(
             elif "exact location and partner-specific formulas" in lower_decision:
                 decision_text = "Keep each Snowcubes partner’s commercial model distinct; prose may explain money but never settle it."
                 tradeoff_text = "one reusable visit template versus truthful partner-specific economics"
+            elif "snowcubes becomes one explained workstream" in lower_decision:
+                decision_text = "Keep one local report for the whole portfolio; Snowcubes is one explained workstream, not a separate morning product."
+                tradeoff_text = "a Snowcubes-first email versus one consistent chief-of-staff brief at both daily windows"
+            elif "canonical git source and owner boundary win" in lower_decision:
+                decision_text = "Keep one canonical copy of every skill; installed copies are generated outputs and must be replaced when they drift."
+                tradeoff_text = "easy local installation versus confidence that every assistant is using the same current capability"
+            elif "keep tested specialist capability but route it internally" in lower_decision:
+                decision_text = "Keep specialist capabilities behind Shadow and Switchboard instead of making people choose from a technical tool menu."
+                tradeoff_text = "direct access for expert operators versus a calmer front door for everyone else"
             status = f"{marker} {human_datetime(status_tail)}".strip() if marker else "recorded in the current plan"
             architecture.append({
                 "project": human_project_label(entity.get("project") or "unknown"),
@@ -1574,6 +1984,18 @@ def build_chief_of_staff_analysis(
                 "status": status,
                 "evidence": "recorded in the current product plan",
             })
+    material_order = {
+        str(change.get("project")): index
+        for index, change in enumerate(material_changes)
+        if isinstance(change, dict)
+    }
+    architecture.sort(
+        key=lambda item: (
+            0 if item.get("project") == "Twice-daily report" else 1,
+            material_order.get(str(item.get("project")), 99),
+            str(item.get("project") or ""),
+        )
+    )
     if not architecture:
         architecture.append({
             "project": "portfolio",
@@ -1584,6 +2006,12 @@ def build_chief_of_staff_analysis(
         })
 
     questions: list[dict[str, str]] = []
+    if material_changes:
+        lead = material_changes[0]
+        questions.append({
+            "question": f"What would make “{lead['headline']}” visible to a customer or operator, rather than only true in source?",
+            "why": "The strongest new evidence is still upstream of live use; naming the observable consequence prevents source activity from becoming the success metric.",
+        })
     if len(claimed) > 3:
         questions.append({
             "question": f"Are {len(claimed)} simultaneous commitments truly independent, or are we disguising context switching as throughput?",
@@ -1599,7 +2027,7 @@ def build_chief_of_staff_analysis(
             "question": f"Which of the {len(dirty)} unfinished projects could actually hurt today’s outcome?",
             "why": "A large cleanup count feels urgent while saying little about customer or release risk.",
         })
-    if source_gaps:
+    if decision_source_gaps:
         questions.append({
             "question": "Are we willing to make growth and release calls while web search, App Store visibility, or delivery evidence is absent?",
             "why": "Missing acquisition and store signals can make engineering motion look more valuable than it is.",
@@ -1647,15 +2075,30 @@ def build_chief_of_staff_analysis(
     }
 
     etas: list[dict[str, str]] = []
+    now = datetime.now().astimezone()
     for entity, cp in claimed[:5]:
         claim = claim_rows.get(_claim_key_for(entity, cp), {})
         checkpoint = readable_outcome(cp.get("title"))
+        raw_return = str(claim.get("return_by") or "")
+        eta = raw_return or "unknown"
+        basis = "next owner evidence check; completion after that remains unknown"
+        confidence = "medium" if raw_return else "low"
+        if raw_return:
+            try:
+                if datetime.fromisoformat(raw_return.replace("Z", "+00:00")) <= now:
+                    eta = "unknown"
+                    basis = "the owner’s evidence check is overdue; a new completion estimate would be fiction"
+                    confidence = "low"
+            except ValueError:
+                eta = "unknown"
+                basis = "the recorded evidence-check time is invalid"
+                confidence = "low"
         etas.append({
             "project": human_project_label(entity.get("project") or "unknown"),
             "outcome": checkpoint,
-            "eta": str(claim.get("return_by") or "unknown"),
-            "basis": "next scheduled evidence check; this is not a completion promise",
-            "confidence": "medium" if claim.get("return_by") else "low",
+            "eta": eta,
+            "basis": basis,
+            "confidence": confidence,
         })
     for entity, cp in unclaimed[: max(0, 5 - len(etas))]:
         etas.append({
@@ -1667,9 +2110,14 @@ def build_chief_of_staff_analysis(
         })
 
     stalling: list[dict[str, str]] = []
+    stalled_projects: set[str] = set()
     for entity, cp in blocked_rows[:4]:
+        project = human_project_label(entity.get("project") or "unknown")
+        if project in stalled_projects:
+            continue
+        stalled_projects.add(project)
         stalling.append({
-            "project": human_project_label(entity.get("project") or "unknown"),
+            "project": project,
             "signal": readable_outcome(cp.get("title") or "blocked work"),
             "improvement": "write the one condition that restarts it, free the owner to work elsewhere, and return only when that condition changes",
         })
@@ -1680,10 +2128,21 @@ def build_chief_of_staff_analysis(
     for project, count in sorted(unclaimed_by_project.items(), key=lambda item: (-item[1], item[0])):
         if len(stalling) >= 5:
             break
+        if project in stalled_projects:
+            continue
+        stalled_projects.add(project)
         stalling.append({
             "project": project,
-            "signal": f"{count} ready pieces of work without an owner",
-            "improvement": "start the most valuable result that can be finished and verified now, or explicitly leave the rest for later",
+            "signal": (
+                f"{count} ready checkpoints make the lane too broad to communicate a real priority"
+                if count > 5
+                else f"{count} ready checkpoint{'s' if count != 1 else ''} {'have' if count != 1 else 'has'} no owner"
+            ),
+            "improvement": (
+                "promote one outcome that can be finished and verified now; keep the rest as backlog rather than presenting all of it as active"
+                if count > 5
+                else "start the highest-value result that can be finished and verified now, or explicitly leave it for later"
+            ),
         })
     if stale and len(stalling) < 5:
         stalling.append({
@@ -1694,6 +2153,7 @@ def build_chief_of_staff_analysis(
 
     return {
         "executive_read": [opening, operations, mail_read],
+        "material_changes": material_changes,
         "decided_for_you": decided[:5],
         "needs_leo": needs_leo,
         "architecture_decisions": architecture[:5],
@@ -1873,7 +2333,6 @@ def render_html(packet: dict[str, Any]) -> str:
     claims = board.get("claims") or []
     analysis = packet.get("analysis") or {}
     snowcubes = packet.get("snowcubes_context") or {}
-    is_snowcubes_morning = str(slot).strip().lower() == "morning"
 
     open_n = sum(len(e.get("open_checkpoints") or []) for e in entities)
     blocked_n = sum(len(e.get("blocked") or []) for e in entities)
@@ -1894,6 +2353,14 @@ def render_html(packet: dict[str, Any]) -> str:
             return "prove the morning and evening report arrives correctly"
         if "two consecutive natural" in lowered and "08:00/20:00" in lowered:
             return "prove the morning and evening report arrives correctly"
+        if "local collector survives" in lowered and "pools current board" in lowered:
+            return "make the brief stay complete even while one project plan is changing"
+        if "every morning means two consecutive natural 08" in lowered:
+            return "prove the Snowcubes morning signal remains reliable across two natural mornings"
+        if "one ordinary workday closes only after all six loops" in lowered:
+            return "prove one ordinary Resplit workday can move from decision through customer learning"
+        if "publish and merge the proven candidate" in lowered:
+            return "move the verified Resplit change through review without confusing it with a release"
         if "m1 identity" in lowered and "runner" in lowered:
             return "confirm the new build runner is ready"
         if "physical m1" in lowered:
@@ -1965,7 +2432,20 @@ def render_html(packet: dict[str, Any]) -> str:
     focus_title = checkpoint_title(
         (focus_cp or {}).get("title"), (focus_ent or {}).get("project")
     )
-    if focus_ent:
+    material_lead = next(
+        (
+            item
+            for item in (analysis.get("material_changes") or [])
+            if isinstance(item, dict) and item.get("headline")
+        ),
+        None,
+    )
+    if material_lead and not unavailable_entities:
+        headline = str(material_lead.get("headline")).rstrip(". ") + "."
+        summary = str(material_lead.get("meaning") or "").strip()
+        if not summary:
+            summary = "The change is real, but its live consequence still needs a separate receipt."
+    elif focus_ent:
         headline = (
             f"{focus_project} is the visible move."
             if unavailable_entities
@@ -2315,16 +2795,44 @@ def render_html(packet: dict[str, Any]) -> str:
         + "</li>"
         for item in snowcubes_surfaces
     ) + "</ul>" if snowcubes_surfaces else "<p class='empty'>Snowcubes sources were not collected.</p>"
-    if is_snowcubes_morning:
-        first = snowcubes_surfaces[0] if snowcubes_surfaces else {}
-        second = snowcubes_surfaces[1] if len(snowcubes_surfaces) > 1 else {}
-        first_name = str(first.get("name") or "the Snowcubes business read")
-        second_name = str(second.get("name") or "the next source-labelled signal")
-        headline = "Snowcubes chief-of-staff brief"
-        summary = (
-            f"Start with {first_name}, then {second_name}. "
-            "The three priorities below are the only proposed moves; the coverage read names every unavailable source instead of guessing."
+    snowcubes_reader_states = {"available", "attention", "discrepancy", "unknown"}
+    snowcubes_reader_surfaces = [
+        item
+        for item in snowcubes_surfaces
+        if str(item.get("state") or "").lower() in snowcubes_reader_states
+    ][:2]
+    snowcubes_unavailable_n = sum(
+        1
+        for item in snowcubes_surfaces
+        if str(item.get("state") or "").lower() == "unavailable"
+    )
+    snowcubes_reader_cards = "".join(
+        "<article class='signal-note'>"
+        f"<h3>{_esc(item.get('name'))}</h3>"
+        f"<p>{_esc(item.get('now'))}</p>"
+        f"<p class='meta'>{_esc(item.get('next'))}</p>"
+        + (f"<p><strong>Proposal:</strong> {_esc(item.get('proposal'))}</p>" if item.get("proposal") else "")
+        + (
+            f"<p class='source-note'>{_esc(item.get('source'))} · <a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a> · observed {_esc(human_datetime(item.get('observed_at')))}</p>"
+            if item.get("native_link")
+            else f"<p class='source-note'>{_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}</p>"
         )
+        + "</article>"
+        for item in snowcubes_reader_surfaces
+    )
+    if not snowcubes_reader_cards:
+        snowcubes_reader_cards = (
+            "<p class='empty'>No current Snowcubes business signal was strong enough to elevate into the main read.</p>"
+        )
+    snowcubes_reader_html = (
+        "<p class='essay'>Snowcubes is one workstream inside the portfolio brief. Only current business signals belong here; connector recovery and the full coverage inventory stay below as evidence.</p>"
+        + snowcubes_reader_cards
+        + (
+            f"<p class='source-note'>{_esc(snowcubes_unavailable_n)} Snowcubes sources were unavailable in this window. Their exact recovery wakes remain in the private packet.</p>"
+            if snowcubes_unavailable_n
+            else "<p class='source-note'>All configured Snowcubes sources returned a readable state.</p>"
+        )
+    )
 
     evidence_html = f"""
       <p class="evidence-intro">These details support the read above. They are receipts, not a second list of work.</p>
@@ -2341,12 +2849,28 @@ def render_html(packet: dict[str, Any]) -> str:
         f"<p class='essay'>{_esc(paragraph)}</p>"
         for paragraph in (analysis.get("executive_read") or [summary])
     )
+    material_changes_html = "".join(
+        "<article class='change-note'>"
+        f"<h3>{_esc(item.get('headline'))}</h3>"
+        f"<p class='change-status'>{_esc(item.get('project'))} · {_esc(str(item.get('status') or 'evidence').upper())}</p>"
+        f"<p><strong>What changed:</strong> {_esc(item.get('fact'))}</p>"
+        f"<p class='interpretation'><strong>Why it matters:</strong> {_esc(item.get('meaning'))}</p>"
+        f"<p class='source-note'>Evidence: {_esc(' · '.join(str(value) for value in (item.get('evidence') or [])))}"
+        + "".join(
+            f" · <a href='{_esc(link.get('url'))}' target='_blank' rel='noopener'>{_esc(link.get('label') or 'Open source')}</a>"
+            for link in (item.get("links") or [])
+            if isinstance(link, dict) and link.get("url")
+        )
+        + "</p></article>"
+        for item in (analysis.get("material_changes") or [])
+        if isinstance(item, dict)
+    ) or "<p class='empty'>No product-level source change could be reconstructed for this window. That is an evidence gap, not proof of inactivity.</p>"
     decided_html = "".join(
         "<article class='judgment'>"
-        f"<div class='confidence'>{_esc(str(item.get('confidence') or 'unknown').upper())} confidence</div>"
         f"<h3>{_esc(item.get('title'))}</h3>"
+        f"<p class='confidence'>{_esc(str(item.get('confidence') or 'unknown').upper())} confidence</p>"
         f"<p>{_esc(item.get('prose'))}</p>"
-        f"<p class='meta'>Because: {_esc(' · '.join(str(value) for value in (item.get('evidence') or [])))}</p>"
+        f"<p class='source-note'>Because: {_esc(' · '.join(str(value) for value in (item.get('evidence') or [])))}</p>"
         "</article>"
         for item in (analysis.get("decided_for_you") or [])
         if isinstance(item, dict)
@@ -2364,16 +2888,16 @@ def render_html(packet: dict[str, Any]) -> str:
     )
     needs_leo_html = (
         "<article class='judgment'>"
-        f"<div class='confidence'>{'RESPONSE NEEDED' if needs_leo.get('requires_response') else 'NO RESPONSE NEEDED'}</div>"
         f"<h3>{_esc(needs_leo.get('title'))}</h3>"
+        f"<p class='confidence'>{'RESPONSE NEEDED' if needs_leo.get('requires_response') else 'NO RESPONSE NEEDED'}</p>"
         f"<p>{_esc(needs_leo.get('prose'))}</p>"
         + (f"<ul>{needs_leo_items}</ul>" if needs_leo_items else "")
         + "</article>"
     )
     architecture_html = "".join(
         "<article class='decision-record'>"
-        f"<div class='project-chip'>{_esc(item.get('project'))}</div>"
         f"<h3>{_esc(item.get('decision'))}</h3>"
+        f"<p class='project-chip'>{_esc(item.get('project'))}</p>"
         f"<p><strong>The tradeoff:</strong> {_esc(item.get('tradeoff'))}</p>"
         f"<p class='meta'>{_esc(item.get('status'))} · {_esc(item.get('evidence'))}</p>"
         "</article>"
@@ -2429,39 +2953,19 @@ def render_html(packet: dict[str, Any]) -> str:
       <p class="meta">{_esc(reasoning.get('rule') or 'Missing evidence lowers confidence; it never becomes zero activity.')}</p>
     """
 
-    if is_snowcubes_morning:
-        title = f"Snowcubes Morning Brief — {when}"
-        report_body = (
-            section("Snowcubes: now → then → waiting", snowcubes_priorities)
-            + section(
-                "Business coverage",
-                "<p class='section-intro'>Replies and relationships rank first; commerce, funnel, search, local profile, lifecycle email, and development follow in source order.</p>"
-                + snowcubes_coverage,
-            )
-            + section(
-                "What can wait",
-                "<p>This email is a read-only projection, not a plan or task store. The existing Shadow board, the canonical Snowcubes plan, and each provider remain the only authorities.</p>",
-            )
-        )
-    else:
-        title = f"Shadow {slot.title()} Note — {when}"
-        report_body = (
-            section("How this note thinks", source_flow_html)
-            + section("Snowcubes morning companion", snowcubes_html)
-            + section("What building looks like now", building_html)
-            + section("Where attention is going", map_html + attention_html)
-            + section("Every workstream, in human terms", workstreams_html)
-            + section("The deeper read", executive_html)
-            + section("Decided for you", decided_html)
-            + section("Needs Leo now", needs_leo_html)
-            + section("Architecture decisions you need to know about", architecture_html)
-            + section("Questions I’m challenging you on", questions_html)
-            + section("ETAs for completion", etas_html)
-            + section("Work that is stalling — and how to improve it", stalling_html)
-            + section("What can wait", what_can_wait_html)
-            + section("Supporting evidence", evidence_html)
-            + section("If a source could not be checked", recovery_html)
-        )
+    title = f"Shadow {slot.title()} Note — {when}"
+    report_body = (
+        section("What materially changed", material_changes_html)
+        + section("The chief-of-staff read", executive_html)
+        + section("Decided for you", decided_html)
+        + section("Needs Leo now", needs_leo_html)
+        + section("Architecture decisions you need to know about", architecture_html)
+        + section("Questions to challenge your point of view", questions_html)
+        + section("Completion outlook", etas_html)
+        + section("Lanes losing momentum — and how to improve them", stalling_html)
+        + section("Snowcubes in the portfolio", snowcubes_reader_html)
+        + section("Evidence and blind spots", evidence_html + recovery_html)
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2523,26 +3027,34 @@ def render_html(packet: dict[str, Any]) -> str:
   .story h3 {{ margin: 0 0 6px; font-size: 18px; }}
   .story p {{ margin: 0; }}
   .essay {{ font-size: 18px; line-height: 1.65; margin: 0 0 16px; max-width: 68ch; }}
-  .judgment, .decision-record, .challenge, .stall {{
-    background: var(--card);
-    border: 1px solid var(--line);
-    padding: 16px 17px;
-    margin-bottom: 12px;
+  .change-note {{
+    border-top: 2px solid var(--ink);
+    padding: 18px 0 20px;
   }}
-  .judgment h3, .decision-record h3, .challenge h3, .stall h3 {{
+  .change-note:first-child {{ border-top-width: 0; padding-top: 0; }}
+  .change-note h3 {{ margin: 0 0 4px; font-size: 24px; line-height: 1.22; }}
+  .change-note p {{ margin: 9px 0; max-width: 68ch; }}
+  .change-status, .confidence, .project-chip {{
+    color: var(--accent);
+    font: 700 10px/1.3 "Avenir Next", "Segoe UI", sans-serif;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }}
+  .interpretation {{ font-size: 17px; line-height: 1.58; }}
+  .source-note {{ color: var(--muted); font-size: 13px; line-height: 1.45; }}
+  .judgment, .decision-record, .challenge, .stall, .signal-note {{
+    border-top: 1px solid var(--line);
+    padding: 15px 0 17px;
+    margin-bottom: 0;
+  }}
+  .judgment h3, .decision-record h3, .challenge h3, .stall h3, .signal-note h3 {{
     margin: 2px 0 8px;
     font-size: 19px;
     line-height: 1.3;
   }}
-  .judgment p, .decision-record p, .challenge p, .stall p {{ margin: 7px 0; }}
-  .confidence, .project-chip {{
-    color: var(--accent);
-    font: 700 10px/1.2 "Avenir Next", "Segoe UI", sans-serif;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-  }}
-  .challenge {{ border-top: 3px solid var(--accent); }}
-  .stall {{ border-top: 3px solid #c08a22; }}
+  .judgment p, .decision-record p, .challenge p, .stall p, .signal-note p {{ margin: 7px 0; }}
+  .challenge {{ border-top-color: #9fbfb6; }}
+  .stall {{ border-top-color: #d6b66b; }}
   .section-intro {{ color: var(--muted); }}
   .eta-table {{ border-collapse: collapse; table-layout: fixed; }}
   .eta-table th, .eta-table td {{ border-top: 1px solid var(--line); padding: 11px 8px; text-align: left; vertical-align: top; }}
@@ -2687,14 +3199,14 @@ def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
     }
 
 
-def morning_windows_are_consecutive(first: datetime, second: datetime) -> bool:
+def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
     if any(value != 0 for value in (first.minute, first.second, second.minute, second.second)):
         return False
-    return (
-        first.hour == 8
-        and second.hour == 8
-        and second.date() == first.date() + timedelta(days=1)
-    )
+    if first.hour == 8:
+        return second.hour == 20 and second.date() == first.date()
+    if first.hour == 20:
+        return second.hour == 8 and second.date() == first.date() + timedelta(days=1)
+    return False
 
 
 def launch_trigger_proof() -> dict[str, Any]:
@@ -2739,32 +3251,32 @@ def verify_window_receipts(
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
         and row.get("trigger") != "launchd-calendar"
     ]
-    ignored_nonmorning = [
+    ignored_nonslot = [
         str(row["scheduled_for"])
         for row in scheduled
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
         and row.get("trigger") == "launchd-calendar"
-        and row.get("slot") != "morning"
+        and row.get("slot") not in {"morning", "evening"}
     ]
     eligible = [
         row
         for row in scheduled
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
         and row.get("trigger") == "launchd-calendar"
-        and row.get("slot") == "morning"
+        and row.get("slot") in {"morning", "evening"}
     ]
     latest_by_window = {str(row["scheduled_for"]): row for row in eligible}
     latest = [latest_by_window[key] for key in sorted(latest_by_window)[-2:]]
     problems: list[str] = []
     if len(latest) != 2:
         problems.append(
-            f"need two distinct current-schema natural 08:00 windows; found {len(latest)}"
+            f"need two distinct current-schema natural 08:00/20:00 windows; found {len(latest)}"
         )
     else:
         first = datetime.fromisoformat(str(latest[0]["scheduled_for"]))
         second = datetime.fromisoformat(str(latest[1]["scheduled_for"]))
-        if not morning_windows_are_consecutive(first, second):
-            problems.append("latest natural 08:00 windows are not consecutive")
+        if not natural_windows_are_consecutive(first, second):
+            problems.append("latest natural 08:00/20:00 windows are not consecutive")
         for row in latest:
             scheduled_for = str(row["scheduled_for"])
             receipt = row.get("receipt") or {}
@@ -2867,30 +3379,16 @@ def verify_window_receipts(
                     'name="viewport"',
                     str(row.get("generated_at") or ""),
                     "Today’s read",
-                    "Snowcubes chief-of-staff brief",
-                    "Snowcubes: now → then → waiting",
-                    "Business coverage",
-                    "What can wait",
-                    "Supporting checks inform the note; they do not create another to-do list.",
-                ) if row.get("slot") == "morning" else (
-                    "<!DOCTYPE html>",
-                    'name="viewport"',
-                    str(row.get("generated_at") or ""),
-                    "Today’s read",
-                    "How this note thinks",
-                    "What building looks like now",
-                    "Where attention is going",
-                    "Every workstream, in human terms",
-                    "The deeper read",
+                    "What materially changed",
+                    "The chief-of-staff read",
                     "Decided for you",
                     "Needs Leo now",
                     "Architecture decisions you need to know about",
-                    "Questions I’m challenging you on",
-                    "ETAs for completion",
-                    "Work that is stalling — and how to improve it",
-                    "What can wait",
-                    "Supporting evidence",
-                    "If a source could not be checked",
+                    "Questions to challenge your point of view",
+                    "Completion outlook",
+                    "Lanes losing momentum — and how to improve them",
+                    "Snowcubes in the portfolio",
+                    "Evidence and blind spots",
                     "Supporting checks inform the note; they do not create another to-do list.",
                 )
                 if any(marker not in rendered for marker in required_html):
@@ -2923,7 +3421,7 @@ def verify_window_receipts(
         "message_ids": [(row.get("receipt") or {}).get("message_id") for row in latest],
         "ignored_legacy_windows": ignored_legacy,
         "ignored_noncalendar_windows": ignored_noncalendar,
-        "ignored_nonmorning_windows": ignored_nonmorning,
+        "ignored_nonslot_windows": ignored_nonslot,
     }
 
 

@@ -13,6 +13,9 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import shadow_plan_store as plan_store  # noqa: E402
+
 SPEC = importlib.util.spec_from_file_location("shadow_brief", ROOT / "scripts" / "shadow-brief.py")
 assert SPEC and SPEC.loader
 brief = importlib.util.module_from_spec(SPEC)
@@ -162,7 +165,7 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("Proposal only", html)
         self.assertIn("Superhuman business inbox", html)
 
-    def test_morning_brief_is_snowcubes_first_and_compact(self):
+    def test_morning_brief_is_the_same_reader_first_umbrella_product(self):
         names = [
             "Reply and relationships",
             "Relationships to nurture",
@@ -181,7 +184,22 @@ class PrivateStoreTests(unittest.TestCase):
             "repos": [],
             "github_open_prs": [],
             "recommendations": [],
-            "analysis": {},
+            "analysis": {
+                "executive_read": [
+                    "Shadow changed how large plans are read, so one busy project can no longer erase the rest of the portfolio from the note."
+                ],
+                "material_changes": [
+                    {
+                        "project": "Shadow",
+                        "status": "verified locally",
+                        "headline": "Large plans no longer make the brief lose the plot",
+                        "fact": "The plan reader now reconstructs the complete plan before extracting work and decisions.",
+                        "meaning": "This restores the context the chief-of-staff analysis needs; the next natural window still has to prove delivery.",
+                        "evidence": ["current Shadow plan", "recent source history"],
+                        "links": [],
+                    }
+                ],
+            },
             "snowcubes_context": {
                 "surfaces": [
                     {
@@ -206,26 +224,77 @@ class PrivateStoreTests(unittest.TestCase):
 
         self.assertEqual(
             brief.brief_subject("morning", packet["generated_at"]),
-            "Snowcubes morning brief — 2026-08-12T08:00:00-04:00",
+            "Shadow morning brief — 2026-08-12T08:00:00-04:00",
         )
         self.assertEqual(
             brief.brief_subject("evening", packet["generated_at"]),
             "Shadow evening brief — 2026-08-12T08:00:00-04:00",
         )
-        self.assertIn("Snowcubes chief-of-staff brief", html)
-        self.assertLess(
-            html.index("Snowcubes: now → then → waiting"),
-            html.index("Business coverage"),
-        )
-        self.assertLess(html.index("Priority 1"), html.index("Priority 2"))
-        self.assertLess(html.index("Priority 2"), html.index("Priority 3"))
-        for name in names:
-            self.assertIn(name, html)
+        self.assertIn("What materially changed", html)
+        self.assertIn("The chief-of-staff read", html)
+        self.assertIn("Decided for you", html)
+        self.assertIn("Snowcubes", html)
+        self.assertIn("Reply and relationships", html)
+        self.assertNotIn("Commerce observation", html)
+        self.assertIn("8 Snowcubes sources were unavailable", html)
         self.assertIn("Proposal only: Leo approves before any send.", html)
         self.assertIn("Open native source", html)
-        self.assertIn("This email is a read-only projection, not a plan or task store.", html)
+        self.assertLess(html.index("What materially changed"), html.index("Decided for you"))
+        self.assertNotIn("Snowcubes chief-of-staff brief", html)
+        self.assertNotIn("How this note thinks", html)
         self.assertNotIn("What building looks like now", html)
         self.assertNotIn("Every workstream, in human terms", html)
+
+    def test_material_changes_explain_code_motion_without_branch_mechanics(self):
+        analysis = brief.build_chief_of_staff_analysis(
+            board={"entities": [], "claims": []},
+            repos=[
+                brief.RepoPaint(
+                    name="shadow",
+                    path="/private/shadow",
+                    last_commit_age_h=1.0,
+                    recent_commits=[
+                        "fix: keep brief alive when one plan read fails (#468)",
+                        "feat: publish plan trees with root cas",
+                    ],
+                )
+            ],
+            github=[],
+            vercel={"available": True, "deployments": []},
+            supabase={"available": True, "projects": []},
+            mail={"available": False},
+            source_health={},
+        )
+
+        change = analysis["material_changes"][0]
+        self.assertEqual(change["project"], "Shadow")
+        self.assertIn("plan", (change["headline"] + change["fact"] + change["meaning"]).lower())
+        prose = json.dumps(change)
+        self.assertNotIn("#468", prose)
+        self.assertNotIn("root cas", prose.lower())
+        self.assertNotIn("plan-scale-live", prose)
+
+    def test_expenses_web_change_is_not_mislabeled_as_snowcubes(self):
+        changes = brief.build_material_changes(
+            board={"projects": [], "entities": [], "claims": []},
+            repos=[
+                brief.RepoPaint(
+                    name="expenses-web",
+                    path="/private/expenses-web",
+                    recent_commits=[
+                        "feat(switchboard): restore source-only weekly planning",
+                        "backup(cron): cover legacy transactions and paginate listings",
+                    ],
+                )
+            ],
+            github=[],
+            vercel={"available": True, "deployments": []},
+        )
+
+        self.assertEqual(changes[0]["project"], "Expenses Web")
+        self.assertIn("weekly planning", changes[0]["headline"].lower())
+        self.assertIn("older transaction", changes[0]["fact"].lower())
+        self.assertNotIn("Snowcubes", json.dumps(changes[0]))
 
     def test_m12_card_uses_the_source_packet_timestamp_without_claiming_current_money(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -320,6 +389,32 @@ class SourceBoundaryTests(unittest.TestCase):
 
 
 class AuthorityScopeTests(unittest.TestCase):
+    def test_partitioned_plan_is_materialized_before_the_brief_parses_it(self):
+        logical = (
+            "# Product plan\n\n"
+            "## Brief\n- Project: snowcubes\n- Mode: ship\n- Priority: 3\n\n"
+            "## Tasks\n### Customer truth\n"
+            "- [pending] Make every food page explain its allergen risk ~safe | proof: read storefront -> disclosure is visible\n"
+            "- [pending] Prove the disclosure in production ~dod1 (DoD) | proof: read storefront -> live proof exists | needs: ~safe\n\n"
+            "## Deferred\n\n## Contradictions\n\n## Progress\n"
+            "- 2026-08-13T12:00:00Z STRUCT customer truth added | trigger: safety gap\n"
+        ).encode("utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "PLAN.md"
+            build = plan_store.build_tree(logical)
+            plan.write_bytes(build.root_bytes)
+            for digest, content in build.objects.items():
+                object_path = plan.parent / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+                object_path.parent.mkdir(parents=True, exist_ok=True)
+                object_path.write_bytes(content)
+
+            parsed = brief.parse_plan(plan)
+
+        self.assertEqual(parsed.project, "snowcubes")
+        self.assertEqual(parsed.open_checkpoints[0].id, "safe")
+        self.assertIn("allergen risk", parsed.open_checkpoints[0].title)
+        self.assertIn("customer truth added", parsed.recent_progress[0])
+
     def test_claims_are_scoped_by_entity_and_row(self):
         claims = [
             {"entity": "entity-a", "row": "~aa11", "return_by": "a"},
@@ -566,7 +661,7 @@ class AuthorityScopeTests(unittest.TestCase):
             self.assertEqual(row["scheduled_for"], scheduled_for)
             self.assertEqual(row["slot"], "morning")
 
-    def test_delivery_evidence_requires_two_consecutive_mornings(self):
+    def test_delivery_evidence_accepts_two_consecutive_twice_daily_windows(self):
         morning = {
             "schema": brief.WINDOW_RECEIPT_SCHEMA,
             "on_schedule": True,
@@ -585,19 +680,19 @@ class AuthorityScopeTests(unittest.TestCase):
         result = brief.verify_window_receipts([morning, evening])
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["windows"], [morning["scheduled_for"]])
-        self.assertIn("need two distinct current-schema natural 08:00 windows; found 1", result["problems"])
-        self.assertEqual(result["ignored_nonmorning_windows"], [evening["scheduled_for"]])
+        self.assertEqual(result["windows"], [morning["scheduled_for"], evening["scheduled_for"]])
+        self.assertNotIn("need two distinct current-schema natural windows; found 1", result["problems"])
+        self.assertNotIn("latest natural windows are not consecutive", result["problems"])
         self.assertTrue(
-            brief.morning_windows_are_consecutive(
+            brief.natural_windows_are_consecutive(
                 brief.datetime.fromisoformat("2026-08-12T08:00:00-04:00"),
-                brief.datetime.fromisoformat("2026-08-13T08:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-12T20:00:00-04:00"),
             )
         )
         self.assertFalse(
-            brief.morning_windows_are_consecutive(
+            brief.natural_windows_are_consecutive(
                 brief.datetime.fromisoformat("2026-08-12T08:00:00-04:00"),
-                brief.datetime.fromisoformat("2026-08-12T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
             )
         )
 
