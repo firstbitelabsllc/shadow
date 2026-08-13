@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
 
@@ -438,6 +439,49 @@ class PlanTreeMigrationHarness(unittest.TestCase):
             self.assertEqual(rolled_back.returncode, 0, rolled_back.stderr)
             self.assertEqual(plan_path.read_bytes(), before_plan)
             self.assertEqual(board.read_bytes(), before_board)
+
+    def test_apply_rechecks_the_exact_source_after_the_dry_run(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "shadow_plan_cli", ROOT / "scripts" / "shadow-plan.py"
+        )
+        assert spec and spec.loader
+        cli = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = cli
+        spec.loader.exec_module(cli)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            home = root / "home"
+            plan_path = home / ".shadow" / "plans" / "alpha" / "PLAN.md"
+            plan_path.parent.mkdir(parents=True)
+            source = plan("alpha", "~aa11").encode("utf-8")
+            plan_path.write_bytes(source)
+            archive = plan_path.parent / "docs" / "plan-archive" / "old-work.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("# Old work\n", encoding="utf-8")
+            expected = hashlib.sha256(source).hexdigest()
+            raced = plan(
+                "alpha",
+                "~aa11",
+                padding="- 2026-08-12T00:02:00Z DECISION race the migration\n",
+            ).encode("utf-8")
+            self.assertNotEqual(raced, source)
+            original = cli.store.dry_run_migration
+
+            def race(target, *, board):
+                report = original(target, board=board)
+                plan_path.write_bytes(raced)
+                return report
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
+                cli.store, "dry_run_migration", side_effect=race
+            ):
+                with self.assertRaisesRegex(
+                    cli.PlanStoreError, "migration source digest changed"
+                ):
+                    cli._apply(plan_path, None, expected)
+
+            self.assertEqual(plan_path.read_bytes(), raced)
+            self.assertFalse((plan_path.parent / "PLAN.d").exists())
 
     def test_git_apply_and_rollback_commit_the_root_and_objects_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

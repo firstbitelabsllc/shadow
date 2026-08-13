@@ -101,7 +101,12 @@ def _apply(plan: Path, board: Path | None, expected: str) -> dict[str, object]:
         raise PlanStoreError("migration source digest changed; rerun the dry run")
     git_context = _git_context(plan)
     snapshot = store.PlanSnapshot.open(plan)
-    transaction = store.PlanTransaction.begin(plan, expected_root=snapshot.root_sha256)
+    # Codex (PR #469, P1): the dry run's digest only names the bytes it read.
+    # Machine-local plans have no cleanliness check, so recheck the exact source
+    # CAS against the snapshot this transaction will actually migrate.
+    if snapshot.is_tree or snapshot.root_sha256 != expected:
+        raise PlanStoreError("migration source digest changed; rerun the dry run")
+    transaction = store.PlanTransaction.begin(plan, expected_root=expected)
     publication = transaction.replace_content(snapshot.materialize()).publish()
     commit: str | None = None
     try:
