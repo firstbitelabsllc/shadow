@@ -220,7 +220,13 @@ def _boundaries(lines: list[str]) -> list[tuple[int, str, str]]:
         if section == "Tasks" and line.startswith("### "):
             boundaries[index] = (index, "milestone", section)
             continue
-        if section in {"Brief", "Progress", "Deferred", "Contradictions"} and line.startswith("- "):
+        # Top-level list items are stable Markdown grammar boundaries in every
+        # non-Tasks section, including older/custom plans whose receipt ledger
+        # predates the current Brief/Progress names. Tasks keep their existing
+        # milestone boundary and dependency semantics. Indented continuation
+        # lines remain attached to their item, and one genuinely oversized item
+        # still refuses rather than being split mid-record.
+        if section and section != "Tasks" and line.startswith("- "):
             boundaries[index] = (index, "item", section)
     return [boundaries[index] for index in sorted(boundaries)]
 

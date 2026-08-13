@@ -333,7 +333,8 @@ ignore the cache; it MUST never fall back to stale content.
 ### Losslessness and stable identity
 
 Migration MUST split only before exact grammar boundaries: preamble, section,
-milestone, top-level Brief item, and append-only Deferred, Contradictions, or Progress item. Catalog
+milestone, and a top-level list item in any non-Tasks section, including append-only
+Brief, Deferred, Contradictions, Progress, and legacy/custom receipt sections. Catalog
 order plus shard bytes MUST reproduce the pre-migration `PLAN.md` byte for
 byte, including final-newline state. The first root binds that original digest
 and byte count. Later generations bind their own deterministic materialization.
@@ -583,6 +584,24 @@ with no missing case. A single-entity lookup used at most seven hops, 31,481
 verified source bytes, and 1.011 ms p95; the three-entity portfolio lookup used
 19 aggregate hops and 84,883 bytes. This is M26 fixture proof only: it neither
 claims nor advances any Resplit checkpoint.
+
+An FYI from a second seat identified a larger real corpus after that replay:
+the machine-local Grafana consolidation plan is 527,947 bytes at source digest
+`f2e72f1b6ab8…`. Its first zero-write dry run correctly refused because a
+legacy/custom `CURRENT-STATE HEADER` was one 135,388-byte section. Inspection
+showed that it already contained independent top-level Markdown receipts; the
+splitter had simply recognized that boundary only in four modern section
+names. The format now accepts top-level list-item boundaries in every
+non-Tasks section, keeps indented continuations attached, and still refuses a
+single item over 32 KiB.
+
+The repeated dry run on the unchanged real plan reconstructed all 527,947
+bytes at the exact source digest, with candidate root `236bdd142395…`, 538
+objects / 686,915 object bytes, 20,604-byte maximum data shard, 16,375-byte
+maximum index page, depth 2, no route mismatch, and zero writes. Its legacy
+`## ROWS` syntax intentionally produces zero standard Shadow row routes, so
+this receipt proves lossless storage scaling only; the 16-case modern-plan
+replay above remains the task-query and provenance proof.
 
 The checked-in structural model at one million shards has tree depth 4. An
 exact one-result lookup reads one root, at most eight index pages, and one

@@ -127,6 +127,21 @@ class PlanTreeBuildTests(unittest.TestCase):
 
         self.assertEqual(store.materialize_build(build), source)
 
+    def test_large_custom_section_splits_only_at_existing_top_level_items(self) -> None:
+        items = "".join(
+            f"- cycle {index}: {'x' * 400}\n  continuation stays with cycle {index}\n"
+            for index in range(100)
+        )
+        source = plan().replace(
+            b"## Tasks\n",
+            f"## CURRENT-STATE HEADER\n\n{items}\n## Tasks\n".encode(),
+        )
+
+        build = store.build_tree(source)
+
+        self.assertEqual(store.materialize_build(build), source)
+        self.assertLessEqual(max(map(len, build.objects.values())), store.DATA_MAX_BYTES)
+
 
 class PlanSnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
