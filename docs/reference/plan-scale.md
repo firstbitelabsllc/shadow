@@ -605,7 +605,7 @@ Delivery states remain separate:
 - **source:** feature branch `feat/plan-scale-20260812` contains the plan-tree
   implementation and this receipt;
 - **merged origin/main:** not yet present; `origin/main` remains `be3a9e9`;
-- **installed executable:** `/Users/leokwan/.local/bin/shadow` resolves to this
+- **installed executable:** `~/.local/bin/shadow` resolves to this
   feature checkout, `shadow --version` reports 1.0.1, and `shadow doctor`
   reports 17/17 checks without a hard failure;
 - **live dogfood:** the installed command migrated, rolled back, reopened, and
