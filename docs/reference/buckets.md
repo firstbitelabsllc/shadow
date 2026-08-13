@@ -19,7 +19,6 @@ there is no bucket configuration file.
 ## The buckets
 
 - bucket superpowers | kind: pack | default: superpowers | fills: the process discipline inside every applicable claimed lane — brainstorm before building, test first, review, and verify before claiming done. Shadow owns the durable plan and keeps the full Outcome moving | absent: install superpowers from the claude-plugins-official marketplace, or set SHADOW_BUCKET_SUPERPOWERS=off
-- bucket honcho | kind: builtin | default: docs/reference/honcho.md | fills: durable memory of what the work is trying to achieve, and continuity across CLIs, providers, and machines — carried by PLAN.md and git, never by an installed store | absent: unreachable; a builtin bucket ships filled by this repository
 - bucket taste | kind: skill | default: taste | fills: the finished-quality grade on a human-visible surface, after it works and before anyone calls it done | absent: mount a skill named taste in one of the three skill roots, or set SHADOW_BUCKET_TASTE=off
 - bucket future | kind: skill | default: future | fills: receipt-grounded pre-mortem questions before a plan commits to risky work, seeded by the entity plan's own lessons and decisions rather than another memory store | absent: mount a skill named future in one of the three skill roots, or set SHADOW_BUCKET_FUTURE=off
 
@@ -55,20 +54,19 @@ path there would invent a convention.
 **skill** — one skill mounted in the three roots the installer writes. Look for
 `<root>/<default>/SKILL.md`. Present when at least one resolves.
 
-**builtin** — Shadow implements the pattern itself, so the slot ships filled and
-must stay empty of an installed thing. Present when the named file exists and no
-directory of that name sits in a skill root or the plugin cache. **Stale when an
-installed namesake is found** — that is the point of this kind: it turns a
-standing ruling into a mechanical refusal. Never absent.
+A bucket names only a capability Shadow itself reaches for. It never asserts
+anything about the rest of a machine: which recall, memory, or model tooling a
+person runs is their own configuration, and a check that failed over it would be
+Shadow policing software it does not use.
 
 ## What doctor reports
 
-| | pack | skill | builtin |
-|---|---|---|---|
-| present | PASS | PASS | PASS |
-| absent | WARN, printing this line's `absent:` text | WARN, same | not reachable |
-| stale | FAIL | FAIL | FAIL |
-| `off` | PASS, naming the variable | PASS, same | PASS, same |
+| | pack | skill |
+|---|---|---|
+| present | PASS | PASS |
+| absent | WARN, printing this line's `absent:` text | WARN, same |
+| stale | FAIL | FAIL |
+| `off` | PASS, naming the variable | PASS, same |
 
 **Absent never fails.** A bucket is an optional capability; a machine that has
 not installed one is not a broken install. Present-but-wrong does fail, on the

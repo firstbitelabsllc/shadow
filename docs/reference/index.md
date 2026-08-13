@@ -15,7 +15,6 @@
 - [Privacy](privacy.md)
 - [Local event vocabulary](telemetry.md) — closed local events; no network transport
 - [Extension buckets](buckets.md) — the named slots the Method plugs into
-- [honcho](honcho.md) — why it is a pattern here, not a store
 
 Ordered roughly by how soon you need it. Everything below Browser is either a
 narrower surface or a ruling you only need when you go looking for it.
