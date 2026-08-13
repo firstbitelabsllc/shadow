@@ -16,6 +16,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_plan_store as store  # noqa: E402
+import shadow_root_board as board_store  # noqa: E402
 
 
 PlanStoreError = store.PlanStoreError
@@ -37,6 +38,8 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
 
 
 def _git_context(plan: Path) -> tuple[Path, Path] | None:
+    if board_store.is_local_plan(plan):
+        return None
     probe = _git(plan.parent, "rev-parse", "--show-toplevel")
     if probe.returncode:
         return None
