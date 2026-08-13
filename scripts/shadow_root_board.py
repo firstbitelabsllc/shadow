@@ -319,7 +319,7 @@ def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
         snapshot = open_plan(plan)
         if snapshot.root_bytes != root_content:
             return "unavailable", None
-        content = snapshot.materialize()
+        content = bounded_plan_content(snapshot)
     except (BoardError, _plan_store.PlanStoreError):
         return unavailable_token(), None
     try:
@@ -344,12 +344,29 @@ def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
     return hashlib.sha256(frozen).hexdigest(), content
 
 
-def read_plan_bytes(plan: Path) -> bytes:
-    """Read one bounded logical plan through the shared storage owner."""
-    content = open_plan(plan).materialize()
+def bounded_plan_content(snapshot: _plan_store.PlanSnapshot) -> bytes:
+    """Materialize one snapshot only while its own declared size stays bounded.
+
+    Codex (PR #469, P1): a partitioned plan declares its logical size in the
+    root, and the tree format's structural capacity is far larger than the bound
+    every reader shares. Refusing on `logical_bytes` before traversal keeps board
+    discovery and browser scanning from allocating an oversized plan, and the
+    length recheck keeps the bound true for the bytes actually produced.
+    """
+    declared = (
+        snapshot.root["logical_bytes"] if snapshot.is_tree else len(snapshot.root_bytes)
+    )
+    if declared > MAX_PLAN_BYTES:
+        raise BoardError("plan exceeds the bounded size limit")
+    content = snapshot.materialize()
     if len(content) > MAX_PLAN_BYTES:
         raise BoardError("plan exceeds the bounded size limit")
     return content
+
+
+def read_plan_bytes(plan: Path) -> bytes:
+    """Read one bounded logical plan through the shared storage owner."""
+    return bounded_plan_content(open_plan(plan))
 
 
 def open_plan(plan: Path) -> _plan_store.PlanSnapshot:

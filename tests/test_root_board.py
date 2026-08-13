@@ -143,6 +143,30 @@ class PartitionedPlansUseOneLogicalReadBoundary(unittest.TestCase):
             self.assertRegex(state, r"^[0-9a-f]{64}$")
             self.assertEqual(content, source)
 
+    def test_oversized_tree_is_refused_before_any_object_is_traversed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes() + b"\n<!-- " + b"x" * 8192 + b" -->\n"
+            plan = install_plan_tree(repo, source)
+            snapshot = board_api.open_plan(plan)
+            self.assertLess(len(snapshot.root_bytes), len(source))
+
+            with mock.patch.object(
+                board_api, "MAX_PLAN_BYTES", len(source) - 1
+            ), mock.patch.object(
+                board_api._plan_store.PlanSnapshot,
+                "materialize",
+                side_effect=AssertionError("oversized tree was traversed"),
+            ):
+                with self.assertRaisesRegex(
+                    board_api.BoardError, "plan exceeds the bounded size limit"
+                ):
+                    board_api.read_plan_bytes(plan)
+                state, content = board_api.plan_state_snapshot(plan)
+
+            self.assertRegex(state, r"^[0-9a-f]{64}$")
+            self.assertIsNone(content)
+
     def test_dirty_tree_object_refuses_a_committed_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = project(Path(tmp))
