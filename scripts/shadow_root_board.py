@@ -26,6 +26,7 @@ from urllib.parse import unquote, urlsplit
 
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 import shadow_plan_grammar as _grammar
+import shadow_plan_store as _plan_store
 
 
 SCHEMA = "shadow.root-board.v1"
@@ -312,15 +313,21 @@ def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
 
 
 def read_plan_bytes(plan: Path) -> bytes:
-    """Read one bounded authority snapshot without following a leaf symlink."""
-    state, content = plan_state_snapshot(plan)
-    if state == "unavailable":
-        raise BoardError("plan must be a regular non-symlink PLAN.md")
-    if content is None:
-        raise BoardError("plan is unreadable")
+    """Read one bounded logical plan through the shared storage owner."""
+    content = open_plan(plan).materialize()
     if len(content) > MAX_PLAN_BYTES:
         raise BoardError("plan exceeds the bounded size limit")
     return content
+
+
+def open_plan(plan: Path) -> _plan_store.PlanSnapshot:
+    """Open one legacy or partitioned authority through its canonical owner."""
+    if not regular_plan(plan):
+        raise BoardError("plan must be a regular non-symlink PLAN.md")
+    try:
+        return _plan_store.PlanSnapshot.open(plan)
+    except _plan_store.PlanStoreError as exc:
+        raise BoardError(str(exc)) from exc
 
 
 def read_plan_text(plan: Path) -> str:
@@ -651,16 +658,22 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     token, _ = head_plan_snapshot(plan)
     repo = Path(token["repo"])
     relative = token["relative"]
-    status = _git(repo, "status", "--porcelain=v1", "--", relative)
+    snapshot = open_plan(plan)
+    tracked_paths = [relative]
+    if snapshot.is_tree:
+        tracked_paths.append(
+            (Path(relative).parent / "PLAN.d").as_posix()
+        )
+    status = _git(repo, "status", "--porcelain=v1", "--", *tracked_paths)
     if status.returncode:
         raise BoardError("project plan Git state could not be read")
     if status.stdout.strip():
         raise BoardError("project plan or its staged index changed; commit or restore it first")
     try:
-        content = plan.read_bytes()
+        root_content = plan.read_bytes()
         hashed = subprocess.run(
             ["git", "-C", str(repo), "hash-object", "--stdin"],
-            input=content,
+            input=root_content,
             capture_output=True,
             check=False,
         )
@@ -671,6 +684,10 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     head_after = _git(repo, "rev-parse", "HEAD")
     if head_after.returncode or head_after.stdout.strip() != token["head"]:
         raise BoardError("project plan ref changed while it was being read; retry")
+    try:
+        content = snapshot.materialize()
+    except _plan_store.PlanStoreError as exc:
+        raise BoardError(str(exc)) from exc
     return token, content
 
 
@@ -1886,8 +1903,8 @@ def reconcile(
 def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None) -> None:
     if text is None:
         try:
-            text = plan.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            text = read_plan_text(plan)
+        except BoardError as exc:
             raise BoardError("claim return needs a readable project plan") from exc
     row_matches = []
     for line in text.splitlines():
