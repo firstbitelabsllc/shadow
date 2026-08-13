@@ -111,6 +111,7 @@ class PublishReceipt:
     logical_sha256: str
     generation: int
     object_writes: int
+    new_objects: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -1135,7 +1136,7 @@ class PlanTransaction:
         )
         if materialize_build(candidate) != self.candidate_content:
             raise PlanStoreError("candidate tree is not lossless")
-        writes = 0
+        new_objects: list[str] = []
         with _root_lock(self.plan):
             current = _safe_read(self.plan, 1_000_000)
             if digest_bytes(current) != self.expected_root or current != self.original_root_bytes:
@@ -1143,7 +1144,7 @@ class PlanTransaction:
             rollback_objects = {self.expected_root: self.original_root_bytes}
             for digest, content in {**candidate.objects, **rollback_objects}.items():
                 if _publish_object(self.plan, digest, content):
-                    writes += 1
+                    new_objects.append(digest)
             if fault is not None:
                 fault("objects-published")
             current = _safe_read(self.plan, 1_000_000)
@@ -1167,7 +1168,8 @@ class PlanTransaction:
             root_sha256=published.root_sha256,
             logical_sha256=digest_bytes(self.candidate_content),
             generation=candidate.root["generation"],
-            object_writes=writes,
+            object_writes=len(new_objects),
+            new_objects=tuple(new_objects),
         )
 
     def abort(self) -> None:
@@ -1205,7 +1207,72 @@ def rollback(plan: Path, *, expected_root: str) -> PublishReceipt:
         logical_sha256=digest_bytes(previous_content),
         generation=generation,
         object_writes=0,
+        new_objects=(),
     )
+
+
+def _reachable_objects(snapshot: PlanSnapshot) -> set[str]:
+    if snapshot.root is None:
+        return set()
+    reachable: set[str] = set()
+
+    def visit(tree: str, digest: str, ancestors: frozenset[str]) -> None:
+        if digest in ancestors:
+            raise PlanStoreError("index cycle detected")
+        reachable.add(digest)
+        content = _safe_read(snapshot.object_path(digest), INDEX_MAX_BYTES)
+        if digest_bytes(content) != digest:
+            raise PlanStoreError("object digest mismatch")
+        page = _decode_page(content, tree)
+        if page["kind"] == "branch":
+            for entry in page["entries"]:
+                child = entry.get("object") if isinstance(entry, dict) else None
+                if not isinstance(child, str):
+                    raise PlanStoreError("branch entry is malformed")
+                visit(tree, child, ancestors | {digest})
+            return
+        if tree == "catalog":
+            for entry in page["entries"]:
+                value = entry.get("value") if isinstance(entry, dict) else None
+                data = value.get("object") if isinstance(value, dict) else None
+                if not isinstance(data, str):
+                    raise PlanStoreError("catalog descriptor is malformed")
+                reachable.add(data)
+
+    for tree in ("catalog", "row", "tag"):
+        visit(tree, snapshot.root[f"{tree}_root"], frozenset())
+    previous = snapshot.root.get("previous_root")
+    if isinstance(previous, str):
+        reachable.add(previous)
+    return reachable
+
+
+def discard_unreachable(plan: Path, digests: Iterable[str]) -> tuple[str, ...]:
+    """Delete only verified objects created by an aborted local transaction."""
+    snapshot = PlanSnapshot.open(plan)
+    reachable = _reachable_objects(snapshot)
+    removed: list[str] = []
+    for digest in sorted(set(digests)):
+        if digest in reachable:
+            continue
+        path = snapshot.object_path(digest)
+        if not path.exists() and not path.is_symlink():
+            continue
+        content = _safe_read(path, 1_000_000)
+        if digest_bytes(content) != digest:
+            raise PlanStoreError("unreachable object is corrupt; refusing deletion")
+        try:
+            path.unlink()
+            _fsync_directory(path.parent)
+            removed.append(digest)
+            try:
+                path.parent.rmdir()
+                _fsync_directory(path.parent.parent)
+            except OSError:
+                pass
+        except OSError as exc:
+            raise PlanStoreError("unreachable transaction object could not be removed") from exc
+    return tuple(removed)
 
 
 def _validate_archives(plan: Path, content: bytes) -> int:
