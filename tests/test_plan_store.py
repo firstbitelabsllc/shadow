@@ -268,6 +268,23 @@ class PlanTransactionTests(unittest.TestCase):
         self.assertEqual(store.PlanSnapshot.open(self.plan_path).materialize(), original)
         self.assertEqual(restored.root_sha256, hashlib.sha256(original).hexdigest())
 
+    def test_rollback_can_remove_only_the_transactions_unreachable_objects(self) -> None:
+        published = (
+            store.PlanTransaction.begin(self.plan_path)
+            .replace_content(self.changed())
+            .publish()
+        )
+        store.rollback(self.plan_path, expected_root=published.root_sha256)
+
+        removed = store.discard_unreachable(self.plan_path, published.new_objects)
+
+        self.assertEqual(set(removed), set(published.new_objects))
+        self.assertEqual(self.plan_path.read_bytes(), self.source)
+        self.assertEqual(
+            list((self.root / "PLAN.d" / "objects" / "sha256").glob("*/*")),
+            [],
+        )
+
     def test_stale_writer_loses_the_root_cas(self) -> None:
         first = store.PlanTransaction.begin(self.plan_path)
         second = store.PlanTransaction.begin(self.plan_path)

@@ -31,6 +31,7 @@ import shadow_root_board as _board  # noqa: E402
 import shadow_remote_claim as _remote_claim  # noqa: E402
 from shadow_cmd_proof import script_operand_issue  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
+import shadow_plan_store as _plan_store  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_accept_amp", ROOT / "scripts" / "shadow-amp.py"
@@ -128,8 +129,27 @@ def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.Compl
         raise AcceptError(f"project Git state cannot be read: {exc}") from exc
 
 
-def atomic_write_text(path: Path, text: str) -> None:
+def atomic_write_text(
+    path: Path,
+    text: str,
+) -> _plan_store.PublishReceipt | None:
     """Replace one complete PLAN in its own directory; never leave truncation."""
+    try:
+        snapshot = _board.open_plan(path)
+    except _board.BoardError as exc:
+        raise AcceptError(f"project plan could not be opened: {exc}") from exc
+    if snapshot.is_tree:
+        try:
+            return (
+                _plan_store.PlanTransaction.begin(
+                    path,
+                    expected_root=snapshot.root_sha256,
+                )
+                .replace_content(text.encode("utf-8"))
+                .publish()
+            )
+        except _plan_store.PlanStoreError as exc:
+            raise AcceptError(f"project plan tree could not be replaced: {exc}") from exc
     descriptor, temporary = tempfile.mkstemp(prefix=".shadow-accept.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -147,6 +167,7 @@ def atomic_write_text(path: Path, text: str) -> None:
         raise AcceptError("project plan could not be replaced atomically") from exc
     finally:
         Path(temporary).unlink(missing_ok=True)
+    return None
 
 
 def restore_plan_index(
@@ -169,6 +190,25 @@ def restore_plan_index(
         restored = git_completed(repo, "rm", "--cached", "--quiet", "--", pathspec)
     if restored.returncode:
         raise AcceptError("the acceptance commit failed and its index could not be restored")
+
+
+def restore_tree_publication(
+    repo: Path,
+    plan_path: Path,
+    pathspecs: list[str],
+    publication: _plan_store.PublishReceipt,
+) -> None:
+    """Roll back only objects/root created by this failed acceptance commit."""
+    try:
+        _plan_store.rollback(plan_path, expected_root=publication.root_sha256)
+        reset = git_completed(repo, "reset", "--quiet", "HEAD", "--", *pathspecs)
+        if reset.returncode:
+            raise AcceptError("the tree acceptance index could not be restored")
+        _plan_store.discard_unreachable(plan_path, publication.new_objects)
+    except (_plan_store.PlanStoreError, AcceptError) as exc:
+        raise AcceptError(
+            "the acceptance commit failed and its plan tree could not be restored"
+        ) from exc
 
 
 def commit_completed_plan(
@@ -204,9 +244,14 @@ def commit_completed_plan(
         index_entry = git_completed(
             repo, "ls-files", "--stage", "--", plan_pathspec
         ).stdout.strip()
-        atomic_write_text(plan_path, updated_text)
+        publication = atomic_write_text(plan_path, updated_text)
+        pathspecs = [plan_pathspec]
+        if publication is not None:
+            pathspecs.append(
+                (plan_relative.parent / "PLAN.d").as_posix()
+            )
         try:
-            added = git_completed(repo, "add", "--", plan_pathspec)
+            added = git_completed(repo, "add", "--", *pathspecs)
             committed = (
                 git_completed(
                     repo,
@@ -223,16 +268,22 @@ def commit_completed_plan(
                     "-m",
                     f"shadow accept: {row_id} proven in a clean checkout",
                     "--",
-                    plan_pathspec,
+                    *pathspecs,
                 )
                 if added.returncode == 0
                 else added
             )
         except AcceptError:
-            restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
+            if publication is not None:
+                restore_tree_publication(repo, plan_path, pathspecs, publication)
+            else:
+                restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
             raise
         if added.returncode or committed.returncode:
-            restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
+            if publication is not None:
+                restore_tree_publication(repo, plan_path, pathspecs, publication)
+            else:
+                restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
             raise AcceptError("the acceptance commit could not be created; the plan was restored")
         try:
             completed_token, completed_bytes = _board.committed_plan_snapshot(plan_path)

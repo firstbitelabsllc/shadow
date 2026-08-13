@@ -10,11 +10,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_root_board as board  # noqa: E402
+from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
 
 
 PLAN = """# Local demo
@@ -78,6 +80,90 @@ ARCHIVABLE_PLAN = """# Local demo
 
 
 class LocalPlanStore(unittest.TestCase):
+    def test_accept_mutates_a_partitioned_local_plan_without_losing_the_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            repo = root / "dev" / "widget"
+            repo.mkdir(parents=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            for args in (
+                ("init", "--quiet"),
+                ("config", "user.email", "shadow-test@example.invalid"),
+                ("config", "user.name", "Shadow Test"),
+                ("add", "README.md"),
+                ("commit", "--quiet", "-m", "seed"),
+            ):
+                result = subprocess.run(
+                    ["git", "-C", str(repo), *args],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+            plan_root = home / ".shadow" / "plans" / "widget"
+            plan_root.mkdir(parents=True)
+            source = PLAN.replace("[pending]", "[in_progress]", 1).encode("utf-8")
+            plan = install_plan_tree(plan_root, source)
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~aa11"]}],
+                [],
+                home=home,
+            )
+            board.claim(plan, "~aa11", "local-seat", project="widget", priority=2, home=home)
+
+            accepted = subprocess.run(
+                [
+                    str(ROOT / "bin" / "shadow"), "accept", "--repo", str(repo),
+                    "--row", "~aa11", "--by", "local-seat",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            logical = board.read_plan_text(plan)
+            self.assertIn("[completed] prove local authority ~aa11", logical)
+            self.assertIn("~aa11 PROOF true -> pass (accept)", logical)
+            self.assertTrue(board.open_plan(plan).is_tree)
+            self.assertEqual(board.entity_state(plan, home=home)["claims"], [])
+
+    def test_lifecycle_archives_a_partitioned_local_plan_losslessly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            plan_root = home / ".shadow" / "plans" / "widget"
+            plan_root.mkdir(parents=True)
+            plan = install_plan_tree(plan_root, ARCHIVABLE_PLAN.encode("utf-8"))
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~cc33"]}],
+                [],
+                home=home,
+            )
+            before = board.read_plan_text(plan)
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                preview, _ = lifecycle.inspect(plan_root, "Finished work")
+                report = lifecycle.apply(
+                    plan_root,
+                    "Finished work",
+                    expected=preview["cas"],
+                    owner="local-seat",
+                )
+
+            self.assertTrue(report["ok"], report)
+            self.assertEqual(report["action"], "archived")
+            self.assertTrue(board.open_plan(plan).is_tree)
+            logical = board.read_plan_text(plan)
+            archive = plan_root / "docs" / "plan-archive" / "finished-work.md"
+            self.assertIn("shadow:lifecycle:finished-work", logical)
+            self.assertNotIn("first local result exists ~aa11", logical)
+            self.assertIn("first local result exists ~aa11", archive.read_text())
+            self.assertIn("unrelated history remains live", logical)
+            self.assertNotEqual(logical, before)
+
     def test_portfolio_import_moves_registered_ai_leo_plan_to_private_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
