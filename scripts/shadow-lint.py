@@ -503,8 +503,14 @@ def main(argv: list[str] | None = None) -> int:
     worst = 0
     for path in args.plans:
         try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            # Only canonical PLAN.md roots can be partitioned. Lint also
+            # deliberately accepts arbitrary Markdown fixtures and drafts.
+            text = (
+                _board.read_plan_text(path)
+                if path.name == "PLAN.md"
+                else path.read_text(encoding="utf-8")
+            )
+        except (_board.BoardError, OSError, UnicodeError) as exc:
             print(f"{path}: unreadable: {exc}")
             worst = 1
             continue
