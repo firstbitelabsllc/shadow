@@ -143,3 +143,139 @@ stale source digests, retains one authority, gives atomic update and crash
 recovery semantics, and reduces bytes loaded without making ordinary plan
 editing or rollback depend on a service.
 
+## Candidate comparison — 2026-08-13
+
+The comparison model splits exact source bytes only at stable grammar
+boundaries: sections, milestones, and append-only Deferred, Contradictions,
+and Progress items. A JSON manifest orders every shard and binds its SHA-256,
+byte length, section, tags, and referenced row IDs. Reassembling the ordered
+shards must reproduce the original plan byte-for-byte. A stale digest refuses
+before any row is returned.
+
+The manifest is intentionally verbose in this experiment. It is a worst-case
+inspectable routing surface, not a compressed target.
+
+| Project | Candidate | Canonical + derived storage | Current lookup | Completion write | Exact reconstruction |
+|---|---|---:|---:|---:|---|
+| Shadow | monolith + offset index | 260,866 + 68,868 | 69,618 | 260,866 | yes |
+| Shadow | hot plan + archives | 260,866 + 0 | 260,866 | 260,866 | yes |
+| Shadow | manifest + shards | 329,734 + 0 | 69,618 | 70,130 | yes |
+| Resplit | monolith + offset index | 249,241 + 53,814 | 64,002 | 249,241 | yes |
+| Resplit | hot plan + archives | 249,241 + 0 | 249,241 | 249,241 | yes |
+| Resplit | manifest + shards | 303,055 + 0 | 64,002 | 64,514 | yes |
+| Snowcubes | monolith + offset index | 248,845 + 42,648 | 46,067 | 248,845 | yes |
+| Snowcubes | hot plan + archives | 248,845 + 0 | 248,845 | 248,845 | yes |
+| Snowcubes | manifest + shards | 291,493 + 0 | 46,067 | 46,579 | yes |
+
+`Completion write` models one task-shard rewrite, one manifest rewrite, and
+one new bounded receipt shard. Existing receipt shards are immutable. The
+sharded candidate reduces current lookup bytes by 73.3%, 74.3%, and 81.5%, and
+completion write amplification by 73.1%, 74.1%, and 81.3%, respectively. Its
+tradeoff is 17.1–26.4% inspectable manifest overhead before compacting routing
+metadata.
+
+### Option 1 — monolith plus disposable index: rejected
+
+This is the smallest read optimization. It preserves the current file and can
+use `pread` offsets or FTS candidates followed by a current-source digest
+check. It produces the same lookup-byte reduction as shards in the model.
+
+It does not meet the full outcome. Every edit still atomically rewrites the
+whole plan; every parser and mutator still needs a second indexed code path;
+history growth still ends at the same hot-plan ceiling; and offsets invalidate
+after ordinary edits. SQLite's official FTS5 warning applies directly: an
+external index can disagree with content unless consistency is enforced. A
+rebuildable index is useful later, but it cannot be the storage remedy.
+
+### Option 2 — bounded hot plan plus immutable archives: keep as lifecycle, reject as architecture
+
+Current `shadow lifecycle` already controls hot storage and is the safest
+incremental migration tool. A dry run on completed M7 would reduce Shadow from
+260,866 to 258,696 bytes and 117 to 113 rows. That is useful housekeeping.
+
+It does not make active lookup proportional to the requested work. The parser
+still reads the whole remaining hot plan, whose Progress section alone is
+189,886 bytes. The field baseline also found four tombstones whose adjacent
+machine-local archives are absent. Lifecycle remains part of migration and
+retention, but tombstone-plus-file cannot be the only directory contract.
+
+### Option 3 — manifest plus canonical shards: chosen
+
+The entity remains one logical authority, but its bytes become one
+content-addressed tree: a small manifest is the root locator and immutable or
+atomically replaced shards own the exact content. The board continues to own
+only project priority, entity pointer, claims, owner, and resume row. It never
+copies task text or proof.
+
+This is the only candidate that reduces both lookup bytes and write
+amplification while scaling history independently of the active set. It also
+preserves a zero-index fallback: scan and verify manifest entries, then parse
+the same shards. A disposable index may accelerate routing, but deleting it
+changes no answer or command semantic.
+
+The design deliberately mirrors two primary-source invariants without copying
+their implementations:
+
+- Git's official object model uses content-addressed blobs plus trees that name
+  and order them, allowing a complete snapshot to be reconstructed from
+  immutable objects. Nia source `f5874419-96d2-4bc6-b3f9-a658bc7d9f47`.
+- SQLite FTS5 external-content indexes can be discarded and rebuilt from
+  canonical content; drift must refuse or be repaired, never silently answer.
+  Nia source `e6068626-7e16-4b83-8b00-396e57189c28`.
+
+Primary sources: <https://git-scm.com/book/en/v2/Git-Internals-Git-Objects>
+and <https://www.sqlite.org/fts5.html>.
+
+## Complexity decision
+
+Let `M` be manifest bytes, `S` the selected shard bytes, `P` all canonical
+entity bytes, and `E` the number of selected entities.
+
+| Operation | Current monolith | Manifest + shards target |
+|---|---:|---:|
+| current row / proof / decision | `O(P)` time and loaded bytes | `O(M + S)` without index; `O(S)` after a digest-bound derived lookup |
+| entity parse | `O(P)` | `O(M + sum(active shards))` |
+| portfolio current work | `O(sum(P_e))` | `O(board + sum(M_e + S_e))` |
+| task completion write | `O(P)` bytes | `O(M + task shard + new receipt shard)` |
+| history growth | bounded by repeated monolith compaction | append immutable shards; active lookup independent of historical bytes |
+| index loss | full scan of monolith | manifest scan; same source shards and answers |
+
+The target is not theoretical constant time: a human-readable manifest is
+linear in shard count. It is bounded-context routing whose cost grows with
+structure metadata, not with every historical word. A later derived map may
+make row-to-shard routing effectively constant-time, but the map stays
+disposable.
+
+## Failure modes the contract must close
+
+1. **Manifest/shard mismatch:** refuse before returning content; never accept a
+   tag or row map whose shard digest no longer matches.
+2. **Half-written mutation:** publish new shards first, then atomically CAS the
+   manifest; unreachable new shards are garbage, an old manifest remains valid.
+3. **Missing shard:** refuse the entity as incomplete and retain the old
+   manifest during recovery.
+4. **Duplicate row ID across shards:** refuse the manifest and all mutating
+   commands, just as the current plan refuses `ID-DUP`.
+5. **Dangling `needs:` or Progress reference:** validate across the entire
+   manifest tree before publish.
+6. **Derived-index drift:** compare the indexed manifest digest; delete and
+   rebuild on mismatch. Never return index text as authority.
+7. **Concurrent writers:** one entity lifecycle lock and manifest CAS owns the
+   transaction; a stale writer loses without overwriting a newer tree.
+8. **Manual editing:** provide a deterministic materialize/edit/split workflow
+   and keep the original monolith until the migration receipt proves exact
+   reconstruction and rollback.
+9. **Archive loss:** manifests bind every historical shard; a tombstone with no
+   bound content is invalid rather than an optional broken link.
+10. **Operator burden:** no daemon, service, credential, provider, or database
+    is required. Python stdlib, JSON, files, SHA-256, atomic replace, and the
+    existing lock/CAS owners are sufficient.
+
+## Ruling
+
+**Ponytail: keep — WORKS.** Keep the root board and entity identity; replace
+the entity's monolithic payload with a manifest-addressed shard tree. This is
+the first ladder rung that preserves exact authority while solving both read
+and write scaling. Do not add SQLite, FTS, a service, or a persistent index to
+the canonical path. Thermo classifies monolith-plus-index and archive-only as
+follow-ups, not competing architectures.
