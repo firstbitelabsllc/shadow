@@ -101,6 +101,9 @@ class EntityBrief:
     priority: int | None = None
     resume: str | None = None
     entity_id: str = ""
+    availability: str = "available"
+    error: str = ""
+    wake: str = ""
     open_checkpoints: list[Checkpoint] = field(default_factory=list)
     blocked: list[Checkpoint] = field(default_factory=list)
     forgotten: list[Checkpoint] = field(default_factory=list)
@@ -257,10 +260,81 @@ def parse_plan(path: Path) -> EntityBrief:
     )
 
 
+def unavailable_plan_brief(
+    *,
+    entity: dict[str, Any],
+    project_id: str,
+    plan_path: Path,
+    priority: int | None,
+    error: str,
+) -> EntityBrief:
+    """Keep one unreadable plan explicit without aborting the whole brief."""
+    return EntityBrief(
+        project=project_id or "unknown",
+        plan=str(plan_path),
+        priority=priority,
+        resume=entity.get("resume"),
+        entity_id=str(entity.get("id") or ""),
+        availability="unavailable",
+        error=error,
+        wake=(
+            f"Make {plan_path} locally readable, then run shadow status --by leo; "
+            "the next natural brief window retries it."
+        ),
+    )
+
+
+def build_shadow_board_health(board: dict[str, Any]) -> dict[str, Any]:
+    """Summarize board and plan-read availability for the private receipt."""
+    if board.get("error"):
+        return {
+            "available": False,
+            "error": str(board.get("error")),
+            "wake": str(
+                board.get("wake")
+                or "Restore the local Shadow board read, then run shadow status --by leo."
+            ),
+        }
+    unavailable = [
+        entity
+        for entity in (board.get("entities") or [])
+        if isinstance(entity, dict) and entity.get("availability") == "unavailable"
+    ]
+    if unavailable:
+        labels = [
+            f"{entity.get('project') or 'unknown'}: {entity.get('error') or 'plan unreadable'}"
+            for entity in unavailable
+        ]
+        wakes = [str(entity.get("wake")) for entity in unavailable if entity.get("wake")]
+        return {
+            "available": False,
+            "error": f"{len(unavailable)} board-owned plan read(s) unavailable: " + "; ".join(labels),
+            "wake": "; ".join(dict.fromkeys(wakes)),
+        }
+    return {"available": True, "revision": board.get("revision")}
+
+
 def collect_board() -> dict[str, Any]:
     if not BOARD_PATH.is_file():
-        return {"revision": None, "entities": [], "projects": [], "error": "board missing"}
-    board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": "board missing",
+            "wake": "Restore the local Shadow board, then run shadow status --by leo.",
+        }
+    try:
+        board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": f"board unreadable: {exc}",
+            "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
+        }
     # The root board owns project priority; a plan's own Priority line is stale
     # as soon as `shadow priority --value` moves the board-owned value.
     board_priority = {
@@ -274,19 +348,28 @@ def collect_board() -> dict[str, Any]:
         plan_path = Path(ent.get("plan") or "")
         if not plan_path.is_file():
             entities.append(
-                EntityBrief(
-                    project=project_id or "unknown",
-                    plan=str(plan_path),
+                unavailable_plan_brief(
+                    entity=ent,
+                    project_id=project_id,
+                    plan_path=plan_path,
                     priority=board_priority.get(project_id),
-                    resume=ent.get("resume"),
-                    entity_id=str(ent.get("id") or ""),
-                    open_checkpoints=[],
-                    blocked=[],
-                    forgotten=[],
+                    error="plan file is missing or not a regular file",
                 )
             )
             continue
-        brief = parse_plan(plan_path)
+        try:
+            brief = parse_plan(plan_path)
+        except OSError as exc:
+            entities.append(
+                unavailable_plan_brief(
+                    entity=ent,
+                    project_id=project_id,
+                    plan_path=plan_path,
+                    priority=board_priority.get(project_id),
+                    error=f"plan read failed: {exc}",
+                )
+            )
+            continue
         brief.resume = ent.get("resume")
         brief.entity_id = str(ent.get("id") or "")
         if not brief.project:
@@ -968,7 +1051,12 @@ def collect_snowcubes_context(
     # Shadow is the implementation authority for this companion; exposing its
     # revision is useful evidence, not a new Snowcubes queue.
     board = board if isinstance(board, dict) else collect_board()
-    if board.get("revision") is not None:
+    unavailable_plans = [
+        entity
+        for entity in (board.get("entities") or [])
+        if isinstance(entity, dict) and entity.get("availability") == "unavailable"
+    ]
+    if board.get("revision") is not None and not unavailable_plans:
         surfaces.append(
             _snowcubes_surface(
                 name="Shadow work",
@@ -977,6 +1065,27 @@ def collect_snowcubes_context(
                 next_action="Keep implementation claims on Shadow and the canonical Snowcubes PLAN; show receipts separately.",
                 source="Shadow computer board",
                 observed_at=observed_at,
+                native_link=SNOWCUBES_NATIVE_LINKS["shadow"],
+            )
+        )
+    elif board.get("revision") is not None:
+        plan_names = ", ".join(
+            str(entity.get("project") or "unknown") for entity in unavailable_plans[:3]
+        )
+        wakes = [str(entity.get("wake")) for entity in unavailable_plans if entity.get("wake")]
+        surfaces.append(
+            _snowcubes_surface(
+                name="Shadow work",
+                state="unavailable",
+                now=(
+                    f"Shadow board revision {board.get('revision')} was read, but "
+                    f"{len(unavailable_plans)} plan source(s) are unavailable ({plan_names}); "
+                    "no execution state is inferred for them."
+                ),
+                next_action="Restore the named local plan read; do not create a second queue.",
+                source="Shadow computer board",
+                observed_at=observed_at,
+                wake="; ".join(dict.fromkeys(wakes)),
                 native_link=SNOWCUBES_NATIVE_LINKS["shadow"],
             )
         )
@@ -1602,6 +1711,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         }
         if board_snapshot["consistent"]:
             break
+    paint_health["shadow_board"] = build_shadow_board_health(board)
     recs = build_recommendations(board, repos)
     analysis = build_chief_of_staff_analysis(
         board=board,
@@ -2021,6 +2131,7 @@ def render_html(packet: dict[str, Any]) -> str:
         "ahrefs_seo": ("Web search visibility", "Organic demand, backlinks, and search-performance changes are absent."),
         "app_store_connect": ("App Store delivery", "The note cannot confirm processing, testing, or release state from App Store Connect."),
         "local_git": ("Local work", "The private machine inventory could not be checked."),
+        "shadow_board": ("Shadow plans", "One or more board-owned plans could not be read, so their execution state remains unknown."),
     }
     recovery_html = (
         "<ul>" + "".join(

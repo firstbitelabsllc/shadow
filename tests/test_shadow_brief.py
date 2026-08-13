@@ -352,6 +352,85 @@ class AuthorityScopeTests(unittest.TestCase):
                 entities = brief.collect_board()["entities"]
             self.assertEqual(entities[0]["priority"], 3)
 
+    def test_one_unreadable_plan_is_explicit_and_does_not_abort_the_board(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            readable = root / "readable" / "PLAN.md"
+            unreadable = root / "unreadable" / "PLAN.md"
+            readable.parent.mkdir()
+            unreadable.parent.mkdir()
+            readable.write_text("- Project: readable\n- Priority: 4\n", encoding="utf-8")
+            unreadable.write_text("- Project: unreadable\n- Priority: 5\n", encoding="utf-8")
+            board = root / "board.json"
+            board.write_text(
+                json.dumps(
+                    {
+                        "revision": 8,
+                        "projects": [
+                            {"id": "readable", "priority": 1},
+                            {"id": "unreadable", "priority": 2},
+                        ],
+                        "entities": [
+                            {"id": "entity-readable", "project": "readable", "plan": str(readable)},
+                            {"id": "entity-unreadable", "project": "unreadable", "plan": str(unreadable)},
+                        ],
+                        "claims": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            original_parse_plan = brief.parse_plan
+
+            def parse_with_deadlock(path):
+                if path == unreadable:
+                    raise OSError(11, "Resource deadlock avoided")
+                return original_parse_plan(path)
+
+            with mock.patch.object(brief, "BOARD_PATH", board), mock.patch.object(
+                brief, "parse_plan", side_effect=parse_with_deadlock
+            ):
+                result = brief.collect_board()
+
+        by_project = {entity["project"]: entity for entity in result["entities"]}
+        self.assertEqual(result["revision"], 8)
+        self.assertEqual(by_project["readable"]["availability"], "available")
+        self.assertEqual(by_project["unreadable"]["availability"], "unavailable")
+        self.assertIn("Resource deadlock avoided", by_project["unreadable"]["error"])
+        self.assertIn(str(unreadable), by_project["unreadable"]["wake"])
+        self.assertIn("next natural brief window", by_project["unreadable"]["wake"])
+        health = brief.build_shadow_board_health(result)
+        self.assertFalse(health["available"])
+        self.assertIn("unreadable", health["error"])
+        self.assertIn(str(unreadable), health["wake"])
+
+    def test_snowcubes_card_names_a_partial_shadow_plan_outage(self):
+        plan = Path("/tmp/example-unreadable-plan.md")
+        board = {
+            "revision": 12,
+            "entities": [
+                {
+                    "project": "example",
+                    "availability": "unavailable",
+                    "error": "plan read failed: Resource deadlock avoided",
+                    "wake": f"Make {plan} locally readable; the next natural brief window retries it.",
+                }
+            ],
+        }
+        with mock.patch.object(
+            brief,
+            "collect_superhuman_context",
+            return_value={"available": False, "error": "account not linked"},
+        ), mock.patch.object(
+            brief, "_snowcubes_m12_surface", return_value={"name": "M12 cafe-doctor", "state": "unavailable"}
+        ):
+            context = brief.collect_snowcubes_context(vercel={"available": False}, board=board)
+
+        shadow_card = next(item for item in context["surfaces"] if item["name"] == "Shadow work")
+        self.assertEqual(shadow_card["state"], "unavailable")
+        self.assertIn("1 plan source(s)", shadow_card["now"])
+        self.assertIn("no execution state is inferred", shadow_card["now"])
+        self.assertIn(str(plan), shadow_card["wake"])
+
     def test_scheduled_receipt_keeps_original_trigger_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
