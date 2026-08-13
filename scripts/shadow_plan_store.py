@@ -1000,6 +1000,18 @@ class PlanSnapshot:
         return self._tag(tag, sequence)
 
 
+def snapshot_of_root(plan: Path, root_bytes: bytes) -> PlanSnapshot:
+    """Open one exact root generation against a plan's own object store.
+
+    Callers that hold root bytes from somewhere other than the worktree (a Git
+    blob, a rollback lineage) still need the logical plan those bytes name.
+    """
+    root = _parse_root(root_bytes)
+    if root is not None and len(root_bytes) > ROOT_MAX_BYTES:
+        raise PlanStoreError("plan-tree root exceeds the byte limit")
+    return PlanSnapshot(Path(os.path.abspath(plan)), root_bytes, root)
+
+
 def _fsync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
     try:

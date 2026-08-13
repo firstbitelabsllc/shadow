@@ -677,6 +677,41 @@ def _exact_interrupted_completion(
         return False
 
 
+OBJECT_DIGEST_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _interrupted_tree_additions(repo: Path, tree_relative: str) -> list[str]:
+    """The object digests an interrupted tree accept added under PLAN.d, or refuse."""
+    status = git_completed(
+        repo, "status", "--porcelain=v1", "--untracked-files=all", "--", tree_relative
+    )
+    if status.returncode:
+        raise AcceptError(
+            "interrupted completion object tree could not be read; its bytes were preserved"
+        )
+    tree_parts = Path(tree_relative).parts
+    digests: list[str] = []
+    for line in status.stdout.splitlines():
+        if not line.strip():
+            continue
+        code, path = line[:2], line[3:]
+        parts = Path(path).parts if code in {"??", "A ", "AM"} else ()
+        if (
+            len(parts) != len(tree_parts) + 4
+            or parts[: len(tree_parts)] != tree_parts
+            or parts[-4] != "objects"
+            or parts[-3] != "sha256"
+            or OBJECT_DIGEST_RE.fullmatch(parts[-1]) is None
+            or parts[-2] != parts[-1][:2]
+        ):
+            raise AcceptError(
+                "interrupted completion changed its object tree unexpectedly; "
+                "its bytes were preserved"
+            )
+        digests.append(parts[-1])
+    return digests
+
+
 def committed_or_recovered_snapshot(
     plan_path: Path,
     row_id: str,
@@ -694,15 +729,23 @@ def committed_or_recovered_snapshot(
         try:
             token, head_bytes = _board.head_plan_snapshot(plan_path)
             candidate_bytes = plan_path.read_bytes()
-            head_text = head_bytes.decode("utf-8")
-            candidate_text = candidate_bytes.decode("utf-8")
-        except (_board.BoardError, OSError, UnicodeError):
+            # Codex (PR #469, P1): a partitioned plan's roots are manifests, not
+            # plan text. Judging the journal on those bytes rejected every tree
+            # recovery and left the authority wedged, so materialize both
+            # generations through the object store first.
+            head_snapshot = _plan_store.snapshot_of_root(plan_path, head_bytes)
+            candidate_snapshot = _plan_store.snapshot_of_root(plan_path, candidate_bytes)
+            head_text = head_snapshot.materialize().decode("utf-8")
+            candidate_text = candidate_snapshot.materialize().decode("utf-8")
+        except (_board.BoardError, _plan_store.PlanStoreError, OSError, UnicodeError):
             raise refusal_error
         if not _exact_interrupted_completion(head_text, candidate_text, row_id):
             raise refusal_error
 
         repo = Path(token["repo"])
         relative = token["relative"]
+        tree_relative = (Path(relative).parent / "PLAN.d").as_posix()
+        partitioned = head_snapshot.is_tree or candidate_snapshot.is_tree
         staged = git_completed(repo, "ls-files", "--stage", "--", relative)
         head_entry = git_completed(repo, "ls-tree", "HEAD", "--", relative)
         staged_lines = [line for line in staged.stdout.splitlines() if line.strip()]
@@ -730,18 +773,45 @@ def committed_or_recovered_snapshot(
             raise AcceptError(
                 "interrupted completion has an unexpected staged plan; its bytes were preserved"
             )
-        if staged_parts[1] == candidate_blob:
-            restored = git_completed(
-                repo,
-                "update-index",
-                "--cacheinfo",
-                f"{head_parts[0]},{token['blob']},{relative}",
+        if partitioned:
+            added = _interrupted_tree_additions(repo, tree_relative)
+            try:
+                _plan_store.restore_exact_root(
+                    plan_path,
+                    expected_current_root=_plan_store.digest_bytes(candidate_bytes),
+                    target_root_bytes=head_bytes,
+                )
+            except _plan_store.PlanStoreError as exc:
+                raise AcceptError(
+                    f"interrupted completion could not return to its committed root: {exc}"
+                ) from exc
+            reset = git_completed(
+                repo, "reset", "--quiet", "HEAD", "--", relative, tree_relative
             )
-            if restored.returncode:
+            if reset.returncode:
                 raise AcceptError(
                     "interrupted completion index could not be restored; its bytes were preserved"
                 )
-        atomic_write_text(plan_path, head_text)
+            try:
+                _plan_store.discard_unreachable(plan_path, added)
+            except _plan_store.PlanStoreError as exc:
+                raise AcceptError(
+                    f"interrupted completion objects could not be discarded: {exc}"
+                ) from exc
+        else:
+            if staged_parts[1] == candidate_blob:
+                restored = git_completed(
+                    repo,
+                    "update-index",
+                    "--cacheinfo",
+                    f"{head_parts[0]},{token['blob']},{relative}",
+                )
+                if restored.returncode:
+                    raise AcceptError(
+                        "interrupted completion index could not be restored; "
+                        "its bytes were preserved"
+                    )
+            atomic_write_text(plan_path, head_text)
         try:
             return _board.committed_plan_snapshot(plan_path)
         except _board.BoardError as exc:
