@@ -164,6 +164,10 @@ def _first_contradiction(text: str) -> str:
     )
 
 
+def _first_list_line(text: str) -> str:
+    return next((line for line in text.splitlines() if line.startswith("- ")), "")
+
+
 def _archive_paths(text: str) -> list[str]:
     return [
         match.group("path")
@@ -473,6 +477,228 @@ def benchmark_board(
                 [query["latency_ms"]["p95"] for query in queries]
             ),
             "query_hops": _distribution([query["hops"] for query in queries]),
+        },
+    }
+
+
+def _cold_sources(entity: dict[str, Any], result: _store.PlanResult) -> list[dict[str, str | int]]:
+    base = _entity_ref(entity).removesuffix("/PLAN.md")
+    sources: list[dict[str, str | int]] = [
+        {
+            "ref": f"{base}/PLAN.md",
+            "sha256": result.provenance.root_sha256,
+            "bytes": 0,
+        }
+    ]
+    plan_path = Path(entity["plan"])
+    snapshot = _store.PlanSnapshot.open(plan_path)
+    sources[0]["bytes"] = len(snapshot.root_bytes)
+    for digest in result.provenance.index_sha256:
+        path = snapshot.object_path(digest)
+        sources.append(
+            {"ref": f"{base}/PLAN.d/index@{digest[:12]}", "sha256": digest, "bytes": path.stat().st_size}
+        )
+    sources.append(
+        {
+            "ref": f"{base}/PLAN.d/shard@{result.provenance.shard_sha256[:12]}",
+            "sha256": result.provenance.shard_sha256,
+            "bytes": result.provenance.shard_bytes,
+        }
+    )
+    return sources
+
+
+def _cold_result(
+    entity: dict[str, Any],
+    routed: _store.PlanResult,
+    answer: str,
+) -> tuple[str, int, int, list[dict[str, str | int]]]:
+    return (
+        answer,
+        routed.provenance.source_bytes,
+        routed.provenance.file_reads,
+        _cold_sources(entity, routed),
+    )
+
+
+def _cold_entities(board: dict[str, Any], projects: tuple[str, ...]) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for project in projects:
+        candidates: list[tuple[int, str, dict[str, Any]]] = []
+        for entity in board["entities"]:
+            if not isinstance(entity, dict) or entity.get("project") != project:
+                continue
+            path = Path(str(entity.get("plan", "")))
+            try:
+                snapshot = _store.PlanSnapshot.open(path)
+            except _store.PlanStoreError as exc:
+                raise PlanScaleError(f"partitioned entity is unreadable: {project}") from exc
+            if not snapshot.is_tree:
+                raise PlanScaleError(f"entity is not partitioned: {project}")
+            assert snapshot.root is not None
+            candidates.append((snapshot.root["logical_bytes"], str(entity.get("id", "")), entity))
+        if not candidates:
+            raise PlanScaleError(f"board has no partitioned entity for project: {project}")
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        selected.append(candidates[0][2])
+    return selected
+
+
+def benchmark_cold_trees(
+    board_path: Path,
+    *,
+    projects: tuple[str, ...],
+    repeats: int = 31,
+) -> dict[str, Any]:
+    """Answer the frozen query classes through bounded tree routes only."""
+    board, board_content = _load_board(Path(board_path))
+    entities = _cold_entities(board, projects)
+    candidate_queries: list[dict[str, Any]] = []
+    for entity in entities:
+        snapshot = _store.PlanSnapshot.open(Path(entity["plan"]))
+        resume = entity.get("resume")
+        if not isinstance(resume, str):
+            raise PlanScaleError("entity resume row is missing")
+        prefix = f"{entity['project']}-{entity['id'][:8]}"
+
+        def current(snapshot=snapshot, entity=entity, resume=resume):
+            routed = snapshot.row(resume)
+            return _cold_result(entity, routed, _row_line(_text(routed.content), resume))
+
+        def tagged(tag: str, selector: Callable[[str], str]):
+            def run(snapshot=snapshot, entity=entity):
+                try:
+                    routed = snapshot.latest(tag)
+                except _store.PlanStoreError:
+                    return "", 0, 0, []
+                return _cold_result(entity, routed, selector(_text(routed.content)))
+            return run
+
+        def contradiction(snapshot=snapshot, entity=entity):
+            try:
+                routed = snapshot.receipt("contradiction", 0)
+            except _store.PlanStoreError:
+                return "", 0, 0, []
+            return _cold_result(entity, routed, _first_list_line(_text(routed.content)))
+
+        def history(snapshot=snapshot, entity=entity):
+            sequence = 0
+            while True:
+                try:
+                    routed = snapshot.receipt("archive", sequence)
+                except _store.PlanStoreError:
+                    break
+                paths = _archive_paths(_text(routed.content))
+                for relative in paths:
+                    archive = _read_archive(Path(entity["plan"]), relative)
+                    if archive is None:
+                        continue
+                    _, archive_content, archive_relative = archive
+                    answer = next(
+                        (line for line in _text(archive_content).splitlines() if line.strip()),
+                        "",
+                    )
+                    sources = _cold_sources(entity, routed)
+                    archive_ref = _entity_ref(entity).removesuffix("/PLAN.md") + f"/{archive_relative}"
+                    sources.append(_source(archive_ref, archive_content))
+                    return (
+                        answer,
+                        routed.provenance.source_bytes + len(archive_content),
+                        routed.provenance.file_reads + 1,
+                        sources,
+                    )
+                sequence += 1
+            try:
+                routed = snapshot.receipt("progress", 0)
+            except _store.PlanStoreError:
+                return "", 0, 0, []
+            answer = next(
+                (line for line in _text(routed.content).splitlines() if line.startswith("- ")),
+                "",
+            )
+            return _cold_result(entity, routed, answer)
+
+        candidate_queries.extend(
+            (
+                _query_report(f"{prefix}-current", "current_work", current, repeats),
+                _query_report(
+                    f"{prefix}-decision",
+                    "decision",
+                    tagged("decision", _first_list_line),
+                    repeats,
+                ),
+                _query_report(f"{prefix}-contradiction", "contradiction", contradiction, repeats),
+                _query_report(
+                    f"{prefix}-proof",
+                    "proof",
+                    tagged("proof", _first_list_line),
+                    repeats,
+                ),
+                _query_report(f"{prefix}-history", "history", history, repeats),
+            )
+        )
+
+    first = entities[0]
+    first_snapshot = _store.PlanSnapshot.open(Path(first["plan"]))
+
+    def owner():
+        resume = first["resume"]
+        routed = first_snapshot.row(resume)
+        owners = sorted(
+            claim["owner"]
+            for claim in board["claims"]
+            if isinstance(claim, dict)
+            and claim.get("entity") == first["id"]
+            and claim.get("row") == resume
+            and isinstance(claim.get("owner"), str)
+        )
+        answer = f"{resume}:{','.join(owners) if owners else 'unclaimed'}"
+        sources = [_source(f"board@{board['revision']}", board_content), *_cold_sources(first, routed)]
+        return answer, len(board_content) + routed.provenance.source_bytes, routed.provenance.file_reads + 1, sources
+
+    def cross_entity():
+        answers: list[str] = []
+        sources = [_source(f"board@{board['revision']}", board_content)]
+        source_bytes = len(board_content)
+        hops = 1
+        for entity in entities:
+            resume = entity["resume"]
+            routed = _store.PlanSnapshot.open(Path(entity["plan"])).row(resume)
+            line = _row_line(_text(routed.content), resume)
+            answers.append(f"{entity['project']}:{resume}:{_sha256(line.encode('utf-8'))}")
+            sources.extend(_cold_sources(entity, routed))
+            source_bytes += routed.provenance.source_bytes
+            hops += routed.provenance.file_reads
+        return "\n".join(answers), source_bytes, hops, sources
+
+    candidate_queries.extend(
+        (
+            _query_report("portfolio-owner", "owner", owner, repeats),
+            _query_report("portfolio-current-work", "cross_entity", cross_entity, repeats),
+        )
+    )
+    queries = [query for query in candidate_queries if query["found"]]
+    return {
+        "schema": "shadow.plan-scale-cold-tree.v1",
+        "observed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "board": {
+            "revision": board["revision"],
+            "sha256": _sha256(board_content),
+            "bytes": len(board_content),
+        },
+        "projects": list(projects),
+        "repeats": repeats,
+        "queries": queries,
+        "excluded_queries": [
+            {"case_id": item["case_id"], "kind": item["kind"]}
+            for item in candidate_queries
+            if not item["found"]
+        ],
+        "distributions": {
+            "query_source_bytes": _distribution([query["source_bytes"] for query in queries]),
+            "query_p95_ms": _distribution([query["latency_ms"]["p95"] for query in queries]),
+            "query_hops": _distribution([query["hops"] for query in queries]),
+            "result_bytes": _distribution([query["result_bytes"] for query in queries]),
         },
     }
 

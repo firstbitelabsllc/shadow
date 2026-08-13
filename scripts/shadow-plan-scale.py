@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from shadow_plan_scale import PlanScaleError, benchmark_board  # noqa: E402
+from shadow_plan_scale import (  # noqa: E402
+    PlanScaleError,
+    benchmark_board,
+    benchmark_cold_trees,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -23,13 +27,15 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--board", required=True, type=Path)
     result.add_argument("--project", action="append", required=True)
     result.add_argument("--repeats", type=int, default=31)
+    result.add_argument("--cold-tree", action="store_true")
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        report = benchmark_board(
+        benchmark = benchmark_cold_trees if args.cold_tree else benchmark_board
+        report = benchmark(
             args.board, projects=tuple(args.project), repeats=args.repeats
         )
     except PlanScaleError as exc:

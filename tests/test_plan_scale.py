@@ -12,6 +12,8 @@ import sys
 import tempfile
 import unittest
 
+from tests.plan_tree_fixture import install_plan_tree
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts" / "shadow_plan_scale.py"
@@ -228,6 +230,59 @@ class PlanScaleBaseline(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["schema"], "shadow.plan-scale-baseline.v1")
         self.assertNotIn(str(self.root), result.stdout)
+
+    def test_cold_partitioned_seat_matches_every_answer_with_bounded_provenance(self) -> None:
+        path = self.add_entity("alpha", "a", "~aa11", owner="codex")
+        self.write_board()
+        before = scale.benchmark_board(
+            self.board,
+            projects=("alpha",),
+            repeats=1,
+        )
+        source = path.read_bytes()
+        install_plan_tree(path.parent, source)
+
+        after = scale.benchmark_cold_trees(
+            self.board,
+            projects=("alpha",),
+            repeats=1,
+        )
+        cli = subprocess.run(
+            [
+                sys.executable,
+                str(CLI),
+                "--board",
+                str(self.board),
+                "--project",
+                "alpha",
+                "--repeats",
+                "1",
+                "--cold-tree",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(json.loads(cli.stdout)["schema"], "shadow.plan-scale-cold-tree.v1")
+
+        before_answers = {
+            (item["case_id"], item["kind"]): item["result_sha256"]
+            for item in before["queries"]
+        }
+        after_answers = {
+            (item["case_id"], item["kind"]): item["result_sha256"]
+            for item in after["queries"]
+        }
+        self.assertEqual(after_answers, before_answers)
+        for query in after["queries"]:
+            self.assertTrue(query["sources"])
+            if query["kind"] not in {"owner", "cross_entity", "history"}:
+                self.assertLessEqual(query["hops"], 10)
+                self.assertLessEqual(query["source_bytes"], 168 * 1024)
+            for source_receipt in query["sources"]:
+                self.assertRegex(source_receipt["sha256"], r"^[0-9a-f]{64}$")
 
 
 class CandidateLayoutComparison(unittest.TestCase):
