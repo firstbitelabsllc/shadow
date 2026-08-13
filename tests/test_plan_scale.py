@@ -229,5 +229,56 @@ class PlanScaleBaseline(unittest.TestCase):
         self.assertNotIn(str(self.root), result.stdout)
 
 
+class CandidateLayoutComparison(unittest.TestCase):
+    def test_lossless_shards_reassemble_exact_bytes_and_route_frozen_queries(self) -> None:
+        content = plan("alpha", "~aa11", padding="x" * 500).encode("utf-8")
+        layout = scale.sharded_layout(content)
+
+        self.assertEqual(scale.reassemble_shards(layout), content)
+        self.assertEqual(layout["source_sha256"], hashlib.sha256(content).hexdigest())
+        self.assertGreater(len(layout["shards"]), 3)
+        manifest = json.loads(layout["manifest"])
+        self.assertEqual(manifest["schema"], "shadow.plan-shards.v1")
+        self.assertEqual(
+            [entry["sha256"] for entry in manifest["shards"]],
+            [shard["sha256"] for shard in layout["shards"]],
+        )
+        row = scale.route_shard(layout, row_id="~aa11")
+        self.assertIn(b"current work for alpha", row["content"])
+        proof = scale.route_shard(layout, tag="proof")
+        self.assertIn(b" PROOF ", proof["content"])
+        decision = scale.route_shard(layout, tag="decision")
+        self.assertIn(b" DECISION ", decision["content"])
+
+    def test_stale_manifest_refuses_before_returning_a_shard(self) -> None:
+        content = plan("alpha", "~aa11").encode("utf-8")
+        layout = scale.sharded_layout(content)
+        layout["shards"][0]["content"] += b"tamper"
+
+        with self.assertRaisesRegex(scale.PlanScaleError, "shard digest mismatch"):
+            scale.reassemble_shards(layout)
+        with self.assertRaisesRegex(scale.PlanScaleError, "shard digest mismatch"):
+            scale.route_shard(layout, row_id="~aa11")
+
+    def test_comparison_keeps_one_authority_and_exposes_write_amplification(self) -> None:
+        content = plan("alpha", "~aa11", padding="x" * 20_000).encode("utf-8")
+        comparison = scale.compare_layouts(content)
+
+        self.assertEqual(
+            [candidate["name"] for candidate in comparison["candidates"]],
+            ["monolith-plus-index", "hot-plan-plus-archives", "manifest-plus-shards"],
+        )
+        monolith, hot, shards = comparison["candidates"]
+        self.assertEqual(monolith["authorities"], 1)
+        self.assertEqual(hot["authorities"], 1)
+        self.assertEqual(shards["authorities"], 1)
+        self.assertEqual(monolith["write_amplification_bytes"], len(content))
+        self.assertEqual(hot["write_amplification_bytes"], len(content))
+        self.assertLess(shards["write_amplification_bytes"], len(content))
+        self.assertLess(shards["current_lookup_bytes"], len(content))
+        self.assertTrue(shards["exact_reassembly"])
+        self.assertEqual(comparison["decision"], "manifest-plus-shards")
+
+
 if __name__ == "__main__":
     unittest.main()
