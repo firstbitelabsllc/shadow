@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -166,6 +168,71 @@ class PlanSnapshotTests(unittest.TestCase):
 
         with self.assertRaisesRegex(store.PlanStoreError, "referenced object is missing"):
             store.PlanSnapshot.open(plan_path).materialize()
+
+
+class DryRunMigrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.plan_path = self.root / "PLAN.md"
+        self.plan_path.write_bytes(plan())
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def snapshot(self) -> dict[str, str]:
+        return {
+            path.relative_to(self.root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(self.root.rglob("*"))
+            if path.is_file()
+        }
+
+    def test_dry_run_writes_nothing_and_restores_exact_source(self) -> None:
+        before = self.snapshot()
+
+        report = store.dry_run_migration(self.plan_path, board=None)
+
+        self.assertEqual(self.snapshot(), before)
+        self.assertTrue(report.exact_materialization)
+        self.assertTrue(report.routes_rebuilt)
+        self.assertEqual(report.query_mismatches, ())
+        self.assertEqual(report.source_sha256, report.materialized_sha256)
+        self.assertLessEqual(report.root_bytes, store.ROOT_MAX_BYTES)
+        self.assertLessEqual(report.max_index_bytes, store.INDEX_MAX_BYTES)
+        self.assertLessEqual(report.max_data_bytes, store.DATA_MAX_BYTES)
+
+    def test_missing_archive_is_an_explicit_refusal(self) -> None:
+        self.plan_path.write_bytes(
+            plan().replace(
+                b"## Deferred\n",
+                b"- Archived milestone: [missing](docs/plan-archive/missing.md)\n\n## Deferred\n",
+            )
+        )
+
+        with self.assertRaisesRegex(store.PlanStoreError, "archive content is missing"):
+            store.dry_run_migration(self.plan_path, board=None)
+
+    def test_cli_report_never_emits_the_private_plan_path_or_plan_text(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "shadow-plan.py"),
+                "migrate",
+                str(self.plan_path),
+                "--dry-run",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema"], "shadow.plan-migration.v1")
+        self.assertEqual(payload["plan"], "PLAN.md")
+        self.assertNotIn(str(self.root), result.stdout + result.stderr)
+        self.assertNotIn("first result", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
