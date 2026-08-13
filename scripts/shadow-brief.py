@@ -101,6 +101,9 @@ class EntityBrief:
     priority: int | None = None
     resume: str | None = None
     entity_id: str = ""
+    availability: str = "available"
+    error: str = ""
+    wake: str = ""
     open_checkpoints: list[Checkpoint] = field(default_factory=list)
     blocked: list[Checkpoint] = field(default_factory=list)
     forgotten: list[Checkpoint] = field(default_factory=list)
@@ -257,10 +260,81 @@ def parse_plan(path: Path) -> EntityBrief:
     )
 
 
+def unavailable_plan_brief(
+    *,
+    entity: dict[str, Any],
+    project_id: str,
+    plan_path: Path,
+    priority: int | None,
+    error: str,
+) -> EntityBrief:
+    """Keep one unreadable plan explicit without aborting the whole brief."""
+    return EntityBrief(
+        project=project_id or "unknown",
+        plan=str(plan_path),
+        priority=priority,
+        resume=entity.get("resume"),
+        entity_id=str(entity.get("id") or ""),
+        availability="unavailable",
+        error=error,
+        wake=(
+            f"Make {plan_path} locally readable, then run shadow status --by leo; "
+            "the next natural brief window retries it."
+        ),
+    )
+
+
+def build_shadow_board_health(board: dict[str, Any]) -> dict[str, Any]:
+    """Summarize board and plan-read availability for the private receipt."""
+    if board.get("error"):
+        return {
+            "available": False,
+            "error": str(board.get("error")),
+            "wake": str(
+                board.get("wake")
+                or "Restore the local Shadow board read, then run shadow status --by leo."
+            ),
+        }
+    unavailable = [
+        entity
+        for entity in (board.get("entities") or [])
+        if isinstance(entity, dict) and entity.get("availability") == "unavailable"
+    ]
+    if unavailable:
+        labels = [
+            f"{entity.get('project') or 'unknown'}: {entity.get('error') or 'plan unreadable'}"
+            for entity in unavailable
+        ]
+        wakes = [str(entity.get("wake")) for entity in unavailable if entity.get("wake")]
+        return {
+            "available": False,
+            "error": f"{len(unavailable)} board-owned plan read(s) unavailable: " + "; ".join(labels),
+            "wake": "; ".join(dict.fromkeys(wakes)),
+        }
+    return {"available": True, "revision": board.get("revision")}
+
+
 def collect_board() -> dict[str, Any]:
     if not BOARD_PATH.is_file():
-        return {"revision": None, "entities": [], "projects": [], "error": "board missing"}
-    board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": "board missing",
+            "wake": "Restore the local Shadow board, then run shadow status --by leo.",
+        }
+    try:
+        board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": f"board unreadable: {exc}",
+            "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
+        }
     # The root board owns project priority; a plan's own Priority line is stale
     # as soon as `shadow priority --value` moves the board-owned value.
     board_priority = {
@@ -274,19 +348,28 @@ def collect_board() -> dict[str, Any]:
         plan_path = Path(ent.get("plan") or "")
         if not plan_path.is_file():
             entities.append(
-                EntityBrief(
-                    project=project_id or "unknown",
-                    plan=str(plan_path),
+                unavailable_plan_brief(
+                    entity=ent,
+                    project_id=project_id,
+                    plan_path=plan_path,
                     priority=board_priority.get(project_id),
-                    resume=ent.get("resume"),
-                    entity_id=str(ent.get("id") or ""),
-                    open_checkpoints=[],
-                    blocked=[],
-                    forgotten=[],
+                    error="plan file is missing or not a regular file",
                 )
             )
             continue
-        brief = parse_plan(plan_path)
+        try:
+            brief = parse_plan(plan_path)
+        except OSError as exc:
+            entities.append(
+                unavailable_plan_brief(
+                    entity=ent,
+                    project_id=project_id,
+                    plan_path=plan_path,
+                    priority=board_priority.get(project_id),
+                    error=f"plan read failed: {exc}",
+                )
+            )
+            continue
         brief.resume = ent.get("resume")
         brief.entity_id = str(ent.get("id") or "")
         if not brief.project:
@@ -830,6 +913,7 @@ def collect_snowcubes_context(
     *,
     vercel: dict[str, Any] | None = None,
     board: dict[str, Any] | None = None,
+    mail: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Read the bounded business-mail signal and name every missing authority.
 
@@ -837,7 +921,11 @@ def collect_snowcubes_context(
     a storefront mirror, customer database, or separate task queue.
     """
     observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    mail = collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
+    mail = (
+        mail
+        if isinstance(mail, dict)
+        else collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
+    )
     if mail.get("available"):
         human = [row for row in mail.get("signals") or [] if row.get("kind") == "human_or_other"]
         newest = next((row for row in human if row.get("native_link")), None)
@@ -968,7 +1056,12 @@ def collect_snowcubes_context(
     # Shadow is the implementation authority for this companion; exposing its
     # revision is useful evidence, not a new Snowcubes queue.
     board = board if isinstance(board, dict) else collect_board()
-    if board.get("revision") is not None:
+    unavailable_plans = [
+        entity
+        for entity in (board.get("entities") or [])
+        if isinstance(entity, dict) and entity.get("availability") == "unavailable"
+    ]
+    if board.get("revision") is not None and not unavailable_plans:
         surfaces.append(
             _snowcubes_surface(
                 name="Shadow work",
@@ -977,6 +1070,27 @@ def collect_snowcubes_context(
                 next_action="Keep implementation claims on Shadow and the canonical Snowcubes PLAN; show receipts separately.",
                 source="Shadow computer board",
                 observed_at=observed_at,
+                native_link=SNOWCUBES_NATIVE_LINKS["shadow"],
+            )
+        )
+    elif board.get("revision") is not None:
+        plan_names = ", ".join(
+            str(entity.get("project") or "unknown") for entity in unavailable_plans[:3]
+        )
+        wakes = [str(entity.get("wake")) for entity in unavailable_plans if entity.get("wake")]
+        surfaces.append(
+            _snowcubes_surface(
+                name="Shadow work",
+                state="unavailable",
+                now=(
+                    f"Shadow board revision {board.get('revision')} was read, but "
+                    f"{len(unavailable_plans)} plan source(s) are unavailable ({plan_names}); "
+                    "no execution state is inferred for them."
+                ),
+                next_action="Restore the named local plan read; do not create a second queue.",
+                source="Shadow computer board",
+                observed_at=observed_at,
+                wake="; ".join(dict.fromkeys(wakes)),
                 native_link=SNOWCUBES_NATIVE_LINKS["shadow"],
             )
         )
@@ -1060,8 +1174,26 @@ def build_local_git_health(root: Path, repos: list[RepoPaint]) -> dict[str, Any]
 
 def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list[Recommendation]:
     recs: list[Recommendation] = []
-    entities = board.get("entities") or []
+    all_entities = [row for row in (board.get("entities") or []) if isinstance(row, dict)]
+    unavailable_entities = [
+        row for row in all_entities if row.get("availability") == "unavailable"
+    ]
+    entities = [row for row in all_entities if row.get("availability") != "unavailable"]
     claims = board.get("claims") or []
+
+    if unavailable_entities:
+        count = len(unavailable_entities)
+        recs.append(
+            Recommendation(
+                kind="challenge",
+                text=(
+                    f"{count} Shadow plan source{'s are' if count != 1 else ' is'} unavailable. "
+                    "Portfolio priority and work totals are UNKNOWN until the named read wakes; "
+                    "do not promote another project from this partial view."
+                ),
+                source="shadow-board",
+            )
+        )
 
     # Focus: live claim first (what this computer is already doing), else priority resume.
     claim_keys = _claim_index([c for c in claims if isinstance(c, dict)])
@@ -1079,7 +1211,7 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
                 break
         if focus_ent:
             break
-    if focus_ent is None:
+    if focus_ent is None and not unavailable_entities:
         for ent in ranked:
             opens = ent.get("open_checkpoints") or []
             if opens and ent.get("resume"):
@@ -1095,7 +1227,12 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
         recs.append(
             Recommendation(
                 kind="focus",
-                text=f"Keep {focus_ent.get('project')} first: {title}",
+                text=(
+                    f"Keep visible owned work moving without calling it portfolio priority: "
+                    f"{focus_ent.get('project')} — {title}"
+                    if unavailable_entities
+                    else f"Keep {focus_ent.get('project')} first: {title}"
+                ),
                 source="shadow-board",
             )
         )
@@ -1156,7 +1293,7 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
             )
         )
 
-    if not claims and ranked:
+    if not claims and ranked and not unavailable_entities:
         recs.append(
             Recommendation(
                 kind="focus",
@@ -1251,7 +1388,11 @@ def build_chief_of_staff_analysis(
             text = text[:117].rstrip() + "…"
         return text
 
-    entities = board.get("entities") or []
+    all_entities = [row for row in (board.get("entities") or []) if isinstance(row, dict)]
+    unavailable_entities = [
+        row for row in all_entities if row.get("availability") == "unavailable"
+    ]
+    entities = [row for row in all_entities if row.get("availability") != "unavailable"]
     claims = [row for row in (board.get("claims") or []) if isinstance(row, dict)]
     claim_rows = _claim_index(claims)
     ranked = sorted(
@@ -1275,7 +1416,30 @@ def build_chief_of_staff_analysis(
     )
     source_gaps = [name for name, health in source_health.items() if not health.get("available")]
 
-    if claimed:
+    if unavailable_entities:
+        unavailable_count = len(unavailable_entities)
+        readable_count = len(entities)
+        if claimed:
+            first_entity, first_cp = claimed[0]
+            first_project = human_project_label(first_entity.get("project") or "the visible work")
+            first_title = readable_outcome(first_cp.get("title"))
+            visible_motion = (
+                f"Among the {readable_count} readable plan source"
+                f"{'s' if readable_count != 1 else ''}, {first_project} has an owned obligation: "
+                f"{first_title.rstrip('.')}."
+            )
+        else:
+            visible_motion = (
+                f"The {readable_count} readable plan source"
+                f"{'s show' if readable_count != 1 else ' shows'} {len(open_rows)} visible open outcome"
+                f"{'s' if len(open_rows) != 1 else ''}; ownership outside that readable subset is not inferred."
+            )
+        opening = (
+            f"{unavailable_count} Shadow plan source"
+            f"{'s are' if unavailable_count != 1 else ' is'} unavailable, so portfolio-wide priority, "
+            f"ownership, and open-work totals are UNKNOWN. {visible_motion}"
+        )
+    elif claimed:
         first_entity, first_cp = claimed[0]
         first_project = human_project_label(first_entity.get("project") or "the current priority")
         first_title = readable_outcome(first_cp.get("title"))
@@ -1326,6 +1490,17 @@ def build_chief_of_staff_analysis(
         ) + "; those absences lower confidence rather than being treated as zero activity."
 
     decided: list[dict[str, Any]] = []
+    if unavailable_entities:
+        decided.append({
+            "title": "Hold portfolio ranking until every plan is readable",
+            "prose": (
+                f"{len(unavailable_entities)} plan source"
+                f"{'s are' if len(unavailable_entities) != 1 else ' is'} unavailable. "
+                "I am keeping visible owned work visible, but I am not treating a lower readable project as the portfolio priority or missing work as zero."
+            ),
+            "evidence": ["Shadow board partial-read receipt", "exact plan recovery wake"],
+            "confidence": "high",
+        })
     if claimed:
         decided.append({
             "title": "Protect the work already in motion",
@@ -1448,12 +1623,25 @@ def build_chief_of_staff_analysis(
         "title": (
             f"{len(direct_asks)} decision{'s' if len(direct_asks) != 1 else ''} need you now"
             if direct_asks
-            else "No decision needs you right now"
+            else (
+                "No readable plan needs a decision from you"
+                if unavailable_entities
+                else "No decision needs you right now"
+            )
         ),
         "prose": (
-            "The requests below are the only current work that cannot continue without your decision."
-            if direct_asks
-            else "The active work can continue without a reply to this note. The questions below are challenges for your point of view, not blockers."
+            (
+                "The requests below are the only current work that cannot continue without your decision."
+                if direct_asks
+                else "The active work can continue without a reply to this note. The questions below are challenges for your point of view, not blockers."
+            )
+            + (
+                f" {len(unavailable_entities)} plan source"
+                f"{'s are' if len(unavailable_entities) != 1 else ' is'} unavailable, so a request for you "
+                "may still be waiting inside them; this is not a portfolio-wide all-clear."
+                if unavailable_entities
+                else ""
+            )
         ),
         "asks": direct_asks[:3],
     }
@@ -1546,7 +1734,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
     supabase = collect_supabase()
     nia = collect_nia_status()
     mail = collect_superhuman_context()
-    snowcubes = collect_snowcubes_context(vercel=vercel)
+    snowcubes_mail = collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
     growth_health = collect_growth_source_status()
     paint_health = {
         "local_git": build_local_git_health(root, repos),
@@ -1602,6 +1790,15 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         }
         if board_snapshot["consistent"]:
             break
+    paint_health["shadow_board"] = build_shadow_board_health(board)
+    # The Snowcubes work card and the packet must describe the same final
+    # authority snapshot. Passing the already-collected mail signal avoids a
+    # second provider read after that snapshot.
+    snowcubes = collect_snowcubes_context(
+        vercel=vercel,
+        board=board,
+        mail=snowcubes_mail,
+    )
     recs = build_recommendations(board, repos)
     analysis = build_chief_of_staff_analysis(
         board=board,
@@ -1664,7 +1861,12 @@ def render_html(packet: dict[str, Any]) -> str:
     slot = packet.get("slot") or "brief"
     when = packet.get("generated_at") or ""
     board = packet.get("board") or {}
-    entities = board.get("entities") or []
+    all_entities = [row for row in (board.get("entities") or []) if isinstance(row, dict)]
+    unavailable_entities = [
+        row for row in all_entities if row.get("availability") == "unavailable"
+    ]
+    entities = [row for row in all_entities if row.get("availability") != "unavailable"]
+    unavailable_n = len(unavailable_entities)
     repos = packet.get("repos") or []
     prs = packet.get("github_open_prs") or []
     recs = packet.get("recommendations") or []
@@ -1752,7 +1954,7 @@ def render_html(packet: dict[str, Any]) -> str:
                 break
         if focus_ent:
             break
-    if focus_ent is None:
+    if focus_ent is None and not unavailable_entities:
         for ent in active_entities:
             opens = ent.get("open_checkpoints") or []
             if opens:
@@ -1764,16 +1966,30 @@ def render_html(packet: dict[str, Any]) -> str:
         (focus_cp or {}).get("title"), (focus_ent or {}).get("project")
     )
     if focus_ent:
-        headline = f"{focus_project} is the main move."
+        headline = (
+            f"{focus_project} is the visible move."
+            if unavailable_entities
+            else f"{focus_project} is the main move."
+        )
         quoted_focus = focus_title.rstrip(".!?") + "."
         motion = (
             "It is already in motion."
             if _claim_key_for(focus_ent or {}, focus_cp or {}) in claim_keys
             else "It is ready to move."
         )
+        summary = f"{motion} The work in front is “{quoted_focus}” "
+        if unavailable_entities:
+            summary += (
+                f"{unavailable_n} plan source{'s are' if unavailable_n != 1 else ' is'} unavailable, "
+                "so this is not a portfolio-wide priority claim."
+            )
+        else:
+            summary += "Everything else should support that result or wait."
+    elif unavailable_entities:
+        headline = "Part of the portfolio is unreadable."
         summary = (
-            f"{motion} The work in front is “{quoted_focus}” "
-            f"Everything else should support that result or wait."
+            f"{unavailable_n} Shadow plan source{'s are' if unavailable_n != 1 else ' is'} unavailable. "
+            "Portfolio priority and open-work totals are UNKNOWN until the exact recovery wake succeeds."
         )
     else:
         headline = "Nothing needs forcing right now."
@@ -1794,20 +2010,30 @@ def render_html(packet: dict[str, Any]) -> str:
     else:
         next_project = "Keep the runway clear"
         next_title = "Finish the main move before widening the day."
-    waiting_title = (
-        f"{blocked_n} item{'s' if blocked_n != 1 else ''} waiting"
-        if blocked_n
-        else "No hard blocker"
-    )
-    waiting_copy = (
-        "Each needs one clear restart condition before it returns to the day."
-        if blocked_n
-        else "Nothing is currently forcing a context switch."
-    )
+    if unavailable_entities:
+        waiting_title = (
+            f"At least {blocked_n} visible item{'s' if blocked_n != 1 else ''} waiting"
+            if blocked_n
+            else "Waiting state incomplete"
+        )
+        waiting_copy = (
+            f"{unavailable_n} plan source{'s need' if unavailable_n != 1 else ' needs'} the named read wake before totals are trusted."
+        )
+    else:
+        waiting_title = (
+            f"{blocked_n} item{'s' if blocked_n != 1 else ''} waiting"
+            if blocked_n
+            else "No hard blocker"
+        )
+        waiting_copy = (
+            "Each needs one clear restart condition before it returns to the day."
+            if blocked_n
+            else "Nothing is currently forcing a context switch."
+        )
     map_html = f"""
       <table class="attention-map" role="presentation" width="100%" cellspacing="0" cellpadding="0">
         <tr>
-          <td class="map-node map-now"><span>Now</span><strong>{_esc(focus_project if focus_ent else 'Quiet')}</strong><small>{_esc('Current focus' if focus_ent else 'Finish before expanding.')}</small></td>
+          <td class="map-node map-now"><span>Now</span><strong>{_esc(focus_project if focus_ent else ('UNKNOWN' if unavailable_entities else 'Quiet'))}</strong><small>{_esc('Current visible focus' if focus_ent and unavailable_entities else ('Current focus' if focus_ent else ('Restore plan reads.' if unavailable_entities else 'Finish before expanding.')))}</small></td>
           <td class="map-arrow">→</td>
           <td class="map-node"><span>Then</span><strong>{_esc(next_project)}</strong><small>{_esc('Next in line' if next_ent else next_title)}</small></td>
           <td class="map-arrow">→</td>
@@ -1899,6 +2125,11 @@ def render_html(packet: dict[str, Any]) -> str:
 
     forgotten_n = sum(len(ent.get("forgotten") or []) for ent in entities)
     wait_sentences = []
+    if unavailable_entities:
+        wait_sentences.append(
+            f"{unavailable_n} Shadow plan source{'s are' if unavailable_n != 1 else ' is'} unavailable. "
+            "Their work and priority remain UNKNOWN until the exact read wake succeeds."
+        )
     if dirty_n and stale_n:
         wait_sentences.append(
             f"Cleanup is real: {dirty_n} project{'s' if dirty_n != 1 else ''} have unfinished changes, "
@@ -2021,6 +2252,7 @@ def render_html(packet: dict[str, Any]) -> str:
         "ahrefs_seo": ("Web search visibility", "Organic demand, backlinks, and search-performance changes are absent."),
         "app_store_connect": ("App Store delivery", "The note cannot confirm processing, testing, or release state from App Store Connect."),
         "local_git": ("Local work", "The private machine inventory could not be checked."),
+        "shadow_board": ("Shadow plans", "One or more board-owned plans could not be read, so their execution state remains unknown."),
     }
     recovery_html = (
         "<ul>" + "".join(
