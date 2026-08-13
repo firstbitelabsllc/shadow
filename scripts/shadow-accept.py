@@ -31,6 +31,7 @@ import shadow_root_board as _board  # noqa: E402
 import shadow_remote_claim as _remote_claim  # noqa: E402
 from shadow_cmd_proof import script_operand_issue  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
+import shadow_plan_store as _plan_store  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_accept_amp", ROOT / "scripts" / "shadow-amp.py"
@@ -128,8 +129,27 @@ def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.Compl
         raise AcceptError(f"project Git state cannot be read: {exc}") from exc
 
 
-def atomic_write_text(path: Path, text: str) -> None:
+def atomic_write_text(
+    path: Path,
+    text: str,
+) -> _plan_store.PublishReceipt | None:
     """Replace one complete PLAN in its own directory; never leave truncation."""
+    try:
+        snapshot = _board.open_plan(path)
+    except _board.BoardError as exc:
+        raise AcceptError(f"project plan could not be opened: {exc}") from exc
+    if snapshot.is_tree:
+        try:
+            return (
+                _plan_store.PlanTransaction.begin(
+                    path,
+                    expected_root=snapshot.root_sha256,
+                )
+                .replace_content(text.encode("utf-8"))
+                .publish()
+            )
+        except _plan_store.PlanStoreError as exc:
+            raise AcceptError(f"project plan tree could not be replaced: {exc}") from exc
     descriptor, temporary = tempfile.mkstemp(prefix=".shadow-accept.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -147,6 +167,7 @@ def atomic_write_text(path: Path, text: str) -> None:
         raise AcceptError("project plan could not be replaced atomically") from exc
     finally:
         Path(temporary).unlink(missing_ok=True)
+    return None
 
 
 def restore_plan_index(
@@ -169,6 +190,25 @@ def restore_plan_index(
         restored = git_completed(repo, "rm", "--cached", "--quiet", "--", pathspec)
     if restored.returncode:
         raise AcceptError("the acceptance commit failed and its index could not be restored")
+
+
+def restore_tree_publication(
+    repo: Path,
+    plan_path: Path,
+    pathspecs: list[str],
+    publication: _plan_store.PublishReceipt,
+) -> None:
+    """Roll back only objects/root created by this failed acceptance commit."""
+    try:
+        _plan_store.rollback(plan_path, expected_root=publication.root_sha256)
+        reset = git_completed(repo, "reset", "--quiet", "HEAD", "--", *pathspecs)
+        if reset.returncode:
+            raise AcceptError("the tree acceptance index could not be restored")
+        _plan_store.discard_unreachable(plan_path, publication.new_objects)
+    except (_plan_store.PlanStoreError, AcceptError) as exc:
+        raise AcceptError(
+            "the acceptance commit failed and its plan tree could not be restored"
+        ) from exc
 
 
 def commit_completed_plan(
@@ -204,9 +244,14 @@ def commit_completed_plan(
         index_entry = git_completed(
             repo, "ls-files", "--stage", "--", plan_pathspec
         ).stdout.strip()
-        atomic_write_text(plan_path, updated_text)
+        publication = atomic_write_text(plan_path, updated_text)
+        pathspecs = [plan_pathspec]
+        if publication is not None:
+            pathspecs.append(
+                (plan_relative.parent / "PLAN.d").as_posix()
+            )
         try:
-            added = git_completed(repo, "add", "--", plan_pathspec)
+            added = git_completed(repo, "add", "--", *pathspecs)
             committed = (
                 git_completed(
                     repo,
@@ -223,16 +268,22 @@ def commit_completed_plan(
                     "-m",
                     f"shadow accept: {row_id} proven in a clean checkout",
                     "--",
-                    plan_pathspec,
+                    *pathspecs,
                 )
                 if added.returncode == 0
                 else added
             )
         except AcceptError:
-            restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
+            if publication is not None:
+                restore_tree_publication(repo, plan_path, pathspecs, publication)
+            else:
+                restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
             raise
         if added.returncode or committed.returncode:
-            restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
+            if publication is not None:
+                restore_tree_publication(repo, plan_path, pathspecs, publication)
+            else:
+                restore_plan_index(repo, plan_path, plan_pathspec, original_text, index_entry)
             raise AcceptError("the acceptance commit could not be created; the plan was restored")
         try:
             completed_token, completed_bytes = _board.committed_plan_snapshot(plan_path)
@@ -626,6 +677,41 @@ def _exact_interrupted_completion(
         return False
 
 
+OBJECT_DIGEST_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _interrupted_tree_additions(repo: Path, tree_relative: str) -> list[str]:
+    """The object digests an interrupted tree accept added under PLAN.d, or refuse."""
+    status = git_completed(
+        repo, "status", "--porcelain=v1", "--untracked-files=all", "--", tree_relative
+    )
+    if status.returncode:
+        raise AcceptError(
+            "interrupted completion object tree could not be read; its bytes were preserved"
+        )
+    tree_parts = Path(tree_relative).parts
+    digests: list[str] = []
+    for line in status.stdout.splitlines():
+        if not line.strip():
+            continue
+        code, path = line[:2], line[3:]
+        parts = Path(path).parts if code in {"??", "A ", "AM"} else ()
+        if (
+            len(parts) != len(tree_parts) + 4
+            or parts[: len(tree_parts)] != tree_parts
+            or parts[-4] != "objects"
+            or parts[-3] != "sha256"
+            or OBJECT_DIGEST_RE.fullmatch(parts[-1]) is None
+            or parts[-2] != parts[-1][:2]
+        ):
+            raise AcceptError(
+                "interrupted completion changed its object tree unexpectedly; "
+                "its bytes were preserved"
+            )
+        digests.append(parts[-1])
+    return digests
+
+
 def committed_or_recovered_snapshot(
     plan_path: Path,
     row_id: str,
@@ -643,15 +729,23 @@ def committed_or_recovered_snapshot(
         try:
             token, head_bytes = _board.head_plan_snapshot(plan_path)
             candidate_bytes = plan_path.read_bytes()
-            head_text = head_bytes.decode("utf-8")
-            candidate_text = candidate_bytes.decode("utf-8")
-        except (_board.BoardError, OSError, UnicodeError):
+            # Codex (PR #469, P1): a partitioned plan's roots are manifests, not
+            # plan text. Judging the journal on those bytes rejected every tree
+            # recovery and left the authority wedged, so materialize both
+            # generations through the object store first.
+            head_snapshot = _plan_store.snapshot_of_root(plan_path, head_bytes)
+            candidate_snapshot = _plan_store.snapshot_of_root(plan_path, candidate_bytes)
+            head_text = head_snapshot.materialize().decode("utf-8")
+            candidate_text = candidate_snapshot.materialize().decode("utf-8")
+        except (_board.BoardError, _plan_store.PlanStoreError, OSError, UnicodeError):
             raise refusal_error
         if not _exact_interrupted_completion(head_text, candidate_text, row_id):
             raise refusal_error
 
         repo = Path(token["repo"])
         relative = token["relative"]
+        tree_relative = (Path(relative).parent / "PLAN.d").as_posix()
+        partitioned = head_snapshot.is_tree or candidate_snapshot.is_tree
         staged = git_completed(repo, "ls-files", "--stage", "--", relative)
         head_entry = git_completed(repo, "ls-tree", "HEAD", "--", relative)
         staged_lines = [line for line in staged.stdout.splitlines() if line.strip()]
@@ -679,18 +773,45 @@ def committed_or_recovered_snapshot(
             raise AcceptError(
                 "interrupted completion has an unexpected staged plan; its bytes were preserved"
             )
-        if staged_parts[1] == candidate_blob:
-            restored = git_completed(
-                repo,
-                "update-index",
-                "--cacheinfo",
-                f"{head_parts[0]},{token['blob']},{relative}",
+        if partitioned:
+            added = _interrupted_tree_additions(repo, tree_relative)
+            try:
+                _plan_store.restore_exact_root(
+                    plan_path,
+                    expected_current_root=_plan_store.digest_bytes(candidate_bytes),
+                    target_root_bytes=head_bytes,
+                )
+            except _plan_store.PlanStoreError as exc:
+                raise AcceptError(
+                    f"interrupted completion could not return to its committed root: {exc}"
+                ) from exc
+            reset = git_completed(
+                repo, "reset", "--quiet", "HEAD", "--", relative, tree_relative
             )
-            if restored.returncode:
+            if reset.returncode:
                 raise AcceptError(
                     "interrupted completion index could not be restored; its bytes were preserved"
                 )
-        atomic_write_text(plan_path, head_text)
+            try:
+                _plan_store.discard_unreachable(plan_path, added)
+            except _plan_store.PlanStoreError as exc:
+                raise AcceptError(
+                    f"interrupted completion objects could not be discarded: {exc}"
+                ) from exc
+        else:
+            if staged_parts[1] == candidate_blob:
+                restored = git_completed(
+                    repo,
+                    "update-index",
+                    "--cacheinfo",
+                    f"{head_parts[0]},{token['blob']},{relative}",
+                )
+                if restored.returncode:
+                    raise AcceptError(
+                        "interrupted completion index could not be restored; "
+                        "its bytes were preserved"
+                    )
+            atomic_write_text(plan_path, head_text)
         try:
             return _board.committed_plan_snapshot(plan_path)
         except _board.BoardError as exc:
@@ -991,12 +1112,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise AcceptError("--repo must name a Git source checkout")
             requested_plan = repo / "PLAN.md"
             source_root = Path(source_top.stdout.strip()).resolve()
-            local_plan = None
-            if not _board.regular_plan(requested_plan):
-                # Preserve a declared nested entity (`--repo plans/widget`)
-                # for the ordinary path.  A machine-local plan has no file at
-                # that location, so its proof source is the checkout root.
-                local_plan = _board.local_plan_for_repo(repo) or _board.local_plan_for_repo(source_root)
+            # A machine-local authority deliberately supersedes the source
+            # checkout's PLAN.md. Worktrees do not necessarily share the
+            # canonical repository directory name, so resolve through the
+            # registered origin identity before treating a present source
+            # plan as the entity authority.
+            local_plan = (
+                _board.local_plan_for_repo(repo)
+                or _board.local_plan_for_repo(source_root)
+            )
             if local_plan is not None:
                 local_state = _board.entity_state(local_plan)
                 owned_claim(local_state, row_id, owner)
