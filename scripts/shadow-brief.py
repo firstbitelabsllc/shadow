@@ -1623,12 +1623,25 @@ def build_chief_of_staff_analysis(
         "title": (
             f"{len(direct_asks)} decision{'s' if len(direct_asks) != 1 else ''} need you now"
             if direct_asks
-            else "No decision needs you right now"
+            else (
+                "No readable plan needs a decision from you"
+                if unavailable_entities
+                else "No decision needs you right now"
+            )
         ),
         "prose": (
-            "The requests below are the only current work that cannot continue without your decision."
-            if direct_asks
-            else "The active work can continue without a reply to this note. The questions below are challenges for your point of view, not blockers."
+            (
+                "The requests below are the only current work that cannot continue without your decision."
+                if direct_asks
+                else "The active work can continue without a reply to this note. The questions below are challenges for your point of view, not blockers."
+            )
+            + (
+                f" {len(unavailable_entities)} plan source"
+                f"{'s are' if len(unavailable_entities) != 1 else ' is'} unavailable, so a request for you "
+                "may still be waiting inside them; this is not a portfolio-wide all-clear."
+                if unavailable_entities
+                else ""
+            )
         ),
         "asks": direct_asks[:3],
     }

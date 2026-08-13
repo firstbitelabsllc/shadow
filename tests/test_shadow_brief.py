@@ -484,6 +484,9 @@ class AuthorityScopeTests(unittest.TestCase):
             "Hold portfolio ranking until every plan is readable",
             [item["title"] for item in analysis["decided_for_you"]],
         )
+        # An unreadable plan may still hold a request for Leo, so no all-clear is claimed.
+        self.assertNotEqual(analysis["needs_leo"]["title"], "No decision needs you right now")
+        self.assertIn("not a portfolio-wide all-clear", analysis["needs_leo"]["prose"])
 
         html = brief.render_html({
             "slot": "evening",
