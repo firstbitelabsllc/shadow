@@ -88,7 +88,7 @@ def canonical_json(payload: dict[str, object]) -> bytes:
 
 - [ ] **Step 4: Implement deterministic grammar-boundary splitting and B+ tree construction**
 
-Split before preamble, section, milestone, and append-only Deferred,
+Split before preamble, section, milestone, top-level Brief item, and append-only Deferred,
 Contradictions, or Progress item boundaries. Build catalog leaves keyed by
 zero-padded sequence, row leaves keyed by exact `~id`, and tag leaves keyed by
 tag/timestamp/receipt digest. Build branch pages bottom-up in chunks of at most

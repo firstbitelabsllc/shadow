@@ -27,6 +27,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_plan_grammar as _grammar  # noqa: E402
+import shadow_plan_store as _store  # noqa: E402
 import shadow_root_board as _board  # noqa: E402
 
 
@@ -476,52 +477,6 @@ def benchmark_board(
     }
 
 
-def _shard_boundaries(lines: list[str]) -> list[tuple[int, str, str]]:
-    """Return exact line boundaries for sections, milestones, and log items."""
-    boundaries: list[tuple[int, str, str]] = [(0, "preamble", "")]
-    section = ""
-    for index, line in enumerate(lines):
-        if line.startswith("## "):
-            section = line[3:].strip()
-            boundaries.append((index, "section", section))
-            continue
-        if section == "Tasks" and line.startswith("### "):
-            boundaries.append((index, "milestone", section))
-            continue
-        if (
-            section in {"Progress", "Deferred", "Contradictions"}
-            and line.startswith("- ")
-        ):
-            boundaries.append((index, "item", section))
-    by_index: dict[int, tuple[int, str, str]] = {}
-    for boundary in boundaries:
-        # A canonical section or milestone boundary is more useful than the
-        # synthetic preamble boundary when a file starts directly on one.
-        by_index[boundary[0]] = boundary
-    return [by_index[index] for index in sorted(by_index)]
-
-
-def _shard_tags(section: str, content: bytes) -> list[str]:
-    text = _text(content)
-    tags: set[str] = set()
-    if section == "Progress":
-        if " PROOF " in text:
-            tags.add("proof")
-        if " DECISION " in text:
-            tags.add("decision")
-        if " LESSON " in text:
-            tags.add("lesson")
-    if section == "Contradictions":
-        tags.add("contradiction")
-    if section == "Deferred":
-        tags.add("deferred")
-    if section == "Brief":
-        tags.add("brief")
-    if section == "Tasks" and _grammar.HASH_RE.search(text):
-        tags.add("task")
-    return sorted(tags)
-
-
 def sharded_layout(content: bytes) -> dict[str, Any]:
     """Split exact PLAN bytes into a manifest-addressed, lossless virtual tree.
 
@@ -529,26 +484,23 @@ def sharded_layout(content: bytes) -> dict[str, Any]:
     digests canonical shards; tags and row IDs route reads but never copy task
     state, proof, or prose.
     """
-    text = _text(content)
-    lines = text.splitlines(keepends=True)
-    boundaries = _shard_boundaries(lines)
+    try:
+        build = _store.build_tree(content)
+    except _store.PlanStoreError as exc:
+        raise PlanScaleError(str(exc)) from exc
     shards: list[dict[str, Any]] = []
-    for position, (start, kind, section) in enumerate(boundaries):
-        end = boundaries[position + 1][0] if position + 1 < len(boundaries) else len(lines)
-        body = "".join(lines[start:end]).encode("utf-8")
-        if not body:
-            continue
-        digest = _sha256(body)
-        row_ids = sorted(set(_grammar.HASH_RE.findall(_text(body))))
+    for index, (_, descriptor) in enumerate(_store.catalog_entries(build)):
+        digest = descriptor["object"]
+        body = build.objects[digest]
         shards.append(
             {
-                "id": f"s{len(shards):04d}",
-                "kind": kind,
-                "section": section,
+                "id": f"s{index:04d}",
+                "kind": descriptor["kind"],
+                "section": descriptor["section"],
                 "sha256": digest,
                 "bytes": len(body),
-                "row_ids": row_ids,
-                "tags": _shard_tags(section, body),
+                "row_ids": descriptor["row_ids"],
+                "tags": descriptor["tags"],
                 "content": body,
             }
         )
@@ -570,6 +522,7 @@ def sharded_layout(content: bytes) -> dict[str, Any]:
         "manifest": manifest,
         "manifest_sha256": _sha256(manifest),
         "shards": shards,
+        "tree": build,
     }
 
 
@@ -577,6 +530,7 @@ def _validate_layout(layout: dict[str, Any]) -> dict[str, Any]:
     try:
         manifest = json.loads(layout["manifest"])
         shards = layout["shards"]
+        build = layout["tree"]
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         raise PlanScaleError("shard layout is malformed") from exc
     if manifest.get("schema") != "shadow.plan-shards.v1":
@@ -592,6 +546,13 @@ def _validate_layout(layout: dict[str, Any]) -> dict[str, Any]:
             raise PlanScaleError("shard digest mismatch")
         if any(shard.get(key) != value for key, value in entry.items()):
             raise PlanScaleError("shard metadata mismatch")
+    try:
+        if _store.materialize_build(build) != b"".join(
+            shard["content"] for shard in shards
+        ):
+            raise PlanScaleError("tree and shard projection disagree")
+    except _store.PlanStoreError as exc:
+        raise PlanScaleError(str(exc)) from exc
     return manifest
 
 
@@ -631,7 +592,19 @@ def compare_layouts(content: bytes) -> dict[str, Any]:
     """Compare the three M26 candidates on one exact source snapshot."""
     layout = sharded_layout(content)
     reassembled = reassemble_shards(layout)
-    manifest_bytes = len(layout["manifest"])
+    build = layout["tree"]
+    index_bytes = 0
+    for body in build.objects.values():
+        try:
+            payload = json.loads(body)
+        except (UnicodeError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and payload.get("schema") == _store.PAGE_SCHEMA:
+            index_bytes += len(body)
+    manifest_bytes = len(build.root_bytes) + index_bytes
+    canonical_tree_bytes = len(build.root_bytes) + sum(
+        len(body) for body in build.objects.values()
+    )
     row_ids = [
         row_id for shard in layout["shards"] for row_id in shard["row_ids"]
         if "task" in shard["tags"]
@@ -662,7 +635,7 @@ def compare_layouts(content: bytes) -> dict[str, Any]:
         {
             "name": "manifest-plus-shards",
             "authorities": 1,
-            "canonical_bytes": manifest_bytes + len(content),
+            "canonical_bytes": canonical_tree_bytes,
             "derived_bytes": 0,
             "current_lookup_bytes": manifest_bytes + current["bytes"],
             # A completion rewrites one task shard and the manifest, then

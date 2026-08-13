@@ -333,7 +333,7 @@ ignore the cache; it MUST never fall back to stale content.
 ### Losslessness and stable identity
 
 Migration MUST split only before exact grammar boundaries: preamble, section,
-milestone, and append-only Deferred, Contradictions, or Progress item. Catalog
+milestone, top-level Brief item, and append-only Deferred, Contradictions, or Progress item. Catalog
 order plus shard bytes MUST reproduce the pre-migration `PLAN.md` byte for
 byte, including final-newline state. The first root binds that original digest
 and byte count. Later generations bind their own deterministic materialization.
