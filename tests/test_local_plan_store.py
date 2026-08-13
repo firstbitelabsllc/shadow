@@ -84,14 +84,16 @@ class LocalPlanStore(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             home = root / "home"
-            repo = root / "dev" / "widget"
+            repo = root / "dev" / "feature-checkout"
             repo.mkdir(parents=True)
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            (repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
             for args in (
                 ("init", "--quiet"),
                 ("config", "user.email", "shadow-test@example.invalid"),
                 ("config", "user.name", "Shadow Test"),
-                ("add", "README.md"),
+                ("remote", "add", "origin", "git@github.com:example/widget.git"),
+                ("add", "README.md", "PLAN.md"),
                 ("commit", "--quiet", "-m", "seed"),
             ):
                 result = subprocess.run(

@@ -1042,12 +1042,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise AcceptError("--repo must name a Git source checkout")
             requested_plan = repo / "PLAN.md"
             source_root = Path(source_top.stdout.strip()).resolve()
-            local_plan = None
-            if not _board.regular_plan(requested_plan):
-                # Preserve a declared nested entity (`--repo plans/widget`)
-                # for the ordinary path.  A machine-local plan has no file at
-                # that location, so its proof source is the checkout root.
-                local_plan = _board.local_plan_for_repo(repo) or _board.local_plan_for_repo(source_root)
+            # A machine-local authority deliberately supersedes the source
+            # checkout's PLAN.md. Worktrees do not necessarily share the
+            # canonical repository directory name, so resolve through the
+            # registered origin identity before treating a present source
+            # plan as the entity authority.
+            local_plan = (
+                _board.local_plan_for_repo(repo)
+                or _board.local_plan_for_repo(source_root)
+            )
             if local_plan is not None:
                 local_state = _board.entity_state(local_plan)
                 owned_claim(local_state, row_id, owner)
