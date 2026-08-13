@@ -95,6 +95,20 @@ class ReleasePackageTests(unittest.TestCase):
         for option in ("--retirement-manifest", "--expect", "--by"):
             self.assertIn(option, argparse_help.stdout)
 
+    def test_plan_migration_command_ships_with_its_store(self) -> None:
+        self.assertIn("scripts/shadow-plan.py", mod.REQUIRED_FILES)
+        self.assertIn("scripts/shadow_plan_store.py", mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "help", "plan"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        self.assertIn("migrate /ABS/PLAN.md --dry-run", output.stdout)
+        self.assertIn("rollback /ABS/PLAN.md --expect ROOT_SHA256", output.stdout)
+
     def test_two_seat_harness_ships_with_its_process_boundary(self) -> None:
         self.assertIn("scripts/shadow-verify-two-seat.py", mod.REQUIRED_FILES)
         self.assertIn("scripts/shadow_process_lib.py", mod.REQUIRED_FILES)

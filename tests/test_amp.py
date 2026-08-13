@@ -12,6 +12,8 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
+from tests.plan_tree_fixture import install_plan_tree
+
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = importlib.util.spec_from_file_location("shadow_amp", ROOT / "scripts" / "shadow-amp.py")
 amp = importlib.util.module_from_spec(SPEC)
@@ -846,6 +848,37 @@ class BriefValuesAreDataNotInstructions(unittest.TestCase):
 
 
 class AmpCli(unittest.TestCase):
+    def test_partitioned_plan_projects_the_claimed_row(self) -> None:
+        status = ROOT / "scripts" / "shadow-status.py"
+        throw = ROOT / "scripts" / "shadow-throw.py"
+        script = ROOT / "scripts" / "shadow-amp.py"
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Shadow Test"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "shadow@example.invalid"], check=True)
+            install_plan_tree(repo, PLAN.encode("utf-8"))
+            subprocess.run(["git", "-C", str(repo), "add", "PLAN.md", "PLAN.d"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "partitioned plan"], check=True)
+            env = {**os.environ, "HOME": home}
+            registered = subprocess.run(
+                [sys.executable, str(status), "--root", str(repo)],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            claimed = subprocess.run(
+                [sys.executable, str(throw), "--repo", str(repo), "--task", "~dd44", "--by", "seat-a"],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            projected = subprocess.run(
+                [sys.executable, str(script), "--repo", str(repo), "--by", "seat-a"],
+                env=env, capture_output=True, text=True, check=False,
+            )
+
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        self.assertEqual(projected.returncode, 0, projected.stderr)
+        self.assertIn("RESUME: [pending] the ready row ~dd44", projected.stdout)
+
     def test_missing_plan_exits_2(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
             with mock.patch.dict(os.environ, {"HOME": home}):
