@@ -31,7 +31,10 @@ CANONICAL_ORIGIN = re.compile(
     r"firstbitelabsllc/shadow(?:\.git)?/?",
     re.IGNORECASE,
 )
-MAX_FILE_COUNT = 110
+# M26 adds the canonical plan-tree store, migration door, benchmark, and their
+# checked-in contract. Keep a small explicit ceiling rather than letting the
+# release grow without review.
+MAX_FILE_COUNT = 120
 MAX_UNPACKED_BYTES = 2_000_000
 REQUIRED_FILES = {
     ".agents/plugins/marketplace.json",
@@ -66,6 +69,8 @@ REQUIRED_FILES = {
     "scripts/shadow_process_lib.py",
     "scripts/shadow_cmd_proof.py",
     "scripts/shadow_plan_grammar.py",
+    "scripts/shadow-plan.py",
+    "scripts/shadow_plan_store.py",
     "scripts/shadow_telemetry.py",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
