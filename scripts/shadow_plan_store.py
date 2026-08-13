@@ -9,8 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import sys
 from typing import Any, Iterable, Iterator
 
@@ -72,6 +74,27 @@ class BuildResult:
 class RebuiltRoutes:
     row_routes: dict[str, str]
     tag_routes: dict[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class PlanProvenance:
+    selector: str
+    root_sha256: str
+    index_sha256: tuple[str, ...]
+    shard_sha256: str
+    shard_bytes: int
+    catalog_key: str
+    result_start: int
+    result_end: int
+    result_sha256: str
+    file_reads: int
+    source_bytes: int
+
+
+@dataclass(frozen=True)
+class PlanResult:
+    content: bytes
+    provenance: PlanProvenance
 
 
 def digest_bytes(content: bytes) -> str:
@@ -236,7 +259,7 @@ def _pack_pages(
         encoded = _page(tree, kind, group)
         digest = _add_object(objects, encoded)
         minimum = group[0]["key"] if group else ""
-        maximum = group[-1]["key"] if group else ""
+        maximum = group[-1].get("max", group[-1]["key"]) if group else ""
         nodes.append({"min": minimum, "max": maximum, "object": digest})
     return nodes
 
@@ -497,3 +520,348 @@ def rebuild_routes(build: PlanTreeBuild) -> RebuiltRoutes:
         row_routes=dict(sorted(rows.items())),
         tag_routes={tag: tuple(keys) for tag, keys in sorted(tags.items())},
     )
+
+
+def _safe_read(path: Path, limit: int) -> bytes:
+    """Read one stable regular file without following its leaf symlink."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(path, flags)
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise PlanStoreError("plan-tree source is not a regular file")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            content = stream.read(limit + 1)
+            after = os.fstat(stream.fileno())
+    except PlanStoreError:
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise
+    except OSError as exc:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if isinstance(exc, FileNotFoundError):
+            raise PlanStoreError("referenced object is missing") from exc
+        raise PlanStoreError("plan-tree source is unreadable") from exc
+    before_state = (
+        before.st_mode,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+        before.st_dev,
+        before.st_ino,
+    )
+    after_state = (
+        after.st_mode,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
+        after.st_dev,
+        after.st_ino,
+    )
+    if before_state != after_state:
+        raise PlanStoreError("plan-tree source changed while reading")
+    if len(content) > limit:
+        raise PlanStoreError("plan-tree source exceeds its byte limit")
+    return content
+
+
+def _parse_root(content: bytes) -> dict[str, Any] | None:
+    if not content.startswith(ROOT_PREFIX):
+        _text(content)
+        return None
+    if not content.endswith(ROOT_SUFFIX):
+        raise PlanStoreError("plan-tree root fence is malformed")
+    encoded = content[len(ROOT_PREFIX):-len(ROOT_SUFFIX)]
+    try:
+        payload = json.loads(encoded)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise PlanStoreError("plan-tree root JSON is malformed") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != ROOT_SCHEMA:
+        raise PlanStoreError("plan-tree root schema is not supported")
+    if content != ROOT_PREFIX + canonical_json(payload) + ROOT_SUFFIX:
+        raise PlanStoreError("plan-tree root is not canonical JSON")
+    for key in ("catalog_root", "row_root", "tag_root", "logical_sha256"):
+        value = payload.get(key)
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise PlanStoreError(f"plan-tree root {key} is malformed")
+    if not isinstance(payload.get("logical_bytes"), int) or payload["logical_bytes"] < 0:
+        raise PlanStoreError("plan-tree logical byte count is malformed")
+    return payload
+
+
+class PlanSnapshot:
+    """One frozen legacy plan or content-addressed plan-tree generation."""
+
+    def __init__(
+        self,
+        plan: Path,
+        root_bytes: bytes,
+        root: dict[str, Any] | None,
+    ) -> None:
+        self.plan = plan
+        self.root_bytes = root_bytes
+        self.root = root
+        self.root_sha256 = digest_bytes(root_bytes)
+        self._legacy_build: PlanTreeBuild | None = None
+
+    @classmethod
+    def open(cls, plan: Path) -> "PlanSnapshot":
+        candidate = Path(os.path.abspath(plan))
+        if candidate.name != "PLAN.md":
+            raise PlanStoreError("plan-tree root must be named PLAN.md")
+        content = _safe_read(candidate, 1_000_000)
+        root = _parse_root(content)
+        if root is not None and len(content) > ROOT_MAX_BYTES:
+            raise PlanStoreError("plan-tree root exceeds the byte limit")
+        return cls(candidate, content, root)
+
+    @property
+    def is_tree(self) -> bool:
+        return self.root is not None
+
+    def object_path(self, digest: str) -> Path:
+        if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise PlanStoreError("object digest is malformed")
+        root = self.plan.parent / "PLAN.d" / "objects" / "sha256"
+        for component in (self.plan.parent / "PLAN.d", root.parent, root, root / digest[:2]):
+            try:
+                if component.exists() and component.is_symlink():
+                    raise PlanStoreError("plan-tree object path crosses a symlink")
+            except OSError as exc:
+                raise PlanStoreError("plan-tree object path is unavailable") from exc
+        return root / digest[:2] / digest
+
+    def _read_object(
+        self,
+        digest: str,
+        limit: int,
+        counters: list[int],
+    ) -> bytes:
+        content = _safe_read(self.object_path(digest), limit)
+        counters[0] += 1
+        counters[1] += len(content)
+        if digest_bytes(content) != digest:
+            raise PlanStoreError("object digest mismatch")
+        return content
+
+    def _page(
+        self,
+        tree: str,
+        digest: str,
+        counters: list[int],
+        visited: list[str],
+    ) -> dict[str, Any]:
+        if digest in visited:
+            raise PlanStoreError("index cycle detected")
+        if len(visited) >= MAX_TREE_DEPTH:
+            raise PlanStoreError("index exceeds the maximum tree depth")
+        page = _decode_page(self._read_object(digest, INDEX_MAX_BYTES, counters), tree)
+        visited.append(digest)
+        return page
+
+    def _tree_lookup(
+        self,
+        tree: str,
+        root: str,
+        key: str,
+        counters: list[int],
+        visited: list[str],
+    ) -> Any:
+        digest = root
+        path_seen: set[str] = set()
+        while True:
+            if digest in path_seen:
+                raise PlanStoreError("index cycle detected")
+            path_seen.add(digest)
+            page = self._page(tree, digest, counters, visited)
+            entries = page["entries"]
+            keys = [entry.get("key") for entry in entries if isinstance(entry, dict)]
+            if len(keys) != len(entries) or any(not isinstance(item, str) for item in keys):
+                raise PlanStoreError("index entry is malformed")
+            if keys != sorted(keys) or len(keys) != len(set(keys)):
+                raise PlanStoreError("index keys are not strictly ordered")
+            if page["kind"] == "leaf":
+                for entry in entries:
+                    if entry["key"] == key and "value" in entry:
+                        return entry["value"]
+                raise PlanStoreError(f"{tree} index has no route for {key}")
+            matches = [
+                entry for entry in entries
+                if isinstance(entry.get("max"), str)
+                and isinstance(entry.get("object"), str)
+                and entry["key"] <= key <= entry["max"]
+            ]
+            if len(matches) != 1:
+                raise PlanStoreError(f"{tree} branch has no unique route for {key}")
+            digest = matches[0]["object"]
+
+    def _tree_entries(
+        self,
+        tree: str,
+        digest: str,
+        counters: list[int],
+        visited: list[str],
+        ancestors: frozenset[str] = frozenset(),
+    ) -> Iterator[tuple[str, Any]]:
+        if digest in ancestors:
+            raise PlanStoreError("index cycle detected")
+        page = self._page(tree, digest, counters, visited)
+        entries = page["entries"]
+        if page["kind"] == "leaf":
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get("key"), str) or "value" not in entry:
+                    raise PlanStoreError("leaf entry is malformed")
+                yield entry["key"], entry["value"]
+            return
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("object"), str):
+                raise PlanStoreError("branch entry is malformed")
+            yield from self._tree_entries(
+                tree,
+                entry["object"],
+                counters,
+                visited,
+                ancestors | {digest},
+            )
+
+    def _legacy(self) -> PlanTreeBuild:
+        if self._legacy_build is None:
+            self._legacy_build = build_tree(self.root_bytes)
+        return self._legacy_build
+
+    def materialize(self) -> bytes:
+        if self.root is None:
+            return self.root_bytes
+        counters = [1, len(self.root_bytes)]
+        visited: list[str] = []
+        parts: list[bytes] = []
+        previous: str | None = None
+        for key, descriptor in self._tree_entries(
+            "catalog", self.root["catalog_root"], counters, visited
+        ):
+            if previous is not None and key <= previous:
+                raise PlanStoreError("catalog keys are not strictly ordered")
+            previous = key
+            if not isinstance(descriptor, dict) or not isinstance(descriptor.get("object"), str):
+                raise PlanStoreError("catalog descriptor is malformed")
+            content = self._read_object(
+                descriptor["object"], DATA_MAX_BYTES, counters
+            )
+            if len(content) != descriptor.get("bytes"):
+                raise PlanStoreError("catalog byte count mismatch")
+            parts.append(content)
+        materialized = b"".join(parts)
+        if len(materialized) != self.root["logical_bytes"]:
+            raise PlanStoreError("materialized byte count mismatch")
+        if digest_bytes(materialized) != self.root["logical_sha256"]:
+            raise PlanStoreError("materialized digest mismatch")
+        return materialized
+
+    def row(self, row_id: str) -> PlanResult:
+        if _grammar.ROW_ID_RE.fullmatch(row_id) is None:
+            raise PlanStoreError("row id is malformed")
+        if self.root is None:
+            result = lookup_build(self._legacy(), row_id=row_id)
+            return PlanResult(
+                result.content,
+                PlanProvenance(
+                    selector=f"row:{row_id}",
+                    root_sha256=self.root_sha256,
+                    index_sha256=(),
+                    shard_sha256=self.root_sha256,
+                    shard_bytes=len(self.root_bytes),
+                    catalog_key=result.catalog_key,
+                    result_start=0,
+                    result_end=len(result.content),
+                    result_sha256=digest_bytes(result.content),
+                    file_reads=1,
+                    source_bytes=len(self.root_bytes),
+                ),
+            )
+        counters = [1, len(self.root_bytes)]
+        visited: list[str] = []
+        catalog_key = self._tree_lookup(
+            "row", self.root["row_root"], row_id, counters, visited
+        )
+        descriptor = self._tree_lookup(
+            "catalog", self.root["catalog_root"], catalog_key, counters, visited
+        )
+        if not isinstance(descriptor, dict) or not isinstance(descriptor.get("object"), str):
+            raise PlanStoreError("catalog route is malformed")
+        content = self._read_object(descriptor["object"], DATA_MAX_BYTES, counters)
+        if len(content) != descriptor.get("bytes"):
+            raise PlanStoreError("catalog byte count mismatch")
+        if not any(
+            (match := _grammar.ROW_RE.fullmatch(line)) is not None
+            and match.group("id") == row_id
+            for line in _text(content).splitlines()
+        ):
+            raise PlanStoreError("row route does not match canonical shard")
+        return PlanResult(
+            content,
+            PlanProvenance(
+                selector=f"row:{row_id}",
+                root_sha256=self.root_sha256,
+                index_sha256=tuple(visited),
+                shard_sha256=descriptor["object"],
+                shard_bytes=len(content),
+                catalog_key=catalog_key,
+                result_start=0,
+                result_end=len(content),
+                result_sha256=digest_bytes(content),
+                file_reads=counters[0],
+                source_bytes=counters[1],
+            ),
+        )
+
+    def latest(self, tag: str) -> PlanResult:
+        if not tag or not re.fullmatch(r"[a-z][a-z0-9-]*", tag):
+            raise PlanStoreError("tag is malformed")
+        if self.root is None:
+            result = lookup_build(self._legacy(), tag=tag)
+            return PlanResult(
+                result.content,
+                PlanProvenance(
+                    selector=f"tag:{tag}",
+                    root_sha256=self.root_sha256,
+                    index_sha256=(),
+                    shard_sha256=self.root_sha256,
+                    shard_bytes=len(self.root_bytes),
+                    catalog_key=result.catalog_key,
+                    result_start=0,
+                    result_end=len(result.content),
+                    result_sha256=digest_bytes(result.content),
+                    file_reads=1,
+                    source_bytes=len(self.root_bytes),
+                ),
+            )
+        counters = [1, len(self.root_bytes)]
+        visited: list[str] = []
+        catalog_key = self._tree_lookup(
+            "tag", self.root["tag_root"], f"latest/{tag}", counters, visited
+        )
+        descriptor = self._tree_lookup(
+            "catalog", self.root["catalog_root"], catalog_key, counters, visited
+        )
+        if not isinstance(descriptor, dict) or tag not in descriptor.get("tags", []):
+            raise PlanStoreError("tag route does not match canonical shard")
+        content = self._read_object(descriptor["object"], DATA_MAX_BYTES, counters)
+        return PlanResult(
+            content,
+            PlanProvenance(
+                selector=f"tag:{tag}",
+                root_sha256=self.root_sha256,
+                index_sha256=tuple(visited),
+                shard_sha256=descriptor["object"],
+                shard_bytes=len(content),
+                catalog_key=catalog_key,
+                result_start=0,
+                result_end=len(content),
+                result_sha256=digest_bytes(content),
+                file_reads=counters[0],
+                source_bytes=counters[1],
+            ),
+        )

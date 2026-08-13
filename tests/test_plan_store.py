@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 
@@ -56,6 +57,18 @@ def plan(*, duplicate: bool = False, dangling: bool = False) -> bytes:
 {progress}""".encode("utf-8")
 
 
+def install_tree(root: Path, content: bytes) -> Path:
+    build = store.build_tree(content)
+    plan_path = root / "PLAN.md"
+    plan_path.write_bytes(build.root_bytes)
+    object_root = root / "PLAN.d" / "objects" / "sha256"
+    for digest, body in build.objects.items():
+        bucket = object_root / digest[:2]
+        bucket.mkdir(parents=True, exist_ok=True)
+        (bucket / digest).write_bytes(body)
+    return plan_path
+
+
 class PlanTreeBuildTests(unittest.TestCase):
     def test_build_is_lossless_deterministic_and_content_addressed(self) -> None:
         source = plan()
@@ -103,6 +116,56 @@ class PlanTreeBuildTests(unittest.TestCase):
         build = store.build_tree(source)
 
         self.assertEqual(store.materialize_build(build), source)
+
+
+class PlanSnapshotTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_tree_row_lookup_is_bounded_and_traceable(self) -> None:
+        plan_path = install_tree(self.root, plan())
+
+        result = store.PlanSnapshot.open(plan_path).row("~bb22")
+
+        self.assertIn(b"second result", result.content)
+        self.assertEqual(result.provenance.selector, "row:~bb22")
+        self.assertRegex(result.provenance.root_sha256, r"^[0-9a-f]{64}$")
+        self.assertRegex(result.provenance.shard_sha256, r"^[0-9a-f]{64}$")
+        self.assertLessEqual(result.provenance.file_reads, 10)
+        self.assertLessEqual(result.provenance.source_bytes, 168 * 1024)
+
+    def test_tree_materialization_restores_exact_legacy_bytes(self) -> None:
+        source = plan()
+        plan_path = install_tree(self.root, source)
+
+        restored = store.PlanSnapshot.open(plan_path).materialize()
+
+        self.assertEqual(restored, source)
+
+    def test_tampered_object_refuses_before_returning_content(self) -> None:
+        source = plan()
+        build = store.build_tree(source)
+        plan_path = install_tree(self.root, source)
+        digest = store.lookup_build(build, row_id="~bb22").object_sha256
+        object_path = self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+        object_path.write_bytes(object_path.read_bytes() + b"tamper")
+
+        with self.assertRaisesRegex(store.PlanStoreError, "object digest mismatch"):
+            store.PlanSnapshot.open(plan_path).row("~bb22")
+
+    def test_missing_object_refuses_materialization(self) -> None:
+        source = plan()
+        build = store.build_tree(source)
+        plan_path = install_tree(self.root, source)
+        digest = build.root["catalog_root"]
+        (self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest).unlink()
+
+        with self.assertRaisesRegex(store.PlanStoreError, "referenced object is missing"):
+            store.PlanSnapshot.open(plan_path).materialize()
 
 
 if __name__ == "__main__":
