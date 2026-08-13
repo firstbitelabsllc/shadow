@@ -431,6 +431,112 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIn("no execution state is inferred", shadow_card["now"])
         self.assertIn(str(plan), shadow_card["wake"])
 
+    def test_partial_plan_outage_suppresses_portfolio_ranking_and_zero_inference(self):
+        board = {
+            "revision": 13,
+            "entities": [
+                {
+                    "id": "unreadable-high-priority",
+                    "project": "unreadable",
+                    "priority": 1,
+                    "availability": "unavailable",
+                    "wake": "Make the named plan locally readable; retry at the next natural window.",
+                },
+                {
+                    "id": "readable-lower-priority",
+                    "project": "readable",
+                    "priority": 2,
+                    "availability": "available",
+                    "resume": "rd1",
+                    "open_checkpoints": [{"id": "rd1", "title": "Ship the readable result"}],
+                    "blocked": [],
+                    "forgotten": [],
+                },
+            ],
+            "claims": [],
+        }
+        source_health = {
+            "shadow_board": {
+                "available": False,
+                "error": "one plan is unreadable",
+                "wake": "Make the named plan locally readable.",
+            }
+        }
+
+        recommendations = brief.build_recommendations(board, [])
+        recommendation_text = " ".join(item.text for item in recommendations)
+        self.assertIn("UNKNOWN", recommendation_text)
+        self.assertNotIn("Keep readable first", recommendation_text)
+
+        analysis = brief.build_chief_of_staff_analysis(
+            board=board,
+            repos=[],
+            github=[],
+            vercel={},
+            supabase={},
+            mail={"available": False},
+            source_health=source_health,
+        )
+        executive_read = " ".join(analysis["executive_read"])
+        self.assertIn("portfolio-wide priority", executive_read)
+        self.assertIn("UNKNOWN", executive_read)
+        self.assertIn(
+            "Hold portfolio ranking until every plan is readable",
+            [item["title"] for item in analysis["decided_for_you"]],
+        )
+
+        html = brief.render_html({
+            "slot": "evening",
+            "generated_at": "2026-08-13T20:00:00-04:00",
+            "board": board,
+            "repos": [],
+            "github_open_prs": [],
+            "recommendations": [item.__dict__ for item in recommendations],
+            "analysis": analysis,
+            "paint_health": source_health,
+            "snowcubes_context": {"surfaces": []},
+        })
+        self.assertIn("Part of the portfolio is unreadable", html)
+        self.assertIn("open-work totals are UNKNOWN", html)
+        self.assertNotIn("Nothing needs forcing right now", html)
+        self.assertNotIn("Readable is the main move", html)
+
+    def test_packet_snowcubes_card_uses_the_final_board_snapshot(self):
+        board = {"revision": 23, "entities": [], "claims": []}
+        personal_mail = {"available": False, "error": "personal mail unavailable"}
+        business_mail = {"available": False, "error": "business mail unavailable"}
+        companion = {"observed_at": "2026-08-13T15:00:00Z", "surfaces": []}
+
+        with mock.patch.object(brief, "portfolio_root", return_value=Path("/tmp/portfolio")), \
+            mock.patch.object(brief, "collect_repos", return_value=[]), \
+            mock.patch.object(brief, "collect_github", return_value=[]), \
+            mock.patch.object(brief, "collect_vercel", return_value={"available": False}), \
+            mock.patch.object(brief, "collect_supabase", return_value={"available": False}), \
+            mock.patch.object(brief, "collect_nia_status", return_value={"available": False}), \
+            mock.patch.object(
+                brief,
+                "collect_superhuman_context",
+                side_effect=[personal_mail, business_mail],
+            ), \
+            mock.patch.object(brief, "collect_growth_source_status", return_value={}), \
+            mock.patch.object(brief, "build_local_git_health", return_value={"available": True}), \
+            mock.patch.object(brief, "build_paint_health", return_value={}), \
+            mock.patch.object(
+                brief,
+                "_run",
+                return_value=subprocess.CompletedProcess([], 0, "status", ""),
+            ), \
+            mock.patch.object(brief, "collect_board", return_value=board), \
+            mock.patch.object(brief, "_read_board_revision", return_value=23), \
+            mock.patch.object(brief, "collect_snowcubes_context", return_value=companion) as collect_companion, \
+            mock.patch.object(brief, "build_recommendations", return_value=[]), \
+            mock.patch.object(brief, "build_chief_of_staff_analysis", return_value={}):
+            packet = brief.collect_packet(slot="morning")
+
+        self.assertIs(packet["board"], board)
+        self.assertIs(collect_companion.call_args.kwargs["board"], packet["board"])
+        self.assertIs(collect_companion.call_args.kwargs["mail"], business_mail)
+
     def test_scheduled_receipt_keeps_original_trigger_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
