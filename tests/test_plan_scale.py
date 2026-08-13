@@ -374,6 +374,24 @@ class PlanTreeMigrationHarness(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            subprocess.run(["git", "-C", str(home / ".shadow"), "init", "--quiet"], check=True)
+            subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "config", "user.name", "Board Test"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "config", "user.email", "board@example.invalid"],
+                check=True,
+            )
+            (home / ".shadow" / ".gitignore").write_text("plans/\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "add", "board.json", ".gitignore"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "commit", "--quiet", "-m", "seed board"],
+                check=True,
+            )
             before_plan = plan_path.read_bytes()
             before_board = board.read_bytes()
             report = scale._store.dry_run_migration(plan_path, board=board)
