@@ -72,6 +72,14 @@ def install_tree(root: Path, content: bytes) -> Path:
 
 
 class PlanTreeBuildTests(unittest.TestCase):
+    def test_million_shard_shape_stays_within_the_frozen_lookup_budget(self) -> None:
+        fixture = store.structural_lookup_budget(1_000_000)
+
+        self.assertEqual(fixture["index_depth"], 4)
+        self.assertEqual(fixture["file_reads"], 10)
+        self.assertEqual(fixture["source_bytes"], 168 * 1024)
+        self.assertEqual(fixture["selected_context_bytes"], 32 * 1024)
+
     def test_build_is_lossless_deterministic_and_content_addressed(self) -> None:
         source = plan()
 
@@ -139,6 +147,26 @@ class PlanSnapshotTests(unittest.TestCase):
         self.assertRegex(result.provenance.shard_sha256, r"^[0-9a-f]{64}$")
         self.assertLessEqual(result.provenance.file_reads, 10)
         self.assertLessEqual(result.provenance.source_bytes, 168 * 1024)
+
+    def test_first_tag_occurrence_and_archive_tombstone_are_bounded(self) -> None:
+        source = plan().replace(
+            b"## Deferred\n",
+            b"- Archived milestone: [old](docs/plan-archive/old.md)\n\n## Deferred\n",
+        ).replace(
+            b"## Progress\n",
+            b"- second contradiction | provisional winner: test | opened 2026-08-12T00:02:00Z\n\n## Progress\n",
+        )
+        plan_path = install_tree(self.root, source)
+        snapshot = store.PlanSnapshot.open(plan_path)
+
+        first = snapshot.receipt("contradiction", 0)
+        archive = snapshot.receipt("archive", 0)
+
+        self.assertIn(b"monolith vs shards", first.content)
+        self.assertIn(b"Archived milestone", archive.content)
+        self.assertEqual(first.provenance.selector, "tag:contradiction:0")
+        self.assertLessEqual(first.provenance.file_reads, 10)
+        self.assertLessEqual(first.provenance.source_bytes, 168 * 1024)
 
     def test_tree_materialization_restores_exact_legacy_bytes(self) -> None:
         source = plan()

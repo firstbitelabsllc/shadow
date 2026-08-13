@@ -162,6 +162,33 @@ class MigrationReport:
         }
 
 
+def structural_lookup_budget(shard_count: int) -> dict[str, int]:
+    """Worst-case exact-row lookup budget for a canonical tree shape.
+
+    This models one root, a row-index path, a catalog-index path, and one data
+    shard. It is independent of plan prose and is therefore cheap enough to
+    assert at the million-shard acceptance boundary.
+    """
+    if shard_count < 1:
+        raise PlanStoreError("shard count must be positive")
+    depth = 1
+    capacity = PAGE_FANOUT
+    while capacity < shard_count:
+        depth += 1
+        capacity *= PAGE_FANOUT
+        if depth > MAX_TREE_DEPTH:
+            raise PlanStoreError("shard count exceeds the maximum tree depth")
+    file_reads = 1 + depth + depth + 1
+    source_bytes = ROOT_MAX_BYTES + (2 * depth * INDEX_MAX_BYTES) + DATA_MAX_BYTES
+    return {
+        "shards": shard_count,
+        "index_depth": depth,
+        "file_reads": file_reads,
+        "source_bytes": source_bytes,
+        "selected_context_bytes": DATA_MAX_BYTES,
+    }
+
+
 def digest_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
@@ -230,6 +257,8 @@ def _split(content: bytes, limits: FormatLimits) -> list[dict[str, Any]]:
             needs.extend(_grammar.NEEDS_REF_RE.findall(fields.get("needs", "")))
         tags: list[str] = []
         if section == "Progress":
+            if kind == "item":
+                tags.append("progress")
             for token, marker in (
                 ("proof", " PROOF "),
                 ("decision", " DECISION "),
@@ -237,14 +266,16 @@ def _split(content: bytes, limits: FormatLimits) -> list[dict[str, Any]]:
             ):
                 if marker in body_text:
                     tags.append(token)
-        elif section == "Contradictions":
+        elif section == "Contradictions" and kind == "item":
             tags.append("contradiction")
-        elif section == "Deferred":
+        elif section == "Deferred" and kind == "item":
             tags.append("deferred")
         elif section == "Brief":
             tags.append("brief")
         elif section == "Tasks":
             tags.append("task")
+        if any(ARCHIVE_RE.match(line) is not None for line in body_text.splitlines()):
+            tags.append("archive")
         occurrence = section_occurrences.get(section, 0)
         section_occurrences[section] = occurrence + 1
         body_digest = digest_bytes(body)
@@ -533,7 +564,11 @@ def _catalog_result(build: PlanTreeBuild, catalog_key: str) -> BuildResult:
 
 
 def lookup_build(
-    build: PlanTreeBuild, *, row_id: str | None = None, tag: str | None = None
+    build: PlanTreeBuild,
+    *,
+    row_id: str | None = None,
+    tag: str | None = None,
+    tag_sequence: int | None = None,
 ) -> BuildResult:
     if (row_id is None) == (tag is None):
         raise PlanStoreError("route exactly one row id or tag")
@@ -548,9 +583,14 @@ def lookup_build(
             raise PlanStoreError("row route does not match canonical shard")
         return result
     assert tag is not None
-    catalog_key = _exact_lookup(
-        build, "tag", build.root["tag_root"], f"latest/{tag}"
+    if tag_sequence is not None and tag_sequence < 0:
+        raise PlanStoreError("tag sequence must be non-negative")
+    route = (
+        f"latest/{tag}"
+        if tag_sequence is None
+        else f"receipt/{tag}/{tag_sequence:020d}"
     )
+    catalog_key = _exact_lookup(build, "tag", build.root["tag_root"], route)
     result = _catalog_result(build, catalog_key)
     descriptor = _exact_lookup(
         build, "catalog", build.root["catalog_root"], catalog_key
@@ -890,15 +930,18 @@ class PlanSnapshot:
             ),
         )
 
-    def latest(self, tag: str) -> PlanResult:
+    def _tag(self, tag: str, sequence: int | None) -> PlanResult:
         if not tag or not re.fullmatch(r"[a-z][a-z0-9-]*", tag):
             raise PlanStoreError("tag is malformed")
+        if sequence is not None and sequence < 0:
+            raise PlanStoreError("tag sequence must be non-negative")
+        selector = f"tag:{tag}" if sequence is None else f"tag:{tag}:{sequence}"
         if self.root is None:
-            result = lookup_build(self._legacy(), tag=tag)
+            result = lookup_build(self._legacy(), tag=tag, tag_sequence=sequence)
             return PlanResult(
                 result.content,
                 PlanProvenance(
-                    selector=f"tag:{tag}",
+                    selector=selector,
                     root_sha256=self.root_sha256,
                     index_sha256=(),
                     shard_sha256=self.root_sha256,
@@ -913,8 +956,13 @@ class PlanSnapshot:
             )
         counters = [1, len(self.root_bytes)]
         visited: list[str] = []
+        route = (
+            f"latest/{tag}"
+            if sequence is None
+            else f"receipt/{tag}/{sequence:020d}"
+        )
         catalog_key = self._tree_lookup(
-            "tag", self.root["tag_root"], f"latest/{tag}", counters, visited
+            "tag", self.root["tag_root"], route, counters, visited
         )
         descriptor = self._tree_lookup(
             "catalog", self.root["catalog_root"], catalog_key, counters, visited
@@ -925,7 +973,7 @@ class PlanSnapshot:
         return PlanResult(
             content,
             PlanProvenance(
-                selector=f"tag:{tag}",
+                selector=selector,
                 root_sha256=self.root_sha256,
                 index_sha256=tuple(visited),
                 shard_sha256=descriptor["object"],
@@ -938,6 +986,12 @@ class PlanSnapshot:
                 source_bytes=counters[1],
             ),
         )
+
+    def latest(self, tag: str) -> PlanResult:
+        return self._tag(tag, None)
+
+    def receipt(self, tag: str, sequence: int) -> PlanResult:
+        return self._tag(tag, sequence)
 
 
 def _fsync_directory(path: Path) -> None:
