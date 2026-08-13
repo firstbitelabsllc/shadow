@@ -182,7 +182,7 @@ def _run(
 def collect_shadow_status_excerpt() -> str:
     """Keep the optional seat summary from taking down the authoritative packet."""
     try:
-        status = _run(["shadow", "status", "--by", "leo"], timeout=60)
+        status = _run(["shadow", "status", "--by", "leo"], timeout=8)
     except subprocess.TimeoutExpired:
         return (
             "Optional seat-status summary timed out; the report continued from the "
