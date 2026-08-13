@@ -1,6 +1,6 @@
 # Plan scale — frozen baseline and decision gates
 
-Status: **M26 baseline frozen; architecture not yet chosen.**
+Status: **M26 baseline frozen; manifest-addressed canonical shards chosen.**
 
 This record answers `~psc1`. It measures the current whole-file system before
 any split, manifest, or index exists. The root board and entity plans remain
@@ -279,3 +279,190 @@ the first ladder rung that preserves exact authority while solving both read
 and write scaling. Do not add SQLite, FTS, a service, or a persistent index to
 the canonical path. Thermo classifies monolith-plus-index and archive-only as
 follow-ups, not competing architectures.
+
+## Normative plan-tree contract
+
+This section is the `~psc3` contract. The words **MUST**, **MUST NOT**,
+**SHOULD**, and **MAY** are normative. A plan tree is one logical authority,
+not a directory of independent plans: the board still points to exactly one
+`PLAN.md`, and only that root can publish a new generation.
+
+### Authority and on-disk shape
+
+`PLAN.md` MUST remain the stable entity locator. A migrated root contains a
+short human-readable heading and one canonical JSON payload with schema
+`shadow.plan-tree.v1`. The payload MUST contain:
+
+- `generation`, a monotonically increasing non-negative integer;
+- `logical_sha256` and `logical_bytes`, binding the exact materialized plan;
+- `catalog_root`, `row_root`, and `tag_root`, each a SHA-256 object reference;
+- `object_count`, `row_count`, and the checked-in format limits; and
+- `previous_root`, the prior root digest or `null` for the first generation.
+
+All referenced bytes live below
+`PLAN.d/objects/sha256/<first-two-hex>/<full-sha256>`. Object names MUST equal
+the SHA-256 of their bytes. Objects MUST be regular, non-symlink files beneath
+the owning plan directory; readers MUST refuse path traversal, links, devices,
+digest mismatch, malformed UTF-8, unsupported schemas, or an object larger
+than its declared format limit. An object is immutable after publication.
+
+The catalog is a bounded-page, content-addressed B+ tree keyed by a
+zero-padded sequence number. A leaf value describes one canonical Markdown
+shard: object digest, byte count, section, grammar-boundary kind, stable
+logical ID, active/history state, row IDs, and receipt tags. The row tree maps
+each globally unique `~id` to one catalog key. The tag tree maps
+`<tag>/<timestamp>/<receipt-digest>` to one catalog key. Routing entries MAY
+repeat locators and classifications, but MUST NOT copy task text, decisions,
+proof text, or summaries. Every route MUST be revalidated against the selected
+shard before an answer is returned.
+
+Index pages MUST be at most 16 KiB, data shards at most 32 KiB, and the
+`PLAN.md` root at most 8 KiB. Tree pages have at most 64 children. A single
+grammar item that cannot fit a data shard MUST refuse migration rather than be
+split mid-item. These budgets replace the 256 KiB monolith ceiling; active row
+and milestone budgets remain unchanged. Historical growth adds immutable
+shards and logarithmic catalog pages without enlarging the active context.
+
+The three trees are canonical routing metadata inside the one plan authority.
+They are not answer stores. A derived row, token, or full-text cache MAY exist
+outside the plan directory only when it is keyed by the exact root digest,
+contains no unique task state, can be deleted without changing an answer, and
+rebuilds solely from verified tree objects. Cache mismatch MUST delete or
+ignore the cache; it MUST never fall back to stale content.
+
+### Losslessness and stable identity
+
+Migration MUST split only before exact grammar boundaries: preamble, section,
+milestone, and append-only Deferred, Contradictions, or Progress item. Catalog
+order plus shard bytes MUST reproduce the pre-migration `PLAN.md` byte for
+byte, including final-newline state. The first root binds that original digest
+and byte count. Later generations bind their own deterministic materialization.
+
+Row IDs, milestone headings, `needs:` edges, DoD rows, archive references,
+Progress timestamps, receipt tags, and receipt text MUST remain byte-identical
+during migration. Stable logical shard IDs are format metadata and MUST NOT
+replace row IDs. A milestone logical ID uses its earliest task-row ID; a
+receipt uses its timestamp plus receipt digest; fixed sections use their
+canonical section name. Renaming a heading therefore does not silently change
+task identity.
+
+Validation MUST materialize and parse the complete candidate generation before
+publish. It MUST enforce every existing grammar and lifecycle invariant across
+shards, including unique IDs, resolvable `needs:`, one DoD per milestone,
+proof/decision reference integrity, chronological Progress, section order,
+hot-row budgets, and archive availability. A tombstone without bound historical
+content is invalid. The four missing Shadow archive targets found by `~psc1`
+remain an explicit migration refusal until their authority is repaired; no
+worktree copy may manufacture them.
+
+### Lookup API and provenance
+
+All Shadow commands MUST use one shared `PlanSnapshot` abstraction. It detects
+a legacy monolith or a `shadow.plan-tree.v1` root and exposes the same logical
+operations:
+
+```text
+materialize() -> exact logical PLAN bytes
+row(~id) -> canonical task row and owning milestone
+receipts(~id | tag, newest_first=True) -> canonical Progress items
+section(name, active_only=False) -> canonical section items
+provenance(result) -> root, index-page, shard, selector, and result digests
+```
+
+`status`, `throw`, `return`, `accept`, `amp`, `lint`, `lifecycle`, import, and
+host verification MUST call this boundary rather than reading `PLAN.md`
+directly. A legacy monolith remains supported during migration and returns a
+single-source provenance receipt.
+
+An exact row lookup traverses the row tree, one catalog path, and one data
+shard. A tag lookup traverses the tag tree, one catalog path, and selected data
+shards. At one million shards with fan-out 64, the acceptance budget is one
+root, at most eight index pages across both trees, and one 32 KiB data shard:
+at most ten file reads and 168 KiB of verified source bytes for a one-result
+lookup. Result context is only the selected canonical item plus provenance.
+Portfolio current-work lookup adds the board and one bounded lookup per entity;
+it never materializes an entity merely to find its resume row.
+
+Free-text discovery may consult a digest-bound disposable index, but the final
+answer MUST re-read and verify every selected shard. With no cache, exact IDs,
+tags, timestamps, and ordered history remain available from the tree. Search
+results MUST say when they are discovery candidates rather than exact routes.
+
+Every returned item carries: public entity locator, root digest, visited index
+page digests, selected shard digest and byte count, selector, logical catalog
+key, result byte range, and result digest. This is provenance—traceability to
+canonical bytes—not telemetry, a summary, or a second status record.
+
+### Mutation, concurrency, and recovery
+
+One entity lock and root compare-and-swap own every mutation. A writer MUST:
+
+1. freeze the board revision, claim, root state token, and current generation;
+2. read and validate the current snapshot through `PlanSnapshot`;
+3. write new data and index objects to same-filesystem temporary files, flush,
+   verify their names and bytes, then atomically rename and fsync directories;
+4. construct and fully validate the candidate root in memory;
+5. atomically replace `PLAN.md` only if its frozen token still matches; and
+6. update the board in its existing transaction only after the root publish
+   succeeds, then re-read both root and board before reporting success.
+
+An object written before the root is unreachable garbage and MAY be collected
+after a grace period. A crash before root replacement leaves the old generation
+authoritative. Atomic root replacement makes a half-root impossible. A missing
+or corrupt referenced object makes the new root unreadable and MUST refuse all
+semantic reads or mutations; recovery follows `previous_root` only through an
+explicit rollback command, never as a silent answer fallback. A stale writer
+loses the CAS without deleting another writer's objects.
+
+Git-backed plans publish root and objects in one commit after focused
+validation. Machine-local plans use the private Shadow journal and the same
+root transaction. Merge, installation, deployment, and live-use receipts remain
+separate from a green plan-tree test.
+
+### Migration and rollback
+
+`shadow plan migrate --dry-run` MUST be the first door. It reads one frozen
+monolith, builds the complete candidate tree without publishing it, proves
+byte-exact materialization, runs current lint and lifecycle validation, executes
+the frozen query corpus against both layouts, and emits only public locators,
+counts, budgets, and digests. It MUST perform zero writes to the plan, board, or
+Git index.
+
+Apply requires the dry-run root digest, the unchanged source token, a clean
+owning checkout or private journal transaction, and no conflicting claim. The
+board pointer and entity ID do not change. The migration commit or journal
+receipt is the rollback bundle; ordinary reads never consult it as authority.
+
+Rollback requires the expected current root digest. It restores the exact
+pre-migration `PLAN.md`, validates its recorded digest and all board row/claim
+references, publishes through the same CAS, and re-reads command outputs.
+Unreachable objects are retained until rollback proof passes and only then may
+be garbage-collected. Rollback MUST preserve every ID, receipt, pointer, claim,
+owner, resume row, and command result from the frozen corpus.
+
+### Mechanical acceptance
+
+The architecture is complete only when all of the following are proven from a
+clean checkout and a fresh seat:
+
+1. the three real baseline plans and a generated million-shard fixture satisfy
+   the page, hop, source-byte, and selected-context budgets;
+2. all 16 frozen query result digests match before and after migration;
+3. deleting every derived cache changes neither answer nor command behavior;
+4. tamper, missing-object, duplicate-ID, dangling-edge, stale-CAS, concurrent
+   writer, and crash-point fixtures refuse without publishing partial state;
+5. `status`, `throw`, `return`, `accept`, `amp`, `lint`, `lifecycle`, import,
+   and host verification have monolith/tree parity tests;
+6. one machine-local Shadow plan and one representative product plan migrate,
+   reopen from a cold seat, and return the expected active work, decision,
+   contradiction, proof, and historical receipt with provenance;
+7. both plans roll back byte-exactly and retain board pointers and claims; and
+8. source, merged `origin/main`, installed executable, and live dogfood
+   readbacks are recorded separately.
+
+**Thermo:** the contract adds one shared snapshot boundary and one object-tree
+format; it does not add a daemon, database, provider, alternate planner, or
+per-command shard logic. **Ponytail: keep — WORKS.** This is the minimum remedy
+that solves both monolith lookup and monolith write amplification while keeping
+all current authority and safety invariants. The remaining proof gap is the
+dry-run migration/query harness and command parity on real plans.
