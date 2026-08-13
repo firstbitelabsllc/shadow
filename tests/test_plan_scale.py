@@ -280,5 +280,53 @@ class CandidateLayoutComparison(unittest.TestCase):
         self.assertEqual(comparison["decision"], "manifest-plus-shards")
 
 
+class PlanTreeMigrationHarness(unittest.TestCase):
+    def test_dry_run_is_lossless_rebuildable_and_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "PLAN.md"
+            content = plan("alpha", "~aa11", padding="- extra history\n")
+            source.write_text(content, encoding="utf-8")
+            archive = root / "docs" / "plan-archive" / "old-work.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("# Old work\n", encoding="utf-8")
+            before = {
+                path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in root.rglob("*") if path.is_file()
+            }
+
+            report = scale._store.dry_run_migration(source, board=None)
+
+            after = {
+                path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in root.rglob("*") if path.is_file()
+            }
+            self.assertEqual(after, before)
+            self.assertTrue(report.exact_materialization)
+            self.assertTrue(report.routes_rebuilt)
+            self.assertEqual(report.query_mismatches, ())
+            self.assertEqual(report.writes, 0)
+
+    def test_dry_run_refuses_duplicate_and_dangling_row_graphs(self) -> None:
+        duplicate = plan("alpha", "~aa11").replace(
+            "delivery is proven ~zz99", "delivery is proven ~aa11"
+        )
+        dangling = plan("alpha", "~aa11").replace(
+            "needs: ~aa11", "needs: ~nope"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "PLAN.md"
+            archive = root / "docs" / "plan-archive" / "old-work.md"
+            archive.parent.mkdir(parents=True)
+            archive.write_text("# Old work\n", encoding="utf-8")
+            source.write_text(duplicate, encoding="utf-8")
+            with self.assertRaisesRegex(scale._store.PlanStoreError, "duplicate row id"):
+                scale._store.dry_run_migration(source, board=None)
+            source.write_text(dangling, encoding="utf-8")
+            with self.assertRaisesRegex(scale._store.PlanStoreError, "needs target ~nope"):
+                scale._store.dry_run_migration(source, board=None)
+
+
 if __name__ == "__main__":
     unittest.main()

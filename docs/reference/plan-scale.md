@@ -466,3 +466,39 @@ per-command shard logic. **Ponytail: keep — WORKS.** This is the minimum remed
 that solves both monolith lookup and monolith write amplification while keeping
 all current authority and safety invariants. The remaining proof gap is the
 dry-run migration/query harness and command parity on real plans.
+
+## First dry-run harness receipt — 2026-08-13
+
+The first implementation slice now has one canonical splitter/tree builder,
+an on-disk snapshot reader, bounded exact row/tag routing, source-byte
+provenance, route rebuilding, and a strictly read-only migration CLI. It uses
+only Python standard-library files, JSON, and SHA-256. There is no database,
+daemon, cache, provider, or write-capable migration door.
+
+The dry run freezes the plan and optional board bytes, validates all archive
+links, rejects duplicate row IDs and dangling `needs:`, builds the candidate
+entirely in memory, reconstructs the original bytes, rebuilds row/tag routes
+from canonical shards, repeats every exact route, then re-reads both frozen
+inputs. Its report declares `writes: 0` and contains no plan prose or private
+path.
+
+Observed against root-board revision 704:
+
+| Entity | Result | Source bytes | Candidate root | Objects / bytes | Max data / index | Depth |
+|---|---|---:|---|---:|---:|---:|
+| Shadow | refused: bound archive content is missing | 259,494 | — | — | — | — |
+| Resplit iOS | exact, routes rebuilt, zero writes | 249,241 | `71540f4bf71d` | 328 / 350,507 | 24,055 / 16,224 | 2 |
+| Snowcubes | exact, routes rebuilt, zero writes | 248,845 | `279e4607e045` | 273 / 339,385 | 27,542 / 16,344 | 2 |
+
+Resplit and Snowcubes materialized to their frozen source digests
+`deb160f73da6…` and `1383b4e6854c…`. Shadow's refusal is correct: `~psc1`
+found four tombstones whose machine-local archive bytes are absent. The
+harness does not copy similarly named history from a worktree or weaken the
+archive contract. That source repair remains required before Shadow can be
+migrated.
+
+The current exact lookup projection on the same real sources loads 95,280 to
+127,679 verified bytes rather than 248,845 to 259,494 monolith bytes. This is a
+first-source result, not M26 completion: atomic apply/rollback, all-command
+parity, million-shard structure, two real migrations, cold-seat retrieval,
+merge, install, and live readback remain open.

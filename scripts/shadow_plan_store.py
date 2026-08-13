@@ -36,6 +36,9 @@ ROOT_SUFFIX = b"\n```\n"
 TIMESTAMP_RE = re.compile(
     r"^- (?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
 )
+ARCHIVE_RE = re.compile(
+    r"^- Archived milestone: \[[^]]+\]\((?P<path>[^)]+)\)"
+)
 
 
 class PlanStoreError(ValueError):
@@ -95,6 +98,54 @@ class PlanProvenance:
 class PlanResult:
     content: bytes
     provenance: PlanProvenance
+
+
+@dataclass(frozen=True)
+class MigrationReport:
+    schema: str
+    plan: str
+    board_revision: int | None
+    source_sha256: str
+    source_bytes: int
+    candidate_root_sha256: str
+    root_bytes: int
+    object_count: int
+    object_bytes: int
+    row_count: int
+    tag_count: int
+    max_index_bytes: int
+    max_data_bytes: int
+    max_index_depth: int
+    archive_count: int
+    exact_materialization: bool
+    materialized_sha256: str
+    routes_rebuilt: bool
+    query_mismatches: tuple[str, ...]
+    writes: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "plan": self.plan,
+            "board_revision": self.board_revision,
+            "source_sha256": self.source_sha256,
+            "source_bytes": self.source_bytes,
+            "candidate_root_sha256": self.candidate_root_sha256,
+            "root_bytes": self.root_bytes,
+            "object_count": self.object_count,
+            "object_bytes": self.object_bytes,
+            "row_count": self.row_count,
+            "tag_count": self.tag_count,
+            "max_index_bytes": self.max_index_bytes,
+            "max_data_bytes": self.max_data_bytes,
+            "max_index_depth": self.max_index_depth,
+            "archive_count": self.archive_count,
+            "exact_materialization": self.exact_materialization,
+            "materialized_sha256": self.materialized_sha256,
+            "routes_rebuilt": self.routes_rebuilt,
+            "query_mismatches": list(self.query_mismatches),
+            "writes": self.writes,
+        }
 
 
 def digest_bytes(content: bytes) -> str:
@@ -865,3 +916,146 @@ class PlanSnapshot:
                 source_bytes=counters[1],
             ),
         )
+
+
+def _validate_archives(plan: Path, content: bytes) -> int:
+    count = 0
+    root = plan.parent.resolve()
+    for line in _text(content).splitlines():
+        match = ARCHIVE_RE.match(line)
+        if match is None:
+            continue
+        relative = Path(match.group("path"))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise PlanStoreError("archive path is unsafe")
+        candidate = plan.parent / relative
+        try:
+            resolved = candidate.resolve(strict=False)
+            resolved.relative_to(root)
+        except (OSError, ValueError) as exc:
+            raise PlanStoreError("archive path escapes the plan") from exc
+        if candidate.is_symlink() or not candidate.is_file():
+            raise PlanStoreError("archive content is missing")
+        _safe_read(candidate, 1_000_000)
+        count += 1
+    return count
+
+
+def _page_depth(build: PlanTreeBuild, tree: str, digest: str) -> int:
+    def visit(current: str, ancestors: frozenset[str]) -> int:
+        if current in ancestors:
+            raise PlanStoreError("index cycle detected")
+        page = _decode_page(_verified_object(build, current), tree)
+        if page["kind"] == "leaf":
+            return 1
+        children = []
+        for entry in page["entries"]:
+            if not isinstance(entry, dict) or not isinstance(entry.get("object"), str):
+                raise PlanStoreError("branch entry is malformed")
+            children.append(visit(entry["object"], ancestors | {current}))
+        if not children:
+            raise PlanStoreError("branch page has no children")
+        return 1 + max(children)
+
+    return visit(digest, frozenset())
+
+
+def _board_context(board: Path | None, plan: Path) -> tuple[bytes | None, int | None, str]:
+    if board is None:
+        return None, None, "PLAN.md"
+    content = _safe_read(board, 1_000_000)
+    try:
+        payload = json.loads(content)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise PlanStoreError("board is malformed") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("revision"), int):
+        raise PlanStoreError("board revision is missing")
+    public = "PLAN.md"
+    entities = payload.get("entities")
+    if isinstance(entities, list):
+        matches = [
+            entity for entity in entities
+            if isinstance(entity, dict)
+            and isinstance(entity.get("plan"), str)
+            and Path(entity["plan"]).absolute() == plan.absolute()
+        ]
+        if len(matches) == 1 and re.fullmatch(r"[0-9a-f]{64}", str(matches[0].get("id"))):
+            public = f"entity@{matches[0]['id'][:12]}/PLAN.md"
+    return content, payload["revision"], public
+
+
+def dry_run_migration(plan: Path, *, board: Path | None) -> MigrationReport:
+    """Build and verify a candidate tree in memory, performing zero writes."""
+    candidate = Path(os.path.abspath(plan))
+    source = _safe_read(candidate, 1_000_000)
+    if _parse_root(source) is not None:
+        raise PlanStoreError("plan is already a plan tree")
+    board_before, revision, public = _board_context(board, candidate)
+    archive_count = _validate_archives(candidate, source)
+    build = build_tree(source)
+    materialized = materialize_build(build)
+    rebuilt = rebuild_routes(build)
+    routes_rebuilt = (
+        rebuilt.row_routes == build.row_routes
+        and rebuilt.tag_routes == build.tag_routes
+    )
+    mismatches: list[str] = []
+    for row_id in sorted(build.row_routes):
+        result = lookup_build(build, row_id=row_id)
+        if not any(
+            (match := _grammar.ROW_RE.fullmatch(line)) is not None
+            and match.group("id") == row_id
+            for line in _text(result.content).splitlines()
+        ):
+            mismatches.append(f"row:{row_id}")
+    for tag in sorted(build.tag_routes):
+        result = lookup_build(build, tag=tag)
+        descriptor = _exact_lookup(
+            build, "catalog", build.root["catalog_root"], result.catalog_key
+        )
+        if tag not in descriptor.get("tags", []):
+            mismatches.append(f"tag:{tag}")
+    source_after = _safe_read(candidate, 1_000_000)
+    if source_after != source:
+        raise PlanStoreError("plan changed during dry run")
+    if board is not None:
+        board_after = _safe_read(board, 1_000_000)
+        if board_after != board_before:
+            raise PlanStoreError("board changed during dry run")
+    index_sizes: list[int] = []
+    data_sizes: list[int] = []
+    for body in build.objects.values():
+        try:
+            payload = json.loads(body)
+        except (UnicodeError, json.JSONDecodeError):
+            data_sizes.append(len(body))
+            continue
+        if isinstance(payload, dict) and payload.get("schema") == PAGE_SCHEMA:
+            index_sizes.append(len(body))
+        else:
+            data_sizes.append(len(body))
+    depths = [
+        _page_depth(build, tree, build.root[f"{tree}_root"])
+        for tree in ("catalog", "row", "tag")
+    ]
+    return MigrationReport(
+        schema="shadow.plan-migration.v1",
+        plan=public,
+        board_revision=revision,
+        source_sha256=digest_bytes(source),
+        source_bytes=len(source),
+        candidate_root_sha256=digest_bytes(build.root_bytes),
+        root_bytes=len(build.root_bytes),
+        object_count=len(build.objects),
+        object_bytes=sum(len(body) for body in build.objects.values()),
+        row_count=len(build.row_routes),
+        tag_count=len(build.tag_routes),
+        max_index_bytes=max(index_sizes, default=0),
+        max_data_bytes=max(data_sizes, default=0),
+        max_index_depth=max(depths),
+        archive_count=archive_count,
+        exact_materialization=materialized == source,
+        materialized_sha256=digest_bytes(materialized),
+        routes_rebuilt=routes_rebuilt,
+        query_mismatches=tuple(mismatches),
+    )
