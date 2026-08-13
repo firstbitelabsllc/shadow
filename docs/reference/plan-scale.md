@@ -502,3 +502,116 @@ The current exact lookup projection on the same real sources loads 95,280 to
 first-source result, not M26 completion: atomic apply/rollback, all-command
 parity, million-shard structure, two real migrations, cold-seat retrieval,
 merge, install, and live readback remain open.
+
+## Final real-plan and cold-seat receipt — 2026-08-13
+
+`~psc5` migrated the machine-local Shadow authority and the registered
+Snowcubes product authority through the public `shadow plan` door. In both
+cases the board entity, pointer, owner, resume row, and live claims were frozen
+before the operation and identical on readback. Neither migration copied task
+text into the board or introduced a database, daemon, search service, or
+derived cache.
+
+| Authority | Pre-migration logical SHA-256 | Logical bytes | Rows | First tree root | Objects / object bytes | Max index / data | Depth |
+|---|---|---:|---:|---|---:|---:|---:|
+| machine-local Shadow | `23f111dd544f` | 260,002 | 113 | `fa63c6db592b` | 418 / 419,323 | 16,377 / 9,423 | 2 |
+| Snowcubes product | `1383b4e6854c` | 248,845 | 136 | `fc43640eb581` | 276 / 355,284 | 16,364 / 27,542 | 2 |
+
+The first Shadow apply published generation 1. Accepting `~psc5` later used
+the same mutation boundary and advanced that live tree to generation 2; its
+current root is `14d1cfdefe9c`, its exact logical payload is 260,167 bytes at
+`c1b8959a740c`, and `previous_root` binds the accepted generation-1 root.
+Snowcubes remains generation 1 at root `fc43640eb581`, with the exact original
+logical digest `1383b4e6854c`.
+
+### Rollback and immutable-object reuse
+
+Both authorities were rolled back with an expected-root CAS. Shadow restored
+the exact 260,002-byte monolith and source digest; Snowcubes restored the exact
+248,845-byte monolith and source digest. Board revision, entity IDs, pointers,
+resume rows, owners, and claims were byte-identical across each rollback. Each
+authority was then migrated again to the same first-root digest. Because
+objects are content addressed and retained until rollback proof passes, each
+re-apply needed only the one new root publication; it did not rewrite the
+existing shard set.
+
+The Snowcubes Git receipts are deliberately separate:
+
+- first apply: `0b3d9dab`;
+- exact rollback: `eea144da`;
+- same-root re-apply: `882e949`.
+
+The machine-local Shadow operations are recorded in its private journal rather
+than a product Git checkout. `shadow accept --row ~psc5 --by codex --no-push`
+then passed its declared proof in a clean source checkout and advanced the root
+board from revision 706 to 707 without leaving an orphan claim.
+
+### Fresh cold-seat lookup
+
+From root-board revision 708, the full logical benchmark and a separately
+opened cold tree snapshot answered the same 11 cases for the two migrated
+entities. Every case had the same selected-result SHA-256. No cache was built
+or consulted; exact row and receipt routes came only from the verified root,
+index pages, and selected canonical shard.
+
+| Case | Hops | Verified source bytes | p95 |
+|---|---:|---:|---:|
+| Shadow current work | 6 | 23,503 | 0.581 ms |
+| Shadow decision | 6 | 20,356 | 0.531 ms |
+| Shadow contradiction | 6 | 25,138 | 0.560 ms |
+| Shadow proof | 6 | 20,244 | 0.539 ms |
+| Shadow history | 7 | 27,883 | 0.726 ms |
+| Snowcubes current work | 6 | 28,613 | 0.618 ms |
+| Snowcubes contradiction | 6 | 24,091 | 0.544 ms |
+| Snowcubes proof | 6 | 14,922 | 0.502 ms |
+| Snowcubes history | 6 | 23,988 | 0.691 ms |
+| Portfolio owner | 7 | 26,577 | 0.858 ms |
+| Portfolio current work, two entities | 13 | 55,190 | 1.443 ms |
+
+Across all 11 cases, verified source bytes were 14,922–55,190, p50 was
+24,091, selected-result context was at most 650 bytes, and p95 latency was at
+most 1.443 ms. The portfolio case is the board plus one bounded lookup per
+entity, so its 13 hops are the sum of two entity paths rather than a violation
+of the one-result entity budget.
+
+The original 16-case corpus was also replayed without changing the paused
+Resplit authority. A read-only copy of its exact frozen
+`deb160f73da6cf…` bytes was partitioned in a temporary directory, joined to
+the two live trees through a temporary board, queried 101 times, and then
+discarded. All 16 full-logical and cold-tree result-digest maps were identical,
+with no missing case. A single-entity lookup used at most seven hops, 31,481
+verified source bytes, and 1.011 ms p95; the three-entity portfolio lookup used
+19 aggregate hops and 84,883 bytes. This is M26 fixture proof only: it neither
+claims nor advances any Resplit checkpoint.
+
+The checked-in structural model at one million shards has tree depth 4. An
+exact one-result lookup reads one root, at most eight index pages, and one
+32-KiB data shard: 10 reads, 172,032 verified bytes (168 KiB), and at most
+32,768 selected-context bytes. Historical words may grow without changing
+that bound; only logarithmic routing depth changes at the declared fan-out.
+
+### Command behavior and delivery boundaries
+
+The canonical tree contains no derived index to disable. Deleting a possible
+future cache is therefore already the exercised configuration: full logical
+reads and bounded cold reads agree without it. The declared `~psc6` command
+suite passed 122 tests covering the plan store and `throw`, `return`, and
+`accept` semantics. Earlier clean release-train proof passed 954 tests with one
+skip; the final train is repeated after this receipt so later live-canary fixes
+cannot borrow that older green.
+
+Delivery states remain separate:
+
+- **source:** feature branch `feat/plan-scale-20260812` contains the plan-tree
+  implementation and this receipt;
+- **merged origin/main:** not yet present; `origin/main` remains `be3a9e9`;
+- **installed executable:** `/Users/leokwan/.local/bin/shadow` resolves to this
+  feature checkout, `shadow --version` reports 1.0.1, and `shadow doctor`
+  reports 17/17 checks without a hard failure;
+- **live dogfood:** the installed command migrated, rolled back, reopened, and
+  mutated the actual machine-local Shadow plan, while `shadow status` read the
+  partitioned Shadow and Snowcubes authorities at board revisions 706–708.
+
+The implementation is therefore source-proven, installed, and locally
+dogfooded, but it must not be described as merged or publicly released until
+`origin/main` contains the source and that state is read back independently.
