@@ -1,18 +1,16 @@
 """Extension buckets: a declaration that resolves, never a store that drifts.
 
 The owner's ask was "shadow will have buckets and the method open for
-superpowers... as well as honcho... and the repo on install will default to
-these and mark them as dependencies."
+superpowers... and the repo on install will default to these and mark them as
+dependencies."
 
-The npm-shaped reading of that dies on two shipped facts, and these tests pin
-both. honcho is uninstallable BY LAW — `docs/reference/honcho.md` rules it "a
-pattern Shadow implements, not a service Shadow installs" — so a slot that
-installs its filler is self-contradictory for one of the four named buckets.
-And M6 deleted the package manager on purpose, so an install-that-fetches
-reverses a shipped decision.
+The npm-shaped reading of that dies on a shipped fact these tests pin: M6
+deleted the package manager on purpose, so an install-that-fetches reverses a
+shipped decision.
 
 So a bucket declares what the method assumes it can reach, and doctor derives
-the answer at read time. Nothing is fetched, stamped, or cached.
+the answer at read time. Nothing is fetched, stamped, or cached — and no bucket
+asserts anything about tooling Shadow does not itself call.
 """
 
 from __future__ import annotations
@@ -57,10 +55,10 @@ class TheDeclaration(unittest.TestCase):
             for field in ("name", "default", "fills", "absent"):
                 self.assertTrue(bucket[field].strip(), f"{bucket['name']}: empty {field}")
 
-    def test_the_four_named_buckets_ship(self) -> None:
+    def test_the_three_named_buckets_ship(self) -> None:
         # Dropping one becomes a deliberate test edit, never a silent removal.
         names = {b["name"] for b in buckets.declared()}
-        self.assertEqual(names, {"superpowers", "honcho", "taste", "future"})
+        self.assertEqual(names, {"superpowers", "taste", "future"})
 
     def test_names_are_unique(self) -> None:
         names = [b["name"] for b in buckets.declared()]
@@ -166,44 +164,52 @@ class KindIsTheCheck(unittest.TestCase):
             self.assertEqual(self._state("taste", home)[0], "pass")
 
 
-class TheBuiltinRefusesAnInstalledNamesake(unittest.TestCase):
-    """honcho's ruling, made mechanical.
+class NoBucketPolicesUnrelatedUserTooling(unittest.TestCase):
+    """A bucket asks only whether Shadow can reach a capability it uses.
 
-    `docs/reference/honcho.md` says honcho is a pattern Shadow implements and
-    never a service Shadow installs. Prose nobody re-reads cannot enforce that.
-    This bucket's check is a NEGATIVE, and it is the design's proof of honesty:
-    the one bucket that can never be "installed" is the one whose check fires
-    when someone installs it.
+    A `builtin` kind once carried a standing ruling that nothing named honcho
+    should ever be installed, and failed doctor when it found one. That check
+    read a person's own skill roots and went red over software Shadow does not
+    call — which is Shadow policing configuration it does not own. Measured
+    2026-08-12: `_installed_namesake` used `.exists()`, not `.is_dir()`, so a
+    single zero-byte file named honcho in any of three roots hard-failed the
+    CLI on any machine.
+
+    These assertions are the deleted check, inverted. They fail if the
+    overreach ever returns.
     """
 
-    def test_a_clean_machine_passes(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            bucket = next(b for b in buckets.declared() if b["name"] == "honcho")
-            state, detail = buckets.resolve(bucket, Path(tmp))
-            self.assertEqual(state, "pass")
-            self.assertIn("ruling intact", detail)
+    NAMES = ("honcho", "mem0", "letta")
 
-    def test_an_installed_skill_named_honcho_fails(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            skill(home, "honcho")
-            bucket = next(b for b in buckets.declared() if b["name"] == "honcho")
-            state, detail = buckets.resolve(bucket, home)
-            self.assertEqual(state, "fail")
-            self.assertIn("never a service", detail)
+    def _all_states(self, home: Path) -> list[str]:
+        return [buckets.resolve(b, home)[0] for b in buckets.declared()]
 
-    def test_an_installed_plugin_named_honcho_also_fails(self) -> None:
-        # Both surfaces, not just the one that was easy to check.
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            (home / ".claude" / "plugins" / "cache" / "market" / "honcho").mkdir(parents=True)
-            bucket = next(b for b in buckets.declared() if b["name"] == "honcho")
-            self.assertEqual(buckets.resolve(bucket, home)[0], "fail")
+    def test_no_bucket_is_named_for_tooling_shadow_does_not_use(self) -> None:
+        self.assertEqual({b["name"] for b in buckets.declared()} & set(self.NAMES), set())
 
-    def test_it_is_never_absent(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            bucket = next(b for b in buckets.declared() if b["name"] == "honcho")
-            self.assertNotEqual(buckets.resolve(bucket, Path(tmp))[0], "warn")
+    def test_an_installed_namesake_directory_does_not_make_shadow_red(self) -> None:
+        for name in self.NAMES:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                skill(home, name)
+                self.assertNotIn("fail", self._all_states(home))
+
+    def test_a_bare_namesake_file_does_not_make_shadow_red(self) -> None:
+        # The measured shape of the old defect: `.exists()`, not `.is_dir()`.
+        for root in buckets.SKILL_ROOTS:
+            for name in self.NAMES:
+                with self.subTest(root=root, name=name), tempfile.TemporaryDirectory() as tmp:
+                    home = Path(tmp)
+                    (home / root).mkdir(parents=True, exist_ok=True)
+                    (home / root / name).write_text("", encoding="utf-8")
+                    self.assertNotIn("fail", self._all_states(home))
+
+    def test_an_installed_namesake_plugin_does_not_make_shadow_red(self) -> None:
+        for name in self.NAMES:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                (home / ".claude" / "plugins" / "cache" / "market" / name).mkdir(parents=True)
+                self.assertNotIn("fail", self._all_states(home))
 
 
 class Overrides(unittest.TestCase):
