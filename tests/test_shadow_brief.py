@@ -24,6 +24,14 @@ SPEC.loader.exec_module(brief)
 
 
 class PrivateStoreTests(unittest.TestCase):
+    def test_optional_shadow_status_timeout_does_not_abort_collection(self):
+        timeout = subprocess.TimeoutExpired(["shadow", "status", "--by", "leo"], 60)
+        with mock.patch.object(brief, "_run", side_effect=timeout):
+            excerpt = brief.collect_shadow_status_excerpt()
+
+        self.assertIn("timed out", excerpt)
+        self.assertIn("revision-checked Shadow board", excerpt)
+
     def test_receipts_are_private_shadow_state(self):
         self.assertEqual(brief.PRIVATE_BRIEF_ROOT, Path.home() / ".shadow" / "briefs")
         self.assertEqual(brief.EVIDENCE_DIR, brief.PRIVATE_BRIEF_ROOT / "evidence")

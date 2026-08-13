@@ -179,6 +179,18 @@ def _run(
     )
 
 
+def collect_shadow_status_excerpt() -> str:
+    """Keep the optional seat summary from taking down the authoritative packet."""
+    try:
+        status = _run(["shadow", "status", "--by", "leo"], timeout=60)
+    except subprocess.TimeoutExpired:
+        return (
+            "Optional seat-status summary timed out; the report continued from the "
+            "separately read, revision-checked Shadow board."
+        )
+    return (status.stdout or status.stderr or "")[:4000]
+
+
 def portfolio_root() -> Path:
     raw = os.environ.get("SHADOW_PORTFOLIO_ROOT") or os.environ.get("SHADOW_DEV_ROOT")
     return Path(raw).expanduser() if raw else DEFAULT_PORTFOLIO
@@ -2234,7 +2246,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "may_be_truncated": len(github) == GITHUB_PR_LIMIT,
     }
     # Finish every slow paint/status read before taking the authority snapshot.
-    status = _run(["shadow", "status", "--by", "leo"], timeout=60)
+    status_excerpt = collect_shadow_status_excerpt()
     board: dict[str, Any] = {}
     board_snapshot = {"consistent": False, "attempts": 0, "revision": None}
     for attempt in range(1, 4):
@@ -2286,7 +2298,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "paint_health": paint_health,
         "analysis": analysis,
         "recommendations": [asdict(r) for r in recs],
-        "shadow_status_excerpt": (status.stdout or status.stderr or "")[:4000],
+        "shadow_status_excerpt": status_excerpt,
         "authority": {
             "board": str(BOARD_PATH),
             "board_snapshot": board_snapshot,
