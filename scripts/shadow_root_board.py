@@ -284,7 +284,7 @@ def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
             return unavailable_token(), None
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = -1
-            content = stream.read(MAX_PLAN_BYTES + 1)
+            root_content = stream.read(MAX_PLAN_BYTES + 1)
             after = os.fstat(stream.fileno())
     except (OSError, ValueError):
         if descriptor >= 0:
@@ -308,7 +308,32 @@ def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
     )
     if before_state != after_state:
         return "unavailable", None
-    frozen = "\0".join(str(value) for value in after_state).encode("ascii") + b"\0" + content
+    try:
+        snapshot = open_plan(plan)
+        if snapshot.root_bytes != root_content:
+            return "unavailable", None
+        content = snapshot.materialize()
+    except (BoardError, _plan_store.PlanStoreError):
+        return unavailable_token(), None
+    try:
+        final = os.stat(plan, follow_symlinks=False)
+    except OSError:
+        return "unavailable", None
+    final_state = (
+        final.st_mode,
+        final.st_size,
+        final.st_mtime_ns,
+        final.st_ctime_ns,
+        final.st_dev,
+        final.st_ino,
+    )
+    if final_state != after_state:
+        return "unavailable", None
+    frozen = (
+        "\0".join(str(value) for value in final_state).encode("ascii")
+        + b"\0"
+        + root_content
+    )
     return hashlib.sha256(frozen).hexdigest(), content
 
 

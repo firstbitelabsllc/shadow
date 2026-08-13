@@ -132,6 +132,17 @@ class PartitionedPlansUseOneLogicalReadBoundary(unittest.TestCase):
             self.assertEqual(content, source)
             self.assertEqual(token["relative"], "PLAN.md")
 
+    def test_tree_state_snapshot_grades_logical_plan_not_the_small_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes()
+            plan = install_plan_tree(repo, source)
+
+            state, content = board_api.plan_state_snapshot(plan)
+
+            self.assertRegex(state, r"^[0-9a-f]{64}$")
+            self.assertEqual(content, source)
+
     def test_dirty_tree_object_refuses_a_committed_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = project(Path(tmp))
