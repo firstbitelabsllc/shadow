@@ -72,6 +72,1440 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(plist["ProgramArguments"][1], str(program))
         self.assertEqual(plist["ProgramArguments"][-1], "--scheduled-trigger")
 
+    def test_mail_coverage_discovers_linked_accounts_and_keeps_missing_expected_identity_unknown(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        list_thread_identities = []
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {
+                            "accountEmail": "leojkwan@gmail.com",
+                            "addedAt": "2026-01-01T00:00:00Z",
+                            "isPrimary": True,
+                        },
+                        {
+                            "accountEmail": "trysnowcubes@gmail.com",
+                            "addedAt": "2026-01-02T00:00:00Z",
+                            "isPrimary": False,
+                        },
+                        {
+                            "accountEmail": "newly-linked@example.com",
+                            "addedAt": "2026-08-14T00:00:00Z",
+                            "isPrimary": False,
+                        },
+                    ]
+                }
+            if name == "list_threads":
+                list_thread_identities.append(arguments["acting_email"])
+                return {"threads": [], "total_estimate": 0}
+            if name == "query_email_and_calendar":
+                return {"answer": "No calendar conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        coverage = {row["acting_email"]: row for row in context["coverage"]}
+        self.assertEqual(
+            set(coverage),
+            {
+                "leojkwan@gmail.com",
+                "trysnowcubes@gmail.com",
+                "firstbitelabs@gmail.com",
+                "newly-linked@example.com",
+            },
+        )
+        self.assertEqual(coverage["leojkwan@gmail.com"]["status"], "COMPLETE")
+        self.assertEqual(coverage["trysnowcubes@gmail.com"]["status"], "COMPLETE")
+        self.assertEqual(coverage["firstbitelabs@gmail.com"]["status"], "UNKNOWN")
+        self.assertEqual(coverage["newly-linked@example.com"]["status"], "COMPLETE")
+        self.assertEqual(
+            set(list_thread_identities),
+            {
+                "leojkwan@gmail.com",
+                "trysnowcubes@gmail.com",
+                "newly-linked@example.com",
+            },
+        )
+        self.assertIn(
+            "Link firstbitelabs@gmail.com in Superhuman",
+            coverage["firstbitelabs@gmail.com"]["wake"],
+        )
+        self.assertFalse(context["all_clear_allowed"])
+        self.assertEqual(context["status"], "UNKNOWN")
+
+    def test_mail_coverage_exhausts_pages_and_deduplicates_actions_across_accounts(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        linked = ("leojkwan@gmail.com", "trysnowcubes@gmail.com")
+
+        def thread(*, thread_id, message_id, subject, sent_at):
+            return {
+                "thread_id": thread_id,
+                "last_message_id": message_id,
+                "last_message_at": sent_at,
+                "message_count": 1,
+                "subject": subject,
+                "snippet": subject,
+                "participants": ["merchant@example.com"],
+                "labels": ["INBOX", "UNREAD"],
+            }
+
+        shared_personal = thread(
+            thread_id="thread-personal-shared",
+            message_id="shared-message",
+            subject="Order return deadline",
+            sent_at="2026-08-14T10:00:00Z",
+        )
+        shared_snowcubes = {**shared_personal, "thread_id": "thread-snow-shared"}
+        license_notice = thread(
+            thread_id="thread-license",
+            message_id="license-message",
+            subject="License renewal due",
+            sent_at="2026-07-01T10:00:00Z",
+        )
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        for index, email in enumerate(linked)
+                    ]
+                }
+            if name == "list_threads":
+                account = arguments["acting_email"]
+                cursor = arguments.get("cursor")
+                if account == "leojkwan@gmail.com" and cursor is None:
+                    return {"threads": [shared_personal], "next_cursor": "personal-page-2", "total_estimate": 2}
+                if account == "leojkwan@gmail.com" and cursor == "personal-page-2":
+                    return {"threads": [license_notice], "total_estimate": 2}
+                return {"threads": [shared_snowcubes], "total_estimate": 1}
+            if name == "get_thread":
+                account = arguments["acting_email"]
+                thread_id = arguments["thread_id"]
+                selected = {
+                    ("leojkwan@gmail.com", "thread-personal-shared"): shared_personal,
+                    ("leojkwan@gmail.com", "thread-license"): license_notice,
+                    ("trysnowcubes@gmail.com", "thread-snow-shared"): shared_snowcubes,
+                }[(account, thread_id)]
+                return {
+                    **selected,
+                    "messages": [
+                        {
+                            "message_id": selected["last_message_id"],
+                            "thread_id": selected["thread_id"],
+                            "sent_at": selected["last_message_at"],
+                            "subject": selected["subject"],
+                            "snippet": selected["snippet"],
+                            "body": selected["subject"],
+                            "from": "merchant@example.com",
+                            "to": [account],
+                            "labels": selected["labels"],
+                            "attachments": [],
+                        }
+                    ],
+                }
+            if name == "query_email_and_calendar":
+                return {
+                    "answer": "Proposal: keep the next fourteen days conflict-free.",
+                    "sources": [{"id": "calendar-source", "title": "Calendar", "type": "calendar"}],
+                }
+            raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        coverage = {row["acting_email"]: row for row in context["coverage"]}
+        self.assertEqual(coverage["leojkwan@gmail.com"]["pagination"]["pages"], 4)
+        self.assertTrue(coverage["leojkwan@gmail.com"]["pagination"]["exhausted"])
+        self.assertFalse(coverage["leojkwan@gmail.com"]["pagination"]["truncated"])
+        self.assertEqual(context["threads_returned_raw"], 6)
+        self.assertEqual(context["threads_unique"], 2)
+        shared = next(row for row in context["signals"] if row["signal_id"] == "72144f1611ce5544224f9272")
+        self.assertEqual(shared["source_identities"], list(linked))
+        self.assertEqual(len(context["order_return_follow_up"]), 1)
+        self.assertTrue(context["order_return_follow_up"][0]["proposal_only"])
+        self.assertEqual(len(context["forgotten_obligations"]), 1)
+        self.assertEqual(context["forgotten_obligations"][0]["signal_id"], "9bb6bee7a1fdca5fc63581d1")
+        self.assertEqual(coverage["leojkwan@gmail.com"]["source_age_hours"], 0.0)
+        self.assertEqual(coverage["leojkwan@gmail.com"]["newest_message_age_hours"], 2.0)
+        self.assertEqual(len(context["calendar_proposals"]), 1)
+        self.assertTrue(all(row["proposal_only"] for row in context["calendar_proposals"]))
+
+    def test_mail_identity_is_stable_across_order_and_fails_closed_on_collisions(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        common_time = "2026-08-14T10:00:00Z"
+        by_account = {
+            "leojkwan@gmail.com": [
+                {
+                    "thread_id": "provider-collision-personal",
+                    "last_message_id": "provider-collision",
+                    "last_message_at": common_time,
+                    "subject": "Alpha subject",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+                {
+                    "thread_id": "distinct-a",
+                    "last_message_id": "distinct-message-a",
+                    "last_message_at": common_time,
+                    "subject": "Identical metadata",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+                {
+                    "last_message_at": common_time,
+                    "subject": "ID-less metadata",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+                {
+                    "thread_id": "account-local-thread-id",
+                    "last_message_at": common_time,
+                    "subject": "Thread-only metadata",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+            ],
+            "trysnowcubes@gmail.com": [
+                {
+                    "thread_id": "provider-collision-snow",
+                    "last_message_id": "provider-collision",
+                    "last_message_at": common_time,
+                    "subject": "  BETA   SUBJECT ",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+                {
+                    "thread_id": "distinct-b",
+                    "last_message_id": "distinct-message-b",
+                    "last_message_at": common_time,
+                    "subject": "Identical metadata",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+                {
+                    "last_message_at": common_time,
+                    "subject": "ID-less metadata",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+                {
+                    "thread_id": "account-local-thread-id",
+                    "last_message_at": common_time,
+                    "subject": "Thread-only metadata",
+                    "snippet": "Neutral note",
+                    "labels": ["INBOX"],
+                },
+            ],
+            "firstbitelabs@gmail.com": [],
+        }
+
+        def collect(order):
+            def call_tool(name, arguments):
+                if name == "list_accounts":
+                    return {
+                        "accounts": [
+                            {
+                                "accountEmail": email,
+                                "isPrimary": index == 0,
+                                "aliases": [],
+                            }
+                            for index, email in enumerate(order)
+                        ]
+                    }
+                if name == "list_threads":
+                    rows = list(by_account[arguments["acting_email"]])
+                    if order[0] != identities[0]:
+                        rows.reverse()
+                    return {"threads": rows, "total_estimate": len(rows)}
+                if name == "query_email_and_calendar":
+                    return {
+                        "answer": "Proposal only: no concrete conflict surfaced.",
+                        "sources": [{"id": "same-calendar-source", "type": "calendar"}],
+                    }
+                if name == "get_thread":
+                    selected = next(
+                        row
+                        for row in by_account[arguments["acting_email"]]
+                        if row.get("thread_id") == arguments["thread_id"]
+                    )
+                    return {
+                        **selected,
+                        "message_count": 1,
+                        "messages": [
+                            {
+                                "message_id": selected.get("last_message_id") or "detail-message",
+                                "sent_at": selected["last_message_at"],
+                                "body": selected["snippet"],
+                                "from": "sender@example.com",
+                            }
+                        ],
+                    }
+                raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+            return brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        forward = collect(identities)
+        reversed_context = collect(tuple(reversed(identities)))
+
+        def identity_receipt(context):
+            return [
+                (
+                    row["signal_id"],
+                    row["subject"],
+                    tuple(row["source_identities"]),
+                    tuple(row["action_tags"]),
+                )
+                for row in context["signals"]
+            ]
+
+        self.assertEqual(identity_receipt(forward), identity_receipt(reversed_context))
+        self.assertEqual(forward["threads_returned_raw"], 16)
+        self.assertEqual(forward["threads_unique"], 8)
+        self.assertEqual(len(forward["calendar_proposals"]), 1)
+        self.assertEqual(
+            forward["calendar_proposals"][0]["source_identities"],
+            list(identities),
+        )
+        self.assertEqual(
+            len([row for row in forward["signals"] if row["subject"] == "Identical metadata"]),
+            2,
+        )
+        id_less = [row for row in forward["signals"] if row["subject"] == "ID-less metadata"]
+        self.assertEqual(len(id_less), 2)
+        self.assertEqual(len({row["signal_id"] for row in id_less}), 2)
+        self.assertTrue(all(row["semantic_status"] == "UNKNOWN" for row in id_less))
+        self.assertTrue(all("stable provider identity" in row["wake"] for row in id_less))
+        thread_only = [row for row in forward["signals"] if row["subject"] == "Thread-only metadata"]
+        self.assertEqual(len(thread_only), 2)
+        self.assertEqual(len({row["signal_id"] for row in thread_only}), 2)
+        collisions = [row for row in forward["signals"] if "subject" in row["subject"].lower()]
+        provider_collisions = [
+            row for row in collisions if row.get("last_message_id") == "provider-collision"
+        ]
+        self.assertEqual(len(provider_collisions), 2)
+        self.assertTrue(all(row["semantic_status"] == "UNKNOWN" for row in provider_collisions))
+        self.assertTrue(all("provider-ID collision" in row["wake"] for row in provider_collisions))
+
+    def test_mail_coverage_marks_cursor_cycles_and_thread_truncation_unknown(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        truncated_thread = {
+            "thread_id": "thread-cycle",
+            "last_message_id": "message-cycle",
+            "last_message_at": "2026-08-12T12:00:00Z",
+            "message_count": 101,
+            "subject": "Overdue registration action required",
+            "snippet": "Action required",
+            "participants": ["agency@example.com"],
+            "labels": ["INBOX"],
+            "truncated": True,
+        }
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        for index, email in enumerate(identities)
+                    ]
+                }
+            if name == "list_threads":
+                if arguments["acting_email"] == "leojkwan@gmail.com":
+                    return {
+                        "threads": [truncated_thread],
+                        "next_cursor": "same-cursor",
+                        "total_estimate": 101,
+                    }
+                return {"threads": [], "total_estimate": 0}
+            if name == "get_thread":
+                return {**truncated_thread, "messages": []}
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        personal = next(row for row in context["coverage"] if row["acting_email"] == "leojkwan@gmail.com")
+        self.assertEqual(personal["status"], "UNKNOWN")
+        self.assertFalse(personal["pagination"]["exhausted"])
+        self.assertTrue(personal["pagination"]["truncated"])
+        self.assertIn("cursor cycle", " ".join(personal["problems"]))
+        self.assertIn("duplicate provider row", " ".join(personal["problems"]))
+        self.assertIn("thread result truncated", " ".join(personal["problems"]))
+        self.assertEqual(personal["source_age_hours"], 0.0)
+        self.assertEqual(personal["newest_message_age_hours"], 48.0)
+        self.assertFalse(context["all_clear_allowed"])
+
+    def test_mail_coverage_detects_silent_page_and_message_truncation(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        registration = {
+            "thread_id": "silent-truncation",
+            "last_message_id": "silent-truncation-message",
+            "last_message_at": "2026-04-01T12:00:00Z",
+            "message_count": 2,
+            "subject": "Registration renewal due",
+            "snippet": "Exact instructions are in the earlier message",
+            "labels": ["INBOX"],
+        }
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {"accounts": [{"accountEmail": email} for email in identities]}
+            if name == "list_threads":
+                if arguments["acting_email"] == identities[0]:
+                    # No cursor and no explicit truncation flag: the estimate is
+                    # the only proof that page exhaustion is not source exhaustion.
+                    return {
+                        "threads": [registration],
+                        "total_estimate": 2,
+                        "truncated": True,
+                    }
+                return {"threads": [], "total_estimate": 0}
+            if name == "get_thread":
+                # Likewise, message_count proves the body result is incomplete
+                # even though the connector omits `truncated`.
+                return {
+                    **registration,
+                    "messages": [
+                        {
+                            "message_id": registration["last_message_id"],
+                            "sent_at": registration["last_message_at"],
+                            "body": "One visible message",
+                            "from": "agency@example.com",
+                            "to": [identities[0]],
+                        }
+                    ],
+                }
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        personal = next(row for row in context["coverage"] if row["acting_email"] == identities[0])
+        self.assertEqual(personal["status"], "UNKNOWN")
+        self.assertTrue(personal["pagination"]["exhausted"])
+        self.assertTrue(personal["pagination"]["truncated"])
+        self.assertIn("total estimate 2 exceeds 1", " ".join(personal["problems"]))
+        self.assertIn("page result truncated", " ".join(personal["problems"]))
+        self.assertIn("thread body truncated", " ".join(personal["problems"]))
+        signal = next(row for row in context["signals"] if row["thread_id"] == "silent-truncation")
+        self.assertEqual(signal["semantic_status"], "UNKNOWN")
+        self.assertIn("silent-truncation", signal["wake"])
+
+    def test_mail_coverage_isolates_account_failure_and_list_accounts_failure(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+
+        def partially_failing_call(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        for index, email in enumerate(identities)
+                    ]
+                }
+            if name == "list_threads":
+                if arguments["acting_email"] == "leojkwan@gmail.com":
+                    raise RuntimeError("personal mailbox timeout")
+                return {"threads": [], "total_estimate": 0}
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        partial = brief.build_superhuman_context(partially_failing_call, observed_at=observed_at)
+        partial_coverage = {row["acting_email"]: row for row in partial["coverage"]}
+        self.assertEqual(partial_coverage["leojkwan@gmail.com"]["status"], "UNKNOWN")
+        self.assertEqual(partial_coverage["trysnowcubes@gmail.com"]["status"], "COMPLETE")
+        self.assertEqual(partial_coverage["firstbitelabs@gmail.com"]["status"], "COMPLETE")
+        self.assertIn("personal mailbox timeout", " ".join(partial_coverage["leojkwan@gmail.com"]["problems"]))
+        self.assertTrue(partial["available"])
+        self.assertFalse(partial["all_clear_allowed"])
+
+        def unavailable_accounts(name, _arguments):
+            if name == "list_accounts":
+                raise RuntimeError("account discovery unavailable")
+            raise AssertionError(f"account discovery failure must stop reads, got {name}")
+
+        unavailable = brief.build_superhuman_context(unavailable_accounts, observed_at=observed_at)
+        self.assertFalse(unavailable["available"])
+        self.assertEqual(unavailable["status"], "UNKNOWN")
+        self.assertEqual(
+            {row["acting_email"] for row in unavailable["coverage"]},
+            set(identities),
+        )
+        self.assertTrue(all(row["status"] == "UNKNOWN" for row in unavailable["coverage"]))
+        self.assertIn("account discovery unavailable", unavailable["error"])
+
+    def test_mail_coverage_treats_error_payloads_and_parse_exceptions_as_unknown(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+
+        def account_error_payload(name, _arguments):
+            if name == "list_accounts":
+                return {"error": "provider account lookup rejected"}
+            raise AssertionError(f"account error payload must stop reads, got {name}")
+
+        account_error = brief.build_superhuman_context(
+            account_error_payload,
+            observed_at=observed_at,
+        )
+        self.assertFalse(account_error["available"])
+        self.assertEqual(account_error["status"], "UNKNOWN")
+        self.assertIn("provider account lookup rejected", account_error["error"])
+
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+
+        def account_parse_failure(name, arguments):
+            if name == "list_accounts":
+                return {"accounts": [{"accountEmail": email} for email in identities]}
+            if name == "list_threads":
+                if arguments["acting_email"] == identities[0]:
+                    raise TypeError("unexpected provider row type")
+                return {"threads": [], "total_estimate": 0}
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        partial = brief.build_superhuman_context(account_parse_failure, observed_at=observed_at)
+        by_identity = {row["acting_email"]: row for row in partial["coverage"]}
+        self.assertEqual(by_identity[identities[0]]["status"], "UNKNOWN")
+        self.assertIn("unexpected provider row type", " ".join(by_identity[identities[0]]["problems"]))
+        self.assertEqual(by_identity[identities[1]]["status"], "COMPLETE")
+        self.assertEqual(by_identity[identities[2]]["status"], "COMPLETE")
+        self.assertTrue(partial["available"])
+        self.assertEqual(partial["status"], "UNKNOWN")
+
+    def test_mail_coverage_records_malformed_account_and_thread_rows_as_unknown(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []} for email in identities
+                    ] + ["opaque-account-row"]
+                }
+            if name == "list_threads":
+                if arguments["acting_email"] == identities[0]:
+                    return {
+                        "threads": [
+                            {
+                                "thread_id": "valid-thread",
+                                "last_message_id": "valid-message",
+                                "last_message_at": "2026-08-14T10:00:00Z",
+                                "subject": "Neutral note",
+                                "snippet": "No action",
+                                "labels": ["INBOX"],
+                            },
+                            {
+                                "thread_id": "naive-timestamp-thread",
+                                "last_message_id": "naive-timestamp-message",
+                                "last_message_at": "2026-08-14T10:00:00",
+                                "subject": "Neutral timestamp note",
+                                "snippet": "Timezone is absent",
+                                "labels": ["INBOX"],
+                            },
+                            "opaque-thread-row",
+                        ]
+                    }
+                return {"threads": []}
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            if name == "get_thread":
+                sent_at = (
+                    "2026-08-14T10:00:00"
+                    if arguments["thread_id"] == "naive-timestamp-thread"
+                    else "2026-08-14T10:00:00Z"
+                )
+                return {
+                    "thread_id": arguments["thread_id"],
+                    "message_count": 1,
+                    "messages": [
+                        {
+                            "message_id": (
+                                "naive-timestamp-message"
+                                if arguments["thread_id"] == "naive-timestamp-thread"
+                                else "valid-message"
+                            ),
+                            "sent_at": sent_at,
+                            "body": "No requested action",
+                            "from": "sender@example.com",
+                        }
+                    ],
+                }
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        self.assertEqual(context["account_discovery"]["status"], "UNKNOWN")
+        self.assertEqual(context["account_discovery"]["malformed_rows"], 1)
+        self.assertIn("unusable account row", context["account_discovery"]["wake"])
+        personal = next(row for row in context["coverage"] if row["acting_email"] == identities[0])
+        self.assertEqual(personal["status"], "UNKNOWN")
+        self.assertIn("1 unusable thread row", " ".join(personal["problems"]))
+        self.assertIn("unusable source timestamp", " ".join(personal["problems"]))
+        self.assertEqual(personal["threads_returned"], 2)
+        timestamp_signal = next(
+            row for row in context["signals"] if row["thread_id"] == "naive-timestamp-thread"
+        )
+        self.assertEqual(timestamp_signal["semantic_status"], "UNKNOWN")
+        self.assertIn("source timestamp", timestamp_signal["wake"])
+        self.assertEqual(context["status"], "UNKNOWN")
+
+    def test_mail_calendar_proposals_require_sources_and_clarification_wakes(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        extra_identities = (
+            "calendar-answer-cap@example.com",
+            "calendar-source-cap@example.com",
+        )
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email}
+                        for email in identities + extra_identities
+                    ]
+                }
+            if name == "list_threads":
+                return {"threads": [], "total_estimate": 0}
+            if name == "query_email_and_calendar":
+                account = arguments["acting_email"]
+                if account == identities[0]:
+                    return {"answer": "A possible conflict exists.", "sources": []}
+                if account == identities[1]:
+                    return {
+                        "answer": "A date needs clarification.",
+                        "sources": [{"id": "calendar-snow"}],
+                        "clarification_needed": "Which lesson date is intended?",
+                    }
+                if account == identities[2]:
+                    return {
+                        "answer": "No conflict surfaced.",
+                        "sources": [{"id": "calendar-firstbite"}],
+                    }
+                if account == extra_identities[0]:
+                    return {
+                        "answer": "x" * 1201,
+                        "sources": [{"id": "calendar-long-answer"}],
+                    }
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [
+                        {"id": f"calendar-source-{index}"} for index in range(21)
+                    ],
+                }
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        proposals = {row["source_identities"][0]: row for row in context["calendar_proposals"]}
+        self.assertEqual(proposals[identities[0]]["status"], "UNKNOWN")
+        self.assertEqual(proposals[identities[0]]["confidence"], "LOW")
+        self.assertIn("source-labelled evidence", proposals[identities[0]]["wake"])
+        self.assertEqual(proposals[identities[1]]["status"], "UNKNOWN")
+        self.assertIn("Which lesson date is intended?", proposals[identities[1]]["wake"])
+        self.assertEqual(proposals[identities[2]]["status"], "PROPOSAL")
+        self.assertEqual(proposals[identities[2]]["confidence"], "MEDIUM")
+        self.assertIn("1200-character", proposals[extra_identities[0]]["wake"])
+        self.assertIn("20-source", proposals[extra_identities[1]]["wake"])
+
+    def test_mail_query_contract_is_ninety_days_fifty_rows_and_page_cap_fails_closed(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        seen_queries = []
+        personal_page = 0
+
+        def call_tool(name, arguments):
+            nonlocal personal_page
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        for index, email in enumerate(identities)
+                    ]
+                }
+            if name == "list_threads":
+                seen_queries.append(dict(arguments))
+                if arguments["acting_email"] != "leojkwan@gmail.com":
+                    return {"threads": [], "total_estimate": 0}
+                personal_page += 1
+                return {
+                    "threads": [],
+                    "next_cursor": f"page-{personal_page + 1}",
+                    "total_estimate": 5000,
+                }
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        personal = next(row for row in context["coverage"] if row["acting_email"] == "leojkwan@gmail.com")
+        self.assertEqual(personal["pagination"]["pages"], 2)
+        self.assertFalse(personal["pagination"]["exhausted"])
+        self.assertTrue(personal["pagination"]["truncated"])
+        self.assertIn("exceeds the 2000-row pagination safety bound", " ".join(personal["problems"]))
+        self.assertTrue(seen_queries)
+        for query in seen_queries:
+            self.assertEqual(query["start_date"], "2026-05-16T12:00:00+00:00")
+            self.assertEqual(query["end_date"], "2026-08-14T12:00:00+00:00")
+            self.assertEqual(query["limit"], 50)
+            self.assertEqual(query["sort"], "newest")
+            self.assertIn(query["labels"], [["INBOX"], ["SENT"]])
+            self.assertIn(query["acting_email"], identities)
+        for email in identities:
+            self.assertEqual(
+                {
+                    tuple(query["labels"])
+                    for query in seen_queries
+                    if query["acting_email"] == email
+                },
+                {("INBOX",), ("SENT",)},
+            )
+
+    def test_mail_read_budget_and_global_action_cap_fail_closed(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        calls = []
+        action_rows = {
+            email: [
+                {
+                    "thread_id": f"{index}-{email}",
+                    "last_message_id": f"message-{index}-{email}",
+                    "last_message_at": "2026-08-12T12:00:00Z",
+                    "message_count": 1,
+                    "subject": f"Registration renewal due {index}",
+                    "snippet": "Action required",
+                    "labels": ["INBOX"],
+                }
+                for index in range(21)
+            ]
+            for email in identities[:2]
+        }
+        action_rows[identities[2]] = []
+
+        def call_tool(name, arguments):
+            calls.append((name, dict(arguments)))
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []}
+                        for email in identities
+                    ]
+                }
+            if name == "list_threads":
+                rows = action_rows[arguments["acting_email"]]
+                return {"threads": rows, "total_estimate": len(rows)}
+            if name == "get_thread":
+                selected = next(
+                    row
+                    for row in action_rows[arguments["acting_email"]]
+                    if row["thread_id"] == arguments["thread_id"]
+                )
+                return {
+                    **selected,
+                    "messages": [
+                        {
+                            "message_id": selected["last_message_id"],
+                            "sent_at": selected["last_message_at"],
+                            "body": selected["snippet"],
+                            "from": "agency@example.com",
+                            "to": [arguments["acting_email"]],
+                        }
+                    ],
+                }
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+
+        capped = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+        detail_calls = [call for call in calls if call[0] == "get_thread"]
+        self.assertEqual(len(detail_calls), brief.SUPERHUMAN_GLOBAL_ACTION_LIMIT)
+        self.assertEqual(capped["status"], "UNKNOWN")
+        self.assertIn("global", " ".join(capped["problems"]).lower())
+        unverified = [
+            row
+            for row in capped["signals"]
+            if "exact thread read cap" in str(row.get("wake") or "")
+        ]
+        self.assertEqual(len(unverified), 2)
+        self.assertTrue(all(row["semantic_status"] == "UNKNOWN" for row in unverified))
+        self.assertEqual(len(capped["forgotten_obligations"]), 42)
+
+        deadline_calls = []
+        ticks = iter((0.0, 0.0, 421.0, 421.0, 421.0, 421.0))
+
+        def deadline_tool(name, arguments):
+            deadline_calls.append((name, dict(arguments)))
+            if name == "list_accounts":
+                return {"accounts": [{"accountEmail": email} for email in identities]}
+            if name == "list_threads":
+                return {"threads": [], "total_estimate": 0}
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        deadline = brief.build_superhuman_context(
+            deadline_tool,
+            observed_at=observed_at,
+            monotonic=lambda: next(ticks, 421.0),
+        )
+        self.assertEqual(deadline["status"], "UNKNOWN")
+        self.assertIn("420-second", " ".join(deadline["problems"]))
+        self.assertLessEqual(
+            len([call for call in deadline_calls if call[0] != "list_accounts"]),
+            1,
+        )
+        self.assertTrue(
+            any("read budget" in str(row.get("wake") or "") for row in deadline["coverage"])
+        )
+
+    def test_mail_signal_retention_cap_makes_overall_status_unknown_with_wake(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        rows = [
+            {
+                "thread_id": f"thread-{index}",
+                "last_message_id": f"message-{index}",
+                "last_message_at": f"2026-08-14T10:{index:02d}:00Z",
+                "subject": f"Neutral note {index}",
+                "snippet": "No requested action",
+                "labels": ["INBOX"],
+            }
+            for index in range(51)
+        ]
+        rows[-1].update(
+            {
+                "last_message_at": "2026-06-01T10:00:00Z",
+                "subject": "Driver license renewal due",
+                "snippet": "Action required",
+            }
+        )
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {"accounts": [{"accountEmail": email} for email in identities]}
+            if name == "list_threads":
+                account_rows = rows if arguments["acting_email"] == identities[0] else []
+                return {"threads": account_rows, "total_estimate": len(account_rows)}
+            if name == "get_thread":
+                selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                return {
+                    **selected,
+                    "message_count": 1,
+                    "messages": [
+                        {
+                            "message_id": selected["last_message_id"],
+                            "sent_at": selected["last_message_at"],
+                            "body": selected["snippet"],
+                            "from": "agency@example.com",
+                            "to": [identities[0]],
+                        }
+                    ],
+                }
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        self.assertEqual(context["signals_retained"], 50)
+        self.assertEqual(context["signals_omitted"], 1)
+        self.assertFalse(context["complete"])
+        self.assertEqual(context["status"], "UNKNOWN")
+        self.assertFalse(context["all_clear_allowed"])
+        self.assertIn("1 signal omitted", " ".join(context["problems"]))
+        self.assertIn("retention cap", context["wake"])
+        self.assertEqual(
+            [row["thread_id"] for row in context["forgotten_obligations"]],
+            ["thread-50"],
+        )
+
+    def test_mail_action_candidates_include_old_waiting_urgent_and_snowcubes_but_unread_content_is_unknown(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        rows = {
+            "leojkwan@gmail.com": [
+                {
+                    "thread_id": "old-registration",
+                    "last_message_id": "old-registration-message",
+                    "last_message_at": "2026-06-30T12:00:00Z",
+                    "message_count": 1,
+                    "subject": "Registration renewal due",
+                    "snippet": "Renewal deadline",
+                    "participants": ["agency@example.com"],
+                    "labels": ["INBOX"],
+                },
+                {
+                    "thread_id": "urgent-reply",
+                    "last_message_id": "urgent-reply-message",
+                    "last_message_at": "2026-08-14T11:00:00Z",
+                    "message_count": 1,
+                    "subject": "Urgent: please reply today",
+                    "snippet": "Waiting on your response",
+                    "participants": ["person@example.com"],
+                    "labels": ["INBOX", "UNREAD"],
+                },
+                {
+                    "thread_id": "waiting-outbound",
+                    "last_message_id": "waiting-outbound-message",
+                    "last_message_at": "2026-07-15T12:00:00Z",
+                    "message_count": 1,
+                    "subject": "Checking in about the repair",
+                    "snippet": "I sent the details and am awaiting their answer",
+                    "participants": ["repair@example.com"],
+                    "labels": ["SENT", "INBOX"],
+                },
+                {
+                    "thread_id": "return-attachment",
+                    "last_message_id": "return-attachment-message",
+                    "last_message_at": "2026-08-13T12:00:00Z",
+                    "message_count": 1,
+                    "subject": "Return label and refund deadline",
+                    "snippet": "See the attached return label",
+                    "participants": ["merchant@example.com"],
+                    "labels": ["INBOX"],
+                },
+            ],
+            "trysnowcubes@gmail.com": [
+                {
+                    "thread_id": "snowcubes-wholesale",
+                    "last_message_id": "snowcubes-wholesale-message",
+                    "last_message_at": "2026-08-14T09:00:00Z",
+                    "message_count": 1,
+                    "subject": "Wholesale cafe request",
+                    "snippet": "Can we carry Snowcubes?",
+                    "participants": ["buyer@cafe.example"],
+                    # Read on another device but still inbound and unanswered.
+                    "labels": ["INBOX"],
+                }
+            ],
+            "firstbitelabs@gmail.com": [],
+        }
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        for index, email in enumerate(identities)
+                    ]
+                }
+            if name == "list_threads":
+                account_rows = rows[arguments["acting_email"]]
+                return {"threads": account_rows, "total_estimate": len(account_rows)}
+            if name == "get_thread":
+                selected = next(
+                    row
+                    for row in rows[arguments["acting_email"]]
+                    if row["thread_id"] == arguments["thread_id"]
+                )
+                message = {
+                    "message_id": selected["last_message_id"],
+                    "thread_id": selected["thread_id"],
+                    "sent_at": selected["last_message_at"],
+                    "subject": selected["subject"],
+                    "snippet": selected["snippet"],
+                    "from": (
+                        arguments["acting_email"]
+                        if selected["thread_id"] == "waiting-outbound"
+                        else selected["participants"][0]
+                    ),
+                    "to": (
+                        [selected["participants"][0]]
+                        if selected["thread_id"] == "waiting-outbound"
+                        else [arguments["acting_email"]]
+                    ),
+                    "labels": selected["labels"],
+                    "body": selected["snippet"],
+                    "attachments": [],
+                }
+                if selected["thread_id"] == "return-attachment":
+                    message["body"] = ""
+                    message["attachments"] = ["return-label.pdf"]
+                return {**selected, "messages": [message]}
+            if name == "query_email_and_calendar":
+                return {
+                    "answer": "Proposal only: review the next fourteen days for conflicts.",
+                    "sources": [{"id": "cal-1", "title": "Calendar", "type": "calendar"}],
+                }
+            raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        self.assertEqual(
+            {row["thread_id"] for row in context["forgotten_obligations"]},
+            {"old-registration", "waiting-outbound"},
+        )
+        self.assertEqual(len(context["urgent_replies"]), 1)
+        self.assertEqual(context["urgent_replies"][0]["thread_id"], "urgent-reply")
+        self.assertEqual(len(context["waiting_replies"]), 1)
+        self.assertEqual(context["waiting_replies"][0]["thread_id"], "waiting-outbound")
+        self.assertEqual(len(context["proactive_candidates"]), 1)
+        self.assertEqual(
+            context["proactive_candidates"][0]["source_identities"],
+            ["trysnowcubes@gmail.com"],
+        )
+        unread = next(row for row in context["signals"] if row["thread_id"] == "return-attachment")
+        self.assertEqual(unread["semantic_status"], "UNKNOWN")
+        self.assertIn("return-attachment", unread["wake"])
+        self.assertIn("return-label.pdf", unread["wake"])
+        personal = next(row for row in context["coverage"] if row["acting_email"] == "leojkwan@gmail.com")
+        self.assertEqual(personal["status"], "UNKNOWN")
+        self.assertEqual(personal["source_age_hours"], 0.0)
+        self.assertEqual(personal["newest_message_age_hours"], 1.0)
+        self.assertEqual(context["forgotten_horizon"]["status"], "UNKNOWN")
+        self.assertIn("before 2026-05-16", context["forgotten_horizon"]["wake"])
+        self.assertFalse(context["all_clear_allowed"])
+
+    def test_mail_waiting_direction_uses_last_message_and_suppresses_done_rows(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        rows = [
+            {
+                "thread_id": "mixed-sent-inbox",
+                "last_message_id": "mixed-inbound-latest",
+                "last_message_at": "2026-08-14T11:00:00Z",
+                "message_count": 2,
+                "subject": "Urgent: please reply today",
+                "snippet": "Their inbound response arrived after Leo sent mail",
+                "participants": ["person@example.com"],
+                "labels": ["SENT", "INBOX", "UNREAD"],
+            },
+            {
+                "thread_id": "archived-order",
+                "last_message_id": "archived-order-message",
+                "last_message_at": "2026-07-01T10:00:00Z",
+                "message_count": 1,
+                "subject": "Invoice and order return due",
+                "snippet": "This was already handled",
+                "participants": ["merchant@example.com"],
+                # Gmail commonly represents archive as absence of INBOX.
+                "labels": [],
+            },
+            {
+                "thread_id": "done-license",
+                "last_message_id": "done-license-message",
+                "last_message_at": "2026-07-01T10:00:00Z",
+                "message_count": 1,
+                "subject": "Driver license renewal due",
+                "snippet": "This was already handled",
+                "participants": ["agency@example.com"],
+                "labels": ["DONE"],
+            },
+            {
+                "thread_id": "empty-exact-thread",
+                "last_message_id": "empty-exact-message",
+                "last_message_at": "2026-08-10T10:00:00Z",
+                "subject": "Payment due",
+                "snippet": "Open the exact source",
+                "participants": ["billing@example.com"],
+                "labels": ["INBOX"],
+            },
+            {
+                "thread_id": "outbound-thank-you",
+                "last_message_id": "outbound-thank-you-message",
+                "last_message_at": "2026-07-01T10:00:00Z",
+                "message_count": 1,
+                "subject": "Thank you",
+                "snippet": "Thanks again, everything is all set.",
+                "participants": ["friend@example.com"],
+                "labels": ["SENT"],
+            },
+            {
+                "thread_id": "missing-listed-latest",
+                "last_message_id": "missing-inbound-latest-message",
+                "last_message_at": "2026-08-14T11:30:00Z",
+                "message_count": 2,
+                "subject": "Urgent: please reply",
+                "snippet": "Latest inbound summary is absent from detail",
+                "participants": ["person@example.com"],
+                "labels": ["SENT", "INBOX", "UNREAD"],
+            },
+            {
+                "thread_id": "detail-error-thread",
+                "last_message_id": "detail-error-message",
+                "last_message_at": "2026-08-14T09:00:00Z",
+                "message_count": 1,
+                "subject": "Order return due",
+                "snippet": "Provider detail read fails",
+                "participants": ["merchant@example.com"],
+                "labels": ["INBOX"],
+            },
+            {
+                "thread_id": "alias-outbound-waiting",
+                "last_message_id": "alias-outbound-message",
+                "last_message_at": "2026-07-10T10:00:00Z",
+                "message_count": 1,
+                "subject": "Checking in",
+                "snippet": "Could you let me know the status?",
+                "participants": ["person@example.com"],
+                "labels": ["SENT", "INBOX"],
+            },
+            {
+                "thread_id": "equal-time-direction",
+                "last_message_at": "2026-08-14T08:00:00Z",
+                "message_count": 2,
+                "subject": "Checking in on the answer",
+                "snippet": "Could you let me know?",
+                "participants": ["person@example.com"],
+                "labels": ["SENT", "INBOX"],
+            },
+        ]
+        tool_names = []
+
+        def call_tool(name, arguments):
+            tool_names.append(name)
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {
+                            "accountEmail": email,
+                            "aliases": ["leo.alias@gmail.com"] if email == identities[0] else [],
+                        }
+                        for email in identities
+                    ]
+                }
+            if name == "list_threads":
+                account_rows = rows if arguments["acting_email"] == identities[0] else []
+                return {"threads": account_rows, "total_estimate": len(account_rows)}
+            if name == "get_thread":
+                selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                if selected["thread_id"] == "empty-exact-thread":
+                    return {**selected, "messages": []}
+                if selected["thread_id"] == "detail-error-thread":
+                    return {"error": "exact detail payload rejected"}
+                if selected["thread_id"] == "missing-listed-latest":
+                    return {
+                        **selected,
+                        "messages": [
+                            {
+                                "message_id": "older-outbound-only",
+                                "sent_at": "2026-08-13T12:00:00Z",
+                                "body": "Could you let me know?",
+                                "from": identities[0],
+                                "to": ["person@example.com"],
+                            }
+                        ],
+                    }
+                if selected["thread_id"] == "equal-time-direction":
+                    return {
+                        **selected,
+                        "messages": [
+                            {
+                                "message_id": "equal-outbound",
+                                "sent_at": selected["last_message_at"],
+                                "body": "Could you let me know?",
+                                "from": identities[0],
+                                "to": ["person@example.com"],
+                            },
+                            {
+                                "message_id": "equal-inbound",
+                                "sent_at": selected["last_message_at"],
+                                "body": "Maybe",
+                                "from": "person@example.com",
+                                "to": [identities[0]],
+                            },
+                        ],
+                    }
+                messages = [
+                    {
+                        "message_id": selected["last_message_id"],
+                        "sent_at": selected["last_message_at"],
+                        "body": selected["snippet"],
+                        "from": (
+                            identities[0]
+                            if selected["thread_id"] == "outbound-thank-you"
+                            else (
+                                "leo.alias@gmail.com"
+                                if selected["thread_id"] == "alias-outbound-waiting"
+                                else selected["participants"][0]
+                            )
+                        ),
+                        "to": (
+                            [selected["participants"][0]]
+                            if selected["thread_id"] in {"outbound-thank-you", "alias-outbound-waiting"}
+                            else [identities[0]]
+                        ),
+                    }
+                ]
+                if selected["thread_id"] == "mixed-sent-inbox":
+                    messages.insert(
+                        0,
+                        {
+                            "message_id": "mixed-outbound-older",
+                            "sent_at": "2026-08-13T12:00:00Z",
+                            "body": "Leo's earlier note",
+                            "from": identities[0],
+                            "to": ["person@example.com"],
+                        },
+                    )
+                return {**selected, "messages": messages}
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        self.assertEqual(
+            [row["thread_id"] for row in context["urgent_replies"]],
+            ["mixed-sent-inbox"],
+        )
+        self.assertNotIn(
+            "mixed-sent-inbox",
+            [row["thread_id"] for row in context["waiting_replies"]],
+        )
+        mixed = next(row for row in context["signals"] if row["thread_id"] == "mixed-sent-inbox")
+        self.assertEqual(mixed["semantic_status"], "PROPOSAL")
+        self.assertTrue(mixed["thread_body_read"])
+        empty = next(row for row in context["signals"] if row["thread_id"] == "empty-exact-thread")
+        self.assertEqual(empty["semantic_status"], "UNKNOWN")
+        self.assertIn("empty-exact-thread", empty["wake"])
+        self.assertIn("no non-draft visible message", " ".join(
+            next(
+                row["problems"]
+                for row in context["coverage"]
+                if row["acting_email"] == identities[0]
+            )
+        ))
+        elevated = {
+            row["thread_id"]
+            for category in (
+                "forgotten_obligations",
+                "order_return_follow_up",
+                "urgent_replies",
+                "waiting_replies",
+            )
+            for row in context[category]
+        }
+        self.assertNotIn("archived-order", elevated)
+        self.assertNotIn("done-license", elevated)
+        self.assertNotIn("outbound-thank-you", elevated)
+        self.assertIn("alias-outbound-waiting", elevated)
+        self.assertIn(
+            "alias-outbound-waiting",
+            [row["thread_id"] for row in context["waiting_replies"]],
+        )
+        self.assertNotIn("missing-listed-latest", elevated)
+        self.assertNotIn("equal-time-direction", elevated)
+        missing_latest = next(
+            row for row in context["signals"] if row["thread_id"] == "missing-listed-latest"
+        )
+        self.assertEqual(missing_latest["semantic_status"], "UNKNOWN")
+        self.assertIn("missing-listed-latest", missing_latest["wake"])
+        detail_error = next(
+            row for row in context["signals"] if row["thread_id"] == "detail-error-thread"
+        )
+        self.assertEqual(detail_error["semantic_status"], "UNKNOWN")
+        self.assertIn("exact detail payload rejected", " ".join(
+            next(
+                row["problems"]
+                for row in context["coverage"]
+                if row["acting_email"] == identities[0]
+            )
+        ))
+        self.assertEqual(
+            set(tool_names),
+            {"list_accounts", "list_threads", "get_thread", "query_email_and_calendar"},
+        )
+
+    def test_packet_and_render_have_one_reader_first_mail_section_from_one_read_only_collection(self):
+        def signal(signal_id, subject, *, status="PROPOSAL", wake=None):
+            return {
+                "signal_id": signal_id,
+                "last_message_id": f"raw-message-{signal_id}",
+                "thread_id": f"raw-thread-{signal_id}",
+                "subject": subject,
+                "semantic_status": status,
+                "confidence": "MEDIUM" if status == "PROPOSAL" else "LOW",
+                "source_age_hours": 0.0,
+                "message_age_hours": 2.0,
+                "last_message_at": "2026-08-14T10:00:00Z",
+                "source_identities": ["leojkwan@gmail.com"],
+                "proposal": f"Proposal only: review {subject.lower()} before acting.",
+                "proposal_only": True,
+                "wake": wake,
+            }
+
+        urgent = signal("raw-urgent-id", "Reply to the urgent request")
+        waiting = signal("raw-waiting-id", "Waiting on the repair answer")
+        forgotten = signal(
+            "raw-forgotten-id",
+            "Driver license renewal",
+            status="UNKNOWN",
+            wake="Open the exact Superhuman thread for Driver license renewal before deciding.",
+        )
+        order_return = signal("raw-order-id", "Lamp return follow-through")
+        proactive = signal("raw-proactive-id", "Snowcubes cafe follow-up")
+        mail = {
+            "available": True,
+            "complete": False,
+            "status": "UNKNOWN",
+            "all_clear_allowed": False,
+            "threads_returned_raw": 1,
+            "threads_unique": 1,
+            "github_notification_threads": 0,
+            "human_or_other_threads": 1,
+            "cursor_limit_threads": 0,
+            "problems": ["Forgotten-obligation history is not exhaustive."],
+            "wake": "Search older mail before relying on an all-clear.",
+            "forgotten_horizon": {
+                "status": "UNKNOWN",
+                "wake": "Search older mail before relying on an all-clear.",
+            },
+            "coverage": [
+                {
+                    "acting_email": "leojkwan@gmail.com",
+                    "status": "COMPLETE",
+                    "query_range": {
+                        "start_date": "2026-05-16T12:00:00+00:00",
+                        "end_date": "2026-08-14T12:00:00+00:00",
+                    },
+                    "source_age_hours": 0.0,
+                    "newest_message_age_hours": 1.0,
+                    "pagination": {"pages": 1, "exhausted": True, "truncated": False},
+                },
+                {
+                    "acting_email": "firstbitelabs@gmail.com",
+                    "status": "UNKNOWN",
+                    "query_range": {
+                        "start_date": "2026-05-16T12:00:00+00:00",
+                        "end_date": "2026-08-14T12:00:00+00:00",
+                    },
+                    "source_age_hours": None,
+                    "pagination": {"pages": 0, "exhausted": False, "truncated": True},
+                    "wake": "Link firstbitelabs@gmail.com in Superhuman.",
+                },
+            ],
+            "signals": [urgent, waiting, forgotten, order_return, proactive],
+            "forgotten_obligations": [forgotten],
+            "urgent_replies": [urgent],
+            "waiting_replies": [waiting],
+            "proactive_candidates": [proactive],
+            "order_return_follow_up": [order_return],
+            "calendar_proposals": [
+                {
+                    "acting_email": "leojkwan@gmail.com",
+                    "summary": "Review one possible calendar conflict.",
+                    "status": "UNKNOWN",
+                    "confidence": "LOW",
+                    "source_age_hours": 0.0,
+                    "wake": "Open the exact calendar source before changing anything.",
+                    "proposal_only": True,
+                }
+            ],
+        }
+        board = {"revision": 23, "entities": [], "claims": []}
+        companion = {"observed_at": "2026-08-14T12:00:00Z", "surfaces": []}
+        with mock.patch.object(brief, "portfolio_root", return_value=Path("/tmp/portfolio")), \
+            mock.patch.object(brief, "collect_repos", return_value=[]), \
+            mock.patch.object(brief, "collect_github", return_value=[]), \
+            mock.patch.object(brief, "collect_vercel", return_value={"available": False}), \
+            mock.patch.object(brief, "collect_supabase", return_value={"available": False}), \
+            mock.patch.object(brief, "collect_superhuman_context", return_value=mail) as collect_mail, \
+            mock.patch.object(brief, "collect_growth_source_status", return_value={}), \
+            mock.patch.object(brief, "build_local_git_health", return_value={"available": True}), \
+            mock.patch.object(brief, "build_paint_health", return_value={}), \
+            mock.patch.object(brief, "collect_shadow_status_excerpt", return_value="status"), \
+            mock.patch.object(brief, "collect_board", return_value=board), \
+            mock.patch.object(brief, "_read_board_revision", return_value=23), \
+            mock.patch.object(brief, "collect_snowcubes_context", return_value=companion), \
+            mock.patch.object(brief, "build_recommendations", return_value=[]), \
+            mock.patch.object(brief, "build_chief_of_staff_analysis", return_value={}):
+            packet = brief.collect_packet(slot="morning")
+
+        self.assertIs(packet["superhuman_context"], mail)
+        collect_mail.assert_called_once_with()
+        html = brief.render_html(packet)
+        self.assertEqual(html.count("Mail and calendar coverage"), 1)
+        self.assertEqual(html.count("What was checked"), 1)
+        self.assertNotIn("Coverage mechanics", html)
+        self.assertIn("firstbitelabs@gmail.com", html)
+        self.assertIn("Review one possible calendar conflict", html)
+        for category in (
+            "Urgent reply",
+            "Waiting reply",
+            "Forgotten obligation",
+            "Order or return",
+            "Proactive Snowcubes candidate",
+        ):
+            self.assertIn(category, html)
+            self.assertLess(html.index(category), html.index("What was checked"))
+        self.assertLess(
+            html.index("Open Superhuman and finish every named UNKNOWN source"),
+            html.index("What was checked"),
+        )
+        self.assertIn("MEDIUM confidence", html)
+        self.assertIn("source observed 0.0h ago", html)
+        self.assertIn("newest message 2.0h old", html)
+        self.assertIn("Proposal only", html)
+        self.assertNotIn("raw-urgent-id", html)
+        self.assertNotIn("raw-message-raw-urgent-id", html)
+        self.assertNotIn("raw-thread-", html)
+        self.assertNotIn("2026-05-16T", html)
+        self.assertNotRegex(html, r"\d{4}-\d{2}-\d{2}T")
+        self.assertNotIn("1 page", html)
+        self.assertNotIn("not exhausted", html)
+        self.assertNotIn("cursor", html.lower())
+        self.assertNotIn("thread_id", html)
+        self.assertNotIn("message_id", html)
+        self.assertNotIn("Send reply", html)
+
     def test_snowcubes_companion_keeps_missing_business_sources_explicit(self):
         with mock.patch.object(
             brief,
@@ -102,11 +1536,14 @@ class PrivateStoreTests(unittest.TestCase):
             "kind": "human_or_other",
             "thread_id": "19f5396bf1f4ab27",
             "native_link": "https://mail.superhuman.com/thread/opaque",
+            "action_tags": ["reply", "proactive"],
+            "semantic_status": "PROPOSAL",
+            "thread_body_read": True,
         }
         with mock.patch.object(
             brief,
             "collect_superhuman_context",
-            return_value={"available": True, "signals": [signal]},
+            return_value={"available": True, "complete": True, "signals": [signal]},
         ), mock.patch.object(brief, "collect_board", return_value={"revision": 9}), mock.patch.object(
             brief, "_snowcubes_m12_surface", return_value={"name": "M12 cafe-doctor", "state": "unavailable"}
         ):
