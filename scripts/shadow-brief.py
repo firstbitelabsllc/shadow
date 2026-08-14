@@ -18,6 +18,7 @@ import json
 import os
 import plistlib
 import re
+import secrets
 import shlex
 import shutil
 import socket
@@ -56,6 +57,7 @@ EXPECTED_SUPERHUMAN_IDENTITIES = (
 )
 SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v2"
 PRODUCER_PROVENANCE_SCHEMA = "shadow.brief-producer.v1"
+SCHEDULED_ATTEMPT_SCHEMA = "shadow.bidaily-attempt.v1"
 SUPERHUMAN_LOOKBACK_DAYS = 90
 SUPERHUMAN_PAGE_LIMIT = 50
 SUPERHUMAN_MAX_PAGES = 40
@@ -221,7 +223,7 @@ def producer_provenance() -> dict[str, Any]:
         if relative is not None:
             commit_result = _run(["git", "-C", str(root), "rev-parse", "HEAD"])
             candidate = (commit_result.stdout or "").strip().lower()
-            if commit_result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40,64}", candidate):
+            if commit_result.returncode == 0 and _is_full_git_object_id(candidate):
                 source_commit = candidate
                 status_result = _run(
                     [
@@ -254,7 +256,7 @@ def producer_provenance() -> dict[str, Any]:
                     and not (status_result.stdout or "").strip()
                     and working_blob.returncode == 0
                     and committed_blob.returncode == 0
-                    and bool(re.fullmatch(r"[0-9a-f]{40,64}", working_identity))
+                    and _is_full_git_object_id(working_identity)
                     and working_identity == committed_identity
                     and len(script_sha256) == 64
                 )
@@ -5284,26 +5286,40 @@ def launch_trigger_proof() -> dict[str, Any]:
     domain = f"gui/{uid}"
     current_pid = os.getpid()
     parent_pid = os.getppid()
-    proc = _run(["/bin/ps", "-p", str(parent_pid), "-o", "comm="], timeout=5)
-    parent_command = (proc.stdout or "").strip()
+    probe_errors: dict[str, str] = {}
+    proc: subprocess.CompletedProcess[str] | None = None
+    try:
+        proc = _run(["/bin/ps", "-p", str(parent_pid), "-o", "comm="], timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        probe_errors["ps"] = f"{type(exc).__name__}: {exc}"
+    parent_command = (proc.stdout or "").strip() if proc is not None else ""
     xpc_service_name = os.environ.get("XPC_SERVICE_NAME")
-    launchctl = _run(["/bin/launchctl", "print", f"{domain}/{LABEL}"], timeout=5)
+    launchctl: subprocess.CompletedProcess[str] | None = None
+    try:
+        launchctl = _run(
+            ["/bin/launchctl", "print", f"{domain}/{LABEL}"],
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        probe_errors["launchctl"] = f"{type(exc).__name__}: {exc}"
     pid_matches = re.findall(
         r"(?m)^[ \t]*pid = ([0-9]+)[ \t]*$",
-        launchctl.stdout or "",
+        (launchctl.stdout or "") if launchctl is not None else "",
     )
     job_pid = int(pid_matches[0]) if len(pid_matches) == 1 else None
     service_matches_label = xpc_service_name == LABEL
     exact_job = bool(
-        launchctl.returncode == 0
+        proc is not None
+        and proc.returncode == 0
+        and Path(parent_command).name == "launchd"
+        and launchctl is not None
+        and launchctl.returncode == 0
         and service_matches_label
         and job_pid == current_pid
     )
     return {
         "is_launchd": bool(
-            proc.returncode == 0
-            and Path(parent_command).name == "launchd"
-            and exact_job
+            exact_job
         ),
         "parent_pid": parent_pid,
         "parent_command": parent_command or None,
@@ -5314,6 +5330,7 @@ def launch_trigger_proof() -> dict[str, Any]:
         "xpc_service_name": xpc_service_name,
         "service_matches_label": service_matches_label,
         "exact_job": exact_job,
+        "probe_errors": probe_errors,
     }
 
 
@@ -5337,11 +5354,15 @@ def scheduled_trigger_is_authorized(
     )
 
 
+def _is_full_git_object_id(value: Any) -> bool:
+    return bool(re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", str(value or "")))
+
+
 def _valid_producer_provenance(value: Any) -> bool:
     return bool(
         isinstance(value, dict)
         and value.get("schema") == PRODUCER_PROVENANCE_SCHEMA
-        and re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("source_commit") or ""))
+        and _is_full_git_object_id(value.get("source_commit"))
         and re.fullmatch(r"[0-9a-f]{64}", str(value.get("script_sha256") or ""))
         and value.get("source_matches_commit") is True
     )
@@ -5355,7 +5376,24 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         problems.append("Superhuman context schema mismatch")
     if mail.get("expected_identities") != list(EXPECTED_SUPERHUMAN_IDENTITIES):
         problems.append("expected Superhuman identity roster mismatch")
-    coverage = [row for row in (mail.get("coverage") or []) if isinstance(row, dict)]
+    action_bucket_keys = (
+        "signals",
+        "urgent_replies",
+        "waiting_replies",
+        "forgotten_obligations",
+        "order_return_follow_up",
+        "proactive_candidates",
+        "calendar_proposals",
+    )
+    buckets: dict[str, list[Any]] = {}
+    for key in ("coverage", *action_bucket_keys):
+        value = mail.get(key)
+        if not isinstance(value, list):
+            problems.append(f"Superhuman {key} bucket must be a list")
+            buckets[key] = []
+        else:
+            buckets[key] = value
+    coverage = [row for row in buckets["coverage"] if isinstance(row, dict)]
     expected_rows = [
         row
         for row in coverage
@@ -5376,16 +5414,25 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             for row in expected_rows
         )
     )
-    dishonest_unknown = any(
-        (row.get("linked") is not True and row.get("status") != "UNKNOWN")
-        or (
-            row.get("status") == "UNKNOWN"
-            and (not row.get("problems") or not row.get("wake"))
+    for row in expected_rows:
+        linked = row.get("linked")
+        status_value = row.get("status")
+        row_problems = row.get("problems")
+        wake = row.get("wake")
+        linked_complete = linked is True and status_value == "COMPLETE"
+        honest_unknown = (
+            (linked is True or linked is False)
+            and status_value == "UNKNOWN"
+            and isinstance(row_problems, list)
+            and bool(row_problems)
+            and isinstance(wake, str)
+            and bool(wake.strip())
         )
-        for row in expected_rows
-    )
-    if dishonest_unknown:
-        problems.append("expected UNKNOWN Superhuman coverage lacks its exact problem and wake")
+        if not linked_complete and not honest_unknown:
+            identity = str(row.get("acting_email") or "").strip().lower()
+            problems.append(
+                f"invalid expected Superhuman identity coverage state: {identity}"
+            )
     if unknown_coverage and (
         mail.get("status") != "UNKNOWN"
         or mail.get("complete") is not False
@@ -5410,7 +5457,7 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         and bool(signal.get("source_identities"))
         and bool(str(signal.get("proposal") or "").strip())
         for key in obligation_keys
-        for signal in (mail.get(key) or [])
+        for signal in buckets[key]
         if isinstance(signal, dict)
     )
     if not real_obligation:
@@ -5482,16 +5529,19 @@ def verify_window_receipts(
         and row.get("slot") not in {"morning", "evening"}
     ]
     eligible = _eligible_natural_window_receipts(scheduled)
-    receipt_counts: dict[str, int] = {}
+    receipts_by_window: dict[str, list[dict[str, Any]]] = {}
     for row in eligible:
         scheduled_for = str(row["scheduled_for"])
-        receipt_counts[scheduled_for] = receipt_counts.get(scheduled_for, 0) + 1
-    latest_by_window = {str(row["scheduled_for"]): row for row in eligible}
-    latest = sorted(latest_by_window.values(), key=_scheduled_window_sort_key)[-2:]
+        receipts_by_window.setdefault(scheduled_for, []).append(row)
+    selected_groups = sorted(
+        receipts_by_window.values(),
+        key=lambda group: _scheduled_window_sort_key(group[-1]),
+    )[-2:]
+    latest = [group[-1] for group in selected_groups]
     problems: list[str] = [
-        f"{scheduled_for}: duplicate natural-window receipts found"
-        for scheduled_for, count in sorted(receipt_counts.items())
-        if count > 1
+        f"{group[-1]['scheduled_for']}: duplicate natural-window receipts found"
+        for group in selected_groups
+        if len(group) > 1
     ]
     if len(latest) != 2:
         problems.append(
@@ -6522,21 +6572,97 @@ def schedule_configuration_recovery(problems: list[str]) -> str:
     return "; ".join(steps)
 
 
+def _command_targets_scheduled_brief(values: list[str]) -> bool:
+    if "--scheduled-trigger" not in values:
+        return False
+    command = list(values)
+    assignment = r"[A-Za-z_][A-Za-z0-9_]*=.*"
+    while command and (
+        command[0] == "exec"
+        or re.fullmatch(assignment, command[0]) is not None
+    ):
+        command.pop(0)
+    if command and Path(command[0]).name == "env":
+        command.pop(0)
+        while command and (
+            command[0].startswith("-")
+            or re.fullmatch(assignment, command[0]) is not None
+        ):
+            command.pop(0)
+    if not command:
+        return False
+    program = Path(command[0]).name
+    if (
+        program == "shadow"
+        and len(command) >= 3
+        and command[1:3] == ["brief", "run"]
+    ):
+        return True
+    if program == "shadow-brief.py":
+        return True
+    return bool(
+        re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", program)
+        and len(command) >= 2
+        and Path(command[1]).name == "shadow-brief.py"
+    )
+
+
+def _shell_simple_commands(command_text: str) -> list[list[str]]:
+    try:
+        lexer = shlex.shlex(
+            command_text,
+            posix=True,
+            punctuation_chars=";&|",
+        )
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return []
+    commands: list[list[str]] = []
+    command: list[str] = []
+    for token in tokens:
+        if token and all(character in ";&|" for character in token):
+            if command:
+                commands.append(command)
+            command = []
+            continue
+        command.append(token)
+    if command:
+        commands.append(command)
+    return commands
+
+
 def _targets_scheduled_brief(doc: dict[str, Any]) -> bool:
     arguments = doc.get("ProgramArguments")
     if not isinstance(arguments, list):
         return False
     values = [str(value) for value in arguments]
-    if "--scheduled-trigger" not in values:
+    if _command_targets_scheduled_brief(values):
+        return True
+    if not values or Path(values[0]).name not in {"sh", "bash", "dash", "ksh", "zsh"}:
         return False
-    direct_script = any(Path(value).name == "shadow-brief.py" for value in values)
-    shadow_cli = bool(
-        values
-        and Path(values[0]).name == "shadow"
-        and len(values) >= 3
-        and values[1:3] == ["brief", "run"]
+    command_text: str | None = None
+    for index, value in enumerate(values[1:], start=1):
+        if value == "--":
+            break
+        command_option = value == "-c" or (
+            value.startswith("-")
+            and not value.startswith("--")
+            and "c" in value[1:]
+        )
+        if command_option:
+            if index + 1 < len(values):
+                command_text = values[index + 1]
+            break
+        if not value.startswith("-"):
+            break
+    if command_text is None:
+        return False
+    return any(
+        _command_targets_scheduled_brief(command)
+        for command in _shell_simple_commands(command_text)
     )
-    return direct_script or shadow_cli
 
 
 def _other_scheduled_brief_agents(canonical: Path) -> list[Path]:
@@ -6725,34 +6851,52 @@ def _acquire_scheduled_run_lock() -> Any | None:
     path = LOG_DIR / "scheduled-run.lock"
     flags = os.O_RDWR | os.O_CREAT
     flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags, 0o600)
-    identity = os.fstat(descriptor)
+    descriptor: int | None = os.open(path, flags, 0o600)
+    locked = False
     try:
+        identity = os.fstat(descriptor)
         named_identity = os.lstat(path)
-    except OSError:
-        os.close(descriptor)
-        raise
-    if (
-        not stat.S_ISREG(identity.st_mode)
-        or identity.st_uid != os.getuid()
-        or identity.st_nlink != 1
-        or (identity.st_dev, identity.st_ino)
-        != (named_identity.st_dev, named_identity.st_ino)
-    ):
-        os.close(descriptor)
-        raise PermissionError(f"unsafe scheduled run lock identity: {path}")
-    os.fchmod(descriptor, 0o600)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        os.close(descriptor)
-        return None
-    try:
-        return os.fdopen(descriptor, "r+", encoding="utf-8")
-    except BaseException:
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
-        raise
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PermissionError(f"unsafe scheduled run lock identity: {path}")
+        os.fchmod(descriptor, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return None
+        locked = True
+        locked_identity = os.fstat(descriptor)
+        locked_named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(locked_identity.st_mode)
+            or not stat.S_ISREG(locked_named_identity.st_mode)
+            or locked_identity.st_uid != os.getuid()
+            or locked_named_identity.st_uid != os.getuid()
+            or locked_identity.st_nlink != 1
+            or locked_named_identity.st_nlink != 1
+            or (locked_identity.st_dev, locked_identity.st_ino)
+            != (locked_named_identity.st_dev, locked_named_identity.st_ino)
+        ):
+            raise PermissionError(f"unsafe scheduled run lock identity after flock: {path}")
+        handle = os.fdopen(descriptor, "r+", encoding="utf-8")
+        descriptor = None
+        return handle
+    finally:
+        if descriptor is not None:
+            if locked:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
 
 def _release_scheduled_run_lock(handle: Any | None) -> None:
@@ -6760,8 +6904,12 @@ def _release_scheduled_run_lock(handle: Any | None) -> None:
         return
     try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    finally:
+    except (OSError, ValueError):
+        pass
+    try:
         handle.close()
+    except OSError:
+        pass
 
 
 def _fsync_directory(path: Path) -> None:
@@ -6816,7 +6964,19 @@ def _archive_stamp(
         if scheduled is None or not _is_report_timezone_timestamp(scheduled):
             raise ValueError("scheduled archive has no canonical report window")
         return scheduled.astimezone(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
-    return datetime.now(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+    now = datetime.now(REPORT_TIMEZONE)
+    return f"{now.strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(16)}"
+
+
+def _write_last_run_best_effort(summary: dict[str, Any]) -> bool:
+    try:
+        (LOG_DIR / "last-run.json").write_text(
+            json.dumps(summary, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        return False
+    return True
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -6876,6 +7036,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> int:
     trigger_window: dict[str, Any] = {}
+    attempt_barrier: dict[str, str] | None = None
+    scheduled_stamp: str | None = None
     if args.scheduled_trigger:
         trigger_window = scheduled_window(datetime.now(REPORT_TIMEZONE))
         if not trigger_window.get("on_schedule"):
@@ -6902,12 +7064,15 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
                 file=sys.stderr,
             )
             return 3
-        stamp = _archive_stamp(
+        scheduled_stamp = _archive_stamp(
             scheduled_trigger=True,
             trigger_window=trigger_window,
         )
-        archive_html_path = EVIDENCE_DIR / f"brief-{stamp}.html"
-        archive_json_path = EVIDENCE_DIR / f"brief-{stamp}.json"
+        archive_html_path = EVIDENCE_DIR / f"brief-{scheduled_stamp}.html"
+        archive_json_path = EVIDENCE_DIR / f"brief-{scheduled_stamp}.json"
+        attempt_barrier_path = (
+            LOG_DIR / f"scheduled-attempt-{scheduled_stamp}.json"
+        )
         existing_window = any(
             row.get("schema") == WINDOW_RECEIPT_SCHEMA
             and row.get("trigger") == "launchd-calendar"
@@ -6917,12 +7082,21 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         archive_barrier = os.path.lexists(archive_html_path) or os.path.lexists(
             archive_json_path
         )
-        if existing_window or archive_barrier:
+        existing_attempt_barrier = os.path.lexists(attempt_barrier_path)
+        if existing_window or archive_barrier or existing_attempt_barrier:
             reason = (
                 "this scheduled window already has a durable receipt"
                 if existing_window
-                else "this scheduled window already has an immutable archive barrier"
+                else (
+                    "this scheduled window already has an immutable archive barrier"
+                    if archive_barrier
+                    else "this scheduled window already has a durable attempt barrier"
+                )
             )
+            barrier_receipt = {
+                "path": str(attempt_barrier_path),
+                "state": "EXISTS" if existing_attempt_barrier else "ABSENT",
+            }
             print(
                 json.dumps(
                     {
@@ -6933,6 +7107,7 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
                         "scheduled_for": trigger_window.get("scheduled_for"),
                         "archive_html": str(archive_html_path),
                         "archive_json": str(archive_json_path),
+                        "attempt_barrier": barrier_receipt,
                         "wake": f"{reason}; do not collect, notify, send, overwrite, or retry",
                     },
                     indent=2,
@@ -6940,6 +7115,46 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
                 file=sys.stderr,
             )
             return 3
+        barrier_payload = {
+            "schema": SCHEDULED_ATTEMPT_SCHEMA,
+            "state": "RESERVED",
+            "scheduled_for": trigger_window.get("scheduled_for"),
+            "slot": trigger_window.get("slot"),
+        }
+        try:
+            _place_private_archive(
+                attempt_barrier_path,
+                (json.dumps(barrier_payload, sort_keys=True) + "\n").encode("utf-8"),
+            )
+        except OSError as exc:
+            barrier_state = (
+                "PRESENT" if os.path.lexists(attempt_barrier_path) else "UNAVAILABLE"
+            )
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "archive_html": str(archive_html_path),
+                "archive_json": str(archive_json_path),
+                "attempt_barrier": {
+                    "path": str(attempt_barrier_path),
+                    "state": barrier_state,
+                },
+                "wake": (
+                    f"scheduled attempt barrier publication failed: {exc}; "
+                    "do not collect, notify, send, overwrite, or retry until the "
+                    "exact local barrier path is inspected"
+                ),
+            }
+            print(json.dumps(summary, indent=2), file=sys.stderr)
+            _write_last_run_best_effort(summary)
+            return 3
+        attempt_barrier = {
+            "path": str(attempt_barrier_path),
+            "state": "PRESENT",
+        }
     packet = collect_packet(slot=args.slot)
     board_snapshot = ((packet.get("authority") or {}).get("board_snapshot") or {})
     if board_snapshot.get("consistent") is not True:
@@ -6951,6 +7166,11 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
             "producer": packet.get("producer"),
             "trigger_proof": trigger_proof,
             "board_snapshot": board_snapshot,
+            **(
+                {"attempt_barrier": attempt_barrier}
+                if attempt_barrier is not None
+                else {}
+            ),
             "wake": (
                 "shadow status --json --by codex stabilizes at one board revision; "
                 "then run read-only shadow-brief collect; never retry the scheduled send"
@@ -6979,6 +7199,7 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
                 "trigger_proof": trigger_proof,
                 "scheduled_window": trigger_window,
                 "scheduled_for": trigger_window.get("scheduled_for"),
+                "attempt_barrier": attempt_barrier,
                 "wake": (
                     "collection did not finish within the admitted scheduled window; "
                     "do not notify or send, and wait for the next natural window"
@@ -7003,6 +7224,7 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
                 "trigger_proof": trigger_proof,
                 "scheduled_window": trigger_window,
                 "scheduled_for": trigger_window.get("scheduled_for"),
+                "attempt_barrier": attempt_barrier,
                 "wake": f"{reason}; do not notify or send again",
             }
             print(json.dumps(summary, indent=2))
@@ -7014,20 +7236,21 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
     json_path = EVIDENCE_DIR / "latest.json"
     html_path = EVIDENCE_DIR / "latest.html"
     try:
-        stamp = _archive_stamp(
-            scheduled_trigger=args.scheduled_trigger,
+        stamp = scheduled_stamp or _archive_stamp(
+            scheduled_trigger=False,
             trigger_window=trigger_window,
         )
     except ValueError as exc:
         print(json.dumps({"status": "blocked", "error": str(exc)}, indent=2))
         return 3
     write_packet(packet, json_path, html_path)
-    archive_html_path = EVIDENCE_DIR / f"brief-{stamp}.html"
-    archive_json_path = EVIDENCE_DIR / f"brief-{stamp}.json"
+    archive_prefix = "brief" if args.scheduled_trigger else "manual-brief"
+    archive_html_path = EVIDENCE_DIR / f"{archive_prefix}-{stamp}.html"
+    archive_json_path = EVIDENCE_DIR / f"{archive_prefix}-{stamp}.json"
     try:
         _place_private_archive(archive_html_path, html_path.read_bytes())
         _place_private_archive(archive_json_path, json_path.read_bytes())
-    except FileExistsError as exc:
+    except OSError as exc:
         summary = {
             "schema": WINDOW_RECEIPT_SCHEMA,
             "status": "blocked",
@@ -7039,16 +7262,18 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
             "scheduled_for": trigger_window.get("scheduled_for"),
             "archive_html": str(archive_html_path),
             "archive_json": str(archive_json_path),
+            **(
+                {"attempt_barrier": attempt_barrier}
+                if attempt_barrier is not None
+                else {}
+            ),
             "wake": (
                 f"{exc}; do not notify, send, overwrite, or retry this scheduled window; "
                 "inspect the immutable archive pair and scheduled-window ledger"
             ),
         }
         print(json.dumps(summary, indent=2), file=sys.stderr)
-        (LOG_DIR / "last-run.json").write_text(
-            json.dumps(summary, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        _write_last_run_best_effort(summary)
         return 3
     subject = brief_subject(packet["slot"], packet["generated_at"])
     notification = macos_notify(
@@ -7075,6 +7300,11 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         "html": str(html_path),
         "archive_html": str(archive_html_path),
         "archive_json": str(archive_json_path),
+        **(
+            {"attempt_barrier": attempt_barrier}
+            if attempt_barrier is not None
+            else {}
+        ),
         "html_sha256": hashlib.sha256(archive_html_path.read_bytes()).hexdigest(),
         "json_sha256": hashlib.sha256(archive_json_path.read_bytes()).hexdigest(),
         "notification": notification,

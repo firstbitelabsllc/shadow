@@ -3063,6 +3063,24 @@ class AuthorityScopeTests(unittest.TestCase):
             self.assertEqual(row["scheduled_for"], scheduled_for)
             self.assertEqual(row["slot"], "morning")
 
+    def test_producer_provenance_rejects_noncanonical_git_object_id_lengths(self):
+        candidate = "a" * 41
+
+        def run(argv, **_kwargs):
+            if argv[-2:] == ["rev-parse", "--show-toplevel"]:
+                return subprocess.CompletedProcess(argv, 0, f"{ROOT}\n", "")
+            if argv[-2:] == ["rev-parse", "HEAD"]:
+                return subprocess.CompletedProcess(argv, 0, f"{candidate}\n", "")
+            if "status" in argv:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return subprocess.CompletedProcess(argv, 0, f"{'b' * 40}\n", "")
+
+        with mock.patch.object(brief, "_run", side_effect=run):
+            provenance = brief.producer_provenance()
+
+        self.assertIsNone(provenance["source_commit"])
+        self.assertFalse(provenance["source_matches_commit"])
+
     def test_launch_trigger_requires_exact_xpc_service_and_current_launchctl_job_pid(self):
         commands = []
 
@@ -3140,6 +3158,90 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIsNone(proof.get("job_pid"))
         self.assertFalse(proof.get("exact_job"))
         self.assertFalse(brief.scheduled_trigger_is_authorized(True, proof))
+
+    def test_launch_trigger_probe_failures_return_blocked_structured_proof(self):
+        cases = (
+            ("ps-oserror", "/bin/ps", OSError("ps unavailable"), "ps"),
+            (
+                "ps-timeout",
+                "/bin/ps",
+                subprocess.TimeoutExpired(["/bin/ps"], 5),
+                "ps",
+            ),
+            (
+                "launchctl-oserror",
+                "/bin/launchctl",
+                OSError("launchctl unavailable"),
+                "launchctl",
+            ),
+            (
+                "launchctl-timeout",
+                "/bin/launchctl",
+                subprocess.TimeoutExpired(["/bin/launchctl"], 5),
+                "launchctl",
+            ),
+        )
+        for name, failing_program, failure, expected_probe in cases:
+            with self.subTest(name=name):
+                def run(argv, **_kwargs):
+                    if argv[0] == failing_program:
+                        raise failure
+                    if argv[0] == "/bin/ps":
+                        return subprocess.CompletedProcess(
+                            argv, 0, "/sbin/launchd\n", ""
+                        )
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        "gui/501/com.leokwan.shadow-bidaily-brief = {\n"
+                        "\tpid = 4242\n}\n",
+                        "",
+                    )
+
+                with mock.patch.dict(
+                    os.environ,
+                    {"XPC_SERVICE_NAME": brief.LABEL},
+                    clear=True,
+                ), mock.patch.object(
+                    brief.os, "getpid", return_value=4242
+                ), mock.patch.object(
+                    brief.os, "getppid", return_value=1
+                ), mock.patch.object(
+                    brief.os, "getuid", return_value=501
+                ), mock.patch.object(
+                    brief, "_run", side_effect=run
+                ):
+                    try:
+                        proof = brief.launch_trigger_proof()
+                    except (OSError, subprocess.TimeoutExpired) as exc:
+                        self.fail(f"launch trigger proof leaked {type(exc).__name__}: {exc}")
+
+                self.assertFalse(proof["exact_job"])
+                self.assertFalse(proof["is_launchd"])
+                self.assertIn(expected_probe, proof["probe_errors"])
+
+    def test_scheduled_command_emits_blocked_proof_when_launch_probe_fails(self):
+        def run(argv, **_kwargs):
+            if argv[0] == "/bin/ps":
+                raise OSError("ps unavailable")
+            return subprocess.CompletedProcess(argv, 1, "", "not loaded")
+
+        stderr = io.StringIO()
+        with mock.patch.dict(
+            os.environ,
+            {"XPC_SERVICE_NAME": brief.LABEL},
+            clear=True,
+        ), mock.patch.object(brief, "_run", side_effect=run), contextlib.redirect_stderr(stderr):
+            try:
+                exit_code = brief.cmd_run(mock.Mock(scheduled_trigger=True))
+            except OSError as exc:
+                self.fail(f"scheduled command leaked launch probe error: {exc}")
+
+        emitted = json.loads(stderr.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(emitted["status"], "blocked")
+        self.assertFalse(emitted["trigger_proof"]["exact_job"])
+        self.assertIn("ps", emitted["trigger_proof"]["probe_errors"])
 
     def test_scheduled_run_lock_rejects_second_invocation_before_collection(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3226,6 +3328,228 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertEqual(resulting_mode, original_mode)
         self.assertEqual(resulting_content, "do not touch")
 
+    def test_scheduled_run_lock_revalidates_the_canonical_name_after_flock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_path = root / "scheduled-run.lock"
+            displaced = root / "displaced-run.lock"
+            collect = mock.Mock(
+                return_value={
+                    "generated_at": "2026-08-12T08:05:00-04:00",
+                    "board": {"revision": 1},
+                    "authority": {"board_snapshot": {"consistent": False}},
+                }
+            )
+            proof = {
+                "is_launchd": True,
+                "parent_pid": 1,
+                "parent_command": "/sbin/launchd",
+                "label": brief.LABEL,
+                "domain": f"gui/{os.getuid()}",
+                "current_pid": os.getpid(),
+                "job_pid": os.getpid(),
+                "xpc_service_name": brief.LABEL,
+                "service_matches_label": True,
+                "exact_job": True,
+            }
+            window = {
+                "on_schedule": True,
+                "slot": "morning",
+                "scheduled_for": "2026-08-12T08:00:00-04:00",
+            }
+            real_flock = fcntl.flock
+            swapped = False
+
+            def swap_name_after_lock(descriptor, operation):
+                nonlocal swapped
+                real_flock(descriptor, operation)
+                if operation == fcntl.LOCK_EX | fcntl.LOCK_NB and not swapped:
+                    lock_path.replace(displaced)
+                    lock_path.write_text("replacement", encoding="utf-8")
+                    swapped = True
+
+            with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
+                brief, "WINDOW_LOG", root / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "EVIDENCE_DIR", root / "evidence"
+            ), mock.patch.object(
+                brief, "launch_trigger_proof", return_value=proof
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=window
+            ), mock.patch.object(
+                brief, "collect_packet", collect
+            ), mock.patch.object(
+                brief.fcntl, "flock", side_effect=swap_name_after_lock
+            ), contextlib.redirect_stderr(io.StringIO()):
+                exit_code = brief.cmd_run(mock.Mock(scheduled_trigger=True))
+
+            replacement = os.open(lock_path, os.O_RDWR)
+            try:
+                real_flock(replacement, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                real_flock(replacement, fcntl.LOCK_UN)
+            finally:
+                os.close(replacement)
+            displaced_descriptor = os.open(displaced, os.O_RDWR)
+            try:
+                real_flock(
+                    displaced_descriptor,
+                    fcntl.LOCK_EX | fcntl.LOCK_NB,
+                )
+                real_flock(displaced_descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(displaced_descriptor)
+
+        self.assertTrue(swapped)
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(collect.call_count, 0)
+
+    def test_scheduled_run_lock_closes_descriptor_without_masking_setup_failure(self):
+        real_open = os.open
+        real_fstat = os.fstat
+        real_fchmod = os.fchmod
+        real_flock = fcntl.flock
+
+        for stage in ("fstat", "fchmod", "flock"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opened: list[int] = []
+
+                def record_open(*args, **kwargs):
+                    descriptor = real_open(*args, **kwargs)
+                    opened.append(descriptor)
+                    return descriptor
+
+                def fail_fstat(descriptor):
+                    if stage == "fstat":
+                        raise OSError("original fstat setup failure")
+                    return real_fstat(descriptor)
+
+                def fail_fchmod(descriptor, mode):
+                    if stage == "fchmod":
+                        raise OSError("original fchmod setup failure")
+                    return real_fchmod(descriptor, mode)
+
+                def fail_flock(descriptor, operation):
+                    if stage == "flock" and operation & fcntl.LOCK_EX:
+                        raise OSError("original flock setup failure")
+                    return real_flock(descriptor, operation)
+
+                with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
+                    brief.os, "open", side_effect=record_open
+                ), mock.patch.object(
+                    brief.os, "fstat", side_effect=fail_fstat
+                ), mock.patch.object(
+                    brief.os, "fchmod", side_effect=fail_fchmod
+                ), mock.patch.object(
+                    brief.fcntl, "flock", side_effect=fail_flock
+                ):
+                    with self.assertRaisesRegex(OSError, f"original {stage} setup failure"):
+                        brief._acquire_scheduled_run_lock()
+
+                self.assertEqual(len(opened), 1)
+                with self.assertRaises(OSError):
+                    real_fstat(opened[0])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            opened = []
+            fstat_calls = 0
+
+            def record_open(*args, **kwargs):
+                descriptor = real_open(*args, **kwargs)
+                opened.append(descriptor)
+                return descriptor
+
+            def fail_post_lock_fstat(descriptor):
+                nonlocal fstat_calls
+                fstat_calls += 1
+                if fstat_calls == 2:
+                    raise OSError("original post-lock identity failure")
+                return real_fstat(descriptor)
+
+            def fail_cleanup_unlock(descriptor, operation):
+                if operation == fcntl.LOCK_UN:
+                    raise OSError("cleanup unlock failure")
+                return real_flock(descriptor, operation)
+
+            with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
+                brief.os, "open", side_effect=record_open
+            ), mock.patch.object(
+                brief.os, "fstat", side_effect=fail_post_lock_fstat
+            ), mock.patch.object(
+                brief.fcntl, "flock", side_effect=fail_cleanup_unlock
+            ):
+                with self.assertRaisesRegex(
+                    OSError,
+                    "original post-lock identity failure",
+                ):
+                    brief._acquire_scheduled_run_lock()
+
+            self.assertEqual(len(opened), 1)
+            with self.assertRaises(OSError):
+                real_fstat(opened[0])
+
+    def test_scheduled_run_lock_release_never_masks_the_run_result_or_exception(self):
+        proof = {
+            "is_launchd": True,
+            "parent_pid": 1,
+            "parent_command": "/sbin/launchd",
+            "label": brief.LABEL,
+            "domain": f"gui/{os.getuid()}",
+            "current_pid": os.getpid(),
+            "job_pid": os.getpid(),
+            "xpc_service_name": brief.LABEL,
+            "service_matches_label": True,
+            "exact_job": True,
+        }
+        for outcome in ("result", "exception"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                descriptor = os.open(
+                    root / "held-run.lock",
+                    os.O_RDWR | os.O_CREAT,
+                    0o600,
+                )
+                handle = os.fdopen(descriptor, "r+", encoding="utf-8")
+                run = mock.Mock(
+                    return_value=3,
+                    side_effect=(
+                        RuntimeError("original scheduled run failure")
+                        if outcome == "exception"
+                        else None
+                    ),
+                )
+
+                def fail_unlock(_descriptor, operation):
+                    self.assertEqual(operation, fcntl.LOCK_UN)
+                    raise OSError("scheduled lock cleanup unavailable")
+
+                with mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"), mock.patch.object(
+                    brief, "LOG_DIR", root / "ledger"
+                ), mock.patch.object(
+                    brief, "launch_trigger_proof", return_value=proof
+                ), mock.patch.object(
+                    brief, "_acquire_scheduled_run_lock", return_value=handle
+                ), mock.patch.object(
+                    brief, "_cmd_run_locked", run
+                ), mock.patch.object(
+                    brief.fcntl, "flock", side_effect=fail_unlock
+                ):
+                    if outcome == "result":
+                        try:
+                            exit_code = brief.cmd_run(mock.Mock(scheduled_trigger=True))
+                        except OSError as exc:
+                            self.fail(f"lock release masked completed result: {exc}")
+                        self.assertEqual(exit_code, 3)
+                    else:
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            "original scheduled run failure",
+                        ):
+                            brief.cmd_run(mock.Mock(scheduled_trigger=True))
+
+                self.assertTrue(handle.closed)
+
     def test_scheduled_archive_is_exclusive_read_only_and_the_delivery_source(self):
         class FrozenDateTime(brief.datetime):
             @classmethod
@@ -3277,8 +3601,10 @@ class AuthorityScopeTests(unittest.TestCase):
             notify = mock.Mock(return_value={"status": "ok"})
             collect = mock.Mock(return_value=packet)
             append_lock_states = []
+            appended_summaries = []
 
-            def append_while_locked(*_args, **_kwargs):
+            def append_while_locked(summary, *_args, **_kwargs):
+                appended_summaries.append(summary)
                 descriptor = os.open(ledger / "scheduled-run.lock", os.O_RDWR)
                 try:
                     try:
@@ -3321,6 +3647,13 @@ class AuthorityScopeTests(unittest.TestCase):
                 archive = next(evidence.glob("brief-*.html"))
                 first_bytes = archive.read_bytes()
                 second_exit = brief.cmd_run(args)
+                attempt_barrier = ledger / "scheduled-attempt-20260812-080000.json"
+                attempt_barrier_exists = attempt_barrier.is_file()
+                attempt_barrier_mode = (
+                    stat.S_IMODE(attempt_barrier.stat().st_mode)
+                    if attempt_barrier_exists
+                    else None
+                )
 
             self.assertEqual(first_exit, 0)
             self.assertEqual(archive.name, "brief-20260812-080000.html")
@@ -3335,6 +3668,433 @@ class AuthorityScopeTests(unittest.TestCase):
             json_archive = archive.with_suffix(".json")
             self.assertTrue(json_archive.is_file())
             self.assertEqual(stat.S_IMODE(json_archive.stat().st_mode), 0o400)
+            self.assertTrue(attempt_barrier_exists)
+            self.assertEqual(attempt_barrier_mode, 0o400)
+            self.assertEqual(
+                appended_summaries[0]["attempt_barrier"],
+                {"path": str(attempt_barrier), "state": "PRESENT"},
+            )
+
+    def test_archive_publication_oserror_preserves_barrier_and_blocks_retry(self):
+        class FrozenDateTime(brief.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value = cls.fromisoformat("2026-08-12T08:05:00-04:00")
+                return value if tz is None else value.astimezone(tz)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            packet = {
+                "generated_at": "2026-08-12T08:05:00-04:00",
+                "slot": "morning",
+                "board": {"revision": 41, "entities": [], "claims": []},
+                "authority": {
+                    "board_snapshot": {"consistent": True, "revision": 41}
+                },
+                "paint_health": {},
+                "producer": _m5_producer_fixture(),
+                "superhuman_context": _m5_mail_fixture(),
+                "repos": [],
+                "github_open_prs": [],
+                "recommendations": [],
+                "analysis": {},
+                "snowcubes_context": {"surfaces": []},
+            }
+            window = {
+                "on_schedule": True,
+                "slot": "morning",
+                "scheduled_for": "2026-08-12T08:00:00-04:00",
+            }
+            proof = {
+                "is_launchd": True,
+                "parent_pid": 1,
+                "parent_command": "/sbin/launchd",
+                "label": brief.LABEL,
+                "domain": f"gui/{os.getuid()}",
+                "current_pid": os.getpid(),
+                "job_pid": os.getpid(),
+                "xpc_service_name": brief.LABEL,
+                "service_matches_label": True,
+                "exact_job": True,
+            }
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            collect = mock.Mock(return_value=packet)
+            notify = mock.Mock(return_value={"status": "ok"})
+            deliver = mock.Mock(return_value={"status": "ok"})
+            append = mock.Mock()
+            real_place = brief._place_private_archive
+
+            def fail_json_publication(path, content):
+                if path.parent == evidence and path.suffix == ".json":
+                    raise PermissionError("archive JSON publication denied")
+                return real_place(path, content)
+
+            stderr = io.StringIO()
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "datetime", FrozenDateTime
+            ), mock.patch.object(
+                brief, "launch_trigger_proof", return_value=proof
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=window
+            ), mock.patch.object(
+                brief, "collect_packet", collect
+            ), mock.patch.object(
+                brief, "_place_private_archive", side_effect=fail_json_publication
+            ), mock.patch.object(
+                brief, "macos_notify", notify
+            ), mock.patch.object(
+                brief, "deliver_superhuman", deliver
+            ), mock.patch.object(
+                brief, "append_scheduled_window", append
+            ), contextlib.redirect_stderr(stderr):
+                try:
+                    first_exit = brief.cmd_run(args)
+                    second_exit = brief.cmd_run(args)
+                except OSError as exc:
+                    self.fail(f"archive publication error escaped cmd_run: {exc}")
+
+            archive_html = evidence / "brief-20260812-080000.html"
+            archive_json = evidence / "brief-20260812-080000.json"
+            attempt_barrier = ledger / "scheduled-attempt-20260812-080000.json"
+            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            archive_html_exists = archive_html.is_file()
+            archive_json_exists = archive_json.exists()
+            archive_html_mode = stat.S_IMODE(archive_html.stat().st_mode)
+            attempt_barrier_exists = attempt_barrier.is_file()
+            attempt_barrier_mode = stat.S_IMODE(attempt_barrier.stat().st_mode)
+
+        self.assertEqual(first_exit, 3)
+        self.assertEqual(second_exit, 3)
+        self.assertEqual(collect.call_count, 1)
+        self.assertEqual(notify.call_count, 0)
+        self.assertEqual(deliver.call_count, 0)
+        self.assertEqual(append.call_count, 0)
+        self.assertTrue(archive_html_exists)
+        self.assertFalse(archive_json_exists)
+        self.assertEqual(archive_html_mode, 0o400)
+        self.assertTrue(attempt_barrier_exists)
+        self.assertEqual(attempt_barrier_mode, 0o400)
+        self.assertEqual(last_run["status"], "blocked")
+        self.assertEqual(last_run["archive_html"], str(archive_html))
+        self.assertEqual(last_run["archive_json"], str(archive_json))
+        self.assertEqual(
+            last_run["attempt_barrier"],
+            {"path": str(attempt_barrier), "state": "PRESENT"},
+        )
+        self.assertIn("archive JSON publication denied", last_run["wake"])
+        self.assertIn("do not notify, send, overwrite, or retry", last_run["wake"])
+
+    def test_first_archive_publication_oserror_cannot_recollect_on_retry(self):
+        class FrozenDateTime(brief.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value = cls.fromisoformat("2026-08-12T08:05:00-04:00")
+                return value if tz is None else value.astimezone(tz)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            packet = {
+                "generated_at": "2026-08-12T08:05:00-04:00",
+                "slot": "morning",
+                "board": {"revision": 41, "entities": [], "claims": []},
+                "authority": {
+                    "board_snapshot": {"consistent": True, "revision": 41}
+                },
+                "paint_health": {},
+                "producer": _m5_producer_fixture(),
+                "superhuman_context": _m5_mail_fixture(),
+                "repos": [],
+                "github_open_prs": [],
+                "recommendations": [],
+                "analysis": {},
+                "snowcubes_context": {"surfaces": []},
+            }
+            window = {
+                "on_schedule": True,
+                "slot": "morning",
+                "scheduled_for": "2026-08-12T08:00:00-04:00",
+            }
+            proof = {
+                "is_launchd": True,
+                "parent_pid": 1,
+                "parent_command": "/sbin/launchd",
+                "label": brief.LABEL,
+                "domain": f"gui/{os.getuid()}",
+                "current_pid": os.getpid(),
+                "job_pid": os.getpid(),
+                "xpc_service_name": brief.LABEL,
+                "service_matches_label": True,
+                "exact_job": True,
+            }
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            collect = mock.Mock(return_value=packet)
+            notify = mock.Mock(return_value={"status": "ok"})
+            deliver = mock.Mock(return_value={"status": "ok"})
+            append = mock.Mock()
+            real_place = brief._place_private_archive
+
+            def fail_html_publication(path, content):
+                if path.parent == evidence and path.suffix == ".html":
+                    raise OSError("archive HTML publication unavailable")
+                return real_place(path, content)
+
+            stderr = io.StringIO()
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "datetime", FrozenDateTime
+            ), mock.patch.object(
+                brief, "launch_trigger_proof", return_value=proof
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=window
+            ), mock.patch.object(
+                brief, "collect_packet", collect
+            ), mock.patch.object(
+                brief, "_place_private_archive", side_effect=fail_html_publication
+            ), mock.patch.object(
+                brief, "macos_notify", notify
+            ), mock.patch.object(
+                brief, "deliver_superhuman", deliver
+            ), mock.patch.object(
+                brief, "append_scheduled_window", append
+            ), contextlib.redirect_stderr(stderr):
+                try:
+                    first_exit = brief.cmd_run(args)
+                    second_exit = brief.cmd_run(args)
+                except OSError as exc:
+                    self.fail(f"first archive publication error escaped cmd_run: {exc}")
+
+            attempt_barrier = ledger / "scheduled-attempt-20260812-080000.json"
+            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            barrier_exists = attempt_barrier.is_file()
+            archived_files = sorted(path.name for path in evidence.glob("brief-*"))
+
+        self.assertEqual(first_exit, 3)
+        self.assertEqual(second_exit, 3)
+        self.assertEqual(collect.call_count, 1)
+        self.assertEqual(notify.call_count, 0)
+        self.assertEqual(deliver.call_count, 0)
+        self.assertEqual(append.call_count, 0)
+        self.assertTrue(barrier_exists)
+        self.assertEqual(archived_files, [])
+        self.assertEqual(last_run["status"], "blocked")
+        self.assertEqual(
+            last_run["attempt_barrier"],
+            {"path": str(attempt_barrier), "state": "PRESENT"},
+        )
+        self.assertIn("archive HTML publication unavailable", last_run["wake"])
+
+    def test_publication_failure_stays_blocked_when_last_run_cannot_be_written(self):
+        class FrozenDateTime(brief.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value = cls.fromisoformat("2026-08-12T08:05:00-04:00")
+                return value if tz is None else value.astimezone(tz)
+
+        packet = {
+            "generated_at": "2026-08-12T08:05:00-04:00",
+            "slot": "morning",
+            "board": {"revision": 41, "entities": [], "claims": []},
+            "authority": {"board_snapshot": {"consistent": True, "revision": 41}},
+            "paint_health": {},
+            "producer": _m5_producer_fixture(),
+            "superhuman_context": _m5_mail_fixture(),
+            "repos": [],
+            "github_open_prs": [],
+            "recommendations": [],
+            "analysis": {},
+            "snowcubes_context": {"surfaces": []},
+        }
+        window = {
+            "on_schedule": True,
+            "slot": "morning",
+            "scheduled_for": "2026-08-12T08:00:00-04:00",
+        }
+        proof = {
+            "is_launchd": True,
+            "parent_pid": 1,
+            "parent_command": "/sbin/launchd",
+            "label": brief.LABEL,
+            "domain": f"gui/{os.getuid()}",
+            "current_pid": os.getpid(),
+            "job_pid": os.getpid(),
+            "xpc_service_name": brief.LABEL,
+            "service_matches_label": True,
+            "exact_job": True,
+        }
+        args = mock.Mock(
+            scheduled_trigger=True,
+            slot="morning",
+            deliver=True,
+            dry_run=False,
+            send_authorized_self=True,
+        )
+        real_place = brief._place_private_archive
+        real_write_text = Path.write_text
+
+        for failure_stage, expected_collects in (("barrier", 0), ("archive", 1)):
+            with self.subTest(failure_stage=failure_stage), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                evidence = root / "evidence"
+                ledger = root / "ledger"
+                collect = mock.Mock(return_value=packet)
+                notify = mock.Mock(return_value={"status": "ok"})
+                deliver = mock.Mock(return_value={"status": "ok"})
+                append = mock.Mock()
+
+                def fail_publication(path, content):
+                    if failure_stage == "barrier" and path.parent == ledger:
+                        raise OSError("attempt barrier storage unavailable")
+                    if (
+                        failure_stage == "archive"
+                        and path.parent == evidence
+                        and path.suffix == ".html"
+                    ):
+                        raise OSError("archive storage unavailable")
+                    return real_place(path, content)
+
+                def fail_last_run(path, *args, **kwargs):
+                    if path.name == "last-run.json":
+                        raise OSError("last-run storage unavailable")
+                    return real_write_text(path, *args, **kwargs)
+
+                stderr = io.StringIO()
+                with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                    brief, "LOG_DIR", ledger
+                ), mock.patch.object(
+                    brief, "WINDOW_LOG", ledger / "windows.jsonl"
+                ), mock.patch.object(
+                    brief, "datetime", FrozenDateTime
+                ), mock.patch.object(
+                    brief, "scheduled_window", return_value=window
+                ), mock.patch.object(
+                    brief, "collect_packet", collect
+                ), mock.patch.object(
+                    brief, "_place_private_archive", side_effect=fail_publication
+                ), mock.patch.object(
+                    brief, "macos_notify", notify
+                ), mock.patch.object(
+                    brief, "deliver_superhuman", deliver
+                ), mock.patch.object(
+                    brief, "append_scheduled_window", append
+                ), mock.patch.object(
+                    brief.Path,
+                    "write_text",
+                    autospec=True,
+                    side_effect=fail_last_run,
+                ), contextlib.redirect_stderr(stderr):
+                    try:
+                        exit_code = brief._cmd_run_locked(args, proof)
+                    except OSError as exc:
+                        self.fail(f"recovery persistence failure escaped: {exc}")
+
+                emitted = json.loads(stderr.getvalue())
+                barrier = ledger / "scheduled-attempt-20260812-080000.json"
+                self.assertEqual(exit_code, 3)
+                self.assertEqual(collect.call_count, expected_collects)
+                self.assertEqual(notify.call_count, 0)
+                self.assertEqual(deliver.call_count, 0)
+                self.assertEqual(append.call_count, 0)
+                self.assertEqual(emitted["status"], "blocked")
+                self.assertEqual(emitted["attempt_barrier"]["path"], str(barrier))
+                self.assertEqual(
+                    emitted["attempt_barrier"]["state"],
+                    "UNAVAILABLE" if failure_stage == "barrier" else "PRESENT",
+                )
+                self.assertEqual(barrier.exists(), failure_stage == "archive")
+
+    def test_manual_runs_use_unique_namespace_at_an_exact_scheduled_clock_time(self):
+        class FrozenDateTime(brief.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value = cls.fromisoformat("2026-08-12T08:00:00-04:00")
+                return value if tz is None else value.astimezone(tz)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            packet = {
+                "generated_at": "2026-08-12T08:00:00-04:00",
+                "slot": "morning",
+                "board": {"revision": 41, "entities": [], "claims": []},
+                "authority": {
+                    "board_snapshot": {"consistent": True, "revision": 41}
+                },
+                "paint_health": {},
+                "producer": _m5_producer_fixture(),
+                "superhuman_context": _m5_mail_fixture(),
+                "repos": [],
+                "github_open_prs": [],
+                "recommendations": [],
+                "analysis": {},
+                "snowcubes_context": {"surfaces": []},
+            }
+            args = mock.Mock(
+                scheduled_trigger=False,
+                slot="morning",
+                deliver=False,
+                dry_run=False,
+                send_authorized_self=False,
+            )
+            notify = mock.Mock(return_value={"status": "ok"})
+            append = mock.Mock()
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "datetime", FrozenDateTime
+            ), mock.patch.object(
+                brief, "collect_packet", return_value=packet
+            ), mock.patch.object(
+                brief, "macos_notify", notify
+            ), mock.patch.object(
+                brief, "append_scheduled_window", append
+            ), mock.patch.object(
+                brief.time, "time_ns", return_value=101
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                first_exit = brief.cmd_run(args)
+                second_exit = brief.cmd_run(args)
+
+            html_names = sorted(path.name for path in evidence.glob("manual-brief-*.html"))
+            json_names = sorted(path.name for path in evidence.glob("manual-brief-*.json"))
+            scheduled_collision = (evidence / "brief-20260812-080000.html").exists()
+
+        self.assertEqual(first_exit, 0)
+        self.assertEqual(second_exit, 0)
+        self.assertEqual(len(html_names), 2)
+        self.assertEqual(len(json_names), 2)
+        self.assertEqual(
+            {name.removesuffix(".html") for name in html_names},
+            {name.removesuffix(".json") for name in json_names},
+        )
+        self.assertTrue(
+            all(name.startswith("manual-brief-20260812-080000-000000-") for name in html_names)
+        )
+        self.assertFalse(scheduled_collision)
+        self.assertEqual(notify.call_count, 2)
+        self.assertEqual(append.call_count, 2)
 
     def test_window_verifier_accepts_honest_unknown_expected_identity_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3344,6 +4104,70 @@ class AuthorityScopeTests(unittest.TestCase):
             result = brief.verify_window_receipts(rows, evidence_dir=evidence)
 
         self.assertTrue(result["ok"], result["problems"])
+
+    def test_superhuman_verifier_reports_non_list_coverage_and_action_buckets(self):
+        cases = (
+            ("coverage", {"not": "a list"}),
+            ("signals", "not a list"),
+            ("urgent_replies", 7),
+            ("waiting_replies", True),
+            ("forgotten_obligations", {}),
+            ("order_return_follow_up", "broken"),
+            ("proactive_candidates", None),
+            ("calendar_proposals", 0),
+        )
+        for key, malformed in cases:
+            with self.subTest(bucket=key, value=malformed):
+                mail = _m5_mail_fixture()
+                mail[key] = malformed
+                try:
+                    problems = brief._superhuman_receipt_problems(mail)
+                except TypeError as exc:
+                    self.fail(f"JSON-valid {key} bucket raised TypeError: {exc}")
+
+                self.assertIn(
+                    f"Superhuman {key} bucket must be a list",
+                    problems,
+                )
+
+    def test_superhuman_verifier_accepts_linked_unknown_with_problem_and_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+
+            def make_linked_unknown(packet):
+                row = packet["superhuman_context"]["coverage"][0]
+                row["status"] = "UNKNOWN"
+                row["problems"] = ["provider pagination was truncated"]
+                row["wake"] = "Rerun the bounded read-only account scan."
+
+            _rewrite_m5_packet(rows[0], make_linked_unknown)
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertTrue(result["ok"], result["problems"])
+
+    def test_superhuman_verifier_rejects_every_other_expected_identity_state(self):
+        cases = (
+            (True, "BOGUS", ["provider problem"], "retry read-only scan"),
+            (False, "COMPLETE", [], None),
+            (None, "UNKNOWN", ["provider problem"], "retry read-only scan"),
+            (True, "UNKNOWN", [], "retry read-only scan"),
+        )
+        for linked, status_value, row_problems, wake in cases:
+            with self.subTest(linked=linked, status=status_value):
+                mail = _m5_mail_fixture()
+                row = mail["coverage"][0]
+                row["linked"] = linked
+                row["status"] = status_value
+                row["problems"] = row_problems
+                row["wake"] = wake
+
+                problems = brief._superhuman_receipt_problems(mail)
+
+                self.assertIn(
+                    "invalid expected Superhuman identity coverage state: leojkwan@gmail.com",
+                    problems,
+                )
 
     def test_window_verifier_binds_the_exact_declared_archive_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3433,6 +4257,29 @@ class AuthorityScopeTests(unittest.TestCase):
             result["problems"],
         )
 
+    def test_window_verifier_rejects_intermediate_length_git_object_ids(self):
+        for oid_length in (41, 63):
+            with self.subTest(oid_length=oid_length), tempfile.TemporaryDirectory() as tmp:
+                evidence = Path(tmp)
+                rows = _write_m5_pair(evidence)
+                invalid = {
+                    **_m5_producer_fixture(),
+                    "source_commit": "c" * oid_length,
+                }
+                rows[0]["producer"] = invalid
+                _rewrite_m5_packet(
+                    rows[0],
+                    lambda packet: packet.__setitem__("producer", invalid),
+                )
+
+                result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+                self.assertFalse(result["ok"])
+                self.assertIn(
+                    "2026-08-12T08:00:00-04:00: runtime producer provenance missing",
+                    result["problems"],
+                )
+
     def test_window_verifier_rejects_duplicate_receipts_for_one_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp)
@@ -3445,6 +4292,40 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIn(
             "2026-08-12T08:00:00-04:00: duplicate natural-window receipts found",
             result["problems"],
+        )
+
+    def test_window_verifier_ignores_old_duplicate_before_latest_clean_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            old_rows = _write_m5_pair(evidence)
+            rows = [dict(old_rows[0]), *old_rows]
+            rows.extend(
+                [
+                    _write_m5_window_fixture(
+                        evidence,
+                        scheduled_for="2026-08-13T08:00:00-04:00",
+                        generated_at="2026-08-13T08:05:00-04:00",
+                        sent_at="2026-08-13T08:06:00-04:00",
+                        slot="morning",
+                        stamp="20260813-080000",
+                    ),
+                    _write_m5_window_fixture(
+                        evidence,
+                        scheduled_for="2026-08-13T20:00:00-04:00",
+                        generated_at="2026-08-13T20:05:00-04:00",
+                        sent_at="2026-08-13T20:06:00-04:00",
+                        slot="evening",
+                        stamp="20260813-200000",
+                    ),
+                ]
+            )
+
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertTrue(result["ok"], result["problems"])
+        self.assertEqual(
+            result["windows"],
+            ["2026-08-13T08:00:00-04:00", "2026-08-13T20:00:00-04:00"],
         )
 
     def test_delivery_evidence_accepts_two_consecutive_twice_daily_windows(self):
@@ -3669,7 +4550,6 @@ class AuthorityScopeTests(unittest.TestCase):
                     fmt=plistlib.FMT_XML,
                 )
             )
-
             with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
                 brief, "_host_timezone_name", return_value="America/New_York"
             ), mock.patch.object(
@@ -3712,6 +4592,143 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertFalse(status["installed"])
         self.assertIn(
             "OtherScheduledBriefLaunchAgent:com.example.shadow-copy.plist",
+            status["configuration_problems"],
+        )
+
+    def test_schedule_status_detects_shell_wrapped_producer_without_echo_false_positive(self):
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            agents = home / "Library" / "LaunchAgents"
+            agents.mkdir(parents=True)
+            canonical = agents / f"{brief.LABEL}.plist"
+            with mock.patch.object(brief.Path, "home", return_value=home):
+                canonical_doc = brief.launch_agent_plist(
+                    Path(brief.__file__).resolve()
+                )
+            canonical.write_bytes(
+                plistlib.dumps(
+                    canonical_doc,
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            wrapped = agents / "com.example.shadow-wrapped.plist"
+            wrapped.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-wrapped",
+                        "ProgramArguments": [
+                            "/bin/zsh",
+                            "-lc",
+                            "/usr/local/bin/shadow brief run --deliver --scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            unrelated = agents / "com.example.shadow-quoted.plist"
+            unrelated.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-quoted",
+                        "ProgramArguments": [
+                            "/bin/zsh",
+                            "-lc",
+                            "printf '%s' 'shadow brief run --scheduled-trigger'",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            echo_script_name = agents / "com.example.shadow-echo-script-name.plist"
+            echo_script_name.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-echo-script-name",
+                        "ProgramArguments": [
+                            "/bin/echo",
+                            "/tmp/shadow-brief.py",
+                            "--scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            compound = agents / "com.example.shadow-compound.plist"
+            compound.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-compound",
+                        "ProgramArguments": [
+                            "/bin/zsh",
+                            "-lc",
+                            "cd /tmp && /usr/local/bin/shadow brief run "
+                            "--deliver --scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            no_command_option = agents / "com.example.shadow-bash-norc.plist"
+            no_command_option.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-bash-norc",
+                        "ProgramArguments": [
+                            "/bin/bash",
+                            "--norc",
+                            "shadow brief run --scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            assigned = agents / "com.example.shadow-assigned.plist"
+            assigned.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-assigned",
+                        "ProgramArguments": [
+                            "/bin/zsh",
+                            "-lc",
+                            "PATH=/usr/local/bin:$PATH /usr/local/bin/shadow "
+                            "brief run --scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+
+            with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
+                brief, "_host_timezone_name", return_value="America/New_York"
+            ), mock.patch.object(
+                brief,
+                "_run",
+                return_value=subprocess.CompletedProcess([], 0, "loaded", ""),
+            ):
+                status = brief.schedule_status()
+
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-wrapped.plist",
+            status["configuration_problems"],
+        )
+        self.assertNotIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-quoted.plist",
+            status["configuration_problems"],
+        )
+        self.assertNotIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-echo-script-name.plist",
+            status["configuration_problems"],
+        )
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-compound.plist",
+            status["configuration_problems"],
+        )
+        self.assertNotIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-bash-norc.plist",
+            status["configuration_problems"],
+        )
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-assigned.plist",
             status["configuration_problems"],
         )
 
