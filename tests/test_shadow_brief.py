@@ -91,9 +91,26 @@ def _m5_mail_fixture(*, include_action: bool = True) -> dict[str, object]:
         "status": "UNKNOWN",
         "all_clear_allowed": False,
         "expected_identities": expected_identities,
+        "account_discovery": {
+            "status": "COMPLETE",
+            "malformed_rows": 0,
+            "wake": None,
+        },
         "linked_accounts": [
-            {"acting_email": "leojkwan@gmail.com"},
-            {"acting_email": "trysnowcubes@gmail.com"},
+            {
+                "acting_email": "leojkwan@gmail.com",
+                "is_primary": True,
+                "added_at": "2026-01-01T00:00:00Z",
+                "sender_identities": ["leojkwan@gmail.com"],
+                "sender_identity_complete": True,
+            },
+            {
+                "acting_email": "trysnowcubes@gmail.com",
+                "is_primary": False,
+                "added_at": "2026-01-02T00:00:00Z",
+                "sender_identities": ["trysnowcubes@gmail.com"],
+                "sender_identity_complete": True,
+            },
         ],
         "coverage": coverage,
         "signals": actions,
@@ -136,7 +153,9 @@ def _write_m5_window_fixture(
     sent_at: str,
     slot: str,
     stamp: str,
+    ledger_dir: Path | None = None,
 ) -> dict[str, object]:
+    ledger = ledger_dir or evidence_dir / "ledger"
     producer = _m5_producer_fixture()
     paint_health = {
         "local_git": {"available": True},
@@ -202,18 +221,42 @@ def _write_m5_window_fixture(
     json_path.write_bytes(json_bytes)
     html_path.chmod(0o400)
     json_path.chmod(0o400)
+    barrier_path = ledger / f"scheduled-attempt-{stamp}.json"
+    barrier_path.parent.mkdir(parents=True, exist_ok=True)
+    barrier_path.write_text(
+        json.dumps(
+            {
+                "schema": brief.SCHEDULED_ATTEMPT_SCHEMA,
+                "state": "RESERVED",
+                "scheduled_for": scheduled_for,
+                "slot": slot,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    barrier_path.chmod(0o400)
     row.update(
         {
             "archive_html": str(html_path),
             "archive_json": str(json_path),
             "html_sha256": hashlib.sha256(html_bytes).hexdigest(),
             "json_sha256": hashlib.sha256(json_bytes).hexdigest(),
+            "attempt_barrier": {
+                "path": str(barrier_path),
+                "state": "PRESENT",
+            },
         }
     )
     return row
 
 
-def _write_m5_pair(evidence_dir: Path) -> list[dict[str, object]]:
+def _write_m5_pair(
+    evidence_dir: Path,
+    ledger_dir: Path | None = None,
+) -> list[dict[str, object]]:
+    ledger = ledger_dir or evidence_dir / "ledger"
     return [
         _write_m5_window_fixture(
             evidence_dir,
@@ -222,6 +265,7 @@ def _write_m5_pair(evidence_dir: Path) -> list[dict[str, object]]:
             sent_at="2026-08-12T08:06:00-04:00",
             slot="morning",
             stamp="20260812-080000",
+            ledger_dir=ledger,
         ),
         _write_m5_window_fixture(
             evidence_dir,
@@ -230,8 +274,56 @@ def _write_m5_pair(evidence_dir: Path) -> list[dict[str, object]]:
             sent_at="2026-08-12T20:06:00-04:00",
             slot="evening",
             stamp="20260812-200000",
+            ledger_dir=ledger,
         ),
     ]
+
+
+def _scheduled_proof_fixture() -> dict[str, object]:
+    return {
+        "is_launchd": True,
+        "parent_pid": 1,
+        "parent_command": "/sbin/launchd",
+        "label": brief.LABEL,
+        "domain": f"gui/{os.getuid()}",
+        "current_pid": os.getpid(),
+        "job_pid": os.getpid(),
+        "xpc_service_name": brief.LABEL,
+        "service_matches_label": True,
+        "exact_job": True,
+    }
+
+
+def _scheduled_window_fixture() -> dict[str, object]:
+    return {
+        "on_schedule": True,
+        "slot": "morning",
+        "scheduled_for": "2026-08-12T08:00:00-04:00",
+    }
+
+
+def _scheduled_packet_fixture(
+    *,
+    generated_at: str = "2026-08-12T08:05:00-04:00",
+    consistent: bool = True,
+    producer: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "generated_at": generated_at,
+        "slot": "morning",
+        "board": {"revision": 41, "entities": [], "claims": []},
+        "authority": {
+            "board_snapshot": {"consistent": consistent, "revision": 41}
+        },
+        "paint_health": {},
+        "producer": producer if producer is not None else _m5_producer_fixture(),
+        "superhuman_context": _m5_mail_fixture(),
+        "repos": [],
+        "github_open_prs": [],
+        "recommendations": [],
+        "analysis": {},
+        "snowcubes_context": {"surfaces": []},
+    }
 
 
 def _rewrite_m5_packet(row: dict[str, object], mutate) -> None:
@@ -239,6 +331,15 @@ def _rewrite_m5_packet(row: dict[str, object], mutate) -> None:
     path.chmod(0o600)
     packet = json.loads(path.read_text(encoding="utf-8"))
     mutate(packet)
+    rendered = (json.dumps(packet, indent=2) + "\n").encode("utf-8")
+    path.write_bytes(rendered)
+    path.chmod(0o400)
+    row["json_sha256"] = hashlib.sha256(rendered).hexdigest()
+
+
+def _replace_m5_packet(row: dict[str, object], packet: object) -> None:
+    path = Path(str(row["archive_json"]))
+    path.chmod(0o600)
     rendered = (json.dumps(packet, indent=2) + "\n").encode("utf-8")
     path.write_bytes(rendered)
     path.chmod(0o400)
@@ -3081,6 +3182,44 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIsNone(provenance["source_commit"])
         self.assertFalse(provenance["source_matches_commit"])
 
+    def test_producer_provenance_turns_every_git_probe_failure_into_invalid_receipt(self):
+        def successful(argv):
+            if argv[-2:] == ["rev-parse", "--show-toplevel"]:
+                return subprocess.CompletedProcess(argv, 0, f"{ROOT}\n", "")
+            if argv[-2:] == ["rev-parse", "HEAD"]:
+                return subprocess.CompletedProcess(argv, 0, f"{'a' * 40}\n", "")
+            if "status" in argv:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return subprocess.CompletedProcess(argv, 0, f"{'b' * 40}\n", "")
+
+        for failure_index in range(5):
+            for failure_type in ("oserror", "timeout"):
+                with self.subTest(
+                    failure_index=failure_index,
+                    failure_type=failure_type,
+                ):
+                    calls = 0
+
+                    def run(argv, **_kwargs):
+                        nonlocal calls
+                        index = calls
+                        calls += 1
+                        if index == failure_index:
+                            if failure_type == "oserror":
+                                raise OSError(f"git probe {failure_index} unavailable")
+                            raise subprocess.TimeoutExpired(argv, 30)
+                        return successful(argv)
+
+                    with mock.patch.object(brief, "_run", side_effect=run):
+                        try:
+                            provenance = brief.producer_provenance()
+                        except (OSError, subprocess.TimeoutExpired) as exc:
+                            self.fail(f"producer provenance probe escaped: {exc}")
+
+                    self.assertFalse(brief._valid_producer_provenance(provenance))
+                    self.assertFalse(provenance["source_matches_commit"])
+                    self.assertEqual(len(provenance["script_sha256"]), 64)
+
     def test_launch_trigger_requires_exact_xpc_service_and_current_launchctl_job_pid(self):
         commands = []
 
@@ -3675,6 +3814,450 @@ class AuthorityScopeTests(unittest.TestCase):
                 {"path": str(attempt_barrier), "state": "PRESENT"},
             )
 
+    def test_scheduled_archives_use_run_local_bytes_when_latest_is_interleaved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            packet = _scheduled_packet_fixture()
+            appended: list[dict[str, object]] = []
+            delivered = mock.Mock(
+                return_value={
+                    "status": "ok",
+                    "delivery_status": "sent",
+                    "message_id": "interleaving-safe",
+                }
+            )
+
+            def overwrite_latest(_packet, out_json, out_html):
+                out_json.parent.mkdir(parents=True, exist_ok=True)
+                out_json.write_text(
+                    json.dumps({"interleaved": True}) + "\n",
+                    encoding="utf-8",
+                )
+                out_html.write_text("<html>INTERLEAVED</html>", encoding="utf-8")
+
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", return_value=packet
+            ), mock.patch.object(
+                brief, "write_packet", side_effect=overwrite_latest
+            ), mock.patch.object(
+                brief, "macos_notify", return_value={"status": "ok"}
+            ), mock.patch.object(
+                brief, "deliver_superhuman", delivered
+            ), mock.patch.object(
+                brief,
+                "append_scheduled_window",
+                side_effect=lambda summary, **_kwargs: appended.append(summary),
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
+
+            archive_json = evidence / "brief-20260812-080000.json"
+            archive_html = evidence / "brief-20260812-080000.html"
+            archived_packet = json.loads(archive_json.read_text(encoding="utf-8"))
+            archived_html = archive_html.read_text(encoding="utf-8")
+            archive_json_hash = hashlib.sha256(archive_json.read_bytes()).hexdigest()
+            archive_html_hash = hashlib.sha256(archive_html.read_bytes()).hexdigest()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(archived_packet, packet)
+        self.assertNotIn("INTERLEAVED", archived_html)
+        self.assertEqual(archived_html, brief.render_html(packet))
+        self.assertEqual(delivered.call_args.args[0], archive_html)
+        self.assertEqual(
+            appended[0]["json_sha256"],
+            archive_json_hash,
+        )
+        self.assertEqual(
+            appended[0]["html_sha256"],
+            archive_html_hash,
+        )
+
+    def test_last_run_failure_after_send_does_not_prevent_window_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            real_write_text = Path.write_text
+            appended: list[dict[str, object]] = []
+
+            def fail_last_run(path, *args, **kwargs):
+                if path.name == "last-run.json":
+                    raise OSError("last-run unavailable after send")
+                return real_write_text(path, *args, **kwargs)
+
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", return_value=_scheduled_packet_fixture()
+            ), mock.patch.object(
+                brief, "macos_notify", return_value={"status": "ok"}
+            ), mock.patch.object(
+                brief,
+                "deliver_superhuman",
+                return_value={
+                    "status": "ok",
+                    "delivery_status": "sent",
+                    "message_id": "sent-before-last-run-failure",
+                },
+            ), mock.patch.object(
+                brief,
+                "append_scheduled_window",
+                side_effect=lambda summary, **_kwargs: appended.append(summary),
+            ), mock.patch.object(
+                brief.Path,
+                "write_text",
+                autospec=True,
+                side_effect=fail_last_run,
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    exit_code = brief._cmd_run_locked(
+                        args,
+                        _scheduled_proof_fixture(),
+                    )
+                except OSError as exc:
+                    self.fail(f"last-run failure prevented append: {exc}")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(appended), 1)
+        self.assertEqual(
+            appended[0]["receipt"]["message_id"],
+            "sent-before-last-run-failure",
+        )
+
+    def test_append_failure_after_send_records_no_retry_recovery_and_blocks_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            collect = mock.Mock(return_value=_scheduled_packet_fixture())
+            deliver = mock.Mock(
+                return_value={
+                    "status": "ok",
+                    "delivery_status": "sent",
+                    "message_id": "sent-before-append-failure",
+                    "attempt_state": "PROVISIONAL_SENT",
+                    "attempt_id": "a" * 24,
+                }
+            )
+            append = mock.Mock(side_effect=OSError("window ledger append unavailable"))
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", collect
+            ), mock.patch.object(
+                brief, "macos_notify", return_value={"status": "ok"}
+            ), mock.patch.object(
+                brief, "deliver_superhuman", deliver
+            ), mock.patch.object(
+                brief, "append_scheduled_window", append
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    first_exit = brief._cmd_run_locked(args, _scheduled_proof_fixture())
+                    second_exit = brief._cmd_run_locked(args, _scheduled_proof_fixture())
+                except OSError as exc:
+                    self.fail(f"post-send append failure escaped: {exc}")
+
+            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(first_exit, 3)
+        self.assertEqual(second_exit, 3)
+        self.assertEqual(collect.call_count, 1)
+        self.assertEqual(deliver.call_count, 1)
+        self.assertEqual(append.call_count, 1)
+        self.assertEqual(last_run["status"], "blocked")
+        self.assertEqual(
+            last_run["receipt"]["message_id"],
+            "sent-before-append-failure",
+        )
+        self.assertIn("window ledger append unavailable", last_run["wake"])
+        self.assertIn("never resend", last_run["wake"])
+
+    def test_delivery_exception_appends_unknown_no_retry_window_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            send_attempt_log = ledger / "send-attempts.jsonl"
+            appended: list[dict[str, object]] = []
+
+            def fail_after_possible_send(_html_path, *, subject, **_kwargs):
+                send_attempt_log.parent.mkdir(parents=True, exist_ok=True)
+                send_attempt_log.write_text(
+                    json.dumps(
+                        {
+                            "schema": "shadow.superhuman-send-attempt.v1",
+                            "state": "UNKNOWN_NO_RETRY",
+                            "attempt_id": "b" * 24,
+                            "draft_id": "draft-before-exception",
+                            "thread_id": "thread-before-exception",
+                            "subject": subject,
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                raise OSError("provider result lost after possible send")
+
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "SEND_ATTEMPT_LOG", send_attempt_log
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", return_value=_scheduled_packet_fixture()
+            ), mock.patch.object(
+                brief, "macos_notify", return_value={"status": "ok"}
+            ), mock.patch.object(
+                brief, "deliver_superhuman", side_effect=fail_after_possible_send
+            ), mock.patch.object(
+                brief,
+                "append_scheduled_window",
+                side_effect=lambda summary, **_kwargs: appended.append(summary),
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    exit_code = brief._cmd_run_locked(
+                        args,
+                        _scheduled_proof_fixture(),
+                    )
+                except OSError as exc:
+                    self.fail(f"delivery exception escaped scheduled receipt: {exc}")
+
+        self.assertNotEqual(exit_code, 0)
+        self.assertEqual(len(appended), 1)
+        receipt = appended[0]["receipt"]
+        self.assertEqual(receipt["status"], "unknown")
+        self.assertEqual(receipt["delivery_status"], "unknown_no_retry")
+        self.assertEqual(receipt["attempt_state"], "UNKNOWN_NO_RETRY")
+        self.assertEqual(receipt["attempt_id"], "b" * 24)
+        self.assertIn("never retry", receipt["wake"])
+
+    def test_delivery_exception_with_non_utf8_attempt_log_still_appends_unknown_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            send_attempt_log = ledger / "send-attempts.jsonl"
+            appended: list[dict[str, object]] = []
+
+            def fail_with_corrupt_attempt_log(*_args, **_kwargs):
+                send_attempt_log.parent.mkdir(parents=True, exist_ok=True)
+                send_attempt_log.write_bytes(b"\xff\xfe\x00")
+                raise OSError("provider result lost after possible send")
+
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "SEND_ATTEMPT_LOG", send_attempt_log
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", return_value=_scheduled_packet_fixture()
+            ), mock.patch.object(
+                brief, "macos_notify", return_value={"status": "ok"}
+            ), mock.patch.object(
+                brief, "deliver_superhuman", side_effect=fail_with_corrupt_attempt_log
+            ), mock.patch.object(
+                brief,
+                "append_scheduled_window",
+                side_effect=lambda summary, **_kwargs: appended.append(summary),
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    exit_code = brief._cmd_run_locked(
+                        args,
+                        _scheduled_proof_fixture(),
+                    )
+                except UnicodeError as exc:
+                    self.fail(f"corrupt attempt log escaped recovery: {exc}")
+
+        self.assertNotEqual(exit_code, 0)
+        self.assertEqual(len(appended), 1)
+        receipt = appended[0]["receipt"]
+        self.assertEqual(receipt["status"], "unknown")
+        self.assertEqual(receipt["delivery_status"], "unknown_no_retry")
+        self.assertIsNone(receipt["attempt_id"])
+        self.assertIn("never retry", receipt["wake"])
+
+    def test_blocked_scheduled_branches_tolerate_last_run_write_failure(self):
+        for branch in ("board", "freshness"):
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                evidence = root / "evidence"
+                ledger = root / "ledger"
+                real_write_text = Path.write_text
+                last_run_attempts: list[Path] = []
+                packet = _scheduled_packet_fixture(
+                    consistent=branch != "board",
+                    generated_at=(
+                        "2026-08-12T09:00:00-04:00"
+                        if branch == "freshness"
+                        else "2026-08-12T08:05:00-04:00"
+                    ),
+                )
+
+                def fail_last_run(path, *args, **kwargs):
+                    if path.name == "last-run.json":
+                        last_run_attempts.append(path)
+                        raise OSError(f"{branch} last-run unavailable")
+                    return real_write_text(path, *args, **kwargs)
+
+                notify = mock.Mock()
+                deliver = mock.Mock()
+                append = mock.Mock()
+                args = mock.Mock(
+                    scheduled_trigger=True,
+                    slot="morning",
+                    deliver=True,
+                    dry_run=False,
+                    send_authorized_self=True,
+                )
+                with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                    brief, "LOG_DIR", ledger
+                ), mock.patch.object(
+                    brief, "WINDOW_LOG", ledger / "windows.jsonl"
+                ), mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ), mock.patch.object(
+                    brief, "collect_packet", return_value=packet
+                ), mock.patch.object(
+                    brief, "macos_notify", notify
+                ), mock.patch.object(
+                    brief, "deliver_superhuman", deliver
+                ), mock.patch.object(
+                    brief, "append_scheduled_window", append
+                ), mock.patch.object(
+                    brief.Path,
+                    "write_text",
+                    autospec=True,
+                    side_effect=fail_last_run,
+                ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        exit_code = brief._cmd_run_locked(
+                            args,
+                            _scheduled_proof_fixture(),
+                        )
+                    except OSError as exc:
+                        self.fail(f"{branch} recovery write escaped: {exc}")
+
+                self.assertNotEqual(exit_code, 0)
+                self.assertEqual(last_run_attempts, [ledger / "last-run.json"])
+                self.assertEqual(notify.call_count, 0)
+                self.assertEqual(deliver.call_count, 0)
+                self.assertEqual(append.call_count, 0)
+
+    def test_invalid_runtime_provenance_blocks_scheduled_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            invalid = {
+                "schema": brief.PRODUCER_PROVENANCE_SCHEMA,
+                "source_commit": None,
+                "script_sha256": "c" * 64,
+                "source_matches_commit": False,
+            }
+            collect = mock.Mock(return_value=_scheduled_packet_fixture(producer=invalid))
+            notify = mock.Mock(return_value={"status": "ok"})
+            deliver = mock.Mock(
+                return_value={
+                    "status": "ok",
+                    "delivery_status": "sent",
+                    "message_id": "should-not-send",
+                }
+            )
+            append = mock.Mock()
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", collect
+            ), mock.patch.object(
+                brief, "macos_notify", notify
+            ), mock.patch.object(
+                brief, "deliver_superhuman", deliver
+            ), mock.patch.object(
+                brief, "append_scheduled_window", append
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
+
+            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            barrier = ledger / "scheduled-attempt-20260812-080000.json"
+            barrier_exists = barrier.is_file()
+
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(collect.call_count, 1)
+        self.assertEqual(notify.call_count, 0)
+        self.assertEqual(deliver.call_count, 0)
+        self.assertEqual(append.call_count, 0)
+        self.assertTrue(barrier_exists)
+        self.assertEqual(last_run["status"], "blocked")
+        self.assertEqual(last_run["producer"], invalid)
+        self.assertIn("producer provenance", last_run["wake"])
+
     def test_archive_publication_oserror_preserves_barrier_and_blocks_retry(self):
         class FrozenDateTime(brief.datetime):
             @classmethod
@@ -4130,6 +4713,129 @@ class AuthorityScopeTests(unittest.TestCase):
                     problems,
                 )
 
+    def test_superhuman_verifier_requires_exact_discovered_linked_account_coverage(self):
+        linked = {
+            "acting_email": "newly-linked@example.com",
+            "is_primary": False,
+            "added_at": "2026-08-14T00:00:00Z",
+            "sender_identities": ["newly-linked@example.com"],
+            "sender_identity_complete": True,
+        }
+        coverage = {
+            "acting_email": "newly-linked@example.com",
+            "expected": False,
+            "linked": True,
+            "status": "COMPLETE",
+            "pagination": {"pages": 1, "exhausted": True, "truncated": False},
+        }
+
+        missing = _m5_mail_fixture()
+        missing["linked_accounts"].append(linked)
+        missing_problems = brief._superhuman_receipt_problems(missing)
+
+        exact = _m5_mail_fixture()
+        exact["linked_accounts"].append(linked)
+        exact["coverage"].append(coverage)
+        exact_problems = brief._superhuman_receipt_problems(exact)
+
+        duplicate = _m5_mail_fixture()
+        duplicate["linked_accounts"].append(linked)
+        duplicate["coverage"].extend([coverage, dict(coverage)])
+        duplicate_problems = brief._superhuman_receipt_problems(duplicate)
+
+        self.assertIn("linked Superhuman account coverage mismatch", missing_problems)
+        self.assertNotIn("linked Superhuman account coverage mismatch", exact_problems)
+        self.assertIn("linked Superhuman account coverage mismatch", duplicate_problems)
+
+    def test_superhuman_verifier_validates_account_discovery_and_linked_account_shapes(self):
+        cases = (
+            (
+                "account-container",
+                lambda mail: mail.__setitem__("account_discovery", []),
+                "Superhuman account_discovery must be an object",
+            ),
+            (
+                "linked-container",
+                lambda mail: mail.__setitem__("linked_accounts", {}),
+                "Superhuman linked_accounts must be a list",
+            ),
+            (
+                "linked-row",
+                lambda mail: mail.__setitem__("linked_accounts", ["broken"]),
+                "Superhuman linked_accounts row must be an object",
+            ),
+            (
+                "linked-email-field",
+                lambda mail: mail["linked_accounts"][0].__setitem__(
+                    "acting_email",
+                    "not-an-email",
+                ),
+                "invalid Superhuman linked_accounts row shape: not-an-email",
+            ),
+            (
+                "unknown-without-wake",
+                lambda mail: mail.__setitem__(
+                    "account_discovery",
+                    {"status": "UNKNOWN", "malformed_rows": 1, "wake": None},
+                ),
+                "UNKNOWN Superhuman account discovery lacks exact wake",
+            ),
+            (
+                "unknown-all-clear",
+                lambda mail: (
+                    mail.__setitem__(
+                        "account_discovery",
+                        {
+                            "status": "UNKNOWN",
+                            "malformed_rows": 1,
+                            "wake": "Repair the malformed list_accounts row.",
+                        },
+                    ),
+                    mail.__setitem__("status", "COMPLETE"),
+                    mail.__setitem__("complete", True),
+                    mail.__setitem__("all_clear_allowed", True),
+                ),
+                "UNKNOWN Superhuman account discovery claimed an all-clear",
+            ),
+            (
+                "complete-with-malformed-row",
+                lambda mail: mail.__setitem__(
+                    "account_discovery",
+                    {
+                        "status": "COMPLETE",
+                        "malformed_rows": 1,
+                        "wake": "Repair the malformed list_accounts row.",
+                    },
+                ),
+                "COMPLETE Superhuman account discovery contains malformed rows",
+            ),
+        )
+        for name, mutate, expected in cases:
+            with self.subTest(name=name):
+                mail = _m5_mail_fixture()
+                mutate(mail)
+                try:
+                    problems = brief._superhuman_receipt_problems(mail)
+                except (AttributeError, TypeError) as exc:
+                    self.fail(f"JSON-valid account discovery shape crashed: {exc}")
+                self.assertIn(expected, problems)
+
+        honest_unknown = _m5_mail_fixture()
+        honest_unknown["account_discovery"] = {
+            "status": "UNKNOWN",
+            "malformed_rows": 1,
+            "wake": "Repair the malformed list_accounts row.",
+        }
+        honest_problems = brief._superhuman_receipt_problems(honest_unknown)
+        self.assertNotIn(
+            "UNKNOWN Superhuman account discovery lacks exact wake",
+            honest_problems,
+        )
+        self.assertNotIn(
+            "UNKNOWN Superhuman account discovery claimed an all-clear",
+            honest_problems,
+        )
+
     def test_superhuman_verifier_accepts_linked_unknown_with_problem_and_wake(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp)
@@ -4182,6 +4888,105 @@ class AuthorityScopeTests(unittest.TestCase):
             "2026-08-12T08:00:00-04:00: declared archived HTML is invalid",
             result["problems"],
         )
+
+    def test_window_verifier_requires_the_exact_scheduled_attempt_barrier(self):
+        for mutation in ("none", "missing-receipt", "missing-file"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
+                evidence = Path(tmp)
+                ledger = evidence / "ledger"
+                rows = _write_m5_pair(evidence, ledger)
+                if mutation == "missing-receipt":
+                    rows[0].pop("attempt_barrier")
+                elif mutation == "missing-file":
+                    Path(str(rows[0]["attempt_barrier"]["path"])).unlink()
+
+                try:
+                    result = brief.verify_window_receipts(
+                        rows,
+                        evidence_dir=evidence,
+                        ledger_dir=ledger,
+                    )
+                except TypeError as exc:
+                    self.fail(f"scheduled barrier verifier seam is missing: {exc}")
+
+                if mutation == "none":
+                    self.assertTrue(result["ok"], result["problems"])
+                else:
+                    self.assertFalse(result["ok"])
+                    self.assertIn(
+                        "2026-08-12T08:00:00-04:00: scheduled attempt barrier is invalid",
+                        result["problems"],
+                    )
+
+    def test_window_verifier_opens_attempt_barriers_nonblocking_and_rejects_fifo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            ledger = evidence / "ledger"
+            rows = _write_m5_pair(evidence, ledger)
+            fifo = Path(str(rows[0]["attempt_barrier"]["path"]))
+            fifo.unlink()
+            os.mkfifo(fifo, mode=0o400)
+            real_open = os.open
+
+            def require_nonblocking(path, flags, *args, **kwargs):
+                self.assertTrue(
+                    flags & os.O_NONBLOCK,
+                    "attempt-barrier verifier open must be nonblocking",
+                )
+                return real_open(path, flags, *args, **kwargs)
+
+            with mock.patch.object(brief.os, "open", side_effect=require_nonblocking):
+                result = brief.verify_window_receipts(
+                    rows,
+                    evidence_dir=evidence,
+                    ledger_dir=ledger,
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: scheduled attempt barrier is invalid",
+            result["problems"],
+        )
+
+    def test_window_verifier_rejects_malformed_archive_json_object_shapes(self):
+        cases = (
+            (
+                "root",
+                lambda row: _replace_m5_packet(row, []),
+                "archived JSON root must be an object",
+            ),
+            (
+                "board",
+                lambda row: _rewrite_m5_packet(
+                    row,
+                    lambda packet: packet.__setitem__("board", []),
+                ),
+                "archived JSON board must be an object",
+            ),
+            (
+                "authority",
+                lambda row: _rewrite_m5_packet(
+                    row,
+                    lambda packet: packet.__setitem__("authority", []),
+                ),
+                "archived JSON authority must be an object",
+            ),
+        )
+        for name, mutate, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                evidence = Path(tmp)
+                rows = _write_m5_pair(evidence)
+                mutate(rows[0])
+                try:
+                    result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+                except (AttributeError, TypeError) as exc:
+                    self.fail(f"JSON-valid archived packet shape crashed: {exc}")
+
+                self.assertFalse(result["ok"])
+                self.assertIn(
+                    f"2026-08-12T08:00:00-04:00: {expected}",
+                    result["problems"],
+                )
 
     def test_window_verifier_requires_v2_expected_identity_coverage_with_honest_unknowns(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4697,6 +5502,59 @@ class AuthorityScopeTests(unittest.TestCase):
                     fmt=plistlib.FMT_XML,
                 )
             )
+            env_unset = agents / "com.example.shadow-env-unset.plist"
+            env_unset.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-env-unset",
+                        "ProgramArguments": [
+                            "/usr/bin/env",
+                            "-u",
+                            "PYTHONPATH",
+                            "/usr/local/bin/shadow",
+                            "brief",
+                            "run",
+                            "--scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            python_flags = agents / "com.example.shadow-python-flags.plist"
+            python_flags.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-python-flags",
+                        "ProgramArguments": [
+                            "/usr/bin/python3",
+                            "-I",
+                            "-X",
+                            "dev",
+                            str(Path(brief.__file__).resolve()),
+                            "run",
+                            "--scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            python_hash_policy = agents / "com.example.shadow-python-hash-policy.plist"
+            python_hash_policy.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-python-hash-policy",
+                        "ProgramArguments": [
+                            "/usr/bin/python3",
+                            "--check-hash-based-pycs",
+                            "always",
+                            str(Path(brief.__file__).resolve()),
+                            "run",
+                            "--scheduled-trigger",
+                        ],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
 
             with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
                 brief, "_host_timezone_name", return_value="America/New_York"
@@ -4729,6 +5587,18 @@ class AuthorityScopeTests(unittest.TestCase):
         )
         self.assertIn(
             "OtherScheduledBriefLaunchAgent:com.example.shadow-assigned.plist",
+            status["configuration_problems"],
+        )
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-env-unset.plist",
+            status["configuration_problems"],
+        )
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-python-flags.plist",
+            status["configuration_problems"],
+        )
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-python-hash-policy.plist",
             status["configuration_problems"],
         )
 
@@ -4860,6 +5730,8 @@ class AuthorityScopeTests(unittest.TestCase):
             root = Path(tmp)
             window_log = root / "windows.jsonl"
             mailbox_log = root / "mailbox.jsonl"
+            evidence = root / "evidence"
+            ledger = root / "ledger"
             window_log.write_text(
                 "\n".join(json.dumps(row) for row in rows) + "\n",
                 encoding="utf-8",
@@ -4878,7 +5750,13 @@ class AuthorityScopeTests(unittest.TestCase):
             output = io.StringIO()
             with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
                 brief, "MAILBOX_READBACK_LOG", mailbox_log
-            ), mock.patch.object(brief, "verify_window_receipts", return_value=verification), contextlib.redirect_stdout(output):
+            ), mock.patch.object(
+                brief, "EVIDENCE_DIR", evidence
+            ), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "verify_window_receipts", return_value=verification
+            ) as verify, contextlib.redirect_stdout(output):
                 exit_code = brief.cmd_verify_windows(mock.Mock())
 
         self.assertEqual(exit_code, 0)
@@ -4887,6 +5765,11 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertEqual(
             payload["mailbox_readbacks"]["message_ids"],
             ["mailbox-evening", "mailbox-morning"],
+        )
+        verify.assert_called_once_with(
+            rows,
+            evidence_dir=evidence,
+            ledger_dir=ledger,
         )
 
     def test_window_selection_orders_offset_timestamps_by_instant(self):
