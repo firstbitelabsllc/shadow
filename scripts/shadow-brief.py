@@ -4572,7 +4572,7 @@ def cmd_verify_windows(_args: argparse.Namespace) -> int:
             for row in rows
             if row.get("schema") == WINDOW_RECEIPT_SCHEMA
             and row.get("trigger") == "launchd-calendar"
-            and row.get("slot") == "morning"
+            and row.get("slot") in {"morning", "evening"}
         }
         latest = [by_window[str(value)] for value in result["windows"]]
         mailbox = verify_mailbox_readbacks(latest, _read_jsonl(MAILBOX_READBACK_LOG))
