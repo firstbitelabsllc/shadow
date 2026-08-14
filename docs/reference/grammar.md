@@ -42,18 +42,19 @@ project view is the grep across them.
 
 ## Plan location
 
-**Each entity's `PLAN.md` owns its milestone/checkpoint rows, proof, and
-evidence.** The computer authority is the local Git repository at `~/.shadow`.
+**Each infrastructure entity's local `PLAN.md` owns its milestone/checkpoint
+rows, proof, and evidence.** The computer authority is the private local
+directory at `~/.shadow`.
 Its `board.json` groups entities under projects and owns global project
 priority, claims/owners, entity pointers, and exactly one resume checkpoint id
 per entity. It never stores checkpoint text, proof, milestone detail, or
 evidence.
 
-The local file wins immediately. A private remote may be pushed separately as
-optional asynchronous recovery and may lag; it never gates or overrides a
-local write. Same-computer writers serialize a fresh read, decision, atomic
-replace, and local Git receipt under one advisory lock. Process death releases
-the lock; readers see either the complete old file or the complete new file.
+The local file wins immediately. Same-computer writers serialize a fresh read,
+decision, and atomic replace under one advisory lock. A private Git journal
+records `board.json` for recovery only; its ignore rules exclude all plans and
+archives. Process death releases the lock; readers see either the complete old
+file or the complete new file.
 
 Every claim records `claimed_at`, `return_by`, and the fixed recovery action:
 probe its proof, then adopt, park with one wake, or close it. Staleness is
@@ -73,10 +74,10 @@ grammar-clean, and otherwise healthy. Its self-demotion banner still retires
 the identity. If the registered pointer breaks or aliases multiply, no
 suppression applies: the candidate follows the ordinary fail-closed path.
 
-Discovery may show a plain-directory plan as read-only material, but actionable
-entities are Git-backed: claim, proof, acceptance, publication, and durable
-logical identity require a committed plan snapshot. A missing or unreadable Git
-context fails closed instead of silently changing identity to a local path.
+Discovery may show a source-bound product plan as read-only material. The
+actionable operational authority is the local plan below `~/.shadow/plans/`;
+claim, proof, and durable identity never require a commit merely to preserve a
+queue. A missing or unreadable local authority fails closed.
 
 A repository may declare additional plan locations in its root plan, as **one**
 Brief line carrying at most **three** comma-separated globs:
@@ -168,8 +169,8 @@ pointer back to entity text and proof at read time. Liveness is never asserted
 
 **Claim-safety scope.** The computer board remains the local authority for
 project priority, entity pointers, claims, owners, leases, and resume. The
-committed entity `PLAN.md` remains the only authority for milestone and task
-text, state, dependencies, proof, and Progress evidence. A remote claim ref is
+local entity `PLAN.md` remains the only authority for milestone and task text,
+state, dependencies, proof, and Progress evidence. A remote claim ref is
 only a bounded cross-computer coordination lock. It cannot rank work, supply a
 task or proof, flip a row, or replace either authority.
 
@@ -181,8 +182,8 @@ performs no network write. In the opted-in case, the one conventional lock is
 `refs/heads/shadow/claims/v1/<entity-id>/<row-id-without-tilde>`. Shadow first
 takes the exact local board claim, then creates that ref or compare-and-swaps
 its observed tip, and emits the work packet only after the intended acquired
-tip is confirmed. The claim commit makes the exact committed PLAN source it
-names reachable without updating the tracked upstream or protected trunk.
+tip is confirmed. The source-backed product claim names the exact source plan
+without updating the tracked upstream or protected trunk.
 
 The ref is an append-only acquired/released/completed lifecycle. Public verbs
 never delete it and never reuse an absent name after a tombstone. `shadow

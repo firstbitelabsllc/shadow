@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+
+from tests.plan_tree_fixture import install_plan_tree
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +27,12 @@ ACCEPT_SPEC = importlib.util.spec_from_file_location("shadow_accept", ACCEPT_SCR
 assert ACCEPT_SPEC and ACCEPT_SPEC.loader
 accept = importlib.util.module_from_spec(ACCEPT_SPEC)
 ACCEPT_SPEC.loader.exec_module(accept)
+
+INIT_SCRIPT = ROOT / "scripts" / "shadow-init.py"
+INIT_SPEC = importlib.util.spec_from_file_location("shadow_init", INIT_SCRIPT)
+assert INIT_SPEC and INIT_SPEC.loader
+init = importlib.util.module_from_spec(INIT_SPEC)
+INIT_SPEC.loader.exec_module(init)
 
 
 CLEAN_PLAN = """# Demo
@@ -72,6 +82,22 @@ def commit_fixture(root: Path, *paths: str) -> None:
     )
     subprocess.run(["git", "-C", str(root), "add", "--", *paths], check=True)
     subprocess.run(["git", "-C", str(root), "commit", "-qm", "proof fixture"], check=True)
+
+
+class PartitionedPlanLintParity(unittest.TestCase):
+    def test_cli_returns_the_same_findings_for_one_logical_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "PLAN.md"
+            plan.write_text(CLEAN_PLAN, encoding="utf-8")
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as legacy_out:
+                legacy = lint.main([str(plan)])
+            install_plan_tree(root, CLEAN_PLAN.encode("utf-8"))
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as tree_out:
+                partitioned = lint.main([str(plan)])
+
+        self.assertEqual(partitioned, legacy)
+        self.assertEqual(tree_out.getvalue(), legacy_out.getvalue())
 
 
 class ANeedsCycleIsNamedNotSilent(unittest.TestCase):
@@ -186,12 +212,17 @@ class ShadowLintTests(unittest.TestCase):
         self.assertNotIn("~ab12", lint.GRANDFATHERED_PROOF_IDS)
 
     def test_the_grandfathered_set_can_only_shrink(self) -> None:
-        # Every grandfathered id must still exist in the shipped plan; an id
-        # that no longer appears has been re-proven or removed, and the set
-        # should lose it rather than accumulate dead exemptions.
-        plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
-        stale = [i for i in lint.GRANDFATHERED_PROOF_IDS if i not in plan]
-        self.assertEqual(stale, [], "grandfathered ids no longer in the plan must be dropped")
+        # The exemption list was frozen when the strict receipt shape landed,
+        # and it may only lose ids as their rows are re-proven or removed. It
+        # used to be checked against this repository's committed plan; that
+        # plan is machine-local now, so the frozen set is pinned here instead
+        # and no new id may join it.
+        frozen = {
+            "~bkts", "~curs", "~debt", "~detv", "~dlaw", "~dreg", "~excs", "~home",
+            "~obsv", "~prot", "~rsch", "~slnk", "~styl", "~uxf1", "~vgal",
+        }
+        added = sorted(lint.GRANDFATHERED_PROOF_IDS - frozen)
+        self.assertEqual(added, [], "the grandfathered exemption set may only shrink")
 
     def test_duplicate_row_ids_are_blocking(self) -> None:
         plan = CLEAN_PLAN.replace("~cd34 |", "~ab12 |", 1)
@@ -916,29 +947,39 @@ class ACmdProofIsValidatedAsArgv(unittest.TestCase):
         self.assertNotIn("PROOF-UNPARSEABLE", _checks(self._plan("cmd true")))
 
 
-class ThisRepositorysOwnPlanSurvivesTheGate(unittest.TestCase):
+class TheShippedPlanSurvivesTheGate(unittest.TestCase):
     """The regression that would have turned every CI matrix job red.
 
-    argv0 resolution first consulted `shutil.which` and blocked on a miss.
-    `PLAN.md` carries `proof: cmd shadow status ...`, and the workflow checks
-    out the repository without installing `shadow` — so the gate would have
-    failed on a plan that is fine, everywhere except a developer's laptop.
+    argv0 resolution first consulted `shutil.which` and blocked on a miss. A
+    plan carries `proof: cmd shadow status ...`, and the workflow checks out
+    the repository without installing `shadow` — so the gate would have failed
+    on a plan that is fine, everywhere except a developer's laptop.
 
-    Pinned against the real file the gate runs on, with a root supplied, which
-    is how `main()` calls it. A synthetic fixture would not have caught it.
+    Shadow's own operational plan now lives under `~/.shadow/plans` and is
+    never committed, so the gate is pinned against the other real artifact
+    Shadow ships: the plan `shadow init` mints. A root is supplied, which is
+    how `main()` calls it.
     """
 
-    def test_the_real_plan_has_no_blocking_finding(self) -> None:
-        findings = lint.lint_plan((ROOT / "PLAN.md").read_text(encoding="utf-8"), root=ROOT)
+    def _shipped_plan(self) -> str:
+        return init.plan_text(ROOT, "2026-08-11T00:00:00Z")
+
+    def test_the_shipped_plan_has_no_blocking_finding(self) -> None:
+        findings = lint.lint_plan(self._shipped_plan(), root=ROOT)
         blocking = [f for f in findings if f["severity"] == "blocking"]
-        self.assertEqual(blocking, [], f"the gate would reject this repository's own plan: {blocking}")
+        self.assertEqual(blocking, [], f"the gate would reject the plan Shadow mints: {blocking}")
 
     def test_no_finding_depends_on_what_is_installed(self) -> None:
         # An empty PATH is the CI runner at its most bare. Whatever lint says
         # about this plan, it must say the same thing there — otherwise the
-        # verdict is about the machine, not the plan.
+        # verdict is about the machine, not the plan. The proof names `shadow`
+        # itself, which is exactly the binary a bare checkout does not have.
         import os
-        plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
+        plan = self._shipped_plan().replace(
+            "proof: read PLAN.md -> no agent-reachable acceptance work remains",
+            "proof: cmd shadow status --json",
+        )
+        self.assertIn("cmd shadow status --json", plan)
         before = {(f["check"], f["line"], f["severity"]) for f in lint.lint_plan(plan, root=ROOT)}
         saved = os.environ.get("PATH", "")
         os.environ["PATH"] = ""

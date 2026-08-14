@@ -108,7 +108,7 @@ captured.
 
 ```text
 Outcome: every finding in <scope> is either proven with file:line or dead.
-Resume: <repo>/PLAN.md @ origin/main; continue owned rows, then ranked reachable rows.
+Resume: ~/.shadow/plans/<entity>/PLAN.md on this computer; continue owned rows, then ranked reachable rows.
 Proof: each finding gets correctness, security, and reproduction refuters; two refutations kill it. Survivors require file:line or command evidence, <focused command> green, and <real surface> re-observed from fresh state.
 Skills: thermo, ponytail.
 ```

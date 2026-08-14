@@ -26,6 +26,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
+import shadow_plan_store as _plan_store  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
@@ -38,9 +39,12 @@ HASH_RE = _grammar.HASH_RE
 PROOF_LINE_RE = _grammar.PROOF_LINE_RE
 PROOF_CLASS_RE = _grammar.PROOF_CLASS_RE
 STAMP_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ", re.MULTILINE)
+# A machine-local authority is content-addressed, not commit-addressed:
+# `frozen_plan_snapshot` stamps its head as `local:<sha256>`. The reader must
+# accept that shape or lifecycle mints receipts its own parser rejects.
 TOMBSTONE_RE_TEMPLATE = (
     r"<!-- shadow:lifecycle:{slug}:sha256:(?P<digest>[0-9a-f]{{64}}):"
-    r"cas:(?P<cas>[0-9a-f]{{64}}):head:(?P<head>[0-9a-f]{{40,64}}):"
+    r"cas:(?P<cas>[0-9a-f]{{64}}):head:(?P<head>(?:local:)?[0-9a-f]{{40,64}}):"
     r"blob:(?P<blob>[0-9a-f]{{40,64}}):"
     r"successor:(?P<successor>~[0-9a-z]{{4}}|none) -->"
 )
@@ -602,13 +606,51 @@ def atomic_write(path: Path, payload: bytes, mode: int = 0o644) -> None:
             pass
 
 
+def replace_plan(
+    plan: Path,
+    payload: bytes,
+    mode: int,
+) -> _plan_store.PublishReceipt | None:
+    try:
+        snapshot = _board.open_plan(plan)
+        if snapshot.is_tree:
+            return (
+                _plan_store.PlanTransaction.begin(
+                    plan,
+                    expected_root=snapshot.root_sha256,
+                )
+                .replace_content(payload)
+                .publish()
+            )
+    except (_board.BoardError, _plan_store.PlanStoreError) as exc:
+        raise LifecycleError(f"partitioned plan could not be replaced: {exc}") from exc
+    atomic_write(plan, payload, mode)
+    return None
+
+
+def restore_plan(
+    plan: Path,
+    original: bytes,
+    mode: int,
+    publication: _plan_store.PublishReceipt | None,
+) -> None:
+    if publication is None:
+        atomic_write(plan, original, mode)
+        return
+    try:
+        _plan_store.rollback(plan, expected_root=publication.root_sha256)
+        _plan_store.discard_unreachable(plan, publication.new_objects)
+    except _plan_store.PlanStoreError as exc:
+        raise LifecycleError("partitioned plan rollback failed") from exc
+
+
 def committed_snapshot(repo_value: Path) -> tuple[Path, Path, dict[str, str], str]:
     expanded = repo_value.expanduser()
     if expanded.is_symlink():
         raise LifecycleError("repository path must not be a symlink")
     plan = expanded.resolve() / "PLAN.md"
     try:
-        token, payload = _board.committed_plan_snapshot(plan)
+        token, payload = _board.frozen_plan_snapshot(plan)
     except _board.BoardError as exc:
         raise LifecycleError(str(exc)) from None
     repo = Path(token["repo"]).resolve()
@@ -639,7 +681,20 @@ def commit_archive_candidate(
     archive_relative: Path,
     slug: str,
 ) -> str:
-    git(repo, "add", "--", plan_relative.as_posix(), archive_relative.as_posix())
+    if _board.is_local_plan(repo / plan_relative):
+        # A machine-local authority is never committed, so the archive is
+        # finished by the atomic writes the caller already made. Its identity
+        # is the same content address `frozen_plan_snapshot` stamps, which is
+        # what the tombstone reader expects to find in the head field.
+        digest = hashlib.sha256(_board.read_plan_bytes(repo / plan_relative)).hexdigest()
+        return f"local:{digest}"
+    pathspecs = [plan_relative.as_posix(), archive_relative.as_posix()]
+    try:
+        if _board.open_plan(repo / plan_relative).is_tree:
+            pathspecs.append((plan_relative.parent / "PLAN.d").as_posix())
+    except _board.BoardError as exc:
+        raise LifecycleError(str(exc)) from None
+    git(repo, "add", "--", *pathspecs)
     git(
         repo,
         "-c",
@@ -662,8 +717,7 @@ def commit_archive_candidate(
         "-m",
         f"shadow: archive milestone {slug}",
         "--",
-        plan_relative.as_posix(),
-        archive_relative.as_posix(),
+        *pathspecs,
     )
     return git(repo, "rev-parse", "HEAD").stdout.strip()
 
@@ -767,7 +821,7 @@ def claim_successor(plan: Path, owner: str, target_row: str | None) -> dict:
     amp = amp_module()
     try:
         reconcile_portfolio(plan.parent, amp, home=Path.home())
-        token, payload = _board.committed_plan_snapshot(plan)
+        token, payload = _board.frozen_plan_snapshot(plan)
         text = payload.decode("utf-8")
         parsed = amp._parse(text)
         unclean = amp.unclean_note(parsed)
@@ -1835,9 +1889,14 @@ def apply_locked(
     original = plan.read_bytes()
     plan_mode = stat.S_IMODE(plan.stat().st_mode)
     parent_existed = archive_path.parent.exists()
+    publication: _plan_store.PublishReceipt | None = None
     try:
         atomic_write(archive_path, candidate["archive"].encode("utf-8"))
-        atomic_write(plan, candidate["plan"].encode("utf-8"), plan_mode)
+        publication = replace_plan(
+            plan,
+            candidate["plan"].encode("utf-8"),
+            plan_mode,
+        )
         commit = commit_archive_candidate(
             repo,
             plan_relative,
@@ -1845,28 +1904,19 @@ def apply_locked(
             candidate["slug"],
         )
     except (OSError, LifecycleError):
-        atomic_write(plan, original, plan_mode)
+        restore_plan(plan, original, plan_mode, publication)
         try:
             archive_path.unlink()
         except FileNotFoundError:
             pass
+        reset_paths = [plan_relative.as_posix(), archive_relative.as_posix()]
+        try:
+            if _board.open_plan(plan).is_tree:
+                reset_paths.append((plan_relative.parent / "PLAN.d").as_posix())
+        except _board.BoardError:
+            pass
         subprocess.run(
-            ["git", "-C", str(repo), "add", "--", plan_relative.as_posix()],
-            capture_output=True,
-            check=False,
-        )
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo),
-                "rm",
-                "--cached",
-                "--quiet",
-                "--ignore-unmatch",
-                "--",
-                archive_relative.as_posix(),
-            ],
+            ["git", "-C", str(repo), "reset", "--quiet", "HEAD", "--", *reset_paths],
             capture_output=True,
             check=False,
         )

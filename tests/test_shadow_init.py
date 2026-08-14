@@ -22,10 +22,11 @@ shadow_init = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(shadow_init)
 
 
-def run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+def run(*args: str, cwd: Path, home: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(INIT), *args],
         cwd=cwd,
+        env={**os.environ, "HOME": str(home)},
         capture_output=True,
         text=True,
         check=False,
@@ -39,17 +40,22 @@ class InitTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         return repo
 
-    def test_creates_one_typed_plan_at_git_root(self) -> None:
+    def test_creates_one_typed_local_plan_for_git_root(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
-            repo = self.make_repo(Path(dirname))
-            result = run("--here", cwd=repo)
-            record = plan_record(repo / "PLAN.md", repo)
-            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            root = Path(dirname)
+            repo = self.make_repo(root)
+            home = root / "home"
+            destination = home / ".shadow" / "plans" / "useful-project" / "PLAN.md"
+            result = run("--here", cwd=repo, home=home)
+            record = plan_record(destination, home)
+            plan = destination.read_text(encoding="utf-8")
+            board = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "created PLAN.md\n")
+        self.assertEqual(result.stdout, f"created local PLAN.md: {destination}\n")
         self.assertIsNone(record["contract_error"])
         self.assertEqual(record["briefing"]["state"], "needs_you")
         self.assertEqual(len(record["briefing"]["choices"]), 3)
+        self.assertEqual(board["entities"][0]["plan"], str(destination.resolve()))
         self.assertNotIn(dirname, json.dumps(record))
         self.assertIn("Complete the full declared outcome", plan)
         self.assertIn("every safe reachable lane", plan)
@@ -74,17 +80,23 @@ class InitTests(unittest.TestCase):
 
     def test_refuses_to_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
-            repo = self.make_repo(Path(dirname))
-            (repo / "PLAN.md").write_text("keep me\n", encoding="utf-8")
-            result = run("--here", cwd=repo)
-            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), "keep me\n")
+            root = Path(dirname)
+            repo = self.make_repo(root)
+            home = root / "home"
+            destination = home / ".shadow" / "plans" / "useful-project" / "PLAN.md"
+            destination.parent.mkdir(parents=True)
+            destination.write_text("keep me\n", encoding="utf-8")
+            result = run("--here", cwd=repo, home=home)
+            self.assertEqual(destination.read_text(encoding="utf-8"), "keep me\n")
         self.assertEqual(result.returncode, 1)
         self.assertIn("refusing to overwrite", result.stderr)
 
     def test_requires_git_root(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
-            outside = Path(dirname)
-            result = run("--here", cwd=outside)
+            root = Path(dirname)
+            outside = root / "outside"
+            outside.mkdir()
+            result = run("--here", cwd=outside, home=root / "home")
         self.assertEqual(result.returncode, 2)
         self.assertIn("not inside a Git worktree", result.stderr)
 
@@ -93,7 +105,7 @@ class InitTests(unittest.TestCase):
             repo = self.make_repo(Path(dirname))
             nested = repo / "nested"
             nested.mkdir()
-            result = run("--here", cwd=nested)
+            result = run("--here", cwd=nested, home=Path(dirname) / "home")
         self.assertEqual(result.returncode, 2)
         self.assertIn("project root", result.stderr)
 

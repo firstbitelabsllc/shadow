@@ -70,9 +70,10 @@ flowchart LR
 ```
 
 The board at `~/.shadow` owns project priority, entity pointers, claims,
-owners, and resume. The committed entity `PLAN.md` owns milestones,
-checkpoints, detail, and proof. The browser, a chat transcript, a worktree
-copy, or a provider's private plan is never a competing authority.
+owners, and resume. Infrastructure entities keep plans locally below
+`~/.shadow/plans/`; product repositories may keep a declared release plan with
+their source. The browser, a chat transcript, a worktree copy, or a provider's
+private plan is never a competing authority.
 
 When the current branch tracks configured `origin`, `shadow throw` also takes
 one deterministic Git coordination lock under
