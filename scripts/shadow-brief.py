@@ -47,6 +47,23 @@ SEND_ATTEMPT_LOG = LOG_DIR / "send-attempts.jsonl"
 MAILBOX_READBACK_LOG = LOG_DIR / "mailbox-readbacks.jsonl"
 SELF_MAIL = "leojkwan@gmail.com"
 SNOWCUBES_BUSINESS_MAIL = "trysnowcubes@gmail.com"
+EXPECTED_SUPERHUMAN_IDENTITIES = (
+    SELF_MAIL,
+    SNOWCUBES_BUSINESS_MAIL,
+    "firstbitelabs@gmail.com",
+)
+SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v2"
+SUPERHUMAN_LOOKBACK_DAYS = 90
+SUPERHUMAN_PAGE_LIMIT = 50
+SUPERHUMAN_MAX_PAGES = 40
+SUPERHUMAN_MAX_ACTION_THREADS = 40
+SUPERHUMAN_GLOBAL_ACTION_LIMIT = 40
+SUPERHUMAN_READ_BUDGET_SECONDS = 420
+SUPERHUMAN_SIGNAL_LIMIT = 50
+SUPERHUMAN_LIST_LANES = (
+    ("active_inbox", ("INBOX",)),
+    ("sent_follow_up", ("SENT",)),
+)
 SNOWCUBES_SHOPIFY_STORE = "939cf1-24"
 SNOWCUBES_NATIVE_LINKS = {
     "commerce": f"https://admin.shopify.com/store/{SNOWCUBES_SHOPIFY_STORE}/orders",
@@ -623,14 +640,1778 @@ def collect_growth_source_status() -> dict[str, dict[str, Any]]:
     }
 
 
-def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, Any]:
-    """Collect a privacy-bounded 24-hour mailbox signal rollup, never full bodies."""
+def build_superhuman_context(
+    call_tool: Any,
+    *,
+    observed_at: datetime | None = None,
+    monotonic: Any | None = None,
+) -> dict[str, Any]:
+    """Build one privacy-bounded mail/calendar read from a live MCP session."""
+    read_clock = monotonic or time.monotonic
+    read_started = float(read_clock())
+    now = observed_at or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    now = now.astimezone(timezone.utc)
+    end_date = now.isoformat(timespec="seconds")
+    start_date = (now - timedelta(days=SUPERHUMAN_LOOKBACK_DAYS)).isoformat(
+        timespec="seconds"
+    )
+    query_range = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "lookback_days": SUPERHUMAN_LOOKBACK_DAYS,
+    }
+    context_problems: list[str] = []
+    context_wakes: list[str] = []
+
+    def read_budget_exhausted() -> bool:
+        return float(read_clock()) - read_started >= SUPERHUMAN_READ_BUDGET_SECONDS
+
+    def preserve_assertion(exc: Exception) -> None:
+        # Tests and callers use AssertionError to prove the read-tool allowlist.
+        # Provider parse/type failures are source failures; an unexpected tool
+        # name remains a programming error and must stay loud.
+        if isinstance(exc, AssertionError):
+            raise exc
+
+    def identity(value: Any) -> str:
+        candidate = str(value or "").strip().lower()
+        return candidate if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", candidate) else ""
+
+    def message_identity(value: Any) -> str:
+        if isinstance(value, dict):
+            value = value.get("email") or value.get("address")
+        raw = str(value or "").strip().lower()
+        exact = identity(raw)
+        if exact:
+            return exact
+        match = re.search(r"[^<\s]+@[^>\s]+\.[^>\s]+", raw)
+        return identity(match.group(0)) if match else ""
+
+    def message_recipients(message: dict[str, Any]) -> set[str]:
+        recipients: set[str] = set()
+        for key in ("to", "cc", "bcc", "recipients"):
+            values = message.get(key)
+            if values is None:
+                continue
+            if not isinstance(values, list):
+                values = [values]
+            for value in values:
+                recipient = message_identity(value)
+                if recipient:
+                    recipients.add(recipient)
+        return recipients
+
+    def unknown_coverage(
+        acting_email: str,
+        *,
+        wake: str,
+        problem: str,
+        expected: bool,
+    ) -> dict[str, Any]:
+        return {
+            "acting_email": acting_email,
+            "expected": expected,
+            "linked": False,
+            "status": "UNKNOWN",
+            "query_range": dict(query_range),
+            "source_observed_at": None,
+            "source_age_hours": None,
+            "newest_message_at": None,
+            "newest_message_age_hours": None,
+            "threads_returned": 0,
+            "total_estimate": None,
+            "pagination": {
+                "pages": 0,
+                "exhausted": False,
+                "truncated": True,
+            },
+            "calendar": {"status": "UNKNOWN", "proposal_only": True},
+            "problems": [problem],
+            "wake": wake,
+            "metrics": {
+                "unread_threads": 0,
+                "github_notification_threads": 0,
+                "human_or_other_threads": 0,
+                "cursor_limit_threads": 0,
+            },
+        }
+
+    try:
+        account_payload = call_tool("list_accounts", {})
+        if not isinstance(account_payload, dict):
+            raise RuntimeError("list_accounts returned no structured payload")
+        if account_payload.get("error"):
+            raise RuntimeError(str(account_payload.get("error")))
+        if "accounts" not in account_payload:
+            raise RuntimeError("list_accounts omitted the account list")
+        account_rows = account_payload.get("accounts")
+        if not isinstance(account_rows, list):
+            raise RuntimeError("list_accounts returned a malformed account list")
+    except Exception as exc:
+        preserve_assertion(exc)
+        problem = f"Superhuman account discovery failed: {exc}"
+        coverage = [
+            unknown_coverage(
+                email,
+                expected=True,
+                problem=problem,
+                wake=(
+                    "Restore the Superhuman read-only connection and rerun list_accounts; "
+                    f"{email} remains UNKNOWN until live discovery succeeds."
+                ),
+            )
+            for email in EXPECTED_SUPERHUMAN_IDENTITIES
+        ]
+        return {
+            "schema": SUPERHUMAN_CONTEXT_SCHEMA,
+            "available": False,
+            "complete": False,
+            "status": "UNKNOWN",
+            "all_clear_allowed": False,
+            "error": problem,
+            "observed_at": end_date,
+            "query_range": query_range,
+            "expected_identities": list(EXPECTED_SUPERHUMAN_IDENTITIES),
+            "linked_accounts": [],
+            "coverage": coverage,
+            "threads_returned_raw": 0,
+            "threads_unique": 0,
+            "signals": [],
+            "forgotten_obligations": [],
+            "urgent_replies": [],
+            "waiting_replies": [],
+            "proactive_candidates": [],
+            "order_return_follow_up": [],
+            "calendar_proposals": [],
+            "account_discovery": {
+                "status": "UNKNOWN",
+                "malformed_rows": 0,
+                "wake": "Restore list_accounts before inferring linked identity coverage.",
+            },
+            "window_hours": SUPERHUMAN_LOOKBACK_DAYS * 24,
+            "unread_threads": 0,
+            "github_notification_threads": 0,
+            "human_or_other_threads": 0,
+            "cursor_limit_threads": 0,
+        }
+
+    linked_accounts: list[dict[str, Any]] = []
+    linked_by_email: dict[str, dict[str, Any]] = {}
+    malformed_account_rows = 0
+    sender_alias_keys = (
+        "aliases",
+        "sendAs",
+        "send_as",
+        "sendAsAddresses",
+        "send_as_addresses",
+    )
+    for row in account_rows:
+        if not isinstance(row, dict):
+            malformed_account_rows += 1
+            continue
+        email = identity(row.get("accountEmail") or row.get("account_email") or row.get("email"))
+        if not email:
+            malformed_account_rows += 1
+            continue
+        if email in linked_by_email:
+            continue
+        sender_identities = [email]
+        sender_identity_complete = any(key in row for key in sender_alias_keys)
+        for key in sender_alias_keys:
+            values = row.get(key)
+            if values is None:
+                continue
+            if not isinstance(values, list):
+                sender_identity_complete = False
+                continue
+            for value in values:
+                if isinstance(value, dict):
+                    value = value.get("email") or value.get("address")
+                alias = identity(value)
+                if alias:
+                    sender_identities.append(alias)
+                else:
+                    sender_identity_complete = False
+        account = {
+            "acting_email": email,
+            "is_primary": bool(row.get("isPrimary") or row.get("is_primary")),
+            "added_at": str(row.get("addedAt") or row.get("added_at") or ""),
+            "sender_identities": sorted(dict.fromkeys(sender_identities)),
+            "sender_identity_complete": sender_identity_complete,
+        }
+        linked_accounts.append(account)
+        linked_by_email[email] = account
+    account_discovery = {
+        "status": "UNKNOWN" if malformed_account_rows else "COMPLETE",
+        "malformed_rows": malformed_account_rows,
+        "wake": (
+            f"Inspect and repair {malformed_account_rows} unusable account row from list_accounts before relying on identity coverage."
+            if malformed_account_rows == 1
+            else (
+                f"Inspect and repair {malformed_account_rows} unusable account rows from list_accounts before relying on identity coverage."
+                if malformed_account_rows
+                else None
+            )
+        ),
+    }
+    if malformed_account_rows:
+        context_problems.append(
+            f"list_accounts returned {malformed_account_rows} unusable account row"
+            + ("s" if malformed_account_rows != 1 else "")
+        )
+        context_wakes.append(str(account_discovery["wake"]))
+
+    def parsed_time(value: Any) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(timezone.utc)
+
+    def source_age(value: Any) -> float | None:
+        parsed = parsed_time(value)
+        if parsed is None:
+            return None
+        return round(max(0.0, (now - parsed).total_seconds() / 3600.0), 1)
+
+    def normalized_subject(value: Any) -> str:
+        return " ".join(str(value or "").split()).casefold()
+
+    def normalized_message_time(value: Any) -> str:
+        parsed = parsed_time(value)
+        if parsed is not None:
+            return parsed.isoformat(timespec="seconds")
+        return " ".join(str(value or "").split()).casefold()
+
+    def identity_sort_key(value: str) -> tuple[int, str]:
+        return (
+            EXPECTED_SUPERHUMAN_IDENTITIES.index(value)
+            if value in EXPECTED_SUPERHUMAN_IDENTITIES
+            else len(EXPECTED_SUPERHUMAN_IDENTITIES),
+            value,
+        )
+
+    def action_tags(row: dict[str, Any], acting_email: str) -> tuple[str, list[str]]:
+        subject = str(row.get("subject") or "")
+        snippet = str(row.get("snippet") or "")
+        participants = " ".join(str(value) for value in (row.get("participants") or []))
+        message_text = " ".join(
+            f"{message.get('subject', '')} {message.get('snippet', '')}"
+            for message in (row.get("messages") or [])
+            if isinstance(message, dict)
+        )
+        combined = f"{subject} {snippet} {participants} {message_text}".lower()
+        automated = any(
+            marker in combined
+            for marker in (
+                "noreply",
+                "no-reply",
+                "do-not-reply",
+                "mailer-daemon",
+                "notifications@",
+                "@t.shopifyemail.com",
+                "shopifyemail.com",
+            )
+        )
+        kind = "github" if "github" in combined else ("automated" if automated else "human_or_other")
+        labels_value = row.get("labels")
+        labels = (
+            {str(label).lower() for label in labels_value}
+            if isinstance(labels_value, list)
+            else set()
+        )
+        source_lane = str(row.get("_shadow_source_lane") or "active_inbox")
+        tags: list[str] = []
+        if labels.intersection({"archived", "archive", "done", "trash", "spam", "draft"}):
+            # Subject keywords survive after work is handled. An explicit
+            # inactive lifecycle label outranks those keywords.
+            return kind, tags
+        if source_lane == "sent_follow_up":
+            if kind == "human_or_other" and "sent" in labels:
+                tags.append("waiting_reply")
+            return kind, tags
+        if "inbox" not in labels:
+            # Gmail represents archive as absence of INBOX. Even though the
+            # lane requested INBOX, a contradictory/missing lifecycle row is
+            # not elevated.
+            return kind, tags
+        if any(
+            token in combined
+            for token in (
+                "order",
+                "return",
+                "refund",
+                "shipment",
+                "shipping",
+                "tracking",
+                "delivery",
+                "rma",
+            )
+        ):
+            tags.append("order_return")
+        if any(
+            token in combined
+            for token in (
+                "deadline",
+                "due",
+                "renewal",
+                "registration",
+                "license",
+                "invoice",
+                "bill",
+                "payment",
+                "action required",
+                "overdue",
+                "expires",
+            )
+        ):
+            tags.append("obligation")
+        if any(
+            token in combined
+            for token in (
+                "calendar",
+                "appointment",
+                "meeting",
+                "lesson",
+                "schedule",
+                "booking",
+                "reservation",
+            )
+        ):
+            tags.append("calendar")
+        if kind == "human_or_other" and "inbox" in labels:
+            tags.append("reply")
+        # "Waiting on your response" in an incoming unread message asks Leo to
+        # reply; it does not prove that Leo sent the last message. Only a sent
+        # thread is admitted to the waiting-on-someone category, then the exact
+        # thread read below verifies direction.
+        if kind == "human_or_other" and "sent" in labels:
+            tags.append("waiting_reply")
+        if any(token in combined for token in ("urgent", "today", "immediately", "asap")):
+            tags.append("urgent")
+        if acting_email == SNOWCUBES_BUSINESS_MAIL and kind == "human_or_other" and "inbox" in labels:
+            tags.append("proactive")
+        return kind, list(dict.fromkeys(tags))
+
+    def proposal_for_tags(tags: Any) -> str:
+        tag_set = {str(tag) for tag in (tags or [])}
+        if "order_return" in tag_set:
+            return "Proposal only: verify the order, return, refund, and deadline facts before any merchant action."
+        if tag_set.intersection({"reply", "waiting_reply"}):
+            return "Proposal only: read the exact thread and prepare a reply for Leo to approve; no draft or send was created."
+        if "calendar" in tag_set:
+            return "Proposal only: reconcile the exact interval and conflicts before any calendar write or invitation."
+        return "Proposal only: read the exact source before deciding whether follow-through is needed."
+
+    def stable_signal(row: dict[str, Any], acting_email: str) -> dict[str, Any]:
+        thread_id = str(row.get("thread_id") or row.get("id") or "").strip()
+        message_id = str(row.get("last_message_id") or "").strip()
+        if message_id:
+            stable_source = f"message:{message_id}"
+        elif thread_id:
+            # Thread IDs are only known to be stable within the acting
+            # account. Cross-account dedupe requires last_message_id.
+            stable_source = f"thread:{acting_email}:{thread_id}"
+        else:
+            stable_source = "fallback:" + "|".join(
+                (
+                    acting_email,
+                    normalized_subject(row.get("subject")),
+                    normalized_message_time(row.get("last_message_at")),
+                )
+            )
+        signal_id = hashlib.sha256(stable_source.encode("utf-8")).hexdigest()[:24]
+        kind, tags = action_tags(row, acting_email)
+        stable_provider_identity = bool(message_id or thread_id)
+        result = {
+            "signal_id": signal_id,
+            "subject": str(row.get("subject") or "")[:160],
+            "last_message_at": str(row.get("last_message_at") or ""),
+            "kind": kind,
+            "action_tags": tags,
+            "thread_id": thread_id or None,
+            "last_message_id": message_id or None,
+            "stable_provider_identity": stable_provider_identity,
+            "source_labels": sorted(
+                {str(label).lower() for label in row.get("labels")}
+                if isinstance(row.get("labels"), list)
+                else set()
+            ),
+            "source_lanes": [str(row.get("_shadow_source_lane") or "unknown")],
+            "_identity_fingerprint": (
+                normalized_subject(row.get("subject")),
+                normalized_message_time(row.get("last_message_at")),
+            ),
+            "unread": "unread" in {str(label).lower() for label in (row.get("labels") or [])},
+            "source_identities": [acting_email],
+            "source_threads": [
+                {
+                    "acting_email": acting_email,
+                    "thread_id": thread_id or None,
+                    "last_message_id": message_id or None,
+                }
+            ],
+            "semantic_status": "OBSERVED" if not tags else "UNKNOWN",
+            "fail_closed_reasons": [],
+            "confidence": "LOW" if tags else "MEDIUM",
+            "source_observed_at": end_date,
+            "source_age_hours": 0.0,
+            "message_age_hours": source_age(row.get("last_message_at")),
+            "proposal": proposal_for_tags(tags),
+            "proposal_only": True,
+        }
+        if not stable_provider_identity:
+            result["semantic_status"] = "UNKNOWN"
+            result["confidence"] = "LOW"
+            result["wake"] = (
+                f"Open Superhuman as {acting_email} and recover a stable provider identity for this candidate; "
+                "the account-scoped fallback was not merged and no action was performed."
+            )
+            result["fail_closed_reasons"].append("stable provider identity unavailable")
+        return result
+
+    def merge_signal(existing: dict[str, Any], incoming: dict[str, Any]) -> None:
+        existing_status = str(existing.get("semantic_status") or "UNKNOWN")
+        incoming_status = str(incoming.get("semantic_status") or "UNKNOWN")
+        existing["source_identities"] = sorted(
+            dict.fromkeys(
+                (existing.get("source_identities") or [])
+                + (incoming.get("source_identities") or [])
+            ),
+            key=identity_sort_key,
+        )
+        seen_refs = {
+            (
+                ref.get("acting_email"),
+                ref.get("thread_id"),
+                ref.get("last_message_id"),
+            )
+            for ref in (existing.get("source_threads") or [])
+            if isinstance(ref, dict)
+        }
+        for ref in incoming.get("source_threads") or []:
+            if not isinstance(ref, dict):
+                continue
+            key = (ref.get("acting_email"), ref.get("thread_id"), ref.get("last_message_id"))
+            if key not in seen_refs:
+                existing.setdefault("source_threads", []).append(ref)
+                seen_refs.add(key)
+        existing["action_tags"] = sorted(
+            dict.fromkeys(
+                (existing.get("action_tags") or [])
+                + (incoming.get("action_tags") or [])
+            )
+        )
+        existing["source_labels"] = sorted(
+            dict.fromkeys(
+                (existing.get("source_labels") or [])
+                + (incoming.get("source_labels") or [])
+            )
+        )
+        existing["source_lanes"] = sorted(
+            dict.fromkeys(
+                (existing.get("source_lanes") or [])
+                + (incoming.get("source_lanes") or [])
+            )
+        )
+        existing["unread"] = bool(existing.get("unread") or incoming.get("unread"))
+        snapshots = [
+            snapshot
+            for snapshot in (
+                (existing.get("account_snapshots") or [])
+                + (incoming.get("account_snapshots") or [])
+            )
+            if isinstance(snapshot, dict) and snapshot.get("acting_email")
+        ]
+        if snapshots:
+            snapshots_by_identity = {
+                str(snapshot["acting_email"]): snapshot for snapshot in snapshots
+            }
+            existing["account_snapshots"] = sorted(
+                snapshots_by_identity.values(),
+                key=lambda snapshot: identity_sort_key(
+                    str(snapshot.get("acting_email") or "")
+                ),
+            )
+            existing["thread_body_read"] = all(
+                snapshot.get("thread_body_read") is True
+                for snapshot in existing["account_snapshots"]
+            )
+            snapshot_identities = {
+                str(snapshot.get("acting_email") or "")
+                for snapshot in existing["account_snapshots"]
+            }
+            missing_snapshot_identities = sorted(
+                set(existing.get("source_identities") or []) - snapshot_identities,
+                key=identity_sort_key,
+            )
+            snapshot_statuses = {
+                str(snapshot.get("semantic_status") or "UNKNOWN")
+                for snapshot in existing["account_snapshots"]
+            }
+            known_statuses = snapshot_statuses.intersection(
+                {"OBSERVED", "PROPOSAL"}
+            )
+            classification_conflict = known_statuses == {
+                "OBSERVED",
+                "PROPOSAL",
+            }
+            has_unknown = (
+                bool(missing_snapshot_identities)
+                or "UNKNOWN" in snapshot_statuses
+                or bool(
+                    snapshot_statuses
+                    - {"UNKNOWN", "OBSERVED", "PROPOSAL"}
+                )
+            )
+            if has_unknown or classification_conflict or not snapshot_statuses:
+                existing["semantic_status"] = "UNKNOWN"
+            elif len(known_statuses) == 1:
+                existing["semantic_status"] = next(iter(known_statuses))
+            else:
+                existing["semantic_status"] = "UNKNOWN"
+            snapshot_confidences = {
+                str(snapshot.get("confidence") or "LOW")
+                for snapshot in existing["account_snapshots"]
+            }
+            if existing["semantic_status"] == "UNKNOWN" or "LOW" in snapshot_confidences:
+                existing["confidence"] = "LOW"
+            elif "MEDIUM" in snapshot_confidences:
+                existing["confidence"] = "MEDIUM"
+            else:
+                existing["confidence"] = "HIGH"
+            existing["action_tags"] = sorted(
+                {
+                    str(tag)
+                    for snapshot in existing["account_snapshots"]
+                    for tag in (snapshot.get("action_tags") or [])
+                }
+            )
+            existing["source_labels"] = sorted(
+                {
+                    str(label)
+                    for snapshot in existing["account_snapshots"]
+                    for label in (snapshot.get("source_labels") or [])
+                }
+            )
+            existing["source_lanes"] = sorted(
+                {
+                    str(lane)
+                    for snapshot in existing["account_snapshots"]
+                    for lane in (snapshot.get("source_lanes") or [])
+                }
+            )
+            existing["unread"] = any(
+                snapshot.get("unread") is True
+                for snapshot in existing["account_snapshots"]
+            )
+            reasons = {
+                str(reason)
+                for snapshot in existing["account_snapshots"]
+                for reason in (snapshot.get("fail_closed_reasons") or [])
+            }
+            if missing_snapshot_identities:
+                reasons.add("per-account classification snapshot unavailable")
+            if classification_conflict:
+                reasons.add("cross-account classification/lifecycle conflict")
+            existing["fail_closed_reasons"] = sorted(reasons)
+            wakes = {
+                str(snapshot.get("wake"))
+                for snapshot in existing["account_snapshots"]
+                if snapshot.get("wake")
+            }
+            if missing_snapshot_identities:
+                wakes.add(
+                    "Re-read the exact mail item as "
+                    + ", ".join(missing_snapshot_identities)
+                    + "; its per-account classification snapshot is unavailable."
+                )
+            if classification_conflict:
+                subject = str(existing.get("subject") or "this mail item")
+                identities = ", ".join(existing.get("source_identities") or [])
+                wakes.add(
+                    f"Open Superhuman separately as {identities} and verify {subject}; "
+                    "cross-account classification/lifecycle facts disagree, so no relationship action is inferred."
+                )
+            if wakes:
+                existing["wake"] = "; ".join(sorted(wakes))
+            else:
+                existing.pop("wake", None)
+        else:
+            classification_conflict = {
+                existing_status,
+                incoming_status,
+            } == {"OBSERVED", "PROPOSAL"}
+            if "UNKNOWN" in {existing_status, incoming_status} or classification_conflict:
+                existing["semantic_status"] = "UNKNOWN"
+            elif existing_status == incoming_status:
+                existing["semantic_status"] = existing_status
+            else:
+                existing["semantic_status"] = "UNKNOWN"
+                classification_conflict = True
+            if (
+                existing.get("semantic_status") == "UNKNOWN"
+                or incoming.get("confidence") == "LOW"
+                or existing.get("confidence") == "LOW"
+            ):
+                existing["confidence"] = "LOW"
+            existing["fail_closed_reasons"] = sorted(
+                dict.fromkeys(
+                    (existing.get("fail_closed_reasons") or [])
+                    + (incoming.get("fail_closed_reasons") or [])
+                    + (
+                        ["cross-account classification/lifecycle conflict"]
+                        if classification_conflict
+                        else []
+                    )
+                )
+            )
+            wakes = {
+                str(value)
+                for value in (existing.get("wake"), incoming.get("wake"))
+                if value
+            }
+            if wakes:
+                existing["wake"] = "; ".join(sorted(wakes))
+        existing["proposal"] = proposal_for_tags(existing.get("action_tags") or [])
+        existing["source_threads"] = sorted(
+            (existing.get("source_threads") or []),
+            key=lambda ref: (
+                identity_sort_key(str(ref.get("acting_email") or "")),
+                str(ref.get("thread_id") or ""),
+                str(ref.get("last_message_id") or ""),
+            ),
+        )
+        if existing["source_threads"]:
+            canonical_ref = existing["source_threads"][0]
+            existing["thread_id"] = canonical_ref.get("thread_id")
+            existing["last_message_id"] = canonical_ref.get("last_message_id")
+
+    def dedupe_signal_rows(
+        rows: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Dedupe only when provider identity and normalized facts agree."""
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        for signal in rows:
+            buckets.setdefault(str(signal.get("signal_id") or ""), []).append(signal)
+        result: list[dict[str, Any]] = []
+        collision_problems: list[str] = []
+        for base_id, bucket in buckets.items():
+            variants: dict[tuple[str, str], dict[str, Any]] = {}
+            for signal in bucket:
+                fingerprint = tuple(signal.get("_identity_fingerprint") or ("", ""))
+                prior = variants.get(fingerprint)
+                if prior is None:
+                    variants[fingerprint] = signal
+                else:
+                    merge_signal(prior, signal)
+            if len(variants) > 1:
+                collision_problems.append(
+                    f"provider-ID collision for {base_id}: normalized subject/time disagree"
+                )
+                for fingerprint, signal in variants.items():
+                    refs = sorted(
+                        (
+                            str(ref.get("acting_email") or ""),
+                            str(ref.get("thread_id") or ""),
+                            str(ref.get("last_message_id") or ""),
+                        )
+                        for ref in (signal.get("source_threads") or [])
+                        if isinstance(ref, dict)
+                    )
+                    collision_key = json.dumps(
+                        [base_id, list(fingerprint), refs],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    signal["signal_id"] = hashlib.sha256(
+                        f"collision:{collision_key}".encode("utf-8")
+                    ).hexdigest()[:24]
+                    signal["semantic_status"] = "UNKNOWN"
+                    signal["confidence"] = "LOW"
+                    signal.setdefault("fail_closed_reasons", []).append(
+                        "provider-ID collision"
+                    )
+                    identities = ", ".join(signal.get("source_identities") or [])
+                    thread_ids = ", ".join(
+                        str(ref.get("thread_id") or "unknown thread")
+                        for ref in (signal.get("source_threads") or [])
+                    )
+                    signal["wake"] = (
+                        f"Open Superhuman as {identities} and verify exact thread {thread_ids}; "
+                        "a provider-ID collision has conflicting normalized subject/time facts, so no rows were merged or acted on."
+                    )
+            result.extend(variants.values())
+        return result, collision_problems
+
+    def action_candidate_sort_key(signal: dict[str, Any]) -> tuple[int, float, str]:
+        """Read and retain explicit/old obligations before generic inbox mail."""
+        tags = set(signal.get("action_tags") or [])
+        if tags.intersection({"obligation", "order_return", "calendar"}):
+            priority = 0
+        elif "urgent" in tags:
+            priority = 1
+        elif "waiting_reply" in tags:
+            priority = 2
+        elif "proactive" in tags:
+            priority = 3
+        else:
+            priority = 4
+        parsed = parsed_time(signal.get("last_message_at"))
+        return (
+            priority,
+            parsed.timestamp() if parsed is not None else float("-inf"),
+            str(signal.get("signal_id") or ""),
+        )
+
+    def append_signal_wake(signal: dict[str, Any], wake: str) -> None:
+        wakes = [str(value) for value in (signal.get("wake"), wake) if value]
+        signal["wake"] = "; ".join(dict.fromkeys(wakes))
+
+    account_snapshot_fields = (
+        "thread_id",
+        "last_message_id",
+        "action_tags",
+        "source_labels",
+        "source_lanes",
+        "semantic_status",
+        "confidence",
+        "fail_closed_reasons",
+        "wake",
+        "thread_body_read",
+        "waiting_direction",
+        "message_age_hours",
+        "verified_message_at",
+        "unread",
+        "proposal",
+    )
+
+    def account_snapshot(signal: dict[str, Any], acting_email: str) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {"acting_email": acting_email}
+        for key in account_snapshot_fields:
+            value = signal.get(key)
+            snapshot[key] = list(value) if isinstance(value, list) else value
+        return snapshot
+
+    coverage: list[dict[str, Any]] = []
+    all_signals: list[dict[str, Any]] = []
+    calendar_proposals: list[dict[str, Any]] = []
+    owned_sender_identities = {
+        sender_identity
+        for linked_account in linked_accounts
+        for sender_identity in (linked_account.get("sender_identities") or [])
+    }
+    owned_sender_identity_complete = bool(linked_accounts) and all(
+        bool(linked_account.get("sender_identity_complete"))
+        for linked_account in linked_accounts
+    )
+    global_action_reads = 0
+    global_action_limit_hit = False
+    read_budget_hit = False
+    linked_order = [account["acting_email"] for account in linked_accounts]
+    for account in linked_accounts:
+        acting_email = account["acting_email"]
+        pages = 0
+        raw_threads: list[dict[str, Any]] = []
+        total_estimate: int | None = None
+        exhausted = True
+        pagination_truncated = False
+        problems: list[str] = []
+        lane_receipts: list[dict[str, Any]] = []
+        duplicate_thread_ids: set[str] = set()
+        duplicate_message_ids: set[str] = set()
+        for lane_name, lane_labels in SUPERHUMAN_LIST_LANES:
+            lane_pages = 0
+            cursor: str | None = None
+            seen_cursors: set[str] = set()
+            seen_provider_rows: set[str] = set()
+            seen_thread_ids: set[str] = set()
+            seen_message_ids: set[str] = set()
+            lane_estimate: int | None = None
+            lane_exhausted = False
+            lane_truncated = False
+            while lane_pages < SUPERHUMAN_MAX_PAGES:
+                if read_budget_exhausted():
+                    read_budget_hit = True
+                    lane_truncated = True
+                    problems.append(
+                        f"{lane_name}: global read budget exceeded the {SUPERHUMAN_READ_BUDGET_SECONDS}-second safety window"
+                    )
+                    break
+                arguments: dict[str, Any] = {
+                    "acting_email": acting_email,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "labels": list(lane_labels),
+                    "limit": SUPERHUMAN_PAGE_LIMIT,
+                    "sort": "newest",
+                }
+                if cursor:
+                    arguments["cursor"] = cursor
+                try:
+                    page = call_tool("list_threads", arguments)
+                    if not isinstance(page, dict):
+                        raise RuntimeError("list_threads returned no structured payload")
+                    if page.get("error"):
+                        raise RuntimeError(str(page.get("error")))
+                    if "threads" not in page:
+                        raise RuntimeError("list_threads omitted the thread list")
+                    rows = page.get("threads")
+                    if not isinstance(rows, list):
+                        raise RuntimeError("list_threads returned a malformed thread list")
+                except Exception as exc:
+                    preserve_assertion(exc)
+                    problems.append(f"{lane_name} mail read failed: {exc}")
+                    lane_truncated = True
+                    break
+                lane_pages += 1
+                malformed_thread_rows = sum(
+                    1 for row in rows if not isinstance(row, dict)
+                )
+                if malformed_thread_rows:
+                    lane_truncated = True
+                    problems.append(
+                        f"{lane_name}: {malformed_thread_rows} unusable thread row"
+                        + ("s" if malformed_thread_rows != 1 else "")
+                        + " returned by list_threads"
+                    )
+                for provider_row in rows:
+                    if not isinstance(provider_row, dict):
+                        continue
+                    row = dict(provider_row)
+                    row["_shadow_source_lane"] = lane_name
+                    message_id = str(row.get("last_message_id") or "").strip()
+                    thread_id = str(row.get("thread_id") or row.get("id") or "").strip()
+                    if thread_id:
+                        provider_key = f"thread:{acting_email}:{thread_id}"
+                    elif message_id:
+                        provider_key = f"message:{message_id}"
+                    else:
+                        provider_key = "fallback:" + "|".join(
+                            (
+                                acting_email,
+                                normalized_subject(row.get("subject")),
+                                normalized_message_time(row.get("last_message_at")),
+                            )
+                        )
+                    duplicate_reasons: list[str] = []
+                    if thread_id and thread_id in seen_thread_ids:
+                        duplicate_reasons.append(f"thread {thread_id}")
+                    if message_id and message_id in seen_message_ids:
+                        duplicate_reasons.append(f"message {message_id}")
+                    if provider_key in seen_provider_rows and not duplicate_reasons:
+                        duplicate_reasons.append(provider_key)
+                    if duplicate_reasons:
+                        lane_truncated = True
+                        if thread_id and thread_id in seen_thread_ids:
+                            duplicate_thread_ids.add(thread_id)
+                        if message_id and message_id in seen_message_ids:
+                            duplicate_message_ids.add(message_id)
+                        problems.append(
+                            f"{lane_name}: duplicate provider row "
+                            + ", ".join(duplicate_reasons)
+                            + " repeated across the paginated result"
+                        )
+                    else:
+                        seen_provider_rows.add(provider_key)
+                    if thread_id:
+                        seen_thread_ids.add(thread_id)
+                    if message_id:
+                        seen_message_ids.add(message_id)
+                    raw_threads.append(row)
+                estimate = page.get("total_estimate")
+                if isinstance(estimate, int) and estimate >= 0:
+                    lane_estimate = max(lane_estimate or 0, estimate)
+                if any(
+                    bool(row.get("truncated"))
+                    for row in rows
+                    if isinstance(row, dict)
+                ):
+                    lane_truncated = True
+                    problems.append(f"{lane_name}: thread result truncated")
+                if bool(page.get("truncated")):
+                    lane_truncated = True
+                    problems.append(f"{lane_name}: page result truncated")
+                maximum_rows = SUPERHUMAN_PAGE_LIMIT * SUPERHUMAN_MAX_PAGES
+                if lane_estimate is not None and lane_estimate > maximum_rows:
+                    lane_truncated = True
+                    problems.append(
+                        f"{lane_name}: declared total estimate {lane_estimate} exceeds the {maximum_rows}-row pagination safety bound"
+                    )
+                    break
+                next_cursor = str(page.get("next_cursor") or "").strip()
+                if not next_cursor:
+                    lane_exhausted = True
+                    break
+                if next_cursor in seen_cursors:
+                    lane_truncated = True
+                    problems.append(
+                        f"{lane_name}: pagination cursor cycle at {next_cursor}"
+                    )
+                    break
+                seen_cursors.add(next_cursor)
+                cursor = next_cursor
+            if not lane_exhausted and lane_pages >= SUPERHUMAN_MAX_PAGES:
+                lane_truncated = True
+                problems.append(
+                    f"{lane_name}: pagination stopped at the {SUPERHUMAN_MAX_PAGES}-page safety cap"
+                )
+            if (
+                lane_exhausted
+                and lane_estimate is not None
+                and lane_estimate > len(seen_provider_rows)
+            ):
+                lane_truncated = True
+                problems.append(
+                    f"{lane_name}: total estimate {lane_estimate} exceeds {len(seen_provider_rows)} unique exhausted thread rows"
+                )
+            pages += lane_pages
+            if lane_estimate is not None:
+                total_estimate = (total_estimate or 0) + lane_estimate
+            exhausted = exhausted and lane_exhausted
+            pagination_truncated = pagination_truncated or lane_truncated
+            lane_receipts.append(
+                {
+                    "name": lane_name,
+                    "labels": list(lane_labels),
+                    "pages": lane_pages,
+                    "exhausted": lane_exhausted,
+                    "truncated": lane_truncated or not lane_exhausted,
+                    "total_estimate": lane_estimate,
+                    "unique_threads": len(seen_provider_rows),
+                }
+            )
+
+        newest_source = max(
+            (
+                (parsed_time(row.get("last_message_at")), str(row.get("last_message_at") or ""))
+                for row in raw_threads
+                if parsed_time(row.get("last_message_at")) is not None
+            ),
+            default=(None, None),
+            key=lambda item: item[0] or datetime.min.replace(tzinfo=timezone.utc),
+        )[1]
+        metrics = {
+            "unread_threads": 0,
+            "github_notification_threads": 0,
+            "human_or_other_threads": 0,
+            "cursor_limit_threads": 0,
+        }
+        account_signal_rows: list[dict[str, Any]] = []
+        for row in raw_threads:
+            signal = stable_signal(row, acting_email)
+            if not isinstance(row.get("labels"), list):
+                signal["semantic_status"] = "UNKNOWN"
+                signal["confidence"] = "LOW"
+                signal["wake"] = (
+                    f"Open Superhuman as {acting_email} and verify lifecycle labels for exact thread "
+                    f"{signal.get('thread_id') or 'UNKNOWN'}; archived/done state is not inferred."
+                )
+                signal.setdefault("fail_closed_reasons", []).append(
+                    "mail lifecycle labels are missing or malformed"
+                )
+                problems.append(
+                    f"{signal.get('thread_id') or signal.get('signal_id')}: mail lifecycle labels are missing or malformed"
+                )
+            if (
+                str(signal.get("thread_id") or "") in duplicate_thread_ids
+                or str(signal.get("last_message_id") or "") in duplicate_message_ids
+            ):
+                signal["semantic_status"] = "UNKNOWN"
+                signal["confidence"] = "LOW"
+                signal["wake"] = (
+                    f"Open Superhuman as {acting_email} and verify duplicate exact thread "
+                    f"{signal.get('thread_id') or 'UNKNOWN'}; a stable paginated snapshot was not observed."
+                )
+                signal.setdefault("fail_closed_reasons", []).append(
+                    "duplicate provider row prevents a stable snapshot"
+                )
+            if parsed_time(row.get("last_message_at")) is None:
+                signal["semantic_status"] = "UNKNOWN"
+                signal["confidence"] = "LOW"
+                signal["wake"] = (
+                    f"Open Superhuman as {acting_email} and verify the source timestamp for exact thread "
+                    f"{signal.get('thread_id') or 'UNKNOWN'}; ordering, range membership, and forgotten age are not inferred."
+                )
+                problems.append(
+                    f"{signal.get('thread_id') or signal.get('signal_id')}: unusable source timestamp"
+                )
+                signal.setdefault("fail_closed_reasons", []).append(
+                    "unusable source timestamp"
+                )
+            labels = {str(label).lower() for label in (row.get("labels") or [])}
+            if "unread" in labels:
+                metrics["unread_threads"] += 1
+            if signal["kind"] == "github":
+                metrics["github_notification_threads"] += 1
+            elif signal["kind"] == "human_or_other":
+                metrics["human_or_other_threads"] += 1
+            combined = f"{row.get('subject', '')} {row.get('snippet', '')}".lower()
+            if "usage limit" in combined or "usage/spend limit" in combined:
+                metrics["cursor_limit_threads"] += 1
+            account_signal_rows.append(signal)
+
+        account_signals, account_collision_problems = dedupe_signal_rows(account_signal_rows)
+        problems.extend(account_collision_problems)
+        for signal in account_signals:
+            if not signal.get("stable_provider_identity"):
+                problems.append("source row has no stable provider identity")
+
+        action_candidates = sorted(
+            (
+                signal
+                for signal in account_signals
+                if signal.get("action_tags")
+            ),
+            key=action_candidate_sort_key,
+        )
+        for signal in action_candidates:
+            if global_action_reads >= SUPERHUMAN_GLOBAL_ACTION_LIMIT:
+                global_action_limit_hit = True
+                signal["semantic_status"] = "UNKNOWN"
+                signal["confidence"] = "LOW"
+                append_signal_wake(signal, (
+                    f"Open Superhuman as {acting_email} and read exact thread {signal.get('thread_id') or 'UNKNOWN'}; "
+                    f"the global {SUPERHUMAN_GLOBAL_ACTION_LIMIT}-thread exact thread read cap was reached and no action was performed."
+                ))
+                problems.append(
+                    f"global exact thread read cap of {SUPERHUMAN_GLOBAL_ACTION_LIMIT} left action candidates unverified"
+                )
+                continue
+            if read_budget_exhausted():
+                read_budget_hit = True
+                signal["semantic_status"] = "UNKNOWN"
+                signal["confidence"] = "LOW"
+                append_signal_wake(signal, (
+                    f"Open Superhuman as {acting_email} and read exact thread {signal.get('thread_id') or 'UNKNOWN'}; "
+                    f"the {SUPERHUMAN_READ_BUDGET_SECONDS}-second read budget expired and no action was performed."
+                ))
+                problems.append(
+                    f"global read budget exceeded the {SUPERHUMAN_READ_BUDGET_SECONDS}-second safety window"
+                )
+                continue
+            thread_id = str(signal.get("thread_id") or "")
+            if not thread_id:
+                wake = (
+                    f"Open Superhuman as {acting_email} and resolve the candidate without a stable thread ID; "
+                    "no draft, send, calendar write, order, or return was performed."
+                )
+                signal["semantic_status"] = "UNKNOWN"
+                signal["confidence"] = "LOW"
+                append_signal_wake(signal, wake)
+                problems.append("action candidate has no stable thread ID")
+                continue
+            detail_problems: list[str] = []
+            attachment_names: list[str] = []
+            try:
+                global_action_reads += 1
+                detail = call_tool(
+                    "get_thread",
+                    {
+                        "acting_email": acting_email,
+                        "thread_id": thread_id,
+                        "include_comments": False,
+                        "include_drafts": False,
+                        "message_limit": 100,
+                    },
+                )
+                if not isinstance(detail, dict):
+                    raise RuntimeError("get_thread returned no structured payload")
+                if detail.get("error"):
+                    raise RuntimeError(str(detail.get("error")))
+                if str(detail.get("thread_id") or "") != thread_id:
+                    detail_problems.append("exact thread identity mismatch")
+                if detail.get("user_is_participant") is not True:
+                    detail_problems.append(
+                        "exact thread does not prove the acting user is a participant"
+                    )
+                messages = detail.get("messages") or []
+                if not isinstance(messages, list):
+                    messages = []
+                    detail_problems.append("thread messages malformed")
+                message_count = detail.get("message_count")
+                if bool(detail.get("truncated")) or (
+                    isinstance(message_count, int) and message_count > len(messages)
+                ):
+                    detail_problems.append("thread body truncated")
+                if isinstance(message_count, int) and message_count > 0 and not messages:
+                    detail_problems.append("thread body unavailable")
+                visible_messages: list[dict[str, Any]] = []
+                for message in messages:
+                    if not isinstance(message, dict):
+                        detail_problems.append("thread contains an unusable message row")
+                        continue
+                    message_labels = message.get("labels")
+                    if not isinstance(message_labels, list):
+                        detail_problems.append(
+                            "thread message lifecycle labels are missing or malformed"
+                        )
+                        continue
+                    if str(message.get("thread_id") or "") != thread_id:
+                        detail_problems.append(
+                            "thread contains a message from a different thread"
+                        )
+                        continue
+                    if message.get("is_draft") is True or "draft" in {
+                        str(label).casefold() for label in message_labels
+                    }:
+                        continue
+                    visible_messages.append(message)
+                    attachments = [
+                        str(value)
+                        for value in (message.get("attachments") or [])
+                        if str(value or "").strip()
+                    ]
+                    attachment_names.extend(attachments)
+                    if not str(message.get("body") or message.get("raw_html") or "").strip():
+                        detail_problems.append("thread body unavailable")
+                if not visible_messages:
+                    detail_problems.append("no non-draft visible message")
+                if attachment_names:
+                    detail_problems.append("action-bearing attachment content unread")
+                last_message: dict[str, Any] = {}
+                listed_message_id = str(signal.get("last_message_id") or "")
+                if visible_messages and listed_message_id:
+                    matching = [
+                        message
+                        for message in visible_messages
+                        if str(message.get("message_id") or "") == listed_message_id
+                    ]
+                    if len(matching) != 1:
+                        detail_problems.append(
+                            "listed latest message is unavailable in the exact thread read"
+                        )
+                    else:
+                        last_message = matching[0]
+                        listed_time = parsed_time(
+                            last_message.get("sent_at") or last_message.get("timestamp")
+                        )
+                        if listed_time is not None and any(
+                            (
+                                parsed_time(message.get("sent_at") or message.get("timestamp"))
+                                or datetime.min.replace(tzinfo=timezone.utc)
+                            )
+                            > listed_time
+                            for message in visible_messages
+                            if message is not last_message
+                        ):
+                            detail_problems.append(
+                                "listed latest message conflicts with exact thread ordering"
+                            )
+                elif visible_messages:
+                    timestamped = [
+                        (
+                            parsed_time(message.get("sent_at") or message.get("timestamp")),
+                            index,
+                            message,
+                        )
+                        for index, message in enumerate(visible_messages)
+                    ]
+                    if any(item[0] is None for item in timestamped):
+                        detail_problems.append(
+                            "latest message ordering is ambiguous without a summary message ID"
+                        )
+                    else:
+                        latest_time = max(item[0] for item in timestamped)
+                        latest_rows = [
+                            item for item in timestamped if item[0] == latest_time
+                        ]
+                        if len(latest_rows) != 1:
+                            detail_problems.append(
+                                "latest message ordering is ambiguous because timestamps tie"
+                            )
+                        else:
+                            last_message = latest_rows[0][2]
+                if not last_message:
+                    signal["action_tags"] = [
+                        tag
+                        for tag in (signal.get("action_tags") or [])
+                        if tag not in {"reply", "waiting_reply", "proactive"}
+                    ]
+                else:
+                    exact_message_time = parsed_time(
+                        last_message.get("sent_at") or last_message.get("timestamp")
+                    )
+                    summary_message_time = parsed_time(signal.get("last_message_at"))
+                    if exact_message_time is None:
+                        detail_problems.append(
+                            "latest exact message timestamp is unavailable or ambiguous"
+                        )
+                        signal["message_age_hours"] = None
+                    elif summary_message_time is None:
+                        signal["message_age_hours"] = None
+                    elif exact_message_time != summary_message_time:
+                        detail_problems.append(
+                            "latest exact message timestamp disagrees with the thread summary"
+                        )
+                        signal["message_age_hours"] = None
+                    else:
+                        signal["message_age_hours"] = source_age(
+                            exact_message_time.isoformat(timespec="seconds")
+                        )
+                        signal["verified_message_at"] = exact_message_time.isoformat(
+                            timespec="seconds"
+                        )
+                    sender_email = message_identity(
+                        last_message.get("from") or last_message.get("sender")
+                    )
+                    if not sender_email:
+                        detail_problems.append("latest message sender identity is unavailable")
+                    elif signal.get("kind") == "human_or_other":
+                        tags = list(signal.get("action_tags") or [])
+                        active_labels = set(signal.get("source_labels") or [])
+                        recipients = message_recipients(last_message)
+                        if sender_email in owned_sender_identities:
+                            tags = [
+                                tag
+                                for tag in tags
+                                if tag not in {"reply", "proactive"}
+                            ]
+                            outbound_text = " ".join(
+                                str(last_message.get(key) or "")
+                                for key in ("subject", "snippet", "body")
+                            ).casefold()
+                            expects_response = "?" in outbound_text or any(
+                                token in outbound_text
+                                for token in (
+                                    "could you",
+                                    "can you",
+                                    "please",
+                                    "let me know",
+                                    "awaiting",
+                                    "waiting for",
+                                    "following up",
+                                    "checking in",
+                                    "your response",
+                                    "what is the status",
+                                )
+                            )
+                            internal_delivery = bool(recipients) and recipients.issubset(
+                                owned_sender_identities
+                            )
+                            if not recipients:
+                                tags = [tag for tag in tags if tag != "waiting_reply"]
+                                detail_problems.append(
+                                    "latest owned-sender message has no proven recipients"
+                                )
+                                signal["waiting_direction"] = (
+                                    "latest visible message is owned, but its recipients are unavailable"
+                                )
+                            elif internal_delivery:
+                                tags = [tag for tag in tags if tag != "waiting_reply"]
+                            elif expects_response and "waiting_reply" not in tags:
+                                tags.append("waiting_reply")
+                            elif not expects_response:
+                                tags = [tag for tag in tags if tag != "waiting_reply"]
+                            if not recipients:
+                                pass
+                            elif internal_delivery:
+                                signal["waiting_direction"] = (
+                                    "latest visible message stayed within Leo-owned linked identities"
+                                )
+                            else:
+                                signal["waiting_direction"] = (
+                                    "last visible message sent by Leo with an explicit response expectation"
+                                    if expects_response
+                                    else "last visible message sent by Leo without a response expectation"
+                                )
+                        else:
+                            if not owned_sender_identity_complete:
+                                detail_problems.append(
+                                    "send-as alias coverage is unavailable, so inbound/outbound direction is ambiguous"
+                                )
+                            tags = [tag for tag in tags if tag != "waiting_reply"]
+                            if "inbox" in active_labels and "reply" not in tags:
+                                tags.append("reply")
+                            signal["waiting_direction"] = (
+                                "latest visible message is inbound; Leo is not waiting on them"
+                            )
+                        signal["action_tags"] = list(dict.fromkeys(tags))
+            except Exception as exc:
+                preserve_assertion(exc)
+                detail_problems.append(f"exact thread read failed: {exc}")
+            signal["proposal"] = proposal_for_tags(signal.get("action_tags") or [])
+            if detail_problems:
+                attachment_note = (
+                    " including " + ", ".join(sorted(dict.fromkeys(attachment_names)))
+                    if attachment_names
+                    else ""
+                )
+                signal["semantic_status"] = "UNKNOWN"
+                signal["confidence"] = "LOW"
+                append_signal_wake(signal, (
+                    f"Open Superhuman as {acting_email}, read exact thread {thread_id}{attachment_note} and every "
+                    "action-bearing attachment, then return a proposal; no draft, send, calendar write, order, or return was performed."
+                ))
+                signal.setdefault("fail_closed_reasons", []).extend(
+                    str(problem) for problem in dict.fromkeys(detail_problems)
+                )
+                problems.extend(f"{thread_id}: {problem}" for problem in dict.fromkeys(detail_problems))
+            else:
+                signal["thread_body_read"] = True
+                if signal.get("fail_closed_reasons"):
+                    signal["semantic_status"] = "UNKNOWN"
+                    signal["confidence"] = "LOW"
+                elif not signal.get("action_tags"):
+                    signal["semantic_status"] = "OBSERVED"
+                    signal["confidence"] = "MEDIUM"
+                else:
+                    signal["semantic_status"] = "PROPOSAL"
+                    signal["confidence"] = "MEDIUM"
+
+        calendar: dict[str, Any]
+        try:
+            if read_budget_exhausted():
+                read_budget_hit = True
+                raise RuntimeError(
+                    f"global read budget exceeded the {SUPERHUMAN_READ_BUDGET_SECONDS}-second safety window"
+                )
+            calendar_payload = call_tool(
+                "query_email_and_calendar",
+                {
+                    "acting_email": acting_email,
+                    "question": (
+                        "Read only: for the next 14 days, summarize concrete calendar conflicts, deadlines, and "
+                        "follow-through suggested by mail. Also search older accessible mail for unresolved "
+                        "registration, driver license, payment, order, or return obligations predating the declared "
+                        f"{SUPERHUMAN_LOOKBACK_DAYS}-day thread list; older hits are proposals, not exhaustive proof. "
+                        "Return proposals only. Do not create, update, invite, "
+                        "book, send, purchase, cancel, or change any account state."
+                    ),
+                },
+            )
+            if not isinstance(calendar_payload, dict):
+                raise RuntimeError("calendar query returned no structured payload")
+            if calendar_payload.get("error"):
+                raise RuntimeError(str(calendar_payload.get("error")))
+            if not str(calendar_payload.get("answer") or "").strip():
+                raise RuntimeError("calendar query returned no answer")
+            calendar_answer = str(calendar_payload.get("answer") or "")
+            clarification = str(calendar_payload.get("clarification_needed") or "").strip()
+            raw_sources = calendar_payload.get("sources")
+            if not isinstance(raw_sources, list):
+                raw_sources = []
+            source_ids = [
+                str(source.get("id"))
+                for source in raw_sources
+                if isinstance(source, dict) and source.get("id")
+            ]
+            calendar_problem = ""
+            if clarification:
+                calendar_problem = f"calendar query needs clarification: {clarification}"
+            elif not source_ids:
+                calendar_problem = "calendar query returned no source-labelled evidence"
+            elif len(source_ids) != len(raw_sources):
+                calendar_problem = "calendar query returned malformed source evidence"
+            elif len(calendar_answer) > 1200:
+                calendar_problem = (
+                    "calendar answer exceeds the 1200-character reader evidence cap"
+                )
+            elif len(source_ids) > 20:
+                calendar_problem = (
+                    "calendar evidence exceeds the 20-source reader evidence cap"
+                )
+            calendar = {
+                "status": "UNKNOWN" if calendar_problem else "PROPOSAL",
+                "summary": calendar_answer[:1200],
+                "source_ids": source_ids[:20],
+                "clarification_needed": clarification or None,
+                "proposal_only": True,
+            }
+            if calendar_problem:
+                calendar["wake"] = (
+                    f"Open read-only calendar evidence as {acting_email} and resolve: {calendar_problem}; "
+                    "no event, invitation, booking, or notification was created."
+                )
+                problems.append(calendar_problem)
+        except Exception as exc:
+            preserve_assertion(exc)
+            calendar = {
+                "status": "UNKNOWN",
+                "summary": "Calendar follow-through is unavailable; no event state or conflict is inferred.",
+                "proposal_only": True,
+                "wake": (
+                    f"Restore read-only Superhuman calendar access for {acting_email}; no event write or invitation was attempted."
+                ),
+            }
+            problems.append(f"calendar read failed: {exc}")
+        calendar_proposals.append(
+            {
+                "acting_email": acting_email,
+                "summary": calendar.get("summary"),
+                "status": calendar.get("status"),
+                "source_ids": calendar.get("source_ids") or [],
+                "source_identities": [acting_email],
+                "confidence": "MEDIUM" if calendar.get("status") == "PROPOSAL" else "LOW",
+                "source_observed_at": end_date,
+                "source_age_hours": 0.0,
+                "wake": calendar.get("wake"),
+                "proposal_only": True,
+            }
+        )
+
+        status = "COMPLETE" if exhausted and not pagination_truncated and not problems else "UNKNOWN"
+        coverage_row = {
+            **account,
+            "expected": acting_email in EXPECTED_SUPERHUMAN_IDENTITIES,
+            "linked": True,
+            "status": status,
+            "query_range": dict(query_range),
+            "source_observed_at": end_date,
+            "source_age_hours": 0.0,
+            "newest_message_at": newest_source,
+            "newest_message_age_hours": source_age(newest_source),
+            "threads_returned_raw": len(raw_threads),
+            "threads_returned": len(account_signals),
+            "total_estimate": total_estimate,
+            "pagination": {
+                "pages": pages,
+                "exhausted": exhausted,
+                "truncated": pagination_truncated or not exhausted,
+                "lanes": lane_receipts,
+            },
+            "calendar": calendar,
+            "problems": list(dict.fromkeys(problems)),
+            "metrics": metrics,
+        }
+        if status == "UNKNOWN":
+            if any("read budget" in problem for problem in problems):
+                coverage_row["wake"] = (
+                    f"Rerun read-only Superhuman coverage for {acting_email}; the "
+                    f"{SUPERHUMAN_READ_BUDGET_SECONDS}-second read budget expired before this source was complete."
+                )
+            else:
+                coverage_row["wake"] = (
+                    f"Re-read {acting_email} through Superhuman from {start_date} to {end_date}, exhaust every cursor, "
+                    "and open each named UNKNOWN thread before any all-clear."
+                )
+        for signal in account_signals:
+            signal["account_snapshots"] = [account_snapshot(signal, acting_email)]
+        coverage.append(coverage_row)
+        all_signals.extend(account_signals)
+
+    for expected_email in EXPECTED_SUPERHUMAN_IDENTITIES:
+        if expected_email in linked_by_email:
+            continue
+        coverage.append(
+            unknown_coverage(
+                expected_email,
+                expected=True,
+                problem="expected identity is not linked in the live Superhuman account list",
+                wake=(
+                    f"Link {expected_email} in Superhuman, then rerun read-only list_accounts; "
+                    "never reauthenticate or substitute another identity automatically."
+                ),
+            )
+        )
+
+    coverage.sort(
+        key=lambda row: (
+            EXPECTED_SUPERHUMAN_IDENTITIES.index(row["acting_email"])
+            if row["acting_email"] in EXPECTED_SUPERHUMAN_IDENTITIES
+            else len(EXPECTED_SUPERHUMAN_IDENTITIES),
+            linked_order.index(row["acting_email"])
+            if row["acting_email"] in linked_order
+            else len(linked_order),
+            row["acting_email"],
+        )
+    )
+    deduped_rows, collision_problems = dedupe_signal_rows(all_signals)
+    context_problems.extend(collision_problems)
+
+    def signal_sort_key(signal: dict[str, Any]) -> tuple[float, str]:
+        parsed = parsed_time(signal.get("last_message_at"))
+        return (
+            parsed.timestamp() if parsed is not None else float("-inf"),
+            str(signal.get("signal_id") or ""),
+        )
+
+    unique_signals = sorted(deduped_rows, key=signal_sort_key, reverse=True)
+    action_signals = sorted(
+        (signal for signal in unique_signals if signal.get("action_tags")),
+        key=action_candidate_sort_key,
+    )
+    neutral_signals = [signal for signal in unique_signals if not signal.get("action_tags")]
+    # Preserve old obligations ahead of newer neutral mail. The packet stays
+    # bounded, while each reader-first action category below is derived from
+    # the full collision-safe set and carries its own cap/wake.
+    retained_signals = (action_signals + neutral_signals)[:SUPERHUMAN_SIGNAL_LIMIT]
+    for signal in unique_signals:
+        if "provider-ID collision" not in str(signal.get("wake") or ""):
+            continue
+        for acting_email in signal.get("source_identities") or []:
+            coverage_row = next(
+                (row for row in coverage if row.get("acting_email") == acting_email),
+                None,
+            )
+            if coverage_row is None:
+                continue
+            coverage_row["status"] = "UNKNOWN"
+            coverage_row.setdefault("problems", []).append(
+                "provider-ID collision requires exact thread verification"
+            )
+            coverage_row["wake"] = signal.get("wake")
+
+    calendar_by_key: dict[tuple[str, tuple[str, ...], str, str], dict[str, Any]] = {}
+    for proposal in calendar_proposals:
+        key = (
+            normalized_subject(proposal.get("summary")),
+            tuple(sorted(str(value) for value in (proposal.get("source_ids") or []))),
+            str(proposal.get("status") or "UNKNOWN"),
+            str(proposal.get("wake") or ""),
+        )
+        prior = calendar_by_key.get(key)
+        if prior is None:
+            calendar_by_key[key] = proposal
+            continue
+        prior["source_identities"] = sorted(
+            dict.fromkeys(
+                (prior.get("source_identities") or [])
+                + (proposal.get("source_identities") or [])
+            ),
+            key=identity_sort_key,
+        )
+    calendar_proposals = sorted(
+        calendar_by_key.values(),
+        key=lambda row: tuple(
+            identity_sort_key(value) for value in row.get("source_identities") or []
+        ),
+    )
+    forgotten = [
+        signal
+        for signal in retained_signals
+        if (source_age(signal.get("last_message_at")) or 0) > 24
+        and any(
+            tag in (signal.get("action_tags") or [])
+            for tag in ("obligation", "order_return", "waiting_reply", "reply", "calendar")
+        )
+    ]
+    order_returns = [
+        signal for signal in retained_signals if "order_return" in (signal.get("action_tags") or [])
+    ]
+    waiting_replies = [
+        signal for signal in retained_signals if "waiting_reply" in (signal.get("action_tags") or [])
+    ]
+    urgent_replies = [
+        signal
+        for signal in retained_signals
+        if "urgent" in (signal.get("action_tags") or [])
+        and any(tag in (signal.get("action_tags") or []) for tag in ("reply", "waiting_reply"))
+    ]
+    proactive = [
+        signal for signal in retained_signals if "proactive" in (signal.get("action_tags") or [])
+    ]
+    metrics = {
+        key: sum(int((row.get("metrics") or {}).get(key) or 0) for row in coverage)
+        for key in (
+            "unread_threads",
+            "github_notification_threads",
+            "human_or_other_threads",
+            "cursor_limit_threads",
+        )
+    }
+    declared_query_complete = bool(coverage) and all(
+        row.get("status") == "COMPLETE" for row in coverage
+    )
+    if global_action_limit_hit:
+        context_problems.append(
+            f"global exact thread read cap of {SUPERHUMAN_GLOBAL_ACTION_LIMIT} left candidates unverified"
+        )
+        context_wakes.append(
+            "Open each signal named as skipped by the global exact thread read cap before relying on the brief."
+        )
+    if read_budget_hit:
+        context_problems.append(
+            f"global read budget exceeded the {SUPERHUMAN_READ_BUDGET_SECONDS}-second safety window"
+        )
+        context_wakes.append(
+            f"Rerun the read-only collector with enough time to finish before the next verifier; the {SUPERHUMAN_READ_BUDGET_SECONDS}-second read budget stopped this pass."
+        )
+    signals_omitted = max(0, len(unique_signals) - len(retained_signals))
+    if signals_omitted:
+        context_problems.append(
+            f"{signals_omitted} signal omitted by the {SUPERHUMAN_SIGNAL_LIMIT}-signal retention cap"
+        )
+        context_wakes.append(
+            f"Re-open the private packet and narrow the source read below the {SUPERHUMAN_SIGNAL_LIMIT}-signal retention cap before relying on an all-clear."
+        )
+    forgotten_horizon = {
+        "status": "UNKNOWN",
+        "declared_thread_start": start_date,
+        "proposal_only": True,
+        "wake": (
+            f"Search read-only Superhuman mail before {start_date[:10]} for unresolved registration, driver license, "
+            "payment, order, and return obligations; the 90-day paginated query is exhausted only for its declared range."
+        ),
+    }
+    context_problems.append(
+        f"forgotten-obligation history before {start_date[:10]} is not proven exhaustive"
+    )
+    context_wakes.append(forgotten_horizon["wake"])
+    semantic_unknown = any(
+        signal.get("semantic_status") == "UNKNOWN" for signal in unique_signals
+    )
+    complete = declared_query_complete and not context_problems and not semantic_unknown
+    all_clear_allowed = complete
+    for signal in unique_signals:
+        signal.pop("_identity_fingerprint", None)
+    return {
+        "schema": SUPERHUMAN_CONTEXT_SCHEMA,
+        "available": bool(linked_accounts),
+        "complete": complete,
+        "status": "COMPLETE" if complete else "UNKNOWN",
+        "all_clear_allowed": all_clear_allowed,
+        "declared_query_complete": declared_query_complete,
+        "problems": list(dict.fromkeys(context_problems)),
+        "wake": "; ".join(dict.fromkeys(context_wakes)),
+        "observed_at": end_date,
+        "query_range": query_range,
+        "expected_identities": list(EXPECTED_SUPERHUMAN_IDENTITIES),
+        "account_discovery": account_discovery,
+        "linked_accounts": linked_accounts,
+        "coverage": coverage,
+        "threads_returned_raw": sum(int(row.get("threads_returned_raw") or 0) for row in coverage),
+        "threads_returned": sum(int(row.get("threads_returned") or 0) for row in coverage),
+        "threads_unique": len(unique_signals),
+        "signals_retained": len(retained_signals),
+        "signals_omitted": signals_omitted,
+        "signals": retained_signals,
+        "forgotten_obligations": forgotten,
+        "urgent_replies": urgent_replies,
+        "waiting_replies": waiting_replies,
+        "proactive_candidates": proactive,
+        "order_return_follow_up": order_returns,
+        "calendar_proposals": calendar_proposals,
+        "forgotten_horizon": forgotten_horizon,
+        "window_hours": SUPERHUMAN_LOOKBACK_DAYS * 24,
+        **metrics,
+    }
+
+
+def superhuman_account_context(context: dict[str, Any], acting_email: str) -> dict[str, Any]:
+    """Project one account from the all-account read without another provider call."""
+    normalized = str(acting_email or "").strip().lower()
+    if context.get("acting_email") == normalized and "coverage" not in context:
+        return context
+    coverage = next(
+        (
+            row
+            for row in (context.get("coverage") or [])
+            if isinstance(row, dict) and row.get("acting_email") == normalized
+        ),
+        None,
+    )
+    if coverage is None:
+        return {
+            "available": False,
+            "complete": False,
+            "status": "UNKNOWN",
+            "acting_email": normalized,
+            "error": "identity is absent from Superhuman coverage",
+            "wake": f"Link {normalized} in Superhuman and rerun read-only list_accounts.",
+            "signals": [],
+        }
+    signals: list[dict[str, Any]] = []
+    for signal in context.get("signals") or []:
+        if not isinstance(signal, dict) or normalized not in (signal.get("source_identities") or []):
+            continue
+        account_signal = dict(signal)
+        source_ref = next(
+            (
+                ref
+                for ref in (signal.get("source_threads") or [])
+                if isinstance(ref, dict) and ref.get("acting_email") == normalized
+            ),
+            {},
+        )
+        snapshot = next(
+            (
+                item
+                for item in (signal.get("account_snapshots") or [])
+                if isinstance(item, dict) and item.get("acting_email") == normalized
+            ),
+            None,
+        )
+        if snapshot is None:
+            account_signal["action_tags"] = []
+            account_signal["semantic_status"] = "UNKNOWN"
+            account_signal["confidence"] = "LOW"
+            account_signal["fail_closed_reasons"] = [
+                "per-account classification snapshot unavailable"
+            ]
+            account_signal["wake"] = (
+                f"Re-read the exact mail item as {normalized}; its per-account classification snapshot is unavailable."
+            )
+            account_signal["thread_body_read"] = False
+        else:
+            for key in (
+                "thread_id",
+                "last_message_id",
+                "action_tags",
+                "source_labels",
+                "source_lanes",
+                "semantic_status",
+                "confidence",
+                "fail_closed_reasons",
+                "wake",
+                "thread_body_read",
+                "waiting_direction",
+                "message_age_hours",
+                "verified_message_at",
+                "unread",
+                "proposal",
+            ):
+                value = snapshot.get(key)
+                account_signal[key] = list(value) if isinstance(value, list) else value
+        account_signal["thread_id"] = source_ref.get("thread_id") or account_signal.get("thread_id")
+        account_signal["last_message_id"] = source_ref.get("last_message_id") or account_signal.get("last_message_id")
+        account_signal["source_identities"] = [normalized]
+        account_signal["source_threads"] = [source_ref] if source_ref else []
+        account_signal.pop("native_link", None)
+        signals.append(account_signal)
+    metrics = coverage.get("metrics") or {}
+    available = bool(coverage.get("linked"))
+    result = {
+        "available": available,
+        "complete": coverage.get("status") == "COMPLETE",
+        "status": coverage.get("status"),
+        "acting_email": normalized,
+        "window_hours": SUPERHUMAN_LOOKBACK_DAYS * 24,
+        "query_range": coverage.get("query_range"),
+        "source_age_hours": coverage.get("source_age_hours"),
+        "threads_returned": coverage.get("threads_returned", 0),
+        "total_estimate": coverage.get("total_estimate"),
+        "unread_threads": metrics.get("unread_threads", 0),
+        "github_notification_threads": metrics.get("github_notification_threads", 0),
+        "human_or_other_threads": metrics.get("human_or_other_threads", 0),
+        "cursor_limit_threads": metrics.get("cursor_limit_threads", 0),
+        "signals": signals,
+    }
+    if not available or coverage.get("status") != "COMPLETE":
+        result["error"] = "; ".join(str(value) for value in (coverage.get("problems") or [])) or "coverage unknown"
+        result["wake"] = coverage.get("wake")
+    return result
+
+
+def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, Any]:
+    """Collect every linked account once, returning only metadata and proposals."""
     import urllib.error
     import urllib.request
 
     token = _mcp_remote_token()
     if not token:
-        return {"available": False, "error": "Superhuman OAuth is unavailable"}
+        def unavailable(_name: str, _arguments: dict[str, Any]) -> dict[str, Any]:
+            raise RuntimeError("Superhuman OAuth is unavailable")
+
+        context = build_superhuman_context(unavailable)
+        return superhuman_account_context(context, acting_email) if acting_email else context
     url = SUPERHUMAN_MCP_RESOURCE
 
     def post(payload: dict[str, Any], sid: str | None = None) -> tuple[str | None, dict[str, Any]]:
@@ -663,105 +2444,39 @@ def collect_superhuman_context(*, acting_email: str = SELF_MAIL) -> dict[str, An
             },
         })
         post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, sid)
-        start = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
-        _, result = post({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "list_threads",
-                "arguments": {
-                    "acting_email": acting_email,
-                    "start_date": start,
-                    "limit": 25,
-                    "sort": "newest",
-                },
-            },
-        }, sid)
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        return {"available": False, "error": f"Superhuman read failed: {exc}"[:300]}
-    payload = _mcp_text_payload(result)
-    threads = [row for row in (payload.get("threads") or []) if isinstance(row, dict)]
-    if not threads and payload.get("error"):
-        return {"available": False, "error": str(payload.get("error"))[:300]}
-    github = 0
-    cursor_limit = 0
-    human = 0
-    unread = 0
-    human_signals: list[dict[str, Any]] = []
-    other_signals: list[dict[str, Any]] = []
-    for row in threads:
-        subject = str(row.get("subject") or "")
-        snippet = str(row.get("snippet") or "")
-        participants = " ".join(str(value) for value in (row.get("participants") or []))
-        message_text = " ".join(
-            f"{message.get('subject', '')} {message.get('snippet', '')}"
-            for message in (row.get("messages") or [])
-            if isinstance(message, dict)
+        def failed(_name: str, _arguments: dict[str, Any]) -> dict[str, Any]:
+            raise RuntimeError(f"Superhuman session initialization failed: {exc}")
+
+        context = build_superhuman_context(failed)
+        return superhuman_account_context(context, acting_email) if acting_email else context
+
+    request_id = 2
+
+    def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        nonlocal request_id, sid
+        current_id = request_id
+        request_id += 1
+        sid, result = post(
+            {
+                "jsonrpc": "2.0",
+                "id": current_id,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            },
+            sid,
         )
-        combined = f"{subject} {snippet} {participants} {message_text}".lower()
-        automated = any(
-            marker in combined
-            for marker in (
-                "noreply",
-                "no-reply",
-                "do-not-reply",
-                "mailer-daemon",
-                "notifications@",
-                "@t.shopifyemail.com",
-                "shopifyemail.com",
-            )
-        )
-        if "unread" in [str(label).lower() for label in (row.get("labels") or [])]:
-            unread += 1
-        if "github" in combined:
-            github += 1
-            kind = "github"
-        elif automated:
-            kind = "automated"
-        else:
-            human += 1
-            kind = "human_or_other"
-        if "usage limit" in combined or "usage/spend limit" in combined:
-            cursor_limit += 1
-        # The connector occasionally supplies a direct thread URL. Keep it
-        # only when it is a real HTTPS URL; never manufacture a provider URL
-        # from an opaque ID. Thread IDs stay in the private packet so the
-        # reader can reconcile a signal without copying the inbox.
-        native_link = next(
-            (
-                str(row.get(key)).strip()
-                for key in ("native_link", "thread_url", "web_url", "url", "link")
-                if str(row.get(key) or "").strip().startswith(("https://", "http://"))
-            ),
-            None,
-        )
-        thread_id = row.get("thread_id") or row.get("id")
-        labels = {str(label).lower() for label in (row.get("labels") or [])}
-        signal = {
-            "subject": subject[:160],
-            "last_message_at": str(row.get("last_message_at") or ""),
-            "kind": kind,
-            "thread_id": str(thread_id)[:200] if thread_id else None,
-            "unread": "unread" in labels,
-            "native_link": native_link,
-        }
-        if kind == "human_or_other" and len(human_signals) < 5:
-            human_signals.append(signal)
-        elif len(other_signals) < 5:
-            other_signals.append(signal)
-    return {
-        "available": True,
-        "acting_email": acting_email,
-        "window_hours": 24,
-        "threads_returned": len(threads),
-        "total_estimate": payload.get("total_estimate"),
-        "unread_threads": unread,
-        "github_notification_threads": github,
-        "human_or_other_threads": human,
-        "cursor_limit_threads": cursor_limit,
-        "signals": (human_signals + other_signals)[:5],
-    }
+        if result.get("error"):
+            error = result.get("error")
+            message = error.get("message") if isinstance(error, dict) else str(error)
+            raise RuntimeError(f"{name} failed: {message}")
+        payload = _mcp_text_payload(result)
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"{name} returned no structured payload")
+        return payload
+
+    context = build_superhuman_context(call_tool)
+    return superhuman_account_context(context, acting_email) if acting_email else context
 
 
 def _snowcubes_surface(
@@ -775,7 +2490,6 @@ def _snowcubes_surface(
     wake: str | None = None,
     native_link: str | None = None,
     proposal: str | None = None,
-    thread_id: str | None = None,
 ) -> dict[str, Any]:
     """Create one source-labelled card without creating a task or business record."""
     card: dict[str, Any] = {
@@ -792,9 +2506,6 @@ def _snowcubes_surface(
         card["native_link"] = native_link
     if proposal:
         card["proposal"] = proposal
-    if thread_id:
-        # This is private evidence for reconciliation, not a customer queue.
-        card["thread_id"] = thread_id
     return card
 
 
@@ -952,40 +2663,83 @@ def collect_snowcubes_context(
         if isinstance(mail, dict)
         else collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
     )
+    newest: dict[str, Any] | None = None
     if mail.get("available"):
-        human = [row for row in mail.get("signals") or [] if row.get("kind") == "human_or_other"]
-        newest = next((row for row in human if row.get("native_link")), None)
+        human = [
+            row
+            for row in mail.get("signals") or []
+            if row.get("kind") == "human_or_other"
+        ]
+        verified = [
+            row
+            for row in human
+            if any(
+                tag in (row.get("action_tags") or [])
+                for tag in ("reply", "proactive")
+            )
+            and row.get("semantic_status") == "PROPOSAL"
+            and row.get("thread_body_read") is True
+            and mail.get("complete") is True
+        ]
+        newest = next(iter(verified), None)
         if newest:
-            reply = "Reply now: review the newest linked human thread before any automated notification."
-            relationship = "Nurture: keep the next linked non-automated relationship visible after the reply-now item."
+            subject = str(newest.get("subject") or "the named Snowcubes mail item")
+            reply = (
+                f"Review first: {subject} is a verified active Snowcubes reply candidate in "
+                f"{mail.get('acting_email') or SNOWCUBES_BUSINESS_MAIL}."
+            )
+            relationship = "Keep the next verified active relationship visible after this proposal."
             mail_state = "available"
             mail_wake = None
-            mail_link = newest.get("native_link")
-            mail_thread_id = newest.get("thread_id")
-            proposal = "Proposal only: open this thread in Superhuman and prepare a reply for Leo to approve; no draft or send was created."
+            proposal = (
+                f"Proposal only: open Superhuman as {mail.get('acting_email') or SNOWCUBES_BUSINESS_MAIL}, "
+                f"find {subject}, and prepare a reply for Leo to approve; no draft or send was created."
+            )
+        elif human and all(
+            row.get("semantic_status") == "OBSERVED"
+            and not row.get("action_tags")
+            for row in human
+        ) and mail.get("complete") is True:
+            reply = "No active Snowcubes reply candidate was proven in the declared read."
+            relationship = "No relationship follow-up is proposed from these neutral observations."
+            mail_state = "available"
+            mail_wake = None
+            proposal = None
         elif human:
-            reply = "A possible human thread was read, but the connector did not supply a verified Superhuman link; it is not ranked as a reply."
-            relationship = "No relationship follow-up is inferred until a direct native thread route is available."
+            candidate = next(
+                (row for row in human if row.get("wake")),
+                None,
+            )
+            reply = (
+                "A possible human thread was read, but it is not ranked as a reply because "
+                "active status, exact body coverage, or account coverage remains UNKNOWN."
+            )
+            relationship = "No relationship follow-up is inferred until the named mail evidence is verified."
             mail_state = "unknown"
-            mail_wake = "Return a verified Superhuman thread URL from the bounded business-inbox read; do not manufacture a URL from an opaque thread ID."
-            mail_link = None
-            mail_thread_id = None
+            mail_wake = (
+                reader_safe_mail_wake(candidate.get("wake"), row=candidate)
+                if candidate
+                else (
+                    f"Open Superhuman as {mail.get('acting_email') or SNOWCUBES_BUSINESS_MAIL} and verify the named "
+                    "candidate's lifecycle and exact body; do not infer an action from a provider ID."
+                )
+            )
             proposal = None
         else:
-            reply = "No human correspondence with a verified Superhuman link was surfaced in the bounded 24-hour read."
+            reply = "No human correspondence was surfaced in the declared 90-day read."
             relationship = "No relationship follow-up is inferred from the bounded read."
-            mail_state = "unknown"
-            mail_wake = "Return a bounded human correspondence result with a verified Superhuman thread URL; no inbox state is inferred from automated notices."
-            mail_link = None
-            mail_thread_id = None
+            mail_state = "available" if mail.get("complete") is True else "unknown"
+            mail_wake = (
+                None
+                if mail_state == "available"
+                else "Complete the declared Snowcubes business-mail read before inferring correspondence state."
+            )
             proposal = None
     else:
         reply = "Reply priority is unavailable; no inbox state is inferred."
         relationship = "Relationship follow-up is unavailable; no customer action is invented."
         mail_state = "unavailable"
-        mail_wake = "Link trysnowcubes@gmail.com in Superhuman, then run the bounded read-only 24-hour thread query."
-        mail_link = None
-        mail_thread_id = None
+        mail_wake = "Link trysnowcubes@gmail.com in Superhuman, then run the declared read-only 90-day thread query."
         proposal = None
 
     unavailable = {
@@ -1041,9 +2795,7 @@ def collect_snowcubes_context(
             source="Superhuman business inbox (trysnowcubes@gmail.com)",
             observed_at=observed_at,
             wake=mail_wake,
-            native_link=mail_link,
             proposal=proposal,
-            thread_id=mail_thread_id,
         ),
         _snowcubes_surface(
             name="Relationships to nurture",
@@ -1051,19 +2803,17 @@ def collect_snowcubes_context(
             now=relationship,
             next_action=(
                 "Keep the relationship visible after Leo reviews the reply-now item."
-                if mail_state == "available"
-                else "No relationship action is inferred until the business read includes a verified native thread route."
+                if newest
+                else "No relationship action is inferred until the business read proves an active candidate."
             ),
             source="Superhuman business inbox (trysnowcubes@gmail.com)",
             observed_at=observed_at,
             wake=mail_wake,
-            native_link=mail_link,
             proposal=(
                 "Proposal only: after Leo approves the reply, keep a short personal follow-up in view; no draft or send was created."
                 if mail_state == "available" and newest
                 else None
             ),
-            thread_id=mail_thread_id,
         ),
         *[
             _snowcubes_surface(
@@ -1911,7 +3661,7 @@ def build_chief_of_staff_analysis(
                 f"The mailbox contains {mail.get('cursor_limit_threads')} recent thread"
                 f"{'s' if mail.get('cursor_limit_threads') != 1 else ''} mentioning a usage or spend limit. I am separating that missing automated opinion from product correctness: affected changes still need independent evidence, but they should not be described as failed merely because the automated reviewer skipped them."
             ),
-            "evidence": ["Superhuman 24-hour thread sample", "GitHub review notifications"],
+            "evidence": ["Superhuman all-account 90-day declared scan", "GitHub review notifications"],
             "confidence": "high",
         })
     decided.append({
@@ -2179,7 +3929,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
     vercel = collect_vercel()
     supabase = collect_supabase()
     mail = collect_superhuman_context()
-    snowcubes_mail = collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
+    snowcubes_mail = superhuman_account_context(mail, SNOWCUBES_BUSINESS_MAIL)
     growth_health = collect_growth_source_status()
     paint_health = {
         "local_git": build_local_git_health(root, repos),
@@ -2198,8 +3948,15 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
             if mail.get("available")
             else {
                 "available": False,
-                "error": str(mail.get("error") or "Superhuman unavailable"),
-                "wake": "refresh Superhuman mcp-remote OAuth, then run a read-only list_threads check",
+                "error": str(
+                    mail.get("error")
+                    or "; ".join(str(value) for value in (mail.get("problems") or []))
+                    or "Superhuman coverage is UNKNOWN"
+                ),
+                "wake": str(
+                    mail.get("wake")
+                    or "refresh Superhuman mcp-remote OAuth, then run a read-only list_threads check"
+                ),
             }
         ),
         **growth_health,
@@ -2274,6 +4031,69 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
 
 def _esc(s: Any) -> str:
     return html.escape("" if s is None else str(s), quote=True)
+
+
+def reader_safe_mail_wake(
+    value: Any,
+    *,
+    row: dict[str, Any] | None = None,
+    mail: dict[str, Any] | None = None,
+) -> str:
+    """Keep the concrete wake while removing private provider mechanics."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    subject = str((row or {}).get("subject") or "this item").strip()
+    signals = [row] if isinstance(row, dict) else []
+    if isinstance(mail, dict):
+        signals.extend(
+            signal
+            for signal in (mail.get("signals") or [])
+            if isinstance(signal, dict)
+        )
+    opaque_ids: set[str] = set()
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        for key in ("thread_id", "last_message_id"):
+            candidate = str(signal.get(key) or "").strip()
+            if candidate:
+                opaque_ids.add(candidate)
+        for source in signal.get("source_threads") or []:
+            if not isinstance(source, dict):
+                continue
+            for key in ("thread_id", "last_message_id"):
+                candidate = str(source.get(key) or "").strip()
+                if candidate:
+                    opaque_ids.add(candidate)
+    replacement = f"for {subject}"
+    for opaque_id in sorted(opaque_ids, key=len, reverse=True):
+        text = re.sub(
+            rf"(?<![A-Za-z0-9]){re.escape(opaque_id)}(?![A-Za-z0-9])",
+            replacement,
+            text,
+        )
+    text = re.sub(
+        r"(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?",
+        r"\1",
+        text,
+    )
+    text = re.sub(
+        r"exhaust every cursor",
+        "finish the full declared scan",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"pagination cursor",
+        "mailbox continuation",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bcursor\b", "continuation", text, flags=re.IGNORECASE)
+    return text.replace("thread_id", "thread identity").replace(
+        "message_id", "message identity"
+    )
 
 
 def human_datetime(value: Any) -> str:
@@ -2682,13 +4502,137 @@ def render_html(packet: dict[str, Any]) -> str:
         else "<p class='empty'>Database project health could not be established.</p>"
     )
     mail = packet.get("superhuman_context") or {}
-    mail_html = (
-        f"<p>{_esc(mail.get('threads_returned', 0))} recent threads sampled; "
-        f"{_esc(mail.get('github_notification_threads', 0))} from automated development systems, "
-        f"{_esc(mail.get('human_or_other_threads', 0))} human or other, and "
-        f"{_esc(mail.get('cursor_limit_threads', 0))} mentioning Cursor capacity limits.</p>"
+    coverage_rows = []
+    for row in mail.get("coverage") or []:
+        if not isinstance(row, dict):
+            continue
+        pagination = row.get("pagination") or {}
+        query = row.get("query_range") or {}
+        source_age = row.get("source_age_hours")
+        message_age = row.get("newest_message_age_hours")
+        source_copy = (
+            "source observation unavailable"
+            if source_age is None
+            else f"source observed {source_age}h ago"
+        )
+        message_copy = (
+            "no message timestamp"
+            if message_age is None
+            else f"newest message {message_age}h old"
+        )
+        age_copy = f"{source_copy} · {message_copy}"
+        lookback_days = query.get("lookback_days") or mail.get("query_range", {}).get("lookback_days") or SUPERHUMAN_LOOKBACK_DAYS
+        scan_state = (
+            "complete"
+            if row.get("status") == "COMPLETE"
+            and pagination.get("exhausted")
+            and not pagination.get("truncated")
+            else "partial"
+        )
+        if not row.get("linked"):
+            reader_boundary = reader_safe_mail_wake(
+                row.get("wake")
+                or "Link this expected identity before relying on mail coverage.",
+                mail=mail,
+            )
+        elif row.get("status") == "UNKNOWN":
+            reader_boundary = reader_safe_mail_wake(
+                row.get("wake")
+                or "Open this account in Superhuman and finish its named UNKNOWN read before relying on an all-clear.",
+                mail=mail,
+            )
+        else:
+            reader_boundary = "No source recovery is needed for this declared scan."
+        coverage_rows.append(
+            "<tr>"
+            f"<td><strong>{_esc(row.get('acting_email'))}</strong></td>"
+            f"<td>{_esc(lookback_days)}-day declared scan {_esc(scan_state)}</td>"
+            f"<td>{_esc(age_copy)}</td>"
+            f"<td>{_esc(reader_boundary)}</td>"
+            "</tr>"
+        )
+    coverage_html = (
+        "<table class='stream-table' width='100%' cellspacing='0' cellpadding='0'>"
+        "<thead><tr><th>Identity</th><th>Declared scan</th><th>Checked</th><th>Finding</th></tr></thead>"
+        f"<tbody>{''.join(coverage_rows)}</tbody></table>"
+        if coverage_rows
+        else "<p class='empty'>No Superhuman identity coverage was available.</p>"
+    )
+    action_groups = (
+        ("Urgent reply", mail.get("urgent_replies") or []),
+        ("Waiting reply", mail.get("waiting_replies") or []),
+        ("Forgotten obligation", mail.get("forgotten_obligations") or []),
+        ("Order or return", mail.get("order_return_follow_up") or []),
+        ("Proactive Snowcubes candidate", mail.get("proactive_candidates") or []),
+    )
+    action_cards: list[str] = []
+    seen_action_ids: set[str] = set()
+    for label, rows in action_groups:
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            signal_id = str(row.get("signal_id") or row.get("thread_id") or "")
+            if signal_id in seen_action_ids:
+                continue
+            seen_action_ids.add(signal_id)
+            source = ", ".join(str(value) for value in (row.get("source_identities") or []))
+            action_cards.append(
+                "<article class='signal-note'>"
+                f"<h3>{_esc(label)} · {_esc(row.get('semantic_status') or 'UNKNOWN')}</h3>"
+                f"<p>{_esc(row.get('subject') or 'Private thread')}</p>"
+                f"<p class='confidence'>{_esc(row.get('confidence') or 'LOW')} confidence · "
+                f"source observed {_esc(row.get('source_age_hours') if row.get('source_age_hours') is not None else 'UNKNOWN')}h ago · "
+                f"newest message {_esc(row.get('message_age_hours') if row.get('message_age_hours') is not None else 'UNKNOWN')}h old</p>"
+                f"<p class='meta'>{_esc(row.get('proposal') or 'Proposal only: read the exact source before acting.')}</p>"
+                f"<p class='source-note'>{_esc(source or 'Superhuman')} · observed {_esc(human_datetime(row.get('last_message_at')))}"
+                + (
+                    f"<br/>Wake: {_esc(reader_safe_mail_wake(row.get('wake'), row=row))}"
+                    if row.get("wake")
+                    else ""
+                )
+                + "</p></article>"
+            )
+    actions_html = "".join(action_cards) or (
+        "<p class='empty'>No action candidate was strong enough to elevate from the declared read.</p>"
+    )
+    calendar_cards = "".join(
+        "<article class='signal-note'>"
+        f"<h3>{_esc(row.get('acting_email'))} · {_esc(row.get('status') or 'PROPOSAL')}</h3>"
+        f"<p>{_esc(row.get('summary') or 'Calendar follow-through is unavailable.')}</p>"
+        f"<p class='confidence'>{_esc(row.get('confidence') or 'LOW')} confidence · "
+        f"source observed {_esc(row.get('source_age_hours') if row.get('source_age_hours') is not None else 'UNKNOWN')}h ago</p>"
+        "<p class='meta'>Proposal only: no event, invitation, booking, or notification was created.</p>"
+        + (f"<p class='source-note'>Wake: {_esc(row.get('wake'))}</p>" if row.get("wake") else "")
+        + "</article>"
+        for row in (mail.get("calendar_proposals") or [])
+        if isinstance(row, dict)
+    ) or "<p class='empty'>No read-only calendar proposal was available.</p>"
+    mail_summary = (
+        f"{mail.get('threads_unique', 0)} unique threads across {len(mail.get('coverage') or [])} expected or discovered identities. "
+        + (
+            "Every declared query completed, but proposals still stop at their named read or authorization boundary."
+            if mail.get("all_clear_allowed")
+            else "At least one identity, source read, body, attachment, or calendar boundary remains UNKNOWN, so this is not an all-clear."
+        )
         if mail.get("available")
-        else "<p class='empty'>Mail context could not be checked.</p>"
+        else "Superhuman account discovery or mailbox access was unavailable, so mail and calendar state remain UNKNOWN."
+    )
+    mail_section_html = (
+        "<article class='judgment'>"
+        f"<h3>Overall verdict · {_esc(mail.get('status') or 'UNKNOWN')}</h3>"
+        f"<p>{_esc(mail_summary)}</p>"
+        f"<p class='confidence'>{'MEDIUM' if mail.get('all_clear_allowed') else 'LOW'} confidence</p>"
+        + (
+            f"<p class='source-note'>Wake: {_esc(reader_safe_mail_wake(mail.get('wake'), mail=mail))}</p>"
+            if mail.get("wake")
+            else ""
+        )
+        + "</article><h3>Read-only follow-through</h3>"
+        + actions_html
+        + "<h3>Calendar proposals</h3>"
+        + calendar_cards
+        + "<h3>What was checked</h3>"
+        + coverage_html
     )
 
     paint_health = packet.get("paint_health") or {}
@@ -2815,7 +4759,6 @@ def render_html(packet: dict[str, Any]) -> str:
         <article><h3>Background work</h3>{dirty_html}</article>
         <article><h3>Web delivery</h3>{vercel_html}</article>
         <article><h3>Data services</h3>{supabase_html}</article>
-        <article><h3>Mail signal</h3>{mail_html}</article>
       </div>
     """
 
@@ -2927,12 +4870,13 @@ def render_html(packet: dict[str, Any]) -> str:
       <p class="meta">{_esc(reasoning.get('rule') or 'Missing evidence lowers confidence; it never becomes zero activity.')}</p>
     """
 
-    title = f"Shadow {slot.title()} Note — {when}"
+    title = f"Shadow {slot.title()} Note — {human_datetime(when)}"
     report_body = (
         section("What materially changed", material_changes_html)
         + section("The chief-of-staff read", executive_html)
         + section("Decided for you", decided_html)
         + section("Needs Leo now", needs_leo_html)
+        + section("Mail and calendar coverage", mail_section_html)
         + section("Architecture decisions you need to know about", architecture_html)
         + section("Questions to challenge your point of view", questions_html)
         + section("Completion outlook", etas_html)
