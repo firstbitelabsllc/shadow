@@ -3600,9 +3600,9 @@ class AuthorityScopeTests(unittest.TestCase):
         expected_arguments = brief.launch_agent_plist(Path(brief.__file__).resolve())[
             "ProgramArguments"
         ]
-        expected_plist = (
-            Path.home() / "Library" / "LaunchAgents" / f"{brief.LABEL}.plist"
-        )
+        home = Path.home()
+        expected_plist = home / "Library" / "LaunchAgents" / f"{brief.LABEL}.plist"
+        uid = os.getuid()
 
         def run(argv, **_kwargs):
             commands.append(argv)
@@ -3612,7 +3612,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 return subprocess.CompletedProcess(
                     argv,
                     0,
-                    "gui/501/com.leokwan.shadow-bidaily-brief = {\n"
+                    f"gui/{uid}/com.leokwan.shadow-bidaily-brief = {{\n"
                     f"\tprogram = {expected_arguments[0]}\n"
                     "\targuments = {\n"
                     + "".join(
@@ -3628,18 +3628,21 @@ class AuthorityScopeTests(unittest.TestCase):
 
         with mock.patch.dict(
             os.environ,
-            {"XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief"},
+            {
+                "XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief",
+                "HOME": str(home),
+            },
             clear=True,
         ), mock.patch.object(brief.os, "getpid", return_value=4242), mock.patch.object(
             brief.os, "getppid", return_value=1
-        ), mock.patch.object(brief.os, "getuid", return_value=501), mock.patch.object(
+        ), mock.patch.object(brief.os, "getuid", return_value=uid), mock.patch.object(
             brief, "_run", side_effect=run
         ):
             proof = brief.launch_trigger_proof()
 
         self.assertTrue(brief.scheduled_trigger_is_authorized(True, proof))
         self.assertEqual(proof.get("label"), "com.leokwan.shadow-bidaily-brief")
-        self.assertEqual(proof.get("domain"), "gui/501")
+        self.assertEqual(proof.get("domain"), f"gui/{uid}")
         self.assertEqual(proof.get("current_pid"), 4242)
         self.assertEqual(proof.get("job_pid"), 4242)
         self.assertEqual(proof.get("loaded_program_arguments"), expected_arguments)
@@ -3781,6 +3784,43 @@ class AuthorityScopeTests(unittest.TestCase):
                 self.assertFalse(proof["exact_job"])
                 self.assertFalse(proof["is_launchd"])
                 self.assertIn(expected_probe, proof["probe_errors"])
+
+    def test_launch_trigger_fails_closed_when_expected_job_cannot_resolve(self):
+        def run(argv, **_kwargs):
+            if Path(argv[0]).name == "ps":
+                return subprocess.CompletedProcess(argv, 0, "/sbin/launchd\n", "")
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "gui/501/com.leokwan.shadow-bidaily-brief = {\n"
+                "\tprogram = /usr/bin/python3\n"
+                "\targuments = {\n\t\t/usr/bin/python3\n\t}\n"
+                "\tpath = /tmp/com.leokwan.shadow-bidaily-brief.plist\n"
+                "\tpid = 4242\n}\n",
+                "",
+            )
+
+        with mock.patch.dict(
+            os.environ,
+            {"XPC_SERVICE_NAME": brief.LABEL},
+            clear=True,
+        ), mock.patch.object(brief.os, "getpid", return_value=4242), mock.patch.object(
+            brief.os, "getppid", return_value=1
+        ), mock.patch.object(brief.os, "getuid", return_value=501), mock.patch.object(
+            brief,
+            "launch_agent_plist",
+            side_effect=RuntimeError("Could not determine home directory."),
+        ), mock.patch.object(brief, "_run", side_effect=run):
+            try:
+                proof = brief.launch_trigger_proof()
+            except RuntimeError as exc:
+                self.fail(f"launch trigger proof leaked home failure: {exc}")
+
+        self.assertFalse(proof["loaded_command_matches"])
+        self.assertFalse(proof["exact_job"])
+        self.assertFalse(proof["is_launchd"])
+        self.assertIn("expected_job", proof["probe_errors"])
+        self.assertFalse(brief.scheduled_trigger_is_authorized(True, proof))
 
     def test_scheduled_command_emits_blocked_proof_when_launch_probe_fails(self):
         def run(argv, **_kwargs):
