@@ -448,13 +448,22 @@ def collect_board() -> dict[str, Any]:
         }
     try:
         board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         return {
             "revision": None,
             "entities": [],
             "projects": [],
             "claims": [],
             "error": f"board unreadable: {exc}",
+            "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
+        }
+    if not isinstance(board, dict):
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": "board unreadable: board root must be a JSON object",
             "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
         }
     # The root board owns project priority; a plan's own Priority line is stale
@@ -511,7 +520,9 @@ def collect_board() -> dict[str, Any]:
 def _read_board_revision() -> int | None:
     try:
         board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, ValueError, RecursionError):
+        return None
+    if not isinstance(board, dict):
         return None
     revision = board.get("revision")
     return (
@@ -5318,8 +5329,9 @@ def _eligible_natural_window_receipts(
         row
         for row in rows
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
-        and row.get("on_schedule")
+        and row.get("on_schedule") is True
         and row.get("trigger") == "launchd-calendar"
+        and isinstance(row.get("slot"), str)
         and row.get("slot") in {"morning", "evening"}
         and _scheduled_window_instant(row) is not None
     ]
@@ -5461,6 +5473,7 @@ def scheduled_trigger_is_authorized(
         and isinstance(trigger_proof, dict)
         and trigger_proof.get("is_launchd") is True
         and isinstance(trigger_proof.get("parent_pid"), int)
+        and not isinstance(trigger_proof.get("parent_pid"), bool)
         and Path(str(trigger_proof.get("parent_command") or "")).name == "launchd"
         and trigger_proof.get("label") == LABEL
         and trigger_proof.get("domain") == f"gui/{os.getuid()}"
@@ -5476,6 +5489,9 @@ def scheduled_trigger_is_authorized(
         )
         and trigger_proof.get("exact_job") is True
         and isinstance(trigger_proof.get("current_pid"), int)
+        and not isinstance(trigger_proof.get("current_pid"), bool)
+        and isinstance(trigger_proof.get("job_pid"), int)
+        and not isinstance(trigger_proof.get("job_pid"), bool)
         and trigger_proof.get("job_pid") == trigger_proof.get("current_pid")
     )
 
@@ -5517,7 +5533,10 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         and not isinstance(malformed_rows, bool)
         and malformed_rows >= 0
     )
-    if discovery_status not in {"COMPLETE", "UNKNOWN"}:
+    if not isinstance(discovery_status, str) or discovery_status not in {
+        "COMPLETE",
+        "UNKNOWN",
+    }:
         problems.append(
             "Superhuman account_discovery status must be COMPLETE or UNKNOWN"
         )
@@ -6029,7 +6048,11 @@ def verify_window_receipts(
     ledger_dir: Path | None = None,
     send_attempt_log: Path | None = None,
 ) -> dict[str, Any]:
-    scheduled = [row for row in rows if row.get("on_schedule") and row.get("scheduled_for")]
+    scheduled = [
+        row
+        for row in rows
+        if row.get("on_schedule") is True and row.get("scheduled_for")
+    ]
     ignored_legacy = [
         str(row["scheduled_for"])
         for row in scheduled
@@ -6046,7 +6069,10 @@ def verify_window_receipts(
         for row in scheduled
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
         and row.get("trigger") == "launchd-calendar"
-        and row.get("slot") not in {"morning", "evening"}
+        and (
+            not isinstance(row.get("slot"), str)
+            or row.get("slot") not in {"morning", "evening"}
+        )
     ]
     eligible = _eligible_natural_window_receipts(scheduled)
     receipts_by_window: dict[datetime, list[dict[str, Any]]] = {}

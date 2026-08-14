@@ -3258,6 +3258,53 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIn("unreadable", health["error"])
         self.assertIn(str(unreadable), health["wake"])
 
+    def test_collect_board_fails_closed_when_json_parser_raises_value_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "board.json"
+            board_path.write_text('{"revision": 1}\n', encoding="utf-8")
+            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
+                brief.json,
+                "loads",
+                side_effect=ValueError("integer string conversion limit exceeded"),
+            ):
+                result = brief.collect_board()
+
+        self.assertIsNone(result["revision"])
+        self.assertEqual(result["entities"], [])
+        self.assertIn("board unreadable", result["error"])
+        self.assertIn("integer string conversion limit exceeded", result["error"])
+        self.assertIn("Restore a readable local Shadow board", result["wake"])
+
+    def test_collect_board_fails_closed_when_json_parser_recurses_too_deeply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "board.json"
+            board_path.write_text('{"revision": 1}\n', encoding="utf-8")
+            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
+                brief.json,
+                "loads",
+                side_effect=RecursionError("maximum recursion depth exceeded"),
+            ):
+                result = brief.collect_board()
+
+        self.assertIsNone(result["revision"])
+        self.assertEqual(result["entities"], [])
+        self.assertIn("board unreadable", result["error"])
+        self.assertIn("maximum recursion depth exceeded", result["error"])
+        self.assertIn("Restore a readable local Shadow board", result["wake"])
+
+    def test_collect_board_fails_closed_when_json_root_is_not_an_object(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "board.json"
+            board_path.write_text("[]\n", encoding="utf-8")
+            with mock.patch.object(brief, "BOARD_PATH", board_path):
+                result = brief.collect_board()
+
+        self.assertIsNone(result["revision"])
+        self.assertEqual(result["entities"], [])
+        self.assertIn("board unreadable", result["error"])
+        self.assertIn("JSON object", result["error"])
+        self.assertIn("Restore a readable local Shadow board", result["wake"])
+
     def test_snowcubes_card_names_a_partial_shadow_plan_outage(self):
         plan = Path("/tmp/example-unreadable-plan.md")
         board = {
@@ -3576,6 +3623,22 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertFalse(
             brief.scheduled_trigger_is_authorized(True, {**proof, "job_pid": 4243})
         )
+        boolean_pid_cases = (
+            ("parent_pid", {**proof, "parent_pid": True}),
+            (
+                "current_pid",
+                {**proof, "current_pid": True, "job_pid": True},
+            ),
+            (
+                "job_pid",
+                {**proof, "current_pid": 1, "job_pid": True},
+            ),
+        )
+        for field, malformed in boolean_pid_cases:
+            with self.subTest(boolean_pid=field):
+                self.assertFalse(
+                    brief.scheduled_trigger_is_authorized(True, malformed)
+                )
         self.assertFalse(
             brief.scheduled_trigger_is_authorized(
                 True,
@@ -5366,6 +5429,11 @@ class AuthorityScopeTests(unittest.TestCase):
                 "Superhuman account_discovery must be an object",
             ),
             (
+                "account-status-list",
+                lambda mail: mail["account_discovery"].__setitem__("status", []),
+                "Superhuman account_discovery status must be COMPLETE or UNKNOWN",
+            ),
+            (
                 "linked-container",
                 lambda mail: mail.__setitem__("linked_accounts", {}),
                 "Superhuman linked_accounts must be a list",
@@ -6117,6 +6185,93 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertEqual(
             result["windows"],
             ["2026-08-13T08:00:00-04:00", "2026-08-13T20:00:00-04:00"],
+        )
+
+    def test_window_verifier_rejects_non_string_slot_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = _write_m5_pair(Path(tmp))
+            malformed_window = str(rows[0]["scheduled_for"])
+            rows[0]["slot"] = []
+
+            result = brief.verify_window_receipts(rows, evidence_dir=Path(tmp))
+
+        self.assertNotIn(malformed_window, result["windows"])
+        self.assertIn(malformed_window, result["ignored_nonslot_windows"])
+        self.assertIn(
+            "need two distinct current-schema natural 08:00/20:00 windows; found 1",
+            result["problems"],
+        )
+
+    def test_verify_windows_command_rejects_non_string_slot_without_crashing(self):
+        scheduled_for = "2026-08-12T08:00:00-04:00"
+        row = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": [],
+            "scheduled_for": scheduled_for,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            window_log = root / "windows.jsonl"
+            mailbox_log = root / "mailbox.jsonl"
+            window_log.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            window_log.chmod(0o600)
+            output = io.StringIO()
+            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
+                brief, "MAILBOX_READBACK_LOG", mailbox_log
+            ), mock.patch.object(
+                brief, "EVIDENCE_DIR", root / "evidence"
+            ), mock.patch.object(
+                brief, "LOG_DIR", root / "ledger"
+            ), mock.patch.object(
+                brief, "SEND_ATTEMPT_LOG", root / "ledger" / "send-attempts.jsonl"
+            ), contextlib.redirect_stdout(output):
+                exit_code = brief.cmd_verify_windows(mock.Mock())
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["windows"], [])
+        self.assertEqual(payload["ignored_nonslot_windows"], [scheduled_for])
+
+    def test_readback_window_rejects_non_string_slot_before_provider_read(self):
+        row = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": [],
+            "scheduled_for": "2026-08-12T08:00:00-04:00",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            window_log = root / "windows.jsonl"
+            mailbox_log = root / "mailbox.jsonl"
+            window_log.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            window_log.chmod(0o600)
+            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
+                brief, "MAILBOX_READBACK_LOG", mailbox_log
+            ), mock.patch.object(
+                brief, "fetch_superhuman_mailbox_readback"
+            ) as provider, contextlib.redirect_stderr(io.StringIO()):
+                exit_code = brief.cmd_readback_window(
+                    mock.Mock(scheduled_for=None)
+                )
+
+        self.assertEqual(exit_code, 2)
+        provider.assert_not_called()
+
+    def test_window_verifier_requires_exact_true_on_schedule_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = _write_m5_pair(Path(tmp))
+            malformed_window = str(rows[0]["scheduled_for"])
+            rows[0]["on_schedule"] = "yes"
+
+            result = brief.verify_window_receipts(rows, evidence_dir=Path(tmp))
+
+        self.assertNotIn(malformed_window, result["windows"])
+        self.assertIn(
+            "need two distinct current-schema natural 08:00/20:00 windows; found 1",
+            result["problems"],
         )
 
     def test_delivery_evidence_accepts_two_consecutive_twice_daily_windows(self):
@@ -7371,6 +7526,41 @@ class AuthorityScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             board_path = Path(tmp) / "board.json"
             board_path.write_text('{"revision": true}\n', encoding="utf-8")
+            with mock.patch.object(brief, "BOARD_PATH", board_path):
+                revision = brief._read_board_revision()
+
+        self.assertIsNone(revision)
+
+    def test_board_revision_reader_returns_none_on_json_value_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "board.json"
+            board_path.write_text('{"revision": 1}\n', encoding="utf-8")
+            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
+                brief.json,
+                "loads",
+                side_effect=ValueError("integer string conversion limit exceeded"),
+            ):
+                revision = brief._read_board_revision()
+
+        self.assertIsNone(revision)
+
+    def test_board_revision_reader_returns_none_on_json_recursion_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "board.json"
+            board_path.write_text('{"revision": 1}\n', encoding="utf-8")
+            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
+                brief.json,
+                "loads",
+                side_effect=RecursionError("maximum recursion depth exceeded"),
+            ):
+                revision = brief._read_board_revision()
+
+        self.assertIsNone(revision)
+
+    def test_board_revision_reader_returns_none_when_json_root_is_not_an_object(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            board_path = Path(tmp) / "board.json"
+            board_path.write_text("[]\n", encoding="utf-8")
             with mock.patch.object(brief, "BOARD_PATH", board_path):
                 revision = brief._read_board_revision()
 
