@@ -138,7 +138,17 @@ def stop_process_group(process: subprocess.Popen[bytes]) -> None:
         os.killpg(process.pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         return
-    time.sleep(0.2)
+    # A loaded release train can delay a cooperative child's TERM trap beyond
+    # a fixed 200 ms sleep. Poll the process group for a bounded grace period:
+    # ordinary hosts return immediately once drained, while a stuck descendant
+    # still receives an unconditional KILL after one second.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(process.pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return
+        time.sleep(0.02)
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):

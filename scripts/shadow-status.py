@@ -362,7 +362,7 @@ def projected_claims(
     if repo is None:
         return claims, None
     try:
-        token, _ = _board.head_plan_snapshot(plan_path)
+        token, _ = _board.frozen_plan_snapshot(plan_path)
         if Path(token["repo"]) != repo:
             return claims, "remote claim discovery is unavailable or unauthenticated"
         observed = _remote_claim.discover_active(

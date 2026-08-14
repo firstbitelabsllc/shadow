@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,12 @@ from browser import server
 
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "shadow"
+INIT_SPEC = importlib.util.spec_from_file_location(
+    "shadow_init", ROOT / "scripts" / "shadow-init.py"
+)
+assert INIT_SPEC and INIT_SPEC.loader
+init = importlib.util.module_from_spec(INIT_SPEC)
+INIT_SPEC.loader.exec_module(init)
 PLAN = """# Demo
 
 ## Brief
@@ -63,12 +70,15 @@ def run_config(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 class ConfigDefaultsTests(unittest.TestCase):
     def test_this_repositorys_plan_enters_its_own_computer_board(self) -> None:
+        # Shadow's own operational plan now lives under `~/.shadow/plans` and is
+        # never committed, so the shipped artifact this pins is the plan
+        # `shadow init` mints for this repository.
         with tempfile.TemporaryDirectory() as home:
             home_path = Path(home)
             repo = home_path / "Development" / "shadow"
             repo.mkdir(parents=True)
             (repo / "PLAN.md").write_text(
-                (ROOT / "PLAN.md").read_text(encoding="utf-8"),
+                init.plan_text(repo, "2026-08-11T00:00:00Z"),
                 encoding="utf-8",
             )
             for args in (

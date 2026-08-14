@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
                 exact_on_conflict=True,
             )
         with board.project_lock(plan_path):
-            plan_token, plan_bytes = board.committed_plan_snapshot(plan_path)
+            plan_token, plan_bytes = board.frozen_plan_snapshot(plan_path)
             plan_text = plan_bytes.decode("utf-8")
             parsed = amp._parse(plan_text)
             rows = [
@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 None,
             )
-            if claim is not None:
+            if claim is not None and not board.is_local_plan(plan_path):
                 repo = Path(plan_token["repo"])
                 remote = remote_claim.transition(
                     repo,

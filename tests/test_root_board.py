@@ -21,6 +21,9 @@ PROOF_SENTINEL = "PROOF-MUST-NOT-ENTER-THE-BOARD"
 HOT_PLAN_LIMIT = 256 * 1024
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import shadow_root_board as board_api  # noqa: E402
+from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
+
 
 def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> None:
     result = subprocess.run(
@@ -110,6 +113,75 @@ def make_plan_over_budget(repo: Path) -> None:
         stream.write("\n<!-- " + ("x" * HOT_PLAN_LIMIT) + " -->\n")
     git(repo, "add", "PLAN.md")
     git(repo, "commit", "--quiet", "-m", "exceed the hot-plan byte budget")
+
+
+class PartitionedPlansUseOneLogicalReadBoundary(unittest.TestCase):
+    def test_committed_tree_materializes_the_same_authority_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes()
+            plan = install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+
+            snapshot = board_api.open_plan(plan)
+            token, content = board_api.committed_plan_snapshot(plan)
+
+            self.assertTrue(snapshot.is_tree)
+            self.assertEqual(board_api.read_plan_bytes(plan), source)
+            self.assertEqual(content, source)
+            self.assertEqual(token["relative"], "PLAN.md")
+
+    def test_tree_state_snapshot_grades_logical_plan_not_the_small_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes()
+            plan = install_plan_tree(repo, source)
+
+            state, content = board_api.plan_state_snapshot(plan)
+
+            self.assertRegex(state, r"^[0-9a-f]{64}$")
+            self.assertEqual(content, source)
+
+    def test_oversized_tree_is_refused_before_any_object_is_traversed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes() + b"\n<!-- " + b"x" * 8192 + b" -->\n"
+            plan = install_plan_tree(repo, source)
+            snapshot = board_api.open_plan(plan)
+            self.assertLess(len(snapshot.root_bytes), len(source))
+
+            with mock.patch.object(
+                board_api, "MAX_PLAN_BYTES", len(source) - 1
+            ), mock.patch.object(
+                board_api._plan_store.PlanSnapshot,
+                "materialize",
+                side_effect=AssertionError("oversized tree was traversed"),
+            ):
+                with self.assertRaisesRegex(
+                    board_api.BoardError, "plan exceeds the bounded size limit"
+                ):
+                    board_api.read_plan_bytes(plan)
+                state, content = board_api.plan_state_snapshot(plan)
+
+            self.assertRegex(state, r"^[0-9a-f]{64}$")
+            self.assertIsNone(content)
+
+    def test_dirty_tree_object_refuses_a_committed_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes()
+            plan = install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+            object_path = next((repo / "PLAN.d" / "objects" / "sha256").glob("*/*"))
+            object_path.write_bytes(object_path.read_bytes() + b"dirty")
+
+            with self.assertRaisesRegex(
+                board_api.BoardError,
+                "project plan or its staged index changed",
+            ):
+                board_api.committed_plan_snapshot(plan)
 
 
 class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
