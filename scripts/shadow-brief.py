@@ -27,11 +27,14 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import shadow_root_board as _shadow_board
 
 LABEL = "com.leokwan.shadow-bidaily-brief"
 SLOT_HOURS = (8, 20)
+REPORT_TIMEZONE_NAME = "America/New_York"
+REPORT_TIMEZONE = ZoneInfo(REPORT_TIMEZONE_NAME)
 REPORT_LOOKBACK_HOURS = 14
 GITHUB_PR_LIMIT = 20
 BOARD_PATH = Path.home() / ".shadow" / "board.json"
@@ -2061,7 +2064,7 @@ def build_chief_of_staff_analysis(
     }
 
     etas: list[dict[str, str]] = []
-    now = datetime.now().astimezone()
+    now = datetime.now(REPORT_TIMEZONE)
     for entity, cp in claimed[:5]:
         claim = claim_rows.get(_claim_key_for(entity, cp), {})
         checkpoint = readable_outcome(cp.get("title"))
@@ -2169,7 +2172,7 @@ def build_chief_of_staff_analysis(
 
 
 def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
-    started = datetime.now().astimezone()
+    started = datetime.now(REPORT_TIMEZONE)
     if slot is None:
         slot = "morning" if started.hour < 14 else "evening"
     root = portfolio_root()
@@ -2244,7 +2247,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         mail=mail,
         source_health=paint_health,
     )
-    generated = datetime.now().astimezone()
+    generated = datetime.now(REPORT_TIMEZONE)
     packet = {
         "generated_at": generated.isoformat(timespec="seconds"),
         "slot": slot,
@@ -2285,7 +2288,7 @@ def human_datetime(value: Any) -> str:
     except ValueError:
         return raw
     if parsed.tzinfo is not None:
-        parsed = parsed.astimezone()
+        parsed = parsed.astimezone(REPORT_TIMEZONE)
     month_day = parsed.strftime("%b %d").replace(" 0", " ")
     hour = parsed.strftime("%I").lstrip("0") or "12"
     return f"{month_day} · {hour}:{parsed.strftime('%M')} {parsed.strftime('%p')}"
@@ -3162,7 +3165,12 @@ def macos_notify(title: str, body: str) -> dict[str, Any]:
 
 
 def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
-    current = now or datetime.now().astimezone()
+    # Verification enforces the report timezone, so the producer has to record it:
+    # a run started on a host in another timezone still stamps America/New_York.
+    current = now or datetime.now(REPORT_TIMEZONE)
+    if current.tzinfo is None or current.utcoffset() is None:
+        return {"on_schedule": False, "slot": None, "scheduled_for": None}
+    current = current.astimezone(REPORT_TIMEZONE)
     on_schedule = current.hour in SLOT_HOURS and 0 <= current.minute <= 30
     scheduled = current.replace(minute=0, second=0, microsecond=0) if on_schedule else None
     return {
@@ -3175,7 +3183,7 @@ def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
 def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
     if any(value != 0 for value in (first.minute, first.second, second.minute, second.second)):
         return False
-    if first.tzinfo is None or second.tzinfo is None:
+    if not _is_report_timezone_timestamp(first) or not _is_report_timezone_timestamp(second):
         return False
     elapsed = second.astimezone(timezone.utc) - first.astimezone(timezone.utc)
     if elapsed <= timedelta(0):
@@ -3195,12 +3203,49 @@ def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
     return False
 
 
-def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
+def _parse_aware_datetime(raw: Any) -> datetime | None:
     try:
-        value = datetime.fromisoformat(str(row.get("scheduled_for") or ""))
-    except ValueError:
+        encoded = str(raw or "")
+        if encoded.endswith("Z"):
+            encoded = f"{encoded[:-1]}+00:00"
+        value = datetime.fromisoformat(encoded)
+        if value.tzinfo is None or value.utcoffset() is None:
+            return None
+    except (TypeError, ValueError):
         return None
-    if value.tzinfo is None:
+    return value
+
+
+def _is_report_timezone_timestamp(value: datetime) -> bool:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return False
+    local = value.astimezone(REPORT_TIMEZONE)
+    return (
+        (
+            local.year,
+            local.month,
+            local.day,
+            local.hour,
+            local.minute,
+            local.second,
+            local.microsecond,
+        )
+        == (
+            value.year,
+            value.month,
+            value.day,
+            value.hour,
+            value.minute,
+            value.second,
+            value.microsecond,
+        )
+        and local.utcoffset() == value.utcoffset()
+    )
+
+
+def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
+    value = _parse_aware_datetime(row.get("scheduled_for"))
+    if value is None or not _is_report_timezone_timestamp(value):
         return None
     return value.astimezone(timezone.utc)
 
@@ -3291,18 +3336,16 @@ def verify_window_receipts(
             notification = row.get("notification") or {}
             if not scheduled_trigger_is_authorized(True, row.get("trigger_proof")):
                 problems.append(f"{scheduled_for}: launchd trigger proof missing")
-            scheduled_at: datetime | None = None
-            generated: datetime | None = None
-            try:
-                scheduled_at = datetime.fromisoformat(scheduled_for)
-                generated = datetime.fromisoformat(str(row.get("generated_at") or ""))
+            scheduled_at = _parse_aware_datetime(scheduled_for)
+            generated = _parse_aware_datetime(row.get("generated_at"))
+            if scheduled_at is None or generated is None:
+                problems.append(f"{scheduled_for}: generated_at invalid")
+            else:
                 expected_slot = "morning" if scheduled_at.hour == 8 else "evening"
                 if row.get("slot") != expected_slot:
                     problems.append(f"{scheduled_for}: scheduled slot mismatch")
                 if not scheduled_at <= generated <= scheduled_at + timedelta(minutes=30):
                     problems.append(f"{scheduled_for}: report generation is not fresh for slot")
-            except ValueError:
-                problems.append(f"{scheduled_for}: generated_at invalid")
             if not isinstance(row.get("board_revision"), int):
                 problems.append(f"{scheduled_for}: missing board revision")
             if len(str(row.get("html_sha256") or "")) != 64:
@@ -3333,16 +3376,15 @@ def verify_window_receipts(
             expected_subject = brief_subject(row.get("slot"), row.get("generated_at"))
             if receipt.get("subject") != expected_subject:
                 problems.append(f"{scheduled_for}: sent-message subject mismatch")
-            try:
-                sent_at = datetime.fromisoformat(str(receipt.get("sent_at") or ""))
-                if (
-                    scheduled_at is None
-                    or generated is None
-                    or not generated <= sent_at <= scheduled_at + timedelta(minutes=30)
-                ):
-                    problems.append(f"{scheduled_for}: sent timestamp is not fresh for slot")
-            except ValueError:
+            sent_at = _parse_aware_datetime(receipt.get("sent_at"))
+            if sent_at is None:
                 problems.append(f"{scheduled_for}: sent timestamp invalid")
+            elif (
+                scheduled_at is None
+                or generated is None
+                or not generated <= sent_at <= scheduled_at + timedelta(minutes=30)
+            ):
+                problems.append(f"{scheduled_for}: sent timestamp is not fresh for slot")
             paint_health = row.get("paint_health")
             if not isinstance(paint_health, dict):
                 problems.append(f"{row['scheduled_for']}: missing paint health")
@@ -3471,13 +3513,12 @@ def verify_mailbox_readbacks(
             problems.append(f"{scheduled_for}: SENT label missing")
         if len(str(readback.get("raw_html_sha256") or "")) != 64:
             problems.append(f"{scheduled_for}: mailbox HTML hash missing")
-        try:
-            scheduled_at = datetime.fromisoformat(scheduled_for)
-            sent_at = datetime.fromisoformat(str(readback.get("sent_at") or ""))
-            if not scheduled_at <= sent_at <= scheduled_at + timedelta(minutes=30):
-                problems.append(f"{scheduled_for}: mailbox sent timestamp is not fresh")
-        except ValueError:
+        scheduled_at = _parse_aware_datetime(scheduled_for)
+        sent_at = _parse_aware_datetime(readback.get("sent_at"))
+        if scheduled_at is None or sent_at is None:
             problems.append(f"{scheduled_for}: mailbox sent timestamp invalid")
+        elif not scheduled_at <= sent_at <= scheduled_at + timedelta(minutes=30):
+            problems.append(f"{scheduled_for}: mailbox sent timestamp is not fresh")
     message_ids = [row.get("message_id") for row in confirmed]
     if len(message_ids) == len(windows) and len(set(message_ids)) != len(message_ids):
         problems.append("mailbox readbacks do not have distinct message IDs")
@@ -3728,9 +3769,8 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         "subject": subject,
         "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    try:
-        scheduled_at = datetime.fromisoformat(scheduled_for)
-    except ValueError:
+    scheduled_at = _parse_aware_datetime(scheduled_for)
+    if scheduled_at is None or not _is_report_timezone_timestamp(scheduled_at):
         return {**base, "status": "blocked", "wake": "scheduled_for parses as ISO 8601"}
     token = _mcp_remote_token()
     if not token:
@@ -3886,12 +3926,11 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         problems.append("exact self-route mismatch")
     if message.get("subject") != subject or "SENT" not in labels:
         problems.append("subject or SENT label mismatch")
-    try:
-        sent = datetime.fromisoformat(sent_at)
-        if not scheduled_at <= sent <= scheduled_at + timedelta(minutes=30):
-            problems.append("sent timestamp outside scheduled window")
-    except ValueError:
+    sent = _parse_aware_datetime(sent_at)
+    if sent is None:
         problems.append("sent timestamp invalid")
+    elif not scheduled_at <= sent <= scheduled_at + timedelta(minutes=30):
+        problems.append("sent timestamp outside scheduled window")
     required_html = (
         str(window.get("generated_at") or ""),
         f"board rev {window.get('board_revision')}",
@@ -4206,9 +4245,32 @@ def launch_agent_plist(program: Path) -> dict[str, Any]:
     }
 
 
+def _host_timezone_name() -> str | None:
+    try:
+        target = str(Path("/etc/localtime").resolve(strict=True))
+    except OSError:
+        target = ""
+    marker = "/zoneinfo/"
+    if marker in target:
+        return target.split(marker, 1)[1]
+    key = getattr(datetime.now().astimezone().tzinfo, "key", None)
+    return str(key) if key else None
+
+
+def host_timezone_matches_report(host_timezone: str | None = None) -> bool:
+    """launchd calendar intervals fire in host-local time.
+
+    Matching one current UTC offset is insufficient because another zone may follow
+    different daylight-saving rules. Require the actual IANA zone that launchd uses.
+    """
+    return (host_timezone or _host_timezone_name()) == REPORT_TIMEZONE_NAME
+
+
 def schedule_configuration_problems(
     installed: dict[str, Any],
     expected: dict[str, Any],
+    *,
+    host_timezone: str | None = None,
 ) -> list[str]:
     keys = (
         "Label",
@@ -4219,7 +4281,21 @@ def schedule_configuration_problems(
         "StandardErrorPath",
         "EnvironmentVariables",
     )
-    return [key for key in keys if installed.get(key) != expected.get(key)]
+    problems = [key for key in keys if installed.get(key) != expected.get(key)]
+    if not host_timezone_matches_report(host_timezone):
+        problems.append("HostTimezone")
+    return problems
+
+
+def schedule_configuration_recovery(problems: list[str]) -> str:
+    steps: list[str] = []
+    if "HostTimezone" in problems:
+        steps.append(
+            f"set the macOS system timezone to {REPORT_TIMEZONE_NAME}, then run schedule --status"
+        )
+    if any(problem != "HostTimezone" for problem in problems):
+        steps.append("run schedule --install, then run schedule --status")
+    return "; ".join(steps)
 
 
 def schedule_install() -> dict[str, Any]:
@@ -4240,13 +4316,27 @@ def schedule_install() -> dict[str, Any]:
         "bootstrap_rc": load.returncode,
         "bootstrap_err": (load.stderr or "")[:300],
         "hours": list(SLOT_HOURS),
+        "report_timezone": REPORT_TIMEZONE_NAME,
+        "host_timezone": _host_timezone_name(),
+        "host_timezone_matches_report": host_timezone_matches_report(),
     }
 
 
 def schedule_status() -> dict[str, Any]:
     plist_path = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
     if not plist_path.is_file():
-        return {"installed": False, "plist": str(plist_path)}
+        host_timezone = _host_timezone_name()
+        host_timezone_ok = host_timezone_matches_report(host_timezone)
+        return {
+            "installed": False,
+            "plist": str(plist_path),
+            "configuration_ok": False,
+            "configuration_problems": [] if host_timezone_ok else ["HostTimezone"],
+            "report_timezone": REPORT_TIMEZONE_NAME,
+            "host_timezone": host_timezone,
+            "host_timezone_matches_report": host_timezone_ok,
+            "launchctl_ok": False,
+        }
     with plist_path.open("rb") as fh:
         doc = plistlib.load(fh)
     arguments = doc.get("ProgramArguments") or []
@@ -4265,6 +4355,9 @@ def schedule_status() -> dict[str, Any]:
         "EnvironmentVariables": doc.get("EnvironmentVariables"),
         "configuration_ok": not configuration_problems,
         "configuration_problems": configuration_problems,
+        "report_timezone": REPORT_TIMEZONE_NAME,
+        "host_timezone": _host_timezone_name(),
+        "host_timezone_matches_report": host_timezone_matches_report(),
         "launchctl_rc": print_out.returncode,
         "launchctl_ok": print_out.returncode == 0,
     }
@@ -4284,11 +4377,13 @@ def doctor() -> int:
     sched = schedule_status()
     if not sched.get("installed") or not sched.get("launchctl_ok"):
         problems.append("schedule not armed — run schedule --install")
-    elif not sched.get("configuration_ok"):
+    configuration_problems = sched.get("configuration_problems") or []
+    if configuration_problems:
         problems.append(
             "schedule configuration drift: "
-            + ", ".join(sched.get("configuration_problems") or [])
-            + " — run schedule --install"
+            + ", ".join(configuration_problems)
+            + " — "
+            + schedule_configuration_recovery(configuration_problems)
         )
     if not _mcp_remote_token():
         problems.append(
@@ -4408,11 +4503,17 @@ def cmd_run(args: argparse.Namespace) -> int:
             for row in _read_jsonl(WINDOW_LOG)
         )
         if not trigger_window.get("on_schedule") or existing_window:
-            reason = (
-                "scheduled trigger is outside the 08:00/20:00 freshness window"
-                if not trigger_window.get("on_schedule")
-                else "this scheduled window already has a durable receipt"
-            )
+            if trigger_window.get("on_schedule"):
+                reason = "this scheduled window already has a durable receipt"
+            elif not host_timezone_matches_report():
+                reason = (
+                    "the host timezone does not match "
+                    f"{REPORT_TIMEZONE}, so the launchd 08:00/20:00 calendar does not "
+                    "land on the report windows; set the macOS system timezone to "
+                    f"{REPORT_TIMEZONE_NAME}, then run schedule --status"
+                )
+            else:
+                reason = "scheduled trigger is outside the 08:00/20:00 freshness window"
             summary = {
                 "schema": WINDOW_RECEIPT_SCHEMA,
                 "status": "blocked",
@@ -4431,7 +4532,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 3
     json_path = EVIDENCE_DIR / "latest.json"
     html_path = EVIDENCE_DIR / "latest.html"
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
     write_packet(packet, json_path, html_path)
     archive_html_path = EVIDENCE_DIR / f"brief-{stamp}.html"
     archive_html_path.write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
@@ -4484,7 +4585,7 @@ def cmd_deliver(args: argparse.Namespace) -> int:
         return 2
     packet_path = EVIDENCE_DIR / "latest.json"
     slot = "brief"
-    when = datetime.now().astimezone().isoformat(timespec="seconds")
+    when = datetime.now(REPORT_TIMEZONE).isoformat(timespec="seconds")
     if packet_path.is_file():
         packet = json.loads(packet_path.read_text(encoding="utf-8"))
         slot = packet.get("slot") or slot
@@ -4502,10 +4603,19 @@ def cmd_deliver(args: argparse.Namespace) -> int:
 
 def cmd_schedule(args: argparse.Namespace) -> int:
     if args.install:
-        print(json.dumps(schedule_install(), indent=2))
-        return 0
-    print(json.dumps(schedule_status(), indent=2))
-    return 0 if schedule_status().get("launchctl_ok") else 1
+        installed = schedule_install()
+        print(json.dumps(installed, indent=2))
+        return 0 if (
+            installed.get("bootstrap_rc") == 0
+            and installed.get("host_timezone_matches_report") is True
+        ) else 1
+    status = schedule_status()
+    print(json.dumps(status, indent=2))
+    return 0 if (
+        status.get("installed") is True
+        and status.get("configuration_ok") is True
+        and status.get("launchctl_ok") is True
+    ) else 1
 
 
 def cmd_proof(_args: argparse.Namespace) -> int:
