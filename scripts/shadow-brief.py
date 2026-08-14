@@ -11,15 +11,18 @@ never carries operational plans, mailbox receipts, or a second task queue.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import html
 import json
 import os
 import plistlib
 import re
+import secrets
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -53,6 +56,9 @@ EXPECTED_SUPERHUMAN_IDENTITIES = (
     "firstbitelabs@gmail.com",
 )
 SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v2"
+PRODUCER_PROVENANCE_SCHEMA = "shadow.brief-producer.v1"
+SCHEDULED_ATTEMPT_SCHEMA = "shadow.bidaily-attempt.v1"
+SEND_ATTEMPT_SCHEMA = "shadow.superhuman-send-attempt.v1"
 SUPERHUMAN_LOOKBACK_DAYS = 90
 SUPERHUMAN_PAGE_LIMIT = 50
 SUPERHUMAN_MAX_PAGES = 40
@@ -82,6 +88,12 @@ SNOWCUBES_NATIVE_LINKS = {
 WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v4"
 MAILBOX_READBACK_SCHEMA = "shadow.superhuman-mailbox-readback.v1"
 SUPERHUMAN_MCP_RESOURCE = "https://mcp.mail.superhuman.com/mcp"
+
+
+class PrivateJSONLError(OSError):
+    """An existing private JSONL ledger cannot be trusted as authority."""
+
+
 SUPERHUMAN_TOKEN_ENDPOINT = "https://mcp.auth.mail.superhuman.com/oauth2/token"
 SUPERHUMAN_MCP_CACHE_KEY = hashlib.md5(
     SUPERHUMAN_MCP_RESOURCE.encode("utf-8"), usedforsecurity=False
@@ -199,13 +211,83 @@ def _run(
     )
 
 
+def producer_provenance() -> dict[str, Any]:
+    """Bind a packet to the exact checked-in producer bytes that created it."""
+    script = Path(__file__).resolve()
+    try:
+        script_sha256 = hashlib.sha256(script.read_bytes()).hexdigest()
+    except OSError:
+        script_sha256 = ""
+    source_commit: str | None = None
+    source_matches_commit = False
+    try:
+        root_result = _run(
+            ["git", "-C", str(script.parent), "rev-parse", "--show-toplevel"]
+        )
+        if root_result.returncode == 0:
+            root = Path((root_result.stdout or "").strip()).expanduser()
+            try:
+                relative = script.relative_to(root.resolve(strict=True))
+            except (OSError, ValueError):
+                relative = None
+            if relative is not None:
+                commit_result = _run(["git", "-C", str(root), "rev-parse", "HEAD"])
+                candidate = (commit_result.stdout or "").strip().lower()
+                if commit_result.returncode == 0 and _is_full_git_object_id(candidate):
+                    source_commit = candidate
+                    status_result = _run(
+                        [
+                            "git",
+                            "-C",
+                            str(root),
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                            "--",
+                            str(relative),
+                        ]
+                    )
+                    working_blob = _run(
+                        ["git", "-C", str(root), "hash-object", str(relative)]
+                    )
+                    committed_blob = _run(
+                        [
+                            "git",
+                            "-C",
+                            str(root),
+                            "rev-parse",
+                            f"HEAD:{relative.as_posix()}",
+                        ]
+                    )
+                    working_identity = (working_blob.stdout or "").strip().lower()
+                    committed_identity = (committed_blob.stdout or "").strip().lower()
+                    source_matches_commit = (
+                        status_result.returncode == 0
+                        and not (status_result.stdout or "").strip()
+                        and working_blob.returncode == 0
+                        and committed_blob.returncode == 0
+                        and _is_full_git_object_id(working_identity)
+                        and working_identity == committed_identity
+                        and len(script_sha256) == 64
+                    )
+    except (OSError, subprocess.TimeoutExpired):
+        source_matches_commit = False
+    return {
+        "schema": PRODUCER_PROVENANCE_SCHEMA,
+        "source_commit": source_commit,
+        "script_sha256": script_sha256,
+        "source_matches_commit": source_matches_commit,
+    }
+
+
 def collect_shadow_status_excerpt() -> str:
     """Keep the optional seat summary from taking down the authoritative packet."""
     try:
         status = _run(["shadow", "status", "--by", "leo"], timeout=8)
-    except subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else "was unavailable"
         return (
-            "Optional seat-status summary timed out; the report continued from the "
+            f"Optional seat-status summary {reason}; the report continued from the "
             "separately read, revision-checked Shadow board."
         )
     return (status.stdout or status.stderr or "")[:4000]
@@ -366,7 +448,7 @@ def collect_board() -> dict[str, Any]:
         }
     try:
         board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         return {
             "revision": None,
             "entities": [],
@@ -375,15 +457,53 @@ def collect_board() -> dict[str, Any]:
             "error": f"board unreadable: {exc}",
             "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
         }
+    if not isinstance(board, dict):
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": "board unreadable: board root must be a JSON object",
+            "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
+        }
+    projects = board.get("projects", [])
+    entity_rows = board.get("entities", [])
+    claims = board.get("claims", [])
+    nested_error = None
+    for name, value in (
+        ("projects", projects),
+        ("entities", entity_rows),
+        ("claims", claims),
+    ):
+        if not isinstance(value, list):
+            nested_error = f"{name} must be a list"
+            break
+        if any(not isinstance(row, dict) for row in value):
+            nested_error = f"{name} rows must be objects"
+            break
+    if nested_error is None and any(
+        not isinstance(entity.get("plan"), str) or not entity.get("plan", "").strip()
+        for entity in entity_rows
+    ):
+        nested_error = "entity plan paths must be nonempty strings"
+    if nested_error is not None:
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": f"board unreadable: {nested_error}",
+            "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
+        }
     # The root board owns project priority; a plan's own Priority line is stale
     # as soon as `shadow priority --value` moves the board-owned value.
     board_priority = {
         str(project.get("id") or ""): project.get("priority")
-        for project in (board.get("projects") or [])
+        for project in projects
         if isinstance(project, dict) and isinstance(project.get("priority"), int)
     }
     entities: list[EntityBrief] = []
-    for ent in board.get("entities") or []:
+    for ent in entity_rows:
         project_id = str(ent.get("project") or "")
         plan_path = Path(ent.get("plan") or "")
         if not plan_path.is_file():
@@ -420,8 +540,8 @@ def collect_board() -> dict[str, Any]:
     return {
         "revision": board.get("revision"),
         "schema": board.get("schema"),
-        "projects": board.get("projects") or [],
-        "claims": board.get("claims") or [],
+        "projects": projects,
+        "claims": claims,
         "entities": [asdict(e) for e in entities],
     }
 
@@ -429,10 +549,16 @@ def collect_board() -> dict[str, Any]:
 def _read_board_revision() -> int | None:
     try:
         board = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, ValueError, RecursionError):
+        return None
+    if not isinstance(board, dict):
         return None
     revision = board.get("revision")
-    return revision if isinstance(revision, int) else None
+    return (
+        revision
+        if isinstance(revision, int) and not isinstance(revision, bool)
+        else None
+    )
 
 
 def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
@@ -3973,10 +4099,14 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
     for attempt in range(1, 4):
         board = collect_board()
         final_revision = _read_board_revision()
+        board_revision = board.get("revision")
         board_snapshot = {
             "consistent": (
-                isinstance(board.get("revision"), int)
-                and board.get("revision") == final_revision
+                isinstance(board_revision, int)
+                and not isinstance(board_revision, bool)
+                and isinstance(final_revision, int)
+                and not isinstance(final_revision, bool)
+                and board_revision == final_revision
             ),
             "attempts": attempt,
             "revision": final_revision,
@@ -4014,6 +4144,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "vercel": vercel,
         "supabase": supabase,
         "superhuman_context": mail,
+        "producer": producer_provenance(),
         "snowcubes_context": snowcubes,
         "paint_health": paint_health,
         "analysis": analysis,
@@ -4110,6 +4241,12 @@ def human_datetime(value: Any) -> str:
     month_day = parsed.strftime("%b %d").replace(" 0", " ")
     hour = parsed.strftime("%I").lstrip("0") or "12"
     return f"{month_day} · {hour}:{parsed.strftime('%M')} {parsed.strftime('%p')}"
+
+
+def _reader_generation_marker(slot: Any, generated_at: Any) -> str:
+    if not isinstance(slot, str) or not slot.strip():
+        return ""
+    return f"{slot.title()} note · twice-daily · {human_datetime(generated_at)}"
 
 
 def render_html(packet: dict[str, Any]) -> str:
@@ -5071,7 +5208,7 @@ def render_html(packet: dict[str, Any]) -> str:
   <div class="wrap">
     <header>
       <h1>{_esc(headline)}</h1>
-      <p class="stamp">{_esc(slot.title())} note · twice-daily · {_esc(human_datetime(when))}</p>
+      <p class="stamp">{_esc(_reader_generation_marker(slot, when))}</p>
       <h2>Today’s read</h2>
       <p class="summary">{_esc(summary)}</p>
     </header>
@@ -5096,7 +5233,16 @@ def write_packet(packet: dict[str, Any], out_json: Path, out_html: Path) -> None
 
 def macos_notify(title: str, body: str) -> dict[str, Any]:
     script = f'display notification "{body.replace(chr(34), "")}" with title "{title.replace(chr(34), "")}"'
-    proc = _run(["osascript", "-e", script], timeout=10)
+    try:
+        proc = _run(["osascript", "-e", script], timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "status": "blocked",
+            "title": title,
+            "body": body,
+            "returncode": None,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return {
         "status": "ok" if proc.returncode == 0 else "blocked",
         "title": title,
@@ -5192,6 +5338,19 @@ def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def _scheduled_for_is_canonical(row: dict[str, Any]) -> bool:
+    raw = row.get("scheduled_for")
+    value = _parse_aware_datetime(raw)
+    return bool(
+        isinstance(raw, str)
+        and value is not None
+        and _is_report_timezone_timestamp(value)
+        and value.microsecond == 0
+        and raw
+        == value.astimezone(REPORT_TIMEZONE).isoformat(timespec="seconds")
+    )
+
+
 def _eligible_natural_window_receipts(
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -5199,8 +5358,9 @@ def _eligible_natural_window_receipts(
         row
         for row in rows
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
-        and row.get("on_schedule")
+        and row.get("on_schedule") is True
         and row.get("trigger") == "launchd-calendar"
+        and isinstance(row.get("slot"), str)
         and row.get("slot") in {"morning", "evening"}
         and _scheduled_window_instant(row) is not None
     ]
@@ -5210,15 +5370,140 @@ def _scheduled_window_sort_key(row: dict[str, Any]) -> datetime:
     return _scheduled_window_instant(row) or datetime.min.replace(tzinfo=timezone.utc)
 
 
-def launch_trigger_proof() -> dict[str, Any]:
-    """Record whether this process was started directly by macOS launchd."""
-    parent_pid = os.getppid()
-    proc = _run(["ps", "-p", str(parent_pid), "-o", "comm="], timeout=5)
-    parent_command = (proc.stdout or "").strip()
+def _parse_launchctl_loaded_job(output: str) -> dict[str, Any] | None:
+    """Parse the three top-level identity fields emitted by launchctl print."""
+    program_matches = re.findall(
+        r"(?m)^[ \t]+program = ([^\r\n]+)[ \t]*$",
+        output,
+    )
+    path_matches = re.findall(
+        r"(?m)^[ \t]+path = ([^\r\n]+)[ \t]*$",
+        output,
+    )
+    block_matches = list(
+        re.finditer(r"(?m)^(?P<indent>[ \t]+)arguments = \{[ \t]*$", output)
+    )
+    if (
+        len(program_matches) != 1
+        or len(path_matches) != 1
+        or len(block_matches) != 1
+    ):
+        return None
+    block = block_matches[0]
+    indent = block.group("indent")
+    lines = output[block.end() :].splitlines()
+    if lines and not lines[0]:
+        lines.pop(0)
+    arguments: list[str] = []
+    closed = False
+    for line in lines:
+        if line == f"{indent}}}":
+            closed = True
+            break
+        if not line.startswith(indent) or not line[len(indent) :].startswith((" ", "\t")):
+            return None
+        argument = line.strip()
+        if not argument:
+            return None
+        arguments.append(argument)
+    if not closed or not arguments:
+        return None
     return {
-        "is_launchd": proc.returncode == 0 and Path(parent_command).name == "launchd",
+        "program": program_matches[0].strip(),
+        "arguments": arguments,
+        "path": path_matches[0].strip(),
+    }
+
+
+def _expected_loaded_job() -> dict[str, Any]:
+    arguments = launch_agent_plist(Path(__file__).resolve())["ProgramArguments"]
+    return {
+        "program": arguments[0],
+        "arguments": arguments,
+        "path": str(
+            Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+        ),
+    }
+
+
+def _loaded_job_matches_current(loaded: Any) -> bool:
+    if not isinstance(loaded, dict):
+        return False
+    try:
+        expected = _expected_loaded_job()
+    except (OSError, RuntimeError):
+        return False
+    return loaded == expected
+
+
+def launch_trigger_proof() -> dict[str, Any]:
+    """Bind this process to the one canonical launchd job, not just its parent."""
+    uid = os.getuid()
+    domain = f"gui/{uid}"
+    current_pid = os.getpid()
+    parent_pid = os.getppid()
+    probe_errors: dict[str, str] = {}
+    proc: subprocess.CompletedProcess[str] | None = None
+    try:
+        proc = _run(["/bin/ps", "-p", str(parent_pid), "-o", "comm="], timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        probe_errors["ps"] = f"{type(exc).__name__}: {exc}"
+    parent_command = (proc.stdout or "").strip() if proc is not None else ""
+    xpc_service_name = os.environ.get("XPC_SERVICE_NAME")
+    launchctl: subprocess.CompletedProcess[str] | None = None
+    try:
+        launchctl = _run(
+            ["/bin/launchctl", "print", f"{domain}/{LABEL}"],
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        probe_errors["launchctl"] = f"{type(exc).__name__}: {exc}"
+    pid_matches = re.findall(
+        r"(?m)^[ \t]*pid = ([0-9]+)[ \t]*$",
+        (launchctl.stdout or "") if launchctl is not None else "",
+    )
+    job_pid = int(pid_matches[0]) if len(pid_matches) == 1 else None
+    loaded_job = _parse_launchctl_loaded_job(
+        (launchctl.stdout or "") if launchctl is not None else ""
+    )
+    try:
+        expected_loaded_job = _expected_loaded_job()
+    except (OSError, RuntimeError) as exc:
+        probe_errors["expected_job"] = f"{type(exc).__name__}: {exc}"
+        loaded_command_matches = False
+    else:
+        loaded_command_matches = (
+            isinstance(loaded_job, dict) and loaded_job == expected_loaded_job
+        )
+    service_matches_label = xpc_service_name == LABEL
+    exact_job = bool(
+        proc is not None
+        and proc.returncode == 0
+        and Path(parent_command).name == "launchd"
+        and launchctl is not None
+        and launchctl.returncode == 0
+        and service_matches_label
+        and job_pid == current_pid
+        and loaded_command_matches
+    )
+    return {
+        "is_launchd": bool(
+            exact_job
+        ),
         "parent_pid": parent_pid,
         "parent_command": parent_command or None,
+        "label": LABEL,
+        "domain": domain,
+        "current_pid": current_pid,
+        "job_pid": job_pid,
+        "xpc_service_name": xpc_service_name,
+        "service_matches_label": service_matches_label,
+        "loaded_program": loaded_job.get("program") if loaded_job else None,
+        "loaded_program_arguments": loaded_job.get("arguments") if loaded_job else None,
+        "loaded_path": loaded_job.get("path") if loaded_job else None,
+        "loaded_command_matches": loaded_command_matches,
+        "exact_job": exact_job,
+        "probe_errors": probe_errors,
     }
 
 
@@ -5231,7 +5516,616 @@ def scheduled_trigger_is_authorized(
         and isinstance(trigger_proof, dict)
         and trigger_proof.get("is_launchd") is True
         and isinstance(trigger_proof.get("parent_pid"), int)
+        and not isinstance(trigger_proof.get("parent_pid"), bool)
         and Path(str(trigger_proof.get("parent_command") or "")).name == "launchd"
+        and trigger_proof.get("label") == LABEL
+        and trigger_proof.get("domain") == f"gui/{os.getuid()}"
+        and trigger_proof.get("xpc_service_name") == LABEL
+        and trigger_proof.get("service_matches_label") is True
+        and trigger_proof.get("loaded_command_matches") is True
+        and _loaded_job_matches_current(
+            {
+                "program": trigger_proof.get("loaded_program"),
+                "arguments": trigger_proof.get("loaded_program_arguments"),
+                "path": trigger_proof.get("loaded_path"),
+            }
+        )
+        and trigger_proof.get("exact_job") is True
+        and isinstance(trigger_proof.get("current_pid"), int)
+        and not isinstance(trigger_proof.get("current_pid"), bool)
+        and isinstance(trigger_proof.get("job_pid"), int)
+        and not isinstance(trigger_proof.get("job_pid"), bool)
+        and trigger_proof.get("job_pid") == trigger_proof.get("current_pid")
+    )
+
+
+def _is_full_git_object_id(value: Any) -> bool:
+    return bool(
+        isinstance(value, str)
+        and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value)
+    )
+
+
+def _valid_producer_provenance(value: Any) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and value.get("schema") == PRODUCER_PROVENANCE_SCHEMA
+        and _is_full_git_object_id(value.get("source_commit"))
+        and isinstance(value.get("script_sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", value["script_sha256"])
+        and value.get("source_matches_commit") is True
+    )
+
+
+def _superhuman_receipt_problems(mail: Any) -> list[str]:
+    problems: list[str] = []
+    if not isinstance(mail, dict):
+        return ["Superhuman context missing"]
+    if mail.get("schema") != SUPERHUMAN_CONTEXT_SCHEMA:
+        problems.append("Superhuman context schema mismatch")
+    if mail.get("expected_identities") != list(EXPECTED_SUPERHUMAN_IDENTITIES):
+        problems.append("expected Superhuman identity roster mismatch")
+    account_discovery = mail.get("account_discovery")
+    if not isinstance(account_discovery, dict):
+        problems.append("Superhuman account_discovery must be an object")
+        account_discovery = {}
+    discovery_status = account_discovery.get("status")
+    malformed_rows = account_discovery.get("malformed_rows")
+    malformed_count_valid = (
+        isinstance(malformed_rows, int)
+        and not isinstance(malformed_rows, bool)
+        and malformed_rows >= 0
+    )
+    if not isinstance(discovery_status, str) or discovery_status not in {
+        "COMPLETE",
+        "UNKNOWN",
+    }:
+        problems.append(
+            "Superhuman account_discovery status must be COMPLETE or UNKNOWN"
+        )
+    if not malformed_count_valid:
+        problems.append(
+            "Superhuman account_discovery malformed_rows must be a nonnegative integer"
+        )
+    if (
+        discovery_status == "COMPLETE"
+        and malformed_count_valid
+        and malformed_rows != 0
+    ):
+        problems.append(
+            "COMPLETE Superhuman account discovery contains malformed rows"
+        )
+    discovery_unknown = bool(
+        discovery_status != "COMPLETE"
+        or not malformed_count_valid
+        or malformed_rows != 0
+    )
+    discovery_wake = account_discovery.get("wake")
+    if discovery_unknown and not (
+        isinstance(discovery_wake, str) and discovery_wake.strip()
+    ):
+        problems.append("UNKNOWN Superhuman account discovery lacks exact wake")
+    if discovery_unknown and (
+        mail.get("status") != "UNKNOWN"
+        or mail.get("complete") is not False
+        or mail.get("all_clear_allowed") is not False
+    ):
+        problems.append("UNKNOWN Superhuman account discovery claimed an all-clear")
+    linked_value = mail.get("linked_accounts")
+    if not isinstance(linked_value, list):
+        problems.append("Superhuman linked_accounts must be a list")
+        linked_value = []
+    linked_emails: list[str] = []
+    for linked_row in linked_value:
+        if not isinstance(linked_row, dict):
+            problems.append("Superhuman linked_accounts row must be an object")
+            continue
+        acting_email_value = linked_row.get("acting_email")
+        acting_email = (
+            acting_email_value.strip().lower()
+            if isinstance(acting_email_value, str)
+            else ""
+        )
+        sender_identities = linked_row.get("sender_identities")
+        valid_sender_identities = bool(
+            isinstance(sender_identities, list)
+            and sender_identities
+            and all(
+                isinstance(value, str)
+                and re.fullmatch(
+                    r"[^@\s]+@[^@\s]+\.[^@\s]+",
+                    value.strip().lower(),
+                )
+                for value in sender_identities
+            )
+        )
+        valid_row = bool(
+            re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", acting_email)
+            and isinstance(linked_row.get("is_primary"), bool)
+            and isinstance(linked_row.get("added_at"), str)
+            and valid_sender_identities
+            and isinstance(linked_row.get("sender_identity_complete"), bool)
+        )
+        if not valid_row:
+            problems.append(
+                "invalid Superhuman linked_accounts row shape: "
+                f"{acting_email or '<unknown>'}"
+            )
+            continue
+        linked_emails.append(acting_email)
+    action_bucket_keys = (
+        "signals",
+        "urgent_replies",
+        "waiting_replies",
+        "forgotten_obligations",
+        "order_return_follow_up",
+        "proactive_candidates",
+        "calendar_proposals",
+    )
+    buckets: dict[str, list[Any]] = {}
+    for key in ("coverage", *action_bucket_keys):
+        value = mail.get(key)
+        if not isinstance(value, list):
+            problems.append(f"Superhuman {key} bucket must be a list")
+            buckets[key] = []
+        else:
+            buckets[key] = value
+    coverage = [row for row in buckets["coverage"] if isinstance(row, dict)]
+    if len(coverage) != len(buckets["coverage"]):
+        problems.append("Superhuman coverage row must be an object")
+    for key in action_bucket_keys:
+        object_rows = [row for row in buckets[key] if isinstance(row, dict)]
+        if len(object_rows) != len(buckets[key]):
+            problems.append(f"Superhuman {key} row must be an object")
+        buckets[key] = object_rows
+    coverage_emails = [
+        str(row.get("acting_email") or "").strip().lower()
+        for row in coverage
+    ]
+    linked_coverage_emails = [
+        str(row.get("acting_email") or "").strip().lower()
+        for row in coverage
+        if row.get("linked") is True
+    ]
+    coverage_identity_universe = set(EXPECTED_SUPERHUMAN_IDENTITIES) | set(
+        linked_emails
+    )
+    if (
+        set(coverage_emails) != coverage_identity_universe
+        or len(coverage_emails) != len(coverage_identity_universe)
+    ):
+        problems.append("Superhuman coverage identity universe mismatch")
+    if (
+        len(linked_emails) != len(set(linked_emails))
+        or any(coverage_emails.count(email) != 1 for email in linked_emails)
+        or any(linked_coverage_emails.count(email) != 1 for email in linked_emails)
+        or set(linked_coverage_emails) != set(linked_emails)
+    ):
+        problems.append("linked Superhuman account coverage mismatch")
+    expected_rows = [
+        row
+        for row in coverage
+        if str(row.get("acting_email") or "").strip().lower()
+        in EXPECTED_SUPERHUMAN_IDENTITIES
+    ]
+    covered = [str(row.get("acting_email") or "").strip().lower() for row in expected_rows]
+    if (
+        set(covered) != set(EXPECTED_SUPERHUMAN_IDENTITIES)
+        or len(covered) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
+        or any(row.get("expected") is not True for row in expected_rows)
+    ):
+        problems.append("expected Superhuman identity coverage mismatch")
+
+    def linked_complete_coverage(row: dict[str, Any]) -> bool:
+        pagination = row.get("pagination")
+        pages = pagination.get("pages") if isinstance(pagination, dict) else None
+        row_problems = row.get("problems")
+        return bool(
+            row.get("linked") is True
+            and row.get("status") == "COMPLETE"
+            and isinstance(pagination, dict)
+            and isinstance(pages, int)
+            and not isinstance(pages, bool)
+            and pages > 0
+            and pagination.get("exhausted") is True
+            and pagination.get("truncated") is False
+            and (row_problems is None or row_problems == [])
+        )
+
+    unknown_coverage = len(expected_rows) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
+    for row in expected_rows:
+        linked = row.get("linked")
+        status_value = row.get("status")
+        row_problems = row.get("problems")
+        wake = row.get("wake")
+        linked_complete = linked_complete_coverage(row)
+        honest_unknown = (
+            (linked is True or linked is False)
+            and status_value == "UNKNOWN"
+            and isinstance(row_problems, list)
+            and bool(row_problems)
+            and all(
+                isinstance(problem, str) and problem.strip()
+                for problem in row_problems
+            )
+            and isinstance(wake, str)
+            and bool(wake.strip())
+        )
+        if not linked_complete and not honest_unknown:
+            identity = str(row.get("acting_email") or "").strip().lower()
+            problems.append(
+                f"invalid expected Superhuman identity coverage state: {identity}"
+            )
+        if not linked_complete:
+            unknown_coverage = True
+    dynamic_linked_rows = [
+        row
+        for row in coverage
+        if str(row.get("acting_email") or "").strip().lower() in linked_emails
+        and str(row.get("acting_email") or "").strip().lower()
+        not in EXPECTED_SUPERHUMAN_IDENTITIES
+    ]
+    for row in dynamic_linked_rows:
+        identity = str(row.get("acting_email") or "").strip().lower()
+        if row.get("expected") is not False:
+            problems.append(
+                "dynamic linked Superhuman identity expected marker mismatch: "
+                f"{identity}"
+            )
+        row_problems = row.get("problems")
+        wake = row.get("wake")
+        linked_complete = linked_complete_coverage(row)
+        honest_unknown = bool(
+            row.get("linked") is True
+            and row.get("status") == "UNKNOWN"
+            and isinstance(row_problems, list)
+            and row_problems
+            and all(
+                isinstance(problem, str) and problem.strip()
+                for problem in row_problems
+            )
+            and isinstance(wake, str)
+            and wake.strip()
+        )
+        if not linked_complete and not honest_unknown:
+            problems.append(
+                f"invalid linked Superhuman identity coverage state: {identity}"
+            )
+        if not linked_complete:
+            unknown_coverage = True
+    if unknown_coverage and (
+        mail.get("status") != "UNKNOWN"
+        or mail.get("complete") is not False
+        or mail.get("all_clear_allowed") is not False
+    ):
+        problems.append("UNKNOWN mail coverage claimed an all-clear")
+    obligation_keys = (
+        "forgotten_obligations",
+        "urgent_replies",
+        "waiting_replies",
+        "order_return_follow_up",
+    )
+    linked_source_identities = set(linked_coverage_emails)
+
+    def valid_obligation(signal: Any) -> bool:
+        if not isinstance(signal, dict):
+            return False
+        signal_id = signal.get("signal_id")
+        subject = signal.get("subject")
+        proposal = signal.get("proposal")
+        action_tags = signal.get("action_tags")
+        source_identities = signal.get("source_identities")
+        thread_id = signal.get("thread_id")
+        message_id = signal.get("last_message_id")
+        return bool(
+            signal.get("stable_provider_identity") is True
+            and signal.get("semantic_status") == "PROPOSAL"
+            and signal.get("thread_body_read") is True
+            and signal.get("proposal_only") is True
+            and isinstance(signal_id, str)
+            and signal_id.strip()
+            and isinstance(subject, str)
+            and subject.strip()
+            and isinstance(proposal, str)
+            and proposal.strip()
+            and isinstance(action_tags, list)
+            and action_tags
+            and all(isinstance(tag, str) and tag.strip() for tag in action_tags)
+            and isinstance(source_identities, list)
+            and source_identities
+            and all(
+                isinstance(identity, str) and identity.strip()
+                for identity in source_identities
+            )
+            and {
+                identity.strip().lower()
+                for identity in source_identities
+                if isinstance(identity, str)
+            }.issubset(linked_source_identities)
+            and (
+                isinstance(thread_id, str) and bool(thread_id.strip())
+                or isinstance(message_id, str) and bool(message_id.strip())
+            )
+        )
+
+    master_signals = [
+        signal for signal in buckets["signals"] if valid_obligation(signal)
+    ]
+
+    def retained_by_master(signal: dict[str, Any]) -> bool:
+        for master in master_signals:
+            if signal["signal_id"] == master["signal_id"]:
+                return True
+            for key in ("thread_id", "last_message_id"):
+                identity = signal.get(key)
+                if (
+                    isinstance(identity, str)
+                    and identity.strip()
+                    and identity == master.get(key)
+                ):
+                    return True
+        return False
+
+    def matches_obligation_bucket(key: str, signal: dict[str, Any]) -> bool:
+        tags = set(signal.get("action_tags") or [])
+        if key == "urgent_replies":
+            return "urgent" in tags and bool(tags & {"reply", "waiting_reply"})
+        if key == "waiting_replies":
+            return "waiting_reply" in tags
+        if key == "order_return_follow_up":
+            return "order_return" in tags
+        if key == "forgotten_obligations":
+            return bool(
+                tags
+                & {
+                    "obligation",
+                    "order_return",
+                    "waiting_reply",
+                    "reply",
+                    "calendar",
+                }
+            )
+        return False
+
+    real_obligation = any(
+        valid_obligation(signal)
+        and retained_by_master(signal)
+        and matches_obligation_bucket(key, signal)
+        for key in obligation_keys
+        for signal in buckets[key]
+        if isinstance(signal, dict)
+    )
+    if not real_obligation:
+        problems.append("no real mail obligation or action proposal")
+    return problems
+
+
+def _scheduled_archive_stem(row: dict[str, Any]) -> str | None:
+    scheduled = _parse_aware_datetime(row.get("scheduled_for"))
+    if scheduled is None or not _is_report_timezone_timestamp(scheduled):
+        return None
+    return scheduled.astimezone(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+
+
+def _declared_archive_path(
+    evidence_dir: Path,
+    row: dict[str, Any],
+    *,
+    key: str,
+    suffix: str,
+) -> Path | None:
+    stem = _scheduled_archive_stem(row)
+    if stem is None:
+        return None
+    root = evidence_dir.resolve()
+    declared = Path(str(row.get(key) or ""))
+    if (
+        not declared.is_absolute()
+        or declared.name != f"brief-{stem}{suffix}"
+        or declared.parent.resolve() != root
+        or declared.is_symlink()
+    ):
+        return None
+    try:
+        identity = declared.lstat()
+    except OSError:
+        return None
+    if (
+        not stat.S_ISREG(identity.st_mode)
+        or stat.S_IMODE(identity.st_mode) != 0o400
+        or identity.st_nlink != 1
+    ):
+        return None
+    return declared
+
+
+def _scheduled_attempt_barrier_is_valid(
+    ledger_dir: Path,
+    row: dict[str, Any],
+) -> bool:
+    stem = _scheduled_archive_stem(row)
+    receipt = row.get("attempt_barrier")
+    if stem is None or not isinstance(receipt, dict):
+        return False
+    root = ledger_dir.absolute()
+    expected = root / f"scheduled-attempt-{stem}.json"
+    declared = Path(str(receipt.get("path") or ""))
+    if (
+        receipt.get("state") != "PRESENT"
+        or not declared.is_absolute()
+        or declared != expected
+        or declared.parent != root
+        or declared.is_symlink()
+    ):
+        return False
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(declared, flags)
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(declared)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or stat.S_IMODE(identity.st_mode) != 0o400
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            return False
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = None
+            payload = json.load(handle)
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError):
+        return False
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return bool(
+        isinstance(payload, dict)
+        and payload.get("schema") == SCHEDULED_ATTEMPT_SCHEMA
+        and payload.get("state") == "RESERVED"
+        and payload.get("scheduled_for") == row.get("scheduled_for")
+        and payload.get("slot") == row.get("slot")
+    )
+
+
+def _read_send_attempt_proof(path: Path) -> list[dict[str, Any]] | None:
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, flags)
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or stat.S_IMODE(identity.st_mode) != 0o600
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            return None
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = None
+            text = handle.read()
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    rows: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except (ValueError, RecursionError):
+            return None
+        if not isinstance(row, dict):
+            return None
+        rows.append(row)
+    return rows or None
+
+
+def _send_attempt_proof_is_valid(
+    row: dict[str, Any],
+    archive_html: Path,
+    attempt_rows: list[dict[str, Any]] | None,
+) -> bool:
+    receipt = row.get("receipt")
+    if not isinstance(receipt, dict) or attempt_rows is None:
+        return False
+    attempt_id = receipt.get("attempt_id")
+    if not (
+        isinstance(attempt_id, str)
+        and re.fullmatch(r"[0-9a-f]{24}", attempt_id)
+    ):
+        return False
+    matching = [candidate for candidate in attempt_rows if candidate.get("attempt_id") == attempt_id]
+    if (
+        len(matching) != 2
+        or matching[0].get("state") != "UNKNOWN_NO_RETRY"
+        or matching[1].get("state") != "PROVISIONAL_SENT"
+    ):
+        return False
+    intent, outcome = matching
+    intent_keys = {
+        "schema",
+        "state",
+        "created_at",
+        "attempt_id",
+        "acting_email",
+        "from",
+        "to",
+        "subject",
+        "draft_id",
+        "thread_id",
+        "html_sha256",
+    }
+    outcome_keys = {
+        "schema",
+        "state",
+        "recorded_at",
+        "attempt_id",
+        "message_id",
+        "thread_id",
+        "sent_at",
+    }
+    if set(intent) != intent_keys or set(outcome) != outcome_keys:
+        return False
+    identity = dict(intent)
+    identity.pop("attempt_id")
+    recomputed_id = hashlib.sha256(
+        json.dumps(identity, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:24]
+    generated = _parse_aware_datetime(row.get("generated_at"))
+    created = _parse_aware_datetime(intent.get("created_at"))
+    recorded = _parse_aware_datetime(outcome.get("recorded_at"))
+    sent = _parse_aware_datetime(outcome.get("sent_at"))
+    intent_thread_id = intent.get("thread_id")
+    outcome_thread_id = outcome.get("thread_id")
+    receipt_thread_id = receipt.get("thread_id")
+    optional_thread_ids_are_valid = all(
+        value is None or (isinstance(value, str) and bool(value.strip()))
+        for value in (intent_thread_id, outcome_thread_id, receipt_thread_id)
+    )
+    return bool(
+        intent.get("schema") == SEND_ATTEMPT_SCHEMA
+        and outcome.get("schema") == SEND_ATTEMPT_SCHEMA
+        and recomputed_id == attempt_id
+        and intent.get("acting_email") == SELF_MAIL
+        and intent.get("from") == SELF_MAIL
+        and intent.get("to") == [SELF_MAIL]
+        and intent.get("subject") == receipt.get("subject")
+        and intent.get("draft_id") == receipt.get("draft_id")
+        and isinstance(intent.get("draft_id"), str)
+        and bool(intent["draft_id"].strip())
+        and isinstance(intent.get("html_sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", intent["html_sha256"])
+        and intent.get("html_sha256") == row.get("html_sha256")
+        and receipt.get("local_html") == str(archive_html)
+        and receipt.get("attempt_state") == "PROVISIONAL_SENT"
+        and receipt.get("acting_email") == SELF_MAIL
+        and receipt.get("from") == SELF_MAIL
+        and receipt.get("to") == [SELF_MAIL]
+        and isinstance(outcome.get("message_id"), str)
+        and bool(outcome["message_id"].strip())
+        and isinstance(receipt.get("message_id"), str)
+        and bool(receipt["message_id"].strip())
+        and optional_thread_ids_are_valid
+        and outcome.get("message_id") == receipt.get("message_id")
+        and outcome.get("thread_id") == receipt.get("thread_id")
+        and outcome.get("sent_at") == receipt.get("sent_at")
+        and generated is not None
+        and created is not None
+        and recorded is not None
+        and sent is not None
+        and generated <= created <= recorded
+        and created <= sent
     )
 
 
@@ -5239,8 +6133,14 @@ def verify_window_receipts(
     rows: list[dict[str, Any]],
     *,
     evidence_dir: Path | None = None,
+    ledger_dir: Path | None = None,
+    send_attempt_log: Path | None = None,
 ) -> dict[str, Any]:
-    scheduled = [row for row in rows if row.get("on_schedule") and row.get("scheduled_for")]
+    scheduled = [
+        row
+        for row in rows
+        if row.get("on_schedule") is True and row.get("scheduled_for")
+    ]
     ignored_legacy = [
         str(row["scheduled_for"])
         for row in scheduled
@@ -5257,12 +6157,43 @@ def verify_window_receipts(
         for row in scheduled
         if row.get("schema") == WINDOW_RECEIPT_SCHEMA
         and row.get("trigger") == "launchd-calendar"
-        and row.get("slot") not in {"morning", "evening"}
+        and (
+            not isinstance(row.get("slot"), str)
+            or row.get("slot") not in {"morning", "evening"}
+        )
     ]
     eligible = _eligible_natural_window_receipts(scheduled)
-    latest_by_window = {str(row["scheduled_for"]): row for row in eligible}
-    latest = sorted(latest_by_window.values(), key=_scheduled_window_sort_key)[-2:]
+    receipts_by_window: dict[datetime, list[dict[str, Any]]] = {}
+    for row in eligible:
+        scheduled_instant = _scheduled_window_instant(row)
+        if scheduled_instant is not None:
+            receipts_by_window.setdefault(scheduled_instant, []).append(row)
+    selected_groups = sorted(
+        receipts_by_window.values(),
+        key=lambda group: _scheduled_window_sort_key(group[-1]),
+    )[-2:]
+    latest = [group[-1] for group in selected_groups]
     problems: list[str] = []
+    for group in selected_groups:
+        for candidate in group:
+            if not _scheduled_for_is_canonical(candidate):
+                raw = str(candidate.get("scheduled_for") or "")
+                problems.append(
+                    f"{raw}: scheduled_for is not a canonical report-window timestamp"
+                )
+        if len(group) > 1:
+            instant = _scheduled_window_instant(group[-1])
+            label = (
+                instant.astimezone(REPORT_TIMEZONE).isoformat(timespec="seconds")
+                if instant is not None
+                else str(group[-1].get("scheduled_for") or "")
+            )
+            problems.append(f"{label}: duplicate natural-window receipts found")
+    attempt_rows = (
+        _read_send_attempt_proof(send_attempt_log)
+        if send_attempt_log is not None
+        else None
+    )
     if len(latest) != 2:
         problems.append(
             f"need two distinct current-schema natural 08:00/20:00 windows; found {len(latest)}"
@@ -5274,8 +6205,25 @@ def verify_window_receipts(
             problems.append("latest natural 08:00/20:00 windows are not consecutive")
         for row in latest:
             scheduled_for = str(row["scheduled_for"])
-            receipt = row.get("receipt") or {}
-            notification = row.get("notification") or {}
+            receipt_value = row.get("receipt")
+            if not isinstance(receipt_value, dict):
+                problems.append(f"{scheduled_for}: receipt must be an object")
+                receipt: dict[str, Any] = {}
+            else:
+                receipt = receipt_value
+            notification_value = row.get("notification")
+            if not isinstance(notification_value, dict):
+                problems.append(f"{scheduled_for}: notification must be an object")
+                notification: dict[str, Any] = {}
+            else:
+                notification = notification_value
+            if ledger_dir is not None and not _scheduled_attempt_barrier_is_valid(
+                ledger_dir,
+                row,
+            ):
+                problems.append(
+                    f"{scheduled_for}: scheduled attempt barrier is invalid"
+                )
             if not scheduled_trigger_is_authorized(True, row.get("trigger_proof")):
                 problems.append(f"{scheduled_for}: launchd trigger proof missing")
             scheduled_at = _parse_aware_datetime(scheduled_for)
@@ -5288,12 +6236,17 @@ def verify_window_receipts(
                     problems.append(f"{scheduled_for}: scheduled slot mismatch")
                 if not scheduled_at <= generated <= scheduled_at + timedelta(minutes=30):
                     problems.append(f"{scheduled_for}: report generation is not fresh for slot")
-            if not isinstance(row.get("board_revision"), int):
+            if not (
+                isinstance(row.get("board_revision"), int)
+                and not isinstance(row.get("board_revision"), bool)
+            ):
                 problems.append(f"{scheduled_for}: missing board revision")
             if len(str(row.get("html_sha256") or "")) != 64:
                 problems.append(f"{scheduled_for}: missing HTML hash")
             if len(str(row.get("json_sha256") or "")) != 64:
                 problems.append(f"{scheduled_for}: missing JSON hash")
+            if not _valid_producer_provenance(row.get("producer")):
+                problems.append(f"{scheduled_for}: runtime producer provenance missing")
             if notification.get("status") != "ok":
                 problems.append(f"{scheduled_for}: notification failed")
             if (
@@ -5302,11 +6255,19 @@ def verify_window_receipts(
                 != f"{row.get('slot')} · board rev {row.get('board_revision')}"
             ):
                 problems.append(f"{scheduled_for}: notification identity mismatch")
-            if receipt.get("status") != "ok" or receipt.get("delivery_status") != "sent" or not receipt.get("message_id"):
+            message_id = receipt.get("message_id")
+            if (
+                receipt.get("status") != "ok"
+                or receipt.get("delivery_status") != "sent"
+                or not isinstance(message_id, str)
+                or not message_id.strip()
+            ):
                 problems.append(f"{scheduled_for}: sent-message receipt missing")
+            attempt_id = receipt.get("attempt_id")
             if (
                 receipt.get("attempt_state") != "PROVISIONAL_SENT"
-                or len(str(receipt.get("attempt_id") or "")) != 24
+                or not isinstance(attempt_id, str)
+                or re.fullmatch(r"[0-9a-f]{24}", attempt_id) is None
             ):
                 problems.append(f"{scheduled_for}: durable pre-send attempt receipt missing")
             if (
@@ -5337,39 +6298,88 @@ def verify_window_receipts(
                         problems.append(f"{row['scheduled_for']}: missing {source} paint health")
                     elif not health.get("available") and not health.get("wake"):
                         problems.append(f"{source} paint unavailable without exact wake")
-        sent_message_ids = [(row.get("receipt") or {}).get("message_id") for row in latest]
-        if all(sent_message_ids) and len(set(sent_message_ids)) != len(sent_message_ids):
+        sent_message_ids = [
+            receipt.get("message_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            for row in latest
+        ]
+        if (
+            all(
+                isinstance(value, str) and bool(value.strip())
+                for value in sent_message_ids
+            )
+            and len(set(sent_message_ids)) != len(sent_message_ids)
+        ):
             problems.append("scheduled windows do not have distinct sent-message receipts")
+        attempt_ids = [
+            receipt.get("attempt_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            for row in latest
+        ]
+        if (
+            all(
+                isinstance(value, str)
+                and re.fullmatch(r"[0-9a-f]{24}", value) is not None
+                for value in attempt_ids
+            )
+            and len(set(attempt_ids)) != len(attempt_ids)
+        ):
+            problems.append("scheduled windows do not have distinct send-attempt receipts")
         if evidence_dir is not None:
-            archives_by_hash: dict[str, Path] = {}
-            for archive in evidence_dir.glob("brief-*.html"):
-                try:
-                    archives_by_hash[hashlib.sha256(archive.read_bytes()).hexdigest()] = archive
-                except OSError:
-                    continue
-            json_archives_by_hash: dict[str, Path] = {}
-            for archive in evidence_dir.glob("brief-*.json"):
-                try:
-                    json_archives_by_hash[hashlib.sha256(archive.read_bytes()).hexdigest()] = archive
-                except OSError:
-                    continue
+            archive_pairs: list[tuple[Path, Path]] = []
             for row in latest:
                 scheduled_for = str(row["scheduled_for"])
-                archive = archives_by_hash.get(str(row.get("html_sha256") or ""))
+                archive = _declared_archive_path(
+                    evidence_dir,
+                    row,
+                    key="archive_html",
+                    suffix=".html",
+                )
                 if archive is None:
-                    problems.append(f"{scheduled_for}: no archived HTML matches receipt hash")
+                    problems.append(f"{scheduled_for}: declared archived HTML is invalid")
                     continue
+                json_archive = _declared_archive_path(
+                    evidence_dir,
+                    row,
+                    key="archive_json",
+                    suffix=".json",
+                )
+                if json_archive is None:
+                    problems.append(f"{scheduled_for}: declared archived JSON is invalid")
+                    continue
+                archive_pairs.append((archive, json_archive))
                 try:
-                    rendered = archive.read_text(encoding="utf-8")
+                    html_bytes = archive.read_bytes()
                 except OSError:
+                    problems.append(f"{scheduled_for}: archived HTML unreadable")
+                    continue
+                if hashlib.sha256(html_bytes).hexdigest() != row.get("html_sha256"):
+                    problems.append(f"{scheduled_for}: declared archived HTML hash mismatch")
+                    continue
+                if send_attempt_log is not None and not _send_attempt_proof_is_valid(
+                    row,
+                    archive,
+                    attempt_rows,
+                ):
+                    problems.append(
+                        f"{scheduled_for}: scheduled send attempt ledger proof is invalid"
+                    )
+                try:
+                    rendered = html_bytes.decode("utf-8")
+                except UnicodeDecodeError:
                     problems.append(f"{scheduled_for}: archived HTML unreadable")
                     continue
                 if f"board rev {row.get('board_revision')}" not in rendered:
                     problems.append(f"{scheduled_for}: archived HTML board revision mismatch")
+                generation_marker = _reader_generation_marker(
+                    row.get("slot"),
+                    row.get("generated_at"),
+                )
+                if not generation_marker or generation_marker not in rendered:
+                    problems.append(
+                        f"{scheduled_for}: archived HTML generation marker mismatch"
+                    )
                 required_html = (
                     "<!DOCTYPE html>",
                     'name="viewport"',
-                    str(row.get("generated_at") or ""),
                     "Today’s read",
                     "What materially changed",
                     "The chief-of-staff read",
@@ -5385,32 +6395,83 @@ def verify_window_receipts(
                 )
                 if any(marker not in rendered for marker in required_html):
                     problems.append(f"{scheduled_for}: archived HTML missing report structure")
-                json_archive = json_archives_by_hash.get(str(row.get("json_sha256") or ""))
-                if json_archive is None:
-                    problems.append(f"{scheduled_for}: no archived JSON matches receipt hash")
+                if rendered.count("<h2>Mail and calendar coverage</h2>") != 1:
+                    problems.append(
+                        f"{scheduled_for}: archived HTML must contain exactly one Mail and calendar coverage section"
+                    )
+                try:
+                    json_bytes = json_archive.read_bytes()
+                except OSError:
+                    problems.append(f"{scheduled_for}: archived JSON unreadable")
+                    continue
+                if hashlib.sha256(json_bytes).hexdigest() != row.get("json_sha256"):
+                    problems.append(f"{scheduled_for}: declared archived JSON hash mismatch")
                     continue
                 try:
-                    packet = json.loads(json_archive.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
+                    packet = json.loads(json_bytes.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError, RecursionError):
                     problems.append(f"{scheduled_for}: archived JSON unreadable")
+                    continue
+                if not isinstance(packet, dict):
+                    problems.append(
+                        f"{scheduled_for}: archived JSON root must be an object"
+                    )
                     continue
                 if packet.get("generated_at") != row.get("generated_at"):
                     problems.append(f"{scheduled_for}: archived JSON generation mismatch")
-                if (packet.get("board") or {}).get("revision") != row.get("board_revision"):
-                    problems.append(f"{scheduled_for}: archived JSON board revision mismatch")
-                board_snapshot = (packet.get("authority") or {}).get("board_snapshot") or {}
-                if (
+                board = packet.get("board")
+                if not isinstance(board, dict):
+                    problems.append(
+                        f"{scheduled_for}: archived JSON board must be an object"
+                    )
+                elif not (
+                    isinstance(board.get("revision"), int)
+                    and not isinstance(board.get("revision"), bool)
+                    and board.get("revision") == row.get("board_revision")
+                ):
+                    problems.append(
+                        f"{scheduled_for}: archived JSON board revision mismatch"
+                    )
+                authority = packet.get("authority")
+                board_snapshot: Any = None
+                if not isinstance(authority, dict):
+                    problems.append(
+                        f"{scheduled_for}: archived JSON authority must be an object"
+                    )
+                else:
+                    board_snapshot = authority.get("board_snapshot")
+                if not isinstance(board_snapshot, dict) or (
                     board_snapshot.get("consistent") is not True
+                    or not isinstance(board_snapshot.get("revision"), int)
+                    or isinstance(board_snapshot.get("revision"), bool)
                     or board_snapshot.get("revision") != row.get("board_revision")
                 ):
                     problems.append(f"{scheduled_for}: board snapshot consistency missing")
                 if (packet.get("paint_health") or {}) != (row.get("paint_health") or {}):
                     problems.append(f"{scheduled_for}: archived JSON paint health mismatch")
+                packet_producer = packet.get("producer")
+                if (
+                    not _valid_producer_provenance(packet_producer)
+                    or packet_producer != row.get("producer")
+                ):
+                    problems.append(f"{scheduled_for}: archived producer provenance mismatch")
+                problems.extend(
+                    f"{scheduled_for}: {problem}"
+                    for problem in _superhuman_receipt_problems(
+                        packet.get("superhuman_context")
+                    )
+                )
+            flattened = [path for pair in archive_pairs for path in pair]
+            if len(flattened) != len(set(flattened)):
+                problems.append("natural windows do not have distinct immutable archives")
     return {
         "ok": not problems,
         "problems": problems,
         "windows": [row.get("scheduled_for") for row in latest],
-        "message_ids": [(row.get("receipt") or {}).get("message_id") for row in latest],
+        "message_ids": [
+            receipt.get("message_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            for row in latest
+        ],
         "ignored_legacy_windows": ignored_legacy,
         "ignored_noncalendar_windows": ignored_noncalendar,
         "ignored_nonslot_windows": ignored_nonslot,
@@ -5432,6 +6493,12 @@ def verify_mailbox_readbacks(
     confirmed: list[dict[str, Any]] = []
     for window in windows:
         scheduled_for = str(window.get("scheduled_for") or "")
+        window_receipt_value = window.get("receipt")
+        if not isinstance(window_receipt_value, dict):
+            problems.append(f"{scheduled_for}: window receipt must be an object")
+            window_receipt: dict[str, Any] = {}
+        else:
+            window_receipt = window_receipt_value
         readback = latest_by_window.get(scheduled_for)
         if readback is None or readback.get("status") != "EXACT_SENT_CONFIRMED":
             problems.append(f"{scheduled_for}: exact mailbox readback missing")
@@ -5443,17 +6510,43 @@ def verify_mailbox_readbacks(
             or readback.get("to") != [SELF_MAIL]
         ):
             problems.append(f"{scheduled_for}: mailbox self-route mismatch")
-        if readback.get("subject") != (window.get("receipt") or {}).get("subject"):
+        if readback.get("subject") != window_receipt.get("subject"):
             problems.append(f"{scheduled_for}: mailbox subject mismatch")
         if readback.get("generated_at") != window.get("generated_at"):
             problems.append(f"{scheduled_for}: mailbox generation mismatch")
-        if readback.get("board_revision") != window.get("board_revision"):
+        window_revision = window.get("board_revision")
+        readback_revision = readback.get("board_revision")
+        if not (
+            isinstance(window_revision, int)
+            and not isinstance(window_revision, bool)
+            and isinstance(readback_revision, int)
+            and not isinstance(readback_revision, bool)
+        ):
+            problems.append(f"{scheduled_for}: mailbox board revision invalid")
+        elif readback_revision != window_revision:
             problems.append(f"{scheduled_for}: mailbox board revision mismatch")
-        if not readback.get("message_id") or not readback.get("thread_id"):
+        message_id = readback.get("message_id")
+        thread_id = readback.get("thread_id")
+        if not (
+            isinstance(message_id, str)
+            and message_id.strip()
+            and isinstance(thread_id, str)
+            and thread_id.strip()
+        ):
             problems.append(f"{scheduled_for}: stable mailbox identity missing")
-        if "SENT" not in (readback.get("labels") or []):
+        labels = readback.get("labels")
+        if not (
+            isinstance(labels, list)
+            and all(isinstance(label, str) for label in labels)
+        ):
+            problems.append(f"{scheduled_for}: mailbox labels must be a string list")
+        elif "SENT" not in labels:
             problems.append(f"{scheduled_for}: SENT label missing")
-        if len(str(readback.get("raw_html_sha256") or "")) != 64:
+        raw_html_sha256 = readback.get("raw_html_sha256")
+        if not (
+            isinstance(raw_html_sha256, str)
+            and re.fullmatch(r"[0-9a-f]{64}", raw_html_sha256)
+        ):
             problems.append(f"{scheduled_for}: mailbox HTML hash missing")
         scheduled_at = _parse_aware_datetime(scheduled_for)
         sent_at = _parse_aware_datetime(readback.get("sent_at"))
@@ -5462,7 +6555,14 @@ def verify_mailbox_readbacks(
         elif not scheduled_at <= sent_at <= scheduled_at + timedelta(minutes=30):
             problems.append(f"{scheduled_for}: mailbox sent timestamp is not fresh")
     message_ids = [row.get("message_id") for row in confirmed]
-    if len(message_ids) == len(windows) and len(set(message_ids)) != len(message_ids):
+    if (
+        len(message_ids) == len(windows)
+        and all(
+            isinstance(value, str) and bool(value.strip())
+            for value in message_ids
+        )
+        and len(set(message_ids)) != len(message_ids)
+    ):
         problems.append("mailbox readbacks do not have distinct message IDs")
     return {
         "ok": not problems,
@@ -5590,26 +6690,36 @@ def _parse_mcp_sse(raw: str) -> dict[str, Any]:
         try:
             parsed = json.loads(raw)
             return parsed if isinstance(parsed, dict) else {"raw": raw[:500]}
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             return {"raw": raw[:500]}
     for chunk in reversed(chunks):
         try:
             parsed = json.loads(chunk)
             if isinstance(parsed, dict):
                 return parsed
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             continue
     return {"raw": "\n".join(chunks)[:800]}
 
 
 def _mcp_text_payload(result: dict[str, Any]) -> dict[str, Any]:
-    content = ((result.get("result") or {}).get("content") or [])
+    if not isinstance(result, dict):
+        return {}
+    envelope = result.get("result")
+    if not isinstance(envelope, dict):
+        return {}
+    content = envelope.get("content")
+    if not isinstance(content, list):
+        return {}
     for item in content:
         if not isinstance(item, dict) or item.get("type") != "text":
             continue
+        text = item.get("text")
+        if not isinstance(text, str):
+            continue
         try:
-            payload = json.loads(item.get("text") or "")
-        except json.JSONDecodeError:
+            payload = json.loads(text)
+        except (ValueError, RecursionError):
             continue
         if isinstance(payload, dict):
             return payload
@@ -5618,19 +6728,47 @@ def _mcp_text_payload(result: dict[str, Any]) -> dict[str, Any]:
 
 def _append_private_jsonl(path: Path, row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
-    descriptor = os.open(path, flags, 0o600)
-    os.fchmod(descriptor, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = os.open(path, flags, 0o600)
+    identity: os.stat_result | None = None
     try:
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or named_identity.st_uid != os.getuid()
+            or named_identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PermissionError(f"unsafe private JSONL identity: {path}")
+        os.fchmod(descriptor, 0o600)
         handle = os.fdopen(descriptor, "a", encoding="utf-8")
-    except BaseException:
-        os.close(descriptor)
-        raise
-    with handle:
-        handle.write(json.dumps(row, sort_keys=True) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    path.chmod(0o600)
+        descriptor = None
+        with handle:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(named_identity.st_mode)
+            or named_identity.st_uid != os.getuid()
+            or named_identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PermissionError(f"private JSONL identity changed while appending: {path}")
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    _fsync_directory(path.parent)
 
 
 def record_send_attempt(
@@ -5640,9 +6778,10 @@ def record_send_attempt(
     draft_id: str,
     thread_id: str | None,
 ) -> dict[str, Any]:
+    _read_jsonl(SEND_ATTEMPT_LOG)
     created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     intent = {
-        "schema": "shadow.superhuman-send-attempt.v1",
+        "schema": SEND_ATTEMPT_SCHEMA,
         "state": "UNKNOWN_NO_RETRY",
         "created_at": created_at,
         "acting_email": SELF_MAIL,
@@ -5689,6 +6828,58 @@ def ambiguous_send_receipt(
     }
 
 
+def _delivery_exception_receipt(subject: str, exc: Exception) -> dict[str, Any]:
+    attempt: dict[str, Any] | None = None
+    attempt_ledger_error: Exception | None = None
+    try:
+        for candidate in reversed(_read_jsonl(SEND_ATTEMPT_LOG)):
+            if (
+                candidate.get("schema") == SEND_ATTEMPT_SCHEMA
+                and candidate.get("subject") == subject
+                and candidate.get("attempt_id")
+            ):
+                attempt = candidate
+                break
+    except (OSError, UnicodeError) as read_error:
+        attempt = None
+        attempt_ledger_error = read_error
+    notes = f"Superhuman delivery raised after its outcome became unknown: {exc}"
+    if attempt_ledger_error is not None:
+        notes += (
+            "; send-attempt ledger is unsafe or corrupt: "
+            f"{attempt_ledger_error}"
+        )
+    if attempt is not None:
+        return ambiguous_send_receipt(
+            attempt,
+            subject=subject,
+            notes=notes,
+        )
+    return {
+        "status": "unknown",
+        "delivery_status": "unknown_no_retry",
+        "attempt_state": "UNKNOWN_NO_RETRY",
+        "attempt_id": None,
+        "draft_id": None,
+        "thread_id": None,
+        "acting_email": SELF_MAIL,
+        "from": SELF_MAIL,
+        "to": [SELF_MAIL],
+        "subject": subject,
+        "sent_at": None,
+        "notes": notes,
+        "wake": (
+            (
+                f"repair the unsafe or corrupt send-attempt ledger at {SEND_ATTEMPT_LOG}; "
+                if attempt_ledger_error is not None
+                else f"inspect {SEND_ATTEMPT_LOG}; "
+            )
+            + f"inspect the exact {SELF_MAIL} SENT mailbox route for subject {subject!r}; "
+            "never retry delivery for this scheduled window"
+        ),
+    }
+
+
 def _normalized_email(value: Any) -> str:
     match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", str(value), re.I)
     return match.group(0).lower() if match else ""
@@ -5699,9 +6890,18 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
     import urllib.error
     import urllib.request
 
+    if not isinstance(window, dict):
+        return {
+            "schema": MAILBOX_READBACK_SCHEMA,
+            "status": "blocked",
+            "wake": "window receipt must be a JSON object before mailbox readback",
+            "problems": ["window row shape invalid"],
+        }
     scheduled_for = str(window.get("scheduled_for") or "")
-    receipt = window.get("receipt") or {}
-    subject = str(receipt.get("subject") or "")
+    receipt_value = window.get("receipt")
+    receipt = receipt_value if isinstance(receipt_value, dict) else {}
+    subject_value = receipt.get("subject")
+    subject = subject_value if isinstance(subject_value, str) else ""
     base = {
         "schema": MAILBOX_READBACK_SCHEMA,
         "scheduled_for": scheduled_for,
@@ -5711,6 +6911,13 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         "subject": subject,
         "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+    if not isinstance(receipt_value, dict) or not subject.strip():
+        return {
+            **base,
+            "status": "blocked",
+            "wake": "window receipt must contain an exact string subject before mailbox readback",
+            "problems": ["window receipt shape invalid"],
+        }
     scheduled_at = _parse_aware_datetime(scheduled_for)
     if scheduled_at is None or not _is_report_timezone_timestamp(scheduled_at):
         return {**base, "status": "blocked", "wake": "scheduled_for parses as ISO 8601"}
@@ -5787,12 +6994,41 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
             session_id=sid,
         )
         listed_payload = _mcp_text_payload(listed)
+        listed_threads = listed_payload.get("threads")
+        if not isinstance(listed_threads, list):
+            return {
+                **base,
+                "status": "blocked",
+                "wake": "inspect malformed Superhuman list_threads readback; never retry send_draft",
+                "problems": ["thread list shape invalid"],
+            }
+        malformed_threads: list[str] = []
+        for index, item in enumerate(listed_threads):
+            if not isinstance(item, dict):
+                malformed_threads.append(f"thread {index} row shape invalid")
+                continue
+            labels = item.get("labels")
+            if not isinstance(labels, list) or any(
+                not isinstance(label, str) for label in labels
+            ):
+                malformed_threads.append(f"thread {index} labels shape invalid")
+            if not isinstance(item.get("subject"), str):
+                malformed_threads.append(f"thread {index} subject shape invalid")
+            for key in ("thread_id", "last_message_id"):
+                value = item.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    malformed_threads.append(f"thread {index} {key} shape invalid")
+        if malformed_threads:
+            return {
+                **base,
+                "status": "blocked",
+                "wake": "inspect malformed Superhuman list_threads readback; never retry send_draft",
+                "problems": malformed_threads,
+            }
         candidates = [
             item
-            for item in (listed_payload.get("threads") or [])
-            if isinstance(item, dict)
-            and item.get("subject") == subject
-            and "SENT" in (item.get("labels") or [])
+            for item in listed_threads
+            if item.get("subject") == subject and "SENT" in item["labels"]
         ]
         if len(candidates) != 1:
             return {
@@ -5805,8 +7041,8 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
                 "candidate_count": len(candidates),
             }
         candidate = candidates[0]
-        thread_id = str(candidate.get("thread_id") or "")
-        message_id = str(candidate.get("last_message_id") or "")
+        thread_id = candidate["thread_id"]
+        message_id = candidate["last_message_id"]
         _sid, thread_result = post(
             {
                 "jsonrpc": "2.0",
@@ -5849,13 +7085,49 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         }
 
     message_payload = _mcp_text_payload(message_result)
-    message = message_payload.get("message") or {}
-    raw_html = str(message.get("raw_html") or "")
-    from_email = _normalized_email(message.get("from"))
-    to_emails = [_normalized_email(value) for value in (message.get("to") or [])]
-    labels = message.get("labels") or []
-    sent_at = str(message.get("sent_at") or "")
+    message_value = message_payload.get("message")
+    message = message_value if isinstance(message_value, dict) else {}
+    raw_html_value = message.get("raw_html")
+    raw_html = raw_html_value if isinstance(raw_html_value, str) else ""
+    from_value = message.get("from")
+    from_email = _normalized_email(from_value) if isinstance(from_value, str) else ""
+    to_value = message.get("to")
+    to_emails = (
+        [_normalized_email(value) for value in to_value]
+        if isinstance(to_value, list)
+        and all(isinstance(value, str) for value in to_value)
+        else []
+    )
+    labels_value = message.get("labels")
+    labels = (
+        labels_value
+        if isinstance(labels_value, list)
+        and all(isinstance(label, str) for label in labels_value)
+        else []
+    )
+    sent_at_value = message.get("sent_at")
+    sent_at = sent_at_value if isinstance(sent_at_value, str) else ""
     problems: list[str] = []
+    if not isinstance(message_value, dict):
+        problems.append("message row shape invalid")
+    if not isinstance(raw_html_value, str):
+        problems.append("raw HTML shape invalid")
+    if not isinstance(from_value, str) or not (
+        isinstance(to_value, list)
+        and all(isinstance(value, str) for value in to_value)
+    ):
+        problems.append("mailbox route shape invalid")
+    if not (
+        isinstance(labels_value, list)
+        and all(isinstance(label, str) for label in labels_value)
+    ):
+        problems.append("message labels shape invalid")
+    if not isinstance(sent_at_value, str):
+        problems.append("sent timestamp shape invalid")
+    for key in ("message_id", "thread_id"):
+        value = message.get(key)
+        if not isinstance(value, str) or not value.strip():
+            problems.append(f"message {key} shape invalid")
     if (
         thread.get("thread_id") != thread_id
         or thread.get("last_message_id") != message_id
@@ -5874,11 +7146,11 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
     elif not scheduled_at <= sent <= scheduled_at + timedelta(minutes=30):
         problems.append("sent timestamp outside scheduled window")
     required_html = (
-        str(window.get("generated_at") or ""),
+        _reader_generation_marker(window.get("slot"), window.get("generated_at")),
         f"board rev {window.get('board_revision')}",
         "Supporting checks inform the note; they do not create another to-do list.",
     )
-    if any(marker not in raw_html for marker in required_html):
+    if not all(required_html) or any(marker not in raw_html for marker in required_html):
         problems.append("mailbox HTML does not match scheduled report identity")
     if problems:
         return {
@@ -6072,7 +7344,7 @@ def deliver_superhuman_http(
             notes=f"Superhuman send_draft result is ambiguous: {str(send_result)[:400]}",
         )
     outcome = {
-        "schema": "shadow.superhuman-send-attempt.v1",
+        "schema": SEND_ATTEMPT_SCHEMA,
         "state": "PROVISIONAL_SENT",
         "recorded_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
         "attempt_id": attempt.get("attempt_id"),
@@ -6235,9 +7507,209 @@ def schedule_configuration_recovery(problems: list[str]) -> str:
         steps.append(
             f"set the macOS system timezone to {REPORT_TIMEZONE_NAME}, then run schedule --status"
         )
-    if any(problem != "HostTimezone" for problem in problems):
+    duplicate_agents = [
+        problem.split(":", 1)[1]
+        for problem in problems
+        if problem.startswith("OtherScheduledBriefLaunchAgent:")
+    ]
+    if duplicate_agents:
+        steps.append(
+            "bootout and remove the other scheduled brief LaunchAgent plist(s) "
+            + ", ".join(duplicate_agents)
+            + ", then run schedule --status"
+        )
+    if any(
+        problem != "HostTimezone"
+        and not problem.startswith("OtherScheduledBriefLaunchAgent:")
+        for problem in problems
+    ):
         steps.append("run schedule --install, then run schedule --status")
     return "; ".join(steps)
+
+
+def _command_targets_scheduled_brief(values: list[str]) -> bool:
+    command = list(values)
+    assignment = r"[A-Za-z_][A-Za-z0-9_]*=.*"
+    while command and (
+        command[0] == "exec"
+        or re.fullmatch(assignment, command[0]) is not None
+    ):
+        command.pop(0)
+    if command and Path(command[0]).name == "env":
+        command.pop(0)
+        while command:
+            value = command[0]
+            if re.fullmatch(assignment, value) is not None:
+                command.pop(0)
+                continue
+            if value == "--":
+                command.pop(0)
+                break
+            if value in {"-S", "--split-string"}:
+                if len(command) < 2:
+                    return False
+                try:
+                    split_command = shlex.split(command[1], posix=True)
+                except ValueError:
+                    return False
+                command = split_command + command[2:]
+                break
+            if value.startswith("-S") and value != "-S":
+                try:
+                    split_command = shlex.split(value[2:], posix=True)
+                except ValueError:
+                    return False
+                command = split_command + command[1:]
+                break
+            if value.startswith("--split-string="):
+                try:
+                    split_command = shlex.split(value.split("=", 1)[1], posix=True)
+                except ValueError:
+                    return False
+                command = split_command + command[1:]
+                break
+            if value in {
+                "-u",
+                "--unset",
+                "-C",
+                "--chdir",
+                "-P",
+                "-a",
+                "--argv0",
+            }:
+                if len(command) < 2:
+                    return False
+                del command[:2]
+                continue
+            if value in {"-i", "--ignore-environment", "-0", "--null"}:
+                command.pop(0)
+                continue
+            if (
+                re.fullmatch(r"-u.+", value)
+                or value.startswith("--unset=")
+                or value.startswith("--chdir=")
+                or value.startswith("--argv0=")
+            ):
+                command.pop(0)
+                continue
+            if value.startswith("-"):
+                return False
+            break
+        while command and (
+            command[0] == "exec"
+            or re.fullmatch(assignment, command[0]) is not None
+        ):
+            command.pop(0)
+    if "--scheduled-trigger" not in command:
+        return False
+    if not command:
+        return False
+    program = Path(command[0]).name
+    if (
+        program == "shadow"
+        and len(command) >= 3
+        and command[1:3] == ["brief", "run"]
+    ):
+        return True
+    if program == "shadow-brief.py":
+        return True
+    if re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", program) is None:
+        return False
+    arguments = command[1:]
+    index = 0
+    while index < len(arguments):
+        value = arguments[index]
+        if value == "--":
+            index += 1
+            break
+        if value in {"-c", "-m"}:
+            return False
+        if not value.startswith("-") or value == "-":
+            break
+        if value in {"-W", "-X", "--check-hash-based-pycs"}:
+            index += 2
+        else:
+            index += 1
+    return bool(
+        index < len(arguments)
+        and Path(arguments[index]).name == "shadow-brief.py"
+    )
+
+
+def _shell_simple_commands(command_text: str) -> list[list[str]]:
+    try:
+        lexer = shlex.shlex(
+            command_text,
+            posix=True,
+            punctuation_chars=";&|",
+        )
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return []
+    commands: list[list[str]] = []
+    command: list[str] = []
+    for token in tokens:
+        if token and all(character in ";&|" for character in token):
+            if command:
+                commands.append(command)
+            command = []
+            continue
+        command.append(token)
+    if command:
+        commands.append(command)
+    return commands
+
+
+def _targets_scheduled_brief(doc: dict[str, Any]) -> bool:
+    arguments = doc.get("ProgramArguments")
+    if not isinstance(arguments, list):
+        return False
+    values = [str(value) for value in arguments]
+    if _command_targets_scheduled_brief(values):
+        return True
+    if not values or Path(values[0]).name not in {"sh", "bash", "dash", "ksh", "zsh"}:
+        return False
+    command_text: str | None = None
+    for index, value in enumerate(values[1:], start=1):
+        if value == "--":
+            break
+        command_option = value == "-c" or (
+            value.startswith("-")
+            and not value.startswith("--")
+            and "c" in value[1:]
+        )
+        if command_option:
+            if index + 1 < len(values):
+                command_text = values[index + 1]
+            break
+        if not value.startswith("-"):
+            break
+    if command_text is None:
+        return False
+    return any(
+        _command_targets_scheduled_brief(command)
+        for command in _shell_simple_commands(command_text)
+    )
+
+
+def _other_scheduled_brief_agents(canonical: Path) -> list[Path]:
+    agents = canonical.parent
+    if not agents.is_dir():
+        return []
+    found: list[Path] = []
+    for candidate in sorted(agents.glob("*.plist")):
+        if candidate == canonical:
+            continue
+        try:
+            with candidate.open("rb") as handle:
+                doc = plistlib.load(handle)
+        except (OSError, plistlib.InvalidFileException):
+            continue
+        if isinstance(doc, dict) and _targets_scheduled_brief(doc):
+            found.append(candidate)
+    return found
 
 
 def schedule_install() -> dict[str, Any]:
@@ -6251,8 +7723,9 @@ def schedule_install() -> dict[str, Any]:
     tmp.write_bytes(rendered)
     tmp.replace(plist_path)
     uid = os.getuid()
-    _run(["launchctl", "bootout", f"gui/{uid}", str(plist_path)])
-    load = _run(["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)])
+    _run(["/bin/launchctl", "bootout", f"gui/{uid}", str(plist_path)])
+    load = _run(["/bin/launchctl", "bootstrap", f"gui/{uid}", str(plist_path)])
+    status = schedule_status()
     return {
         "plist": str(plist_path),
         "bootstrap_rc": load.returncode,
@@ -6261,11 +7734,19 @@ def schedule_install() -> dict[str, Any]:
         "report_timezone": REPORT_TIMEZONE_NAME,
         "host_timezone": _host_timezone_name(),
         "host_timezone_matches_report": host_timezone_matches_report(),
+        "configuration_ok": status.get("configuration_ok") is True,
+        "configuration_problems": status.get("configuration_problems") or [],
+        "launchctl_ok": status.get("launchctl_ok") is True,
+        "post_install_status": status,
     }
 
 
 def schedule_status() -> dict[str, Any]:
     plist_path = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    duplicate_problems = [
+        f"OtherScheduledBriefLaunchAgent:{path.name}"
+        for path in _other_scheduled_brief_agents(plist_path)
+    ]
     if not plist_path.is_file():
         host_timezone = _host_timezone_name()
         host_timezone_ok = host_timezone_matches_report(host_timezone)
@@ -6273,7 +7754,10 @@ def schedule_status() -> dict[str, Any]:
             "installed": False,
             "plist": str(plist_path),
             "configuration_ok": False,
-            "configuration_problems": [] if host_timezone_ok else ["HostTimezone"],
+            "configuration_problems": (
+                ([] if host_timezone_ok else ["HostTimezone"])
+                + duplicate_problems
+            ),
             "report_timezone": REPORT_TIMEZONE_NAME,
             "host_timezone": host_timezone,
             "host_timezone_matches_report": host_timezone_ok,
@@ -6281,14 +7765,27 @@ def schedule_status() -> dict[str, Any]:
         }
     with plist_path.open("rb") as fh:
         doc = plistlib.load(fh)
-    arguments = doc.get("ProgramArguments") or []
-    program = Path(arguments[1]) if len(arguments) > 1 else Path(__file__).resolve()
+    program = Path(__file__).resolve()
     expected = launch_agent_plist(program)
-    configuration_problems = schedule_configuration_problems(doc, expected)
+    configuration_problems = (
+        schedule_configuration_problems(doc, expected) + duplicate_problems
+    )
     if not program.is_file():
         configuration_problems.append("ProgramFile")
     uid = os.getuid()
-    print_out = _run(["launchctl", "print", f"gui/{uid}/{LABEL}"])
+    try:
+        print_out = _run(["/bin/launchctl", "print", f"gui/{uid}/{LABEL}"])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print_out = subprocess.CompletedProcess(
+            ["/bin/launchctl", "print", f"gui/{uid}/{LABEL}"],
+            1,
+            "",
+            f"{type(exc).__name__}: {exc}",
+        )
+    loaded_job = _parse_launchctl_loaded_job(print_out.stdout or "")
+    loaded_job_matches = _loaded_job_matches_current(loaded_job)
+    if print_out.returncode != 0 or not loaded_job_matches:
+        configuration_problems.append("LoadedJob")
     return {
         "installed": True,
         "plist": str(plist_path),
@@ -6301,7 +7798,10 @@ def schedule_status() -> dict[str, Any]:
         "host_timezone": _host_timezone_name(),
         "host_timezone_matches_report": host_timezone_matches_report(),
         "launchctl_rc": print_out.returncode,
-        "launchctl_ok": print_out.returncode == 0,
+        "launchctl_ok": print_out.returncode == 0 and loaded_job_matches,
+        "loaded_program": loaded_job.get("program") if loaded_job else None,
+        "loaded_program_arguments": loaded_job.get("arguments") if loaded_job else None,
+        "loaded_path": loaded_job.get("path") if loaded_job else None,
     }
 
 
@@ -6390,9 +7890,149 @@ def run_exit_code(
     return 0 if receipt.get("status") in {"ok", "dry-run", "skipped"} else 1
 
 
+def _acquire_scheduled_run_lock() -> Any | None:
+    """Take the one nonblocking lock before any scheduled provider collection."""
+    path = LOG_DIR / "scheduled-run.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = os.open(path, flags, 0o600)
+    locked = False
+    try:
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PermissionError(f"unsafe scheduled run lock identity: {path}")
+        os.fchmod(descriptor, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return None
+        locked = True
+        locked_identity = os.fstat(descriptor)
+        locked_named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(locked_identity.st_mode)
+            or not stat.S_ISREG(locked_named_identity.st_mode)
+            or locked_identity.st_uid != os.getuid()
+            or locked_named_identity.st_uid != os.getuid()
+            or locked_identity.st_nlink != 1
+            or locked_named_identity.st_nlink != 1
+            or (locked_identity.st_dev, locked_identity.st_ino)
+            != (locked_named_identity.st_dev, locked_named_identity.st_ino)
+        ):
+            raise PermissionError(f"unsafe scheduled run lock identity after flock: {path}")
+        handle = os.fdopen(descriptor, "r+", encoding="utf-8")
+        descriptor = None
+        return handle
+    finally:
+        if descriptor is not None:
+            if locked:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _release_scheduled_run_lock(handle: Any | None) -> None:
+    if handle is None:
+        return
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except (OSError, ValueError):
+        pass
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _place_private_archive(path: Path, content: bytes) -> None:
+    """Publish complete immutable bytes once; an existing name is never replaced."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    temporary: Path | None = None
+    for nonce in range(100):
+        candidate = path.parent / f".{path.name}.{os.getpid()}.{nonce}.tmp"
+        try:
+            descriptor = os.open(candidate, flags, 0o600)
+        except FileExistsError:
+            continue
+        temporary = candidate
+        break
+    if descriptor is None or temporary is None:
+        raise FileExistsError(f"could not reserve a private archive temporary for {path}")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            os.fchmod(handle.fileno(), 0o400)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            raise FileExistsError(f"immutable archive already exists: {path}") from None
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+        _fsync_directory(path.parent)
+
+
+def _archive_stamp(
+    *,
+    scheduled_trigger: bool,
+    trigger_window: dict[str, Any],
+) -> str:
+    if scheduled_trigger:
+        scheduled = _parse_aware_datetime(trigger_window.get("scheduled_for"))
+        if scheduled is None or not _is_report_timezone_timestamp(scheduled):
+            raise ValueError("scheduled archive has no canonical report window")
+        return scheduled.astimezone(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+    now = datetime.now(REPORT_TIMEZONE)
+    return f"{now.strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(16)}"
+
+
+def _write_last_run_best_effort(summary: dict[str, Any]) -> bool:
+    try:
+        (LOG_DIR / "last-run.json").write_text(
+            json.dumps(summary, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        return False
+    return True
+
+
+def _print_json_best_effort(payload: dict[str, Any], *, file: Any = None) -> bool:
+    try:
+        print(json.dumps(payload, indent=2), file=file)
+    except OSError:
+        return False
+    return True
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     trigger_proof: dict[str, Any] = {}
-    trigger_window: dict[str, Any] = {}
     if args.scheduled_trigger:
         trigger_proof = launch_trigger_proof()
         if not scheduled_trigger_is_authorized(True, trigger_proof):
@@ -6410,44 +8050,50 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 2
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    packet = collect_packet(slot=args.slot)
-    board_snapshot = ((packet.get("authority") or {}).get("board_snapshot") or {})
-    if board_snapshot.get("consistent") is not True:
-        summary = {
-            "schema": WINDOW_RECEIPT_SCHEMA,
-            "status": "blocked",
-            "generated_at": packet.get("generated_at"),
-            "board_revision": (packet.get("board") or {}).get("revision"),
-            "trigger_proof": trigger_proof,
-            "board_snapshot": board_snapshot,
-            "wake": (
-                "shadow status --json --by codex stabilizes at one board revision; "
-                "then run read-only shadow-brief collect; never retry the scheduled send"
-            ),
-        }
-        print(json.dumps(summary, indent=2))
-        (LOG_DIR / "last-run.json").write_text(
-            json.dumps(summary, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        return 1
+    lock_handle = None
     if args.scheduled_trigger:
         try:
-            trigger_window = scheduled_window(
-                datetime.fromisoformat(str(packet.get("generated_at") or ""))
+            lock_handle = _acquire_scheduled_run_lock()
+        except OSError as exc:
+            print(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "error": f"scheduled run lock unavailable: {exc}",
+                        "trigger_proof": trigger_proof,
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
             )
-        except ValueError:
-            trigger_window = {"on_schedule": False, "scheduled_for": None}
-        existing_window = any(
-            row.get("schema") == WINDOW_RECEIPT_SCHEMA
-            and row.get("trigger") == "launchd-calendar"
-            and row.get("scheduled_for") == trigger_window.get("scheduled_for")
-            for row in _read_jsonl(WINDOW_LOG)
-        )
-        if not trigger_window.get("on_schedule") or existing_window:
-            if trigger_window.get("on_schedule"):
-                reason = "this scheduled window already has a durable receipt"
-            elif not host_timezone_matches_report():
+            return 3
+        if lock_handle is None:
+            print(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "error": "another scheduled brief invocation holds the run lock",
+                        "trigger_proof": trigger_proof,
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 3
+    try:
+        return _cmd_run_locked(args, trigger_proof)
+    finally:
+        _release_scheduled_run_lock(lock_handle)
+
+
+def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> int:
+    trigger_window: dict[str, Any] = {}
+    attempt_barrier: dict[str, str] | None = None
+    scheduled_stamp: str | None = None
+    if args.scheduled_trigger:
+        trigger_window = scheduled_window(datetime.now(REPORT_TIMEZONE))
+        if not trigger_window.get("on_schedule"):
+            if not host_timezone_matches_report():
                 reason = (
                     "the host timezone does not match "
                     f"{REPORT_TIMEZONE}, so the launchd 08:00/20:00 calendar does not "
@@ -6456,43 +8102,366 @@ def cmd_run(args: argparse.Namespace) -> int:
                 )
             else:
                 reason = "scheduled trigger is outside the 08:00/20:00 freshness window"
+            print(
+                json.dumps(
+                    {
+                        "schema": WINDOW_RECEIPT_SCHEMA,
+                        "status": "blocked",
+                        "trigger_proof": trigger_proof,
+                        "scheduled_window": trigger_window,
+                        "wake": f"{reason}; do not collect, notify, or send",
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 3
+        scheduled_stamp = _archive_stamp(
+            scheduled_trigger=True,
+            trigger_window=trigger_window,
+        )
+        archive_html_path = EVIDENCE_DIR / f"brief-{scheduled_stamp}.html"
+        archive_json_path = EVIDENCE_DIR / f"brief-{scheduled_stamp}.json"
+        attempt_barrier_path = (
+            LOG_DIR / f"scheduled-attempt-{scheduled_stamp}.json"
+        )
+        try:
+            existing_window_rows = _read_jsonl(WINDOW_LOG)
+        except PrivateJSONLError as exc:
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "wake": (
+                    f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}; "
+                    "repair the exact private ledger; do not collect, notify, send, "
+                    "overwrite, or retry this scheduled window"
+                ),
+            }
+            _write_last_run_best_effort(summary)
+            _print_json_best_effort(summary, file=sys.stderr)
+            return 3
+        try:
+            _read_jsonl(SEND_ATTEMPT_LOG)
+        except PrivateJSONLError as exc:
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "wake": (
+                    f"send-attempt ledger is unsafe or corrupt at {SEND_ATTEMPT_LOG}: {exc}; "
+                    "repair the exact private ledger; do not collect, notify, send, "
+                    "overwrite, or retry this scheduled window"
+                ),
+            }
+            _write_last_run_best_effort(summary)
+            _print_json_best_effort(summary, file=sys.stderr)
+            return 3
+        existing_window = any(
+            row.get("schema") == WINDOW_RECEIPT_SCHEMA
+            and row.get("trigger") == "launchd-calendar"
+            and row.get("scheduled_for") == trigger_window.get("scheduled_for")
+            for row in existing_window_rows
+        )
+        archive_barrier = os.path.lexists(archive_html_path) or os.path.lexists(
+            archive_json_path
+        )
+        existing_attempt_barrier = os.path.lexists(attempt_barrier_path)
+        if existing_window or archive_barrier or existing_attempt_barrier:
+            reason = (
+                "this scheduled window already has a durable receipt"
+                if existing_window
+                else (
+                    "this scheduled window already has an immutable archive barrier"
+                    if archive_barrier
+                    else "this scheduled window already has a durable attempt barrier"
+                )
+            )
+            barrier_receipt = {
+                "path": str(attempt_barrier_path),
+                "state": "EXISTS" if existing_attempt_barrier else "ABSENT",
+            }
+            print(
+                json.dumps(
+                    {
+                        "schema": WINDOW_RECEIPT_SCHEMA,
+                        "status": "blocked",
+                        "trigger_proof": trigger_proof,
+                        "scheduled_window": trigger_window,
+                        "scheduled_for": trigger_window.get("scheduled_for"),
+                        "archive_html": str(archive_html_path),
+                        "archive_json": str(archive_json_path),
+                        "attempt_barrier": barrier_receipt,
+                        "wake": f"{reason}; do not collect, notify, send, overwrite, or retry",
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 3
+        barrier_payload = {
+            "schema": SCHEDULED_ATTEMPT_SCHEMA,
+            "state": "RESERVED",
+            "scheduled_for": trigger_window.get("scheduled_for"),
+            "slot": trigger_window.get("slot"),
+        }
+        try:
+            _place_private_archive(
+                attempt_barrier_path,
+                (json.dumps(barrier_payload, sort_keys=True) + "\n").encode("utf-8"),
+            )
+        except OSError as exc:
+            barrier_state = (
+                "PRESENT" if os.path.lexists(attempt_barrier_path) else "UNAVAILABLE"
+            )
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "archive_html": str(archive_html_path),
+                "archive_json": str(archive_json_path),
+                "attempt_barrier": {
+                    "path": str(attempt_barrier_path),
+                    "state": barrier_state,
+                },
+                "wake": (
+                    f"scheduled attempt barrier publication failed: {exc}; "
+                    "do not collect, notify, send, overwrite, or retry until the "
+                    "exact local barrier path is inspected"
+                ),
+            }
+            print(json.dumps(summary, indent=2), file=sys.stderr)
+            _write_last_run_best_effort(summary)
+            return 3
+        attempt_barrier = {
+            "path": str(attempt_barrier_path),
+            "state": "PRESENT",
+        }
+    try:
+        packet = collect_packet(slot=args.slot)
+    except (
+        OSError,
+        subprocess.TimeoutExpired,
+        ValueError,
+        RecursionError,
+    ) as exc:
+        if not args.scheduled_trigger:
+            raise
+        summary = {
+            "schema": WINDOW_RECEIPT_SCHEMA,
+            "status": "blocked",
+            "trigger_proof": trigger_proof,
+            "scheduled_window": trigger_window,
+            "scheduled_for": trigger_window.get("scheduled_for"),
+            "attempt_barrier": attempt_barrier,
+            "collection_error": {
+                "type": type(exc).__name__,
+                "message": str(exc),
+            },
+            "wake": (
+                "scheduled packet collection failed after reserving this window; "
+                "repair the exact collector process error before the next natural "
+                "window; do not notify or send, and never retry this reserved window"
+            ),
+        }
+        _write_last_run_best_effort(summary)
+        _print_json_best_effort(summary, file=sys.stderr)
+        return 3
+    board_snapshot = ((packet.get("authority") or {}).get("board_snapshot") or {})
+    if board_snapshot.get("consistent") is not True:
+        summary = {
+            "schema": WINDOW_RECEIPT_SCHEMA,
+            "status": "blocked",
+            "generated_at": packet.get("generated_at"),
+            "board_revision": (packet.get("board") or {}).get("revision"),
+            "producer": packet.get("producer"),
+            "trigger_proof": trigger_proof,
+            "board_snapshot": board_snapshot,
+            **(
+                {"attempt_barrier": attempt_barrier}
+                if attempt_barrier is not None
+                else {}
+            ),
+            "wake": (
+                "shadow status --json --by codex stabilizes at one board revision; "
+                "then run read-only shadow-brief collect; never retry the scheduled send"
+            ),
+        }
+        print(json.dumps(summary, indent=2))
+        _write_last_run_best_effort(summary)
+        return 1
+    if args.scheduled_trigger:
+        scheduled_at = _parse_aware_datetime(trigger_window.get("scheduled_for"))
+        generated_at = _parse_aware_datetime(packet.get("generated_at"))
+        if (
+            scheduled_at is None
+            or generated_at is None
+            or not scheduled_at <= generated_at <= scheduled_at + timedelta(minutes=30)
+        ):
             summary = {
                 "schema": WINDOW_RECEIPT_SCHEMA,
                 "status": "blocked",
                 "generated_at": packet.get("generated_at"),
                 "board_revision": (packet.get("board") or {}).get("revision"),
+                "producer": packet.get("producer"),
                 "trigger_proof": trigger_proof,
                 "scheduled_window": trigger_window,
                 "scheduled_for": trigger_window.get("scheduled_for"),
+                "attempt_barrier": attempt_barrier,
+                "wake": (
+                    "collection did not finish within the admitted scheduled window; "
+                    "do not notify or send, and wait for the next natural window"
+                ),
+            }
+            print(json.dumps(summary, indent=2), file=sys.stderr)
+            _write_last_run_best_effort(summary)
+            return 3
+        if not _valid_producer_provenance(packet.get("producer")):
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "generated_at": packet.get("generated_at"),
+                "board_revision": (packet.get("board") or {}).get("revision"),
+                "producer": packet.get("producer"),
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "attempt_barrier": attempt_barrier,
+                "wake": (
+                    "runtime producer provenance is invalid; inspect the checked-in "
+                    "script bytes and source commit before the next natural window; "
+                    "do not notify, send, overwrite, or retry this scheduled window"
+                ),
+            }
+            print(json.dumps(summary, indent=2), file=sys.stderr)
+            _write_last_run_best_effort(summary)
+            return 3
+        try:
+            existing_window_rows = _read_jsonl(WINDOW_LOG)
+        except PrivateJSONLError as exc:
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "generated_at": packet.get("generated_at"),
+                "board_revision": (packet.get("board") or {}).get("revision"),
+                "producer": packet.get("producer"),
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "attempt_barrier": attempt_barrier,
+                "wake": (
+                    f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}; "
+                    "repair the exact private ledger; do not notify, send, overwrite, "
+                    "or retry this reserved scheduled window"
+                ),
+            }
+            _write_last_run_best_effort(summary)
+            _print_json_best_effort(summary, file=sys.stderr)
+            return 3
+        existing_window = any(
+            row.get("schema") == WINDOW_RECEIPT_SCHEMA
+            and row.get("trigger") == "launchd-calendar"
+            and row.get("scheduled_for") == trigger_window.get("scheduled_for")
+            for row in existing_window_rows
+        )
+        if existing_window:
+            reason = "this scheduled window already has a durable receipt"
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "generated_at": packet.get("generated_at"),
+                "board_revision": (packet.get("board") or {}).get("revision"),
+                "producer": packet.get("producer"),
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "attempt_barrier": attempt_barrier,
                 "wake": f"{reason}; do not notify or send again",
             }
             print(json.dumps(summary, indent=2))
-            (LOG_DIR / "last-run.json").write_text(
-                json.dumps(summary, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            _write_last_run_best_effort(summary)
             return 3
     json_path = EVIDENCE_DIR / "latest.json"
     html_path = EVIDENCE_DIR / "latest.html"
-    stamp = datetime.now(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
-    write_packet(packet, json_path, html_path)
-    archive_html_path = EVIDENCE_DIR / f"brief-{stamp}.html"
-    archive_html_path.write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
-    archive_json_path = EVIDENCE_DIR / f"brief-{stamp}.json"
-    archive_json_path.write_bytes(json_path.read_bytes())
+    try:
+        stamp = scheduled_stamp or _archive_stamp(
+            scheduled_trigger=False,
+            trigger_window=trigger_window,
+        )
+    except ValueError as exc:
+        print(json.dumps({"status": "blocked", "error": str(exc)}, indent=2))
+        return 3
+    archive_prefix = "brief" if args.scheduled_trigger else "manual-brief"
+    archive_html_path = EVIDENCE_DIR / f"{archive_prefix}-{stamp}.html"
+    archive_json_path = EVIDENCE_DIR / f"{archive_prefix}-{stamp}.json"
+    json_bytes = (json.dumps(packet, indent=2) + "\n").encode("utf-8")
+    html_bytes = render_html(packet).encode("utf-8")
+    try:
+        _place_private_archive(archive_html_path, html_bytes)
+        _place_private_archive(archive_json_path, json_bytes)
+    except OSError as exc:
+        summary = {
+            "schema": WINDOW_RECEIPT_SCHEMA,
+            "status": "blocked",
+            "generated_at": packet.get("generated_at"),
+            "board_revision": (packet.get("board") or {}).get("revision"),
+            "producer": packet.get("producer"),
+            "trigger_proof": trigger_proof,
+            "scheduled_window": trigger_window,
+            "scheduled_for": trigger_window.get("scheduled_for"),
+            "archive_html": str(archive_html_path),
+            "archive_json": str(archive_json_path),
+            **(
+                {"attempt_barrier": attempt_barrier}
+                if attempt_barrier is not None
+                else {}
+            ),
+            "wake": (
+                f"{exc}; do not notify, send, overwrite, or retry this scheduled window; "
+                "inspect the immutable archive pair and scheduled-window ledger"
+            ),
+        }
+        print(json.dumps(summary, indent=2), file=sys.stderr)
+        _write_last_run_best_effort(summary)
+        return 3
+    try:
+        write_packet(packet, json_path, html_path)
+    except OSError:
+        # latest.* is a convenience view. The immutable run-local pair above is
+        # the delivery and verification authority for a scheduled window.
+        pass
     subject = brief_subject(packet["slot"], packet["generated_at"])
     notification = macos_notify(
         "Shadow brief ready",
         f"{packet['slot']} · board rev {packet.get('board', {}).get('revision')}",
     )
     receipt: dict[str, Any] = {"status": "skipped", "notes": "deliver not requested"}
-    if args.deliver:
-        receipt = deliver_superhuman(
-            html_path,
-            subject=subject,
-            dry_run=args.dry_run,
-            send_authorized_self=args.send_authorized_self,
-        )
+    notification_blocked = bool(
+        args.scheduled_trigger and notification.get("status") != "ok"
+    )
+    if notification_blocked:
+        receipt = {
+            "status": "blocked",
+            "delivery_status": "not_sent",
+            "subject": subject,
+            "notes": "scheduled notification did not complete; delivery was not attempted",
+        }
+    elif args.deliver:
+        try:
+            receipt = deliver_superhuman(
+                archive_html_path,
+                subject=subject,
+                dry_run=args.dry_run,
+                send_authorized_self=args.send_authorized_self,
+            )
+        except Exception as exc:
+            receipt = _delivery_exception_receipt(subject, exc)
     summary = {
         "schema": WINDOW_RECEIPT_SCHEMA,
         "trigger_proof": trigger_proof,
@@ -6500,23 +8469,57 @@ def cmd_run(args: argparse.Namespace) -> int:
         "scheduled_for": trigger_window.get("scheduled_for"),
         "generated_at": packet["generated_at"],
         "board_revision": packet.get("board", {}).get("revision"),
+        "producer": packet.get("producer"),
         "json": str(json_path),
         "html": str(html_path),
         "archive_html": str(archive_html_path),
         "archive_json": str(archive_json_path),
-        "html_sha256": hashlib.sha256(html_path.read_bytes()).hexdigest(),
-        "json_sha256": hashlib.sha256(json_path.read_bytes()).hexdigest(),
+        **(
+            {"attempt_barrier": attempt_barrier}
+            if attempt_barrier is not None
+            else {}
+        ),
+        "html_sha256": hashlib.sha256(html_bytes).hexdigest(),
+        "json_sha256": hashlib.sha256(json_bytes).hexdigest(),
         "notification": notification,
         "paint_health": packet.get("paint_health") or {},
         "receipt": receipt,
     }
-    print(json.dumps(summary, indent=2))
-    (LOG_DIR / "last-run.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    append_scheduled_window(
-        summary,
-        scheduled_trigger=args.scheduled_trigger,
-        window=trigger_window,
-    )
+    if notification_blocked:
+        summary.update(
+            {
+                "status": "blocked",
+                "wake": (
+                    "scheduled macOS notification is blocked; repair the exact "
+                    "notification error before the next natural window; do not send "
+                    "or retry this reserved window"
+                ),
+            }
+        )
+    _write_last_run_best_effort(summary)
+    try:
+        append_scheduled_window(
+            summary,
+            scheduled_trigger=args.scheduled_trigger,
+            window=trigger_window,
+        )
+    except OSError as exc:
+        recovery = {
+            **summary,
+            "status": "blocked",
+            "wake": (
+                f"scheduled window ledger append failed after delivery outcome: {exc}; "
+                "the durable attempt barrier remains authoritative; inspect the "
+                "delivery attempt and immutable archives, and never resend this window"
+            ),
+        }
+        _write_last_run_best_effort(recovery)
+        _print_json_best_effort(recovery, file=sys.stderr)
+        return 3
+    if notification_blocked:
+        _print_json_best_effort(summary, file=sys.stderr)
+        return 3
+    _print_json_best_effort(summary)
     return run_exit_code(receipt, notification, scheduled_trigger=args.scheduled_trigger)
 
 
@@ -6550,6 +8553,8 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         return 0 if (
             installed.get("bootstrap_rc") == 0
             and installed.get("host_timezone_matches_report") is True
+            and installed.get("configuration_ok") is True
+            and installed.get("launchctl_ok") is True
         ) else 1
     status = schedule_status()
     print(json.dumps(status, indent=2))
@@ -6581,21 +8586,123 @@ def cmd_proof(_args: argparse.Namespace) -> int:
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    identity: os.stat_result | None = None
+    try:
+        try:
+            descriptor = os.open(path, flags)
+        except FileNotFoundError as exc:
+            if not os.path.lexists(path):
+                return []
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: unresolved path"
+            ) from exc
+        except OSError as exc:
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: open failed: {exc}"
+            ) from exc
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or stat.S_IMODE(identity.st_mode) != 0o600
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or not stat.S_ISREG(named_identity.st_mode)
+            or named_identity.st_uid != os.getuid()
+            or stat.S_IMODE(named_identity.st_mode) != 0o600
+            or named_identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: unsafe file identity"
+            )
+        handle = os.fdopen(descriptor, "r", encoding="utf-8")
+        descriptor = None
+        with handle:
+            text = handle.read()
+            final_identity = os.fstat(handle.fileno())
+            final_named_identity = os.lstat(path)
+            if (
+                not stat.S_ISREG(final_identity.st_mode)
+                or final_identity.st_uid != os.getuid()
+                or stat.S_IMODE(final_identity.st_mode) != 0o600
+                or final_identity.st_nlink != 1
+                or stat.S_ISLNK(final_named_identity.st_mode)
+                or not stat.S_ISREG(final_named_identity.st_mode)
+                or final_named_identity.st_uid != os.getuid()
+                or stat.S_IMODE(final_named_identity.st_mode) != 0o600
+                or final_named_identity.st_nlink != 1
+                or (identity.st_dev, identity.st_ino)
+                != (final_identity.st_dev, final_identity.st_ino)
+                or (identity.st_dev, identity.st_ino)
+                != (final_named_identity.st_dev, final_named_identity.st_ino)
+            ):
+                raise PrivateJSONLError(
+                    f"unsafe or corrupt private JSONL ledger {path}: identity changed while reading"
+                )
+    except PrivateJSONLError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise PrivateJSONLError(
+            f"unsafe or corrupt private JSONL ledger {path}: read failed: {exc}"
+        ) from exc
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
     rows: list[dict[str, Any]] = []
-    if not path.is_file():
-        return rows
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
         try:
             row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
+        except (ValueError, RecursionError) as exc:
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: invalid JSON on line {line_number}"
+            ) from exc
+        if not isinstance(row, dict):
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: non-object row on line {line_number}"
+            )
+        rows.append(row)
     return rows
 
 
 def cmd_readback_window(args: argparse.Namespace) -> int:
-    rows = _eligible_natural_window_receipts(_read_jsonl(WINDOW_LOG))
+    try:
+        rows = _eligible_natural_window_receipts(_read_jsonl(WINDOW_LOG))
+    except PrivateJSONLError as exc:
+        result = {
+            "schema": MAILBOX_READBACK_SCHEMA,
+            "status": "blocked",
+            "wake": (
+                f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}; "
+                "repair the exact private ledger before any mailbox provider read or append"
+            ),
+        }
+        print(json.dumps(result, indent=2))
+        return 1
+    try:
+        _read_jsonl(MAILBOX_READBACK_LOG)
+    except PrivateJSONLError as exc:
+        result = {
+            "schema": MAILBOX_READBACK_SCHEMA,
+            "status": "blocked",
+            "wake": (
+                f"mailbox ledger is unsafe or corrupt at {MAILBOX_READBACK_LOG}: {exc}; "
+                "repair the exact private ledger before any mailbox provider read or append"
+            ),
+        }
+        print(json.dumps(result, indent=2))
+        return 1
     if args.scheduled_for:
         candidates = [
             row for row in rows if row.get("scheduled_for") == args.scheduled_for
@@ -6614,15 +8721,65 @@ def cmd_readback_window(args: argparse.Namespace) -> int:
 
 
 def cmd_verify_windows(_args: argparse.Namespace) -> int:
-    rows = _read_jsonl(WINDOW_LOG)
-    result = verify_window_receipts(rows, evidence_dir=EVIDENCE_DIR)
+    try:
+        rows = _read_jsonl(WINDOW_LOG)
+    except PrivateJSONLError as exc:
+        result = {
+            "ok": False,
+            "status": "blocked",
+            "problems": [
+                f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}"
+            ],
+            "windows": [],
+            "message_ids": [],
+            "ignored_legacy_windows": [],
+            "ignored_noncalendar_windows": [],
+            "ignored_nonslot_windows": [],
+            "mailbox_readbacks": {
+                "ok": False,
+                "problems": ["window ledger unavailable; mailbox proof was not read"],
+                "message_ids": [],
+            },
+        }
+        print(json.dumps(result, indent=2))
+        return 1
+    try:
+        mailbox_rows = _read_jsonl(MAILBOX_READBACK_LOG)
+    except PrivateJSONLError as exc:
+        result = {
+            "ok": False,
+            "status": "blocked",
+            "problems": [
+                f"mailbox ledger is unsafe or corrupt at {MAILBOX_READBACK_LOG}: {exc}"
+            ],
+            "windows": [],
+            "message_ids": [],
+            "ignored_legacy_windows": [],
+            "ignored_noncalendar_windows": [],
+            "ignored_nonslot_windows": [],
+            "mailbox_readbacks": {
+                "ok": False,
+                "problems": [
+                    f"mailbox ledger is unsafe or corrupt at {MAILBOX_READBACK_LOG}: {exc}"
+                ],
+                "message_ids": [],
+            },
+        }
+        print(json.dumps(result, indent=2))
+        return 1
+    result = verify_window_receipts(
+        rows,
+        evidence_dir=EVIDENCE_DIR,
+        ledger_dir=LOG_DIR,
+        send_attempt_log=SEND_ATTEMPT_LOG,
+    )
     if len(result["windows"]) == 2:
         by_window = {
             str(row.get("scheduled_for")): row
             for row in _eligible_natural_window_receipts(rows)
         }
         latest = [by_window[str(value)] for value in result["windows"]]
-        mailbox = verify_mailbox_readbacks(latest, _read_jsonl(MAILBOX_READBACK_LOG))
+        mailbox = verify_mailbox_readbacks(latest, mailbox_rows)
         result["mailbox_readbacks"] = mailbox
         result["problems"].extend(mailbox["problems"])
         result["ok"] = result["ok"] and mailbox["ok"]
