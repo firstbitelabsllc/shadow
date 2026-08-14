@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+
+from tests.plan_tree_fixture import install_plan_tree
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +82,22 @@ def commit_fixture(root: Path, *paths: str) -> None:
     )
     subprocess.run(["git", "-C", str(root), "add", "--", *paths], check=True)
     subprocess.run(["git", "-C", str(root), "commit", "-qm", "proof fixture"], check=True)
+
+
+class PartitionedPlanLintParity(unittest.TestCase):
+    def test_cli_returns_the_same_findings_for_one_logical_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "PLAN.md"
+            plan.write_text(CLEAN_PLAN, encoding="utf-8")
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as legacy_out:
+                legacy = lint.main([str(plan)])
+            install_plan_tree(root, CLEAN_PLAN.encode("utf-8"))
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as tree_out:
+                partitioned = lint.main([str(plan)])
+
+        self.assertEqual(partitioned, legacy)
+        self.assertEqual(tree_out.getvalue(), legacy_out.getvalue())
 
 
 class ANeedsCycleIsNamedNotSilent(unittest.TestCase):

@@ -940,7 +940,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     if top.returncode == 0 and top.stdout.strip():
         repo = Path(top.stdout.strip()).resolve()
-    text = plan_path.read_text(encoding="utf-8")
+    try:
+        text = _board.read_plan_text(plan_path)
+    except _board.BoardError as exc:
+        print(f"shadow amp: plan is unreadable: {exc}", file=sys.stderr)
+        return 2
     plan = _parse(text)
     selected_task = args.task
     if state is None:

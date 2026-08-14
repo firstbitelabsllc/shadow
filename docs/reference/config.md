@@ -24,6 +24,35 @@ must retain the same absence behavior.
 
 The review step itself is [attack, then refute](method.md#attack-then-refute).
 
+## What may become a dial
+
+The schema is narrow on purpose, so "make the method configurable" needs a test
+rather than a preference. One test decides it:
+
+> **A method dial may be declared only when a wrong value costs quality, never
+> truth.**
+
+A wrong quality setting degrades loudly — a weaker review, a slower train, a
+bloated plan — and the person sees it. A wrong truth setting degrades silently:
+the output still looks like a receipt, and nobody can tell it is worthless. The
+asymmetry, not the topic, is what decides.
+
+Every dial that exists, is plausible, or has been refused, classified by name:
+
+| Candidate | A wrong value costs | Verdict |
+|---|---|---|
+| `adversarial-lenses` | a weaker review | **declared** — the shipped key |
+| verification-tier thresholds | a release train that runs early or late | candidate |
+| hot-plan budgets | plan bloat, or a premature archive | candidate |
+| the three proof classes (`cmd`, `read`, `gate`) | a completion nobody proved | **fixed** |
+| `shadow accept` as the only cmd-proof flip path | the same, one step earlier | **fixed** |
+| bucket bindings | a capability silently resolving to the wrong thing | **fixed — environment only.** `SHADOW_BUCKET_*` is evaluated fresh; a committed file asserting presence can drift. See [buckets.md](buckets.md), which states there is no bucket configuration file |
+| a memory or recall binding | recall mistaken for authority | **refused (~noks).** Which recall or memory tooling a person runs is their own configuration; Shadow neither reads it nor asserts anything about it |
+| provider, model, account, or credential | the same class as a memory binding, plus a leak surface | **refused (~noks)** — see the closing rule below |
+
+A candidate is not a promise. It says only that the dial *could* be declared if
+someone shows the current key cannot express it.
+
 These environment variables provide runtime defaults:
 
 | Variable | Meaning |

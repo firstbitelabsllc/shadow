@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tests.plan_tree_fixture import install_plan_tree
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "shadow-lifecycle.py"
@@ -700,6 +702,38 @@ class AtomicWritesAreDurable(unittest.TestCase):
 
 
 class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
+    def test_apply_commits_a_partitioned_plan_root_objects_and_archive_together(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname))
+            source = (repo / "PLAN.md").read_bytes()
+            install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+            before_head = git(repo, "rev-parse", "HEAD")
+
+            _, preview, cas = preview_cas(repo, "--milestone", "Finished work")
+            result, report, _ = apply_with_cas(
+                repo,
+                "--milestone",
+                "Finished work",
+                cas=cas,
+            )
+
+            self.assertEqual(result.returncode, 0, (result.stderr, report))
+            self.assertEqual(report["action"], "archived")
+            self.assertNotEqual(git(repo, "rev-parse", "HEAD"), before_head)
+            self.assertEqual(git(repo, "status", "--porcelain=v1"), "")
+            self.assertTrue(lifecycle._board.open_plan(repo / "PLAN.md").is_tree)
+            logical = lifecycle._board.read_plan_text(repo / "PLAN.md")
+            self.assertIn("shadow:lifecycle:finished-work", logical)
+            self.assertNotIn("first result exists ~aa11", logical)
+            changed = set(
+                git(repo, "show", "--pretty=", "--name-only", "HEAD").splitlines()
+            )
+            self.assertIn("PLAN.md", changed)
+            self.assertIn("docs/plan-archive/finished-work.md", changed)
+            self.assertTrue(any(path.startswith("PLAN.d/objects/sha256/") for path in changed))
+
     def test_exact_cas_recovers_each_atomic_archive_half_state(self) -> None:
         for crash_after in (1, 2):
             with (

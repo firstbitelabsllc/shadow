@@ -8,6 +8,8 @@ import sys
 import tempfile
 import unittest
 
+from tests.plan_tree_fixture import install_plan_tree
+
 
 ROOT = Path(__file__).resolve().parent.parent
 STATUS = ROOT / "scripts" / "shadow-status.py"
@@ -113,6 +115,21 @@ V4_PLAN = """# Demo v4
 
 
 class StatusV4Tests(StatusTests):
+    def test_partitioned_plan_renders_the_same_v4_brief(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            plan = root / "PLAN.md"
+            plan.write_text(V4_PLAN, encoding="utf-8")
+            legacy = self.run_status(root, "--json")
+            install_plan_tree(root, V4_PLAN.encode("utf-8"))
+            partitioned = self.run_status(root, "--json")
+
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        self.assertEqual(partitioned.returncode, 0, partitioned.stderr)
+        legacy_payload = json.loads(legacy.stdout)
+        partitioned_payload = json.loads(partitioned.stdout)
+        self.assertEqual(legacy_payload["v4_plans"], partitioned_payload["v4_plans"])
+
     def test_v4_plan_renders_brief_not_schema_error(self) -> None:
         # The regression this pins: status used to validate ONLY the retired v3
         # outcome schema, so a grammar-clean v4 plan reported "needs a valid

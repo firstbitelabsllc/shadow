@@ -26,6 +26,7 @@ from urllib.parse import unquote, urlsplit
 
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 import shadow_plan_grammar as _grammar
+import shadow_plan_store as _plan_store
 
 
 SCHEMA = "shadow.root-board.v1"
@@ -139,7 +140,14 @@ def local_plan_for_repo(repo: Path, *, home: Path | None = None) -> Path | None:
         entity.get("plan")
         for entity in (snapshot(home=home) or {}).get("entities", [])
     }
-    for directory in dict.fromkeys((repo.name, local_plan_slug(repo.name))):
+    directories = [repo.name, local_plan_slug(repo.name)]
+    origin = _git(repo, "config", "--get", "remote.origin.url")
+    if origin.returncode == 0 and origin.stdout.strip():
+        identity = normalized_origin(origin.stdout.strip())
+        remote_name = identity.rstrip("/").rsplit("/", 1)[-1]
+        if remote_name:
+            directories.extend((remote_name, local_plan_slug(remote_name)))
+    for directory in dict.fromkeys(directories):
         candidate = root / directory / "PLAN.md"
         if not regular_plan(candidate):
             continue
@@ -283,7 +291,7 @@ def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
             return unavailable_token(), None
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = -1
-            content = stream.read(MAX_PLAN_BYTES + 1)
+            root_content = stream.read(MAX_PLAN_BYTES + 1)
             after = os.fstat(stream.fileno())
     except (OSError, ValueError):
         if descriptor >= 0:
@@ -307,20 +315,68 @@ def plan_state_snapshot(plan: Path) -> tuple[str, bytes | None]:
     )
     if before_state != after_state:
         return "unavailable", None
-    frozen = "\0".join(str(value) for value in after_state).encode("ascii") + b"\0" + content
+    try:
+        snapshot = open_plan(plan)
+        if snapshot.root_bytes != root_content:
+            return "unavailable", None
+        content = bounded_plan_content(snapshot)
+    except (BoardError, _plan_store.PlanStoreError):
+        return unavailable_token(), None
+    try:
+        final = os.stat(plan, follow_symlinks=False)
+    except OSError:
+        return "unavailable", None
+    final_state = (
+        final.st_mode,
+        final.st_size,
+        final.st_mtime_ns,
+        final.st_ctime_ns,
+        final.st_dev,
+        final.st_ino,
+    )
+    if final_state != after_state:
+        return "unavailable", None
+    frozen = (
+        "\0".join(str(value) for value in final_state).encode("ascii")
+        + b"\0"
+        + root_content
+    )
     return hashlib.sha256(frozen).hexdigest(), content
 
 
-def read_plan_bytes(plan: Path) -> bytes:
-    """Read one bounded authority snapshot without following a leaf symlink."""
-    state, content = plan_state_snapshot(plan)
-    if state == "unavailable":
-        raise BoardError("plan must be a regular non-symlink PLAN.md")
-    if content is None:
-        raise BoardError("plan is unreadable")
+def bounded_plan_content(snapshot: _plan_store.PlanSnapshot) -> bytes:
+    """Materialize one snapshot only while its own declared size stays bounded.
+
+    Codex (PR #469, P1): a partitioned plan declares its logical size in the
+    root, and the tree format's structural capacity is far larger than the bound
+    every reader shares. Refusing on `logical_bytes` before traversal keeps board
+    discovery and browser scanning from allocating an oversized plan, and the
+    length recheck keeps the bound true for the bytes actually produced.
+    """
+    declared = (
+        snapshot.root["logical_bytes"] if snapshot.is_tree else len(snapshot.root_bytes)
+    )
+    if declared > MAX_PLAN_BYTES:
+        raise BoardError("plan exceeds the bounded size limit")
+    content = snapshot.materialize()
     if len(content) > MAX_PLAN_BYTES:
         raise BoardError("plan exceeds the bounded size limit")
     return content
+
+
+def read_plan_bytes(plan: Path) -> bytes:
+    """Read one bounded logical plan through the shared storage owner."""
+    return bounded_plan_content(open_plan(plan))
+
+
+def open_plan(plan: Path) -> _plan_store.PlanSnapshot:
+    """Open one legacy or partitioned authority through its canonical owner."""
+    if not regular_plan(plan):
+        raise BoardError("plan must be a regular non-symlink PLAN.md")
+    try:
+        return _plan_store.PlanSnapshot.open(plan)
+    except _plan_store.PlanStoreError as exc:
+        raise BoardError(str(exc)) from exc
 
 
 def read_plan_text(plan: Path) -> str:
@@ -651,16 +707,22 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     token, _ = head_plan_snapshot(plan)
     repo = Path(token["repo"])
     relative = token["relative"]
-    status = _git(repo, "status", "--porcelain=v1", "--", relative)
+    snapshot = open_plan(plan)
+    tracked_paths = [relative]
+    if snapshot.is_tree:
+        tracked_paths.append(
+            (Path(relative).parent / "PLAN.d").as_posix()
+        )
+    status = _git(repo, "status", "--porcelain=v1", "--", *tracked_paths)
     if status.returncode:
         raise BoardError("project plan Git state could not be read")
     if status.stdout.strip():
         raise BoardError("project plan or its staged index changed; commit or restore it first")
     try:
-        content = plan.read_bytes()
+        root_content = plan.read_bytes()
         hashed = subprocess.run(
             ["git", "-C", str(repo), "hash-object", "--stdin"],
-            input=content,
+            input=root_content,
             capture_output=True,
             check=False,
         )
@@ -671,6 +733,10 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     head_after = _git(repo, "rev-parse", "HEAD")
     if head_after.returncode or head_after.stdout.strip() != token["head"]:
         raise BoardError("project plan ref changed while it was being read; retry")
+    try:
+        content = snapshot.materialize()
+    except _plan_store.PlanStoreError as exc:
+        raise BoardError(str(exc)) from exc
     return token, content
 
 
@@ -1886,8 +1952,8 @@ def reconcile(
 def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None) -> None:
     if text is None:
         try:
-            text = plan.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            text = read_plan_text(plan)
+        except BoardError as exc:
             raise BoardError("claim return needs a readable project plan") from exc
     row_matches = []
     for line in text.splitlines():
