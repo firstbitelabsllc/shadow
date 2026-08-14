@@ -705,6 +705,12 @@ class AuthorityScopeTests(unittest.TestCase):
                 brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
             )
         )
+        self.assertFalse(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-14T08:00:00+14:00"),
+            )
+        )
 
     def test_verify_windows_reads_mixed_slot_mailbox_pair(self):
         evening = "2026-08-13T20:00:00-04:00"
@@ -712,15 +718,25 @@ class AuthorityScopeTests(unittest.TestCase):
         rows = [
             {
                 "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
                 "trigger": "launchd-calendar",
                 "slot": "evening",
                 "scheduled_for": evening,
             },
             {
                 "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
                 "trigger": "launchd-calendar",
                 "slot": "morning",
                 "scheduled_for": morning,
+            },
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": False,
+                "trigger": "launchd-calendar",
+                "slot": "morning",
+                "scheduled_for": morning,
+                "receipt": {"subject": "off-schedule duplicate"},
             },
         ]
 
@@ -780,6 +796,78 @@ class AuthorityScopeTests(unittest.TestCase):
             payload["mailbox_readbacks"]["message_ids"],
             ["mailbox-evening", "mailbox-morning"],
         )
+
+    def test_window_selection_orders_offset_timestamps_by_instant(self):
+        rows = [
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "evening",
+                "scheduled_for": "2026-08-12T20:00:00+14:00",
+            },
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "morning",
+                "scheduled_for": "2026-08-12T08:00:00-04:00",
+            },
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "evening",
+                "scheduled_for": "2026-08-12T20:00:00-04:00",
+            },
+        ]
+
+        result = brief.verify_window_receipts(rows)
+
+        self.assertEqual(
+            result["windows"],
+            ["2026-08-12T08:00:00-04:00", "2026-08-12T20:00:00-04:00"],
+        )
+        self.assertNotIn(
+            "latest natural 08:00/20:00 windows are not consecutive",
+            result["problems"],
+        )
+
+    def test_readback_ignores_trailing_off_schedule_duplicate(self):
+        scheduled_for = "2026-08-14T08:00:00-04:00"
+        eligible = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": "morning",
+            "scheduled_for": scheduled_for,
+        }
+        off_schedule = {
+            **eligible,
+            "on_schedule": False,
+            "receipt": {"subject": "off-schedule duplicate"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            window_log = root / "windows.jsonl"
+            mailbox_log = root / "mailbox.jsonl"
+            window_log.write_text(
+                "\n".join(json.dumps(row) for row in (eligible, off_schedule)) + "\n",
+                encoding="utf-8",
+            )
+            readback = {
+                "schema": brief.MAILBOX_READBACK_SCHEMA,
+                "status": "EXACT_SENT_CONFIRMED",
+            }
+            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
+                brief, "MAILBOX_READBACK_LOG", mailbox_log
+            ), mock.patch.object(
+                brief, "fetch_superhuman_mailbox_readback", return_value=readback
+            ) as fetch:
+                exit_code = brief.cmd_readback_window(mock.Mock(scheduled_for=None))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(fetch.call_args.args[0], eligible)
 
 
 if __name__ == "__main__":
