@@ -66,6 +66,10 @@ SUPERHUMAN_MAX_ACTION_THREADS = 40
 SUPERHUMAN_GLOBAL_ACTION_LIMIT = 40
 SUPERHUMAN_READ_BUDGET_SECONDS = 420
 SUPERHUMAN_SIGNAL_LIMIT = 50
+# Each reader-first action category is classified from the full collision-safe
+# set and bounded separately. Classifying from the retention sample instead
+# drops a real obligation before anything ever reads it as one.
+SUPERHUMAN_CATEGORY_LIMIT = 200
 SUPERHUMAN_LIST_LANES = (
     ("active_inbox", ("INBOX",)),
     ("sent_follow_up", ("SENT",)),
@@ -2310,30 +2314,43 @@ def build_superhuman_context(
             identity_sort_key(value) for value in row.get("source_identities") or []
         ),
     )
-    forgotten = [
-        signal
-        for signal in retained_signals
-        if (source_age(signal.get("last_message_at")) or 0) > 24
-        and any(
-            tag in (signal.get("action_tags") or [])
-            for tag in ("obligation", "order_return", "waiting_reply", "reply", "calendar")
+    category_omissions: dict[str, int] = {}
+
+    def categorize(name: str, predicate: Any) -> list[dict[str, Any]]:
+        # Classify from the FULL collision-safe set, never from the retention
+        # sample: the sample is ordered action-first, so once action-tagged
+        # signals exceed SUPERHUMAN_SIGNAL_LIMIT the tail is real obligations.
+        # Order by action-candidate priority (obligation class first, then
+        # ascending timestamp) before capping: unique_signals is
+        # reverse-chronological, so a raw slice would drop the
+        # longest-neglected rows this section exists to surface.
+        matched = sorted(
+            (signal for signal in unique_signals if predicate(signal)),
+            key=action_candidate_sort_key,
         )
-    ]
-    order_returns = [
-        signal for signal in retained_signals if "order_return" in (signal.get("action_tags") or [])
-    ]
-    waiting_replies = [
-        signal for signal in retained_signals if "waiting_reply" in (signal.get("action_tags") or [])
-    ]
-    urgent_replies = [
-        signal
-        for signal in retained_signals
-        if "urgent" in (signal.get("action_tags") or [])
-        and any(tag in (signal.get("action_tags") or []) for tag in ("reply", "waiting_reply"))
-    ]
-    proactive = [
-        signal for signal in retained_signals if "proactive" in (signal.get("action_tags") or [])
-    ]
+        if len(matched) > SUPERHUMAN_CATEGORY_LIMIT:
+            category_omissions[name] = len(matched) - SUPERHUMAN_CATEGORY_LIMIT
+        return matched[:SUPERHUMAN_CATEGORY_LIMIT]
+
+    def tagged(signal: dict[str, Any], *tags: str) -> bool:
+        return any(tag in (signal.get("action_tags") or []) for tag in tags)
+
+    forgotten = categorize(
+        "forgotten_obligations",
+        lambda signal: (source_age(signal.get("last_message_at")) or 0) > 24
+        and tagged(signal, "obligation", "order_return", "waiting_reply", "reply", "calendar"),
+    )
+    order_returns = categorize(
+        "order_return_follow_up", lambda signal: tagged(signal, "order_return")
+    )
+    waiting_replies = categorize(
+        "waiting_replies", lambda signal: tagged(signal, "waiting_reply")
+    )
+    urgent_replies = categorize(
+        "urgent_replies",
+        lambda signal: tagged(signal, "urgent") and tagged(signal, "reply", "waiting_reply"),
+    )
+    proactive = categorize("proactive_candidates", lambda signal: tagged(signal, "proactive"))
     metrics = {
         key: sum(int((row.get("metrics") or {}).get(key) or 0) for row in coverage)
         for key in (
@@ -2367,6 +2384,15 @@ def build_superhuman_context(
         )
         context_wakes.append(
             f"Re-open the private packet and narrow the source read below the {SUPERHUMAN_SIGNAL_LIMIT}-signal retention cap before relying on an all-clear."
+        )
+    for category, omitted in sorted(category_omissions.items()):
+        context_problems.append(
+            f"{omitted} {category.replace('_', ' ')} row omitted by the "
+            f"{SUPERHUMAN_CATEGORY_LIMIT}-row category cap"
+        )
+        context_wakes.append(
+            f"Read the remaining {omitted} {category.replace('_', ' ')} row directly in "
+            f"Superhuman; the {SUPERHUMAN_CATEGORY_LIMIT}-row category cap truncated this section."
         )
     forgotten_horizon = {
         "status": "UNKNOWN",
