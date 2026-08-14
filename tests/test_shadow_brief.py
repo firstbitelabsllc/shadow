@@ -711,6 +711,24 @@ class AuthorityScopeTests(unittest.TestCase):
                 brief.datetime.fromisoformat("2026-08-14T08:00:00+14:00"),
             )
         )
+        self.assertFalse(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-14T08:00:00+05:00"),
+            )
+        )
+        self.assertTrue(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-11-01T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-11-02T08:00:00-05:00"),
+            )
+        )
+        self.assertTrue(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-03-07T20:00:00-05:00"),
+                brief.datetime.fromisoformat("2026-03-08T08:00:00-04:00"),
+            )
+        )
 
     def test_verify_windows_reads_mixed_slot_mailbox_pair(self):
         evening = "2026-08-13T20:00:00-04:00"
@@ -863,7 +881,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 brief, "MAILBOX_READBACK_LOG", mailbox_log
             ), mock.patch.object(
                 brief, "fetch_superhuman_mailbox_readback", return_value=readback
-            ) as fetch:
+            ) as fetch, contextlib.redirect_stdout(io.StringIO()):
                 exit_code = brief.cmd_readback_window(mock.Mock(scheduled_for=None))
 
         self.assertEqual(exit_code, 0)

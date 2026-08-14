@@ -3216,12 +3216,21 @@ def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
         return False
     if first.tzinfo is None or second.tzinfo is None:
         return False
-    if second.astimezone(timezone.utc) <= first.astimezone(timezone.utc):
+    elapsed = second.astimezone(timezone.utc) - first.astimezone(timezone.utc)
+    if elapsed <= timedelta(0):
         return False
     if first.hour == 8:
-        return second.hour == 20 and second.date() == first.date()
+        return (
+            second.hour == 20
+            and second.date() == first.date()
+            and elapsed == timedelta(hours=12)
+        )
     if first.hour == 20:
-        return second.hour == 8 and second.date() == first.date() + timedelta(days=1)
+        return (
+            second.hour == 8
+            and second.date() == first.date() + timedelta(days=1)
+            and timedelta(hours=11) <= elapsed <= timedelta(hours=13)
+        )
     return False
 
 
