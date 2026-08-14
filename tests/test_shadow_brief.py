@@ -1684,6 +1684,72 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertFalse(context["all_clear_allowed"])
         self.assertEqual(context["status"], "UNKNOWN")
 
+    def test_category_cap_drops_the_newest_rows_and_keeps_the_longest_neglected(self):
+        # `unique_signals` is newest-first, so slicing it directly would discard
+        # the OLDEST obligations -- precisely the ones a "forgotten obligation"
+        # section exists to surface. action_candidate_sort_key is the intended
+        # order: obligation-class first, then ascending timestamp.
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = ("leojkwan@gmail.com", "trysnowcubes@gmail.com", "firstbitelabs@gmail.com")
+        overflow = brief.SUPERHUMAN_CATEGORY_LIMIT + 10
+        base = brief.datetime.fromisoformat("2026-05-17T00:00:00+00:00")
+        rows = [
+            {
+                "thread_id": f"obligation-{index:04d}",
+                "last_message_id": f"obligation-message-{index:04d}",
+                # index 0 is the oldest, index N-1 the newest.
+                "last_message_at": (base + brief.timedelta(hours=index))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "subject": f"Driver license renewal due {index}",
+                "snippet": "Action required",
+                "labels": ["INBOX"],
+            }
+            for index in range(overflow)
+        ]
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {"accounts": [{"accountEmail": email, "aliases": []} for email in identities]}
+            if name == "list_threads":
+                account_rows = rows if arguments["acting_email"] == identities[0] else []
+                return {"threads": account_rows, "total_estimate": len(account_rows)}
+            if name == "get_thread":
+                selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                return {
+                    **selected,
+                    "user_is_participant": True,
+                    "message_count": 1,
+                    "messages": [
+                        {
+                            "message_id": selected["last_message_id"],
+                            "thread_id": selected["thread_id"],
+                            "sent_at": selected["last_message_at"],
+                            "labels": list(selected["labels"]),
+                            "body": selected["snippet"],
+                            "from": "agency@example.com",
+                            "to": [identities[0]],
+                        }
+                    ],
+                }
+            if name == "query_email_and_calendar":
+                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        retained = {row["thread_id"] for row in context["forgotten_obligations"]}
+        self.assertEqual(len(retained), brief.SUPERHUMAN_CATEGORY_LIMIT)
+        # The ten NEWEST are the ones dropped; every oldest row survives.
+        self.assertEqual(
+            retained,
+            {f"obligation-{index:04d}" for index in range(brief.SUPERHUMAN_CATEGORY_LIMIT)},
+        )
+        self.assertIn("obligation-0000", retained)
+        self.assertNotIn(f"obligation-{overflow - 1:04d}", retained)
+        # Truncation is named, never silent.
+        self.assertIn("10 forgotten obligations row omitted", " ".join(context["problems"]))
+
     def test_mail_action_candidates_include_old_waiting_urgent_and_snowcubes_but_unread_content_is_unknown(self):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         identities = (
