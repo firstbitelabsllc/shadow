@@ -734,16 +734,196 @@ class AuthorityScopeTests(unittest.TestCase):
                 brief.datetime.fromisoformat("2026-08-14T08:00:00+05:00"),
             )
         )
+        self.assertFalse(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-14T08:00:00-05:00"),
+            )
+        )
         self.assertTrue(
             brief.natural_windows_are_consecutive(
-                brief.datetime.fromisoformat("2026-11-01T20:00:00-04:00"),
-                brief.datetime.fromisoformat("2026-11-02T08:00:00-05:00"),
+                brief.datetime.fromisoformat("2026-10-31T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-11-01T08:00:00-05:00"),
             )
         )
         self.assertTrue(
             brief.natural_windows_are_consecutive(
                 brief.datetime.fromisoformat("2026-03-07T20:00:00-05:00"),
                 brief.datetime.fromisoformat("2026-03-08T08:00:00-04:00"),
+            )
+        )
+
+    def test_window_and_mailbox_receipts_reject_naive_timestamps(self):
+        morning = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": "morning",
+            "scheduled_for": "2026-08-12T08:00:00-04:00",
+            "generated_at": "2026-08-12T08:05:00",
+            "receipt": {"sent_at": "2026-08-12T08:06:00-04:00"},
+        }
+        evening = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": "evening",
+            "scheduled_for": "2026-08-12T20:00:00-04:00",
+            "generated_at": "2026-08-12T20:05:00-04:00",
+            "receipt": {"sent_at": "2026-08-12T20:06:00"},
+        }
+
+        window_result = brief.verify_window_receipts([morning, evening])
+
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: generated_at invalid",
+            window_result["problems"],
+        )
+        self.assertIn(
+            "2026-08-12T20:00:00-04:00: sent timestamp invalid",
+            window_result["problems"],
+        )
+
+        mailbox_result = brief.verify_mailbox_readbacks(
+            [evening],
+            [
+                {
+                    "schema": brief.MAILBOX_READBACK_SCHEMA,
+                    "status": "EXACT_SENT_CONFIRMED",
+                    "scheduled_for": evening["scheduled_for"],
+                    "sent_at": "2026-08-12T20:06:00",
+                }
+            ],
+        )
+        self.assertIn(
+            "2026-08-12T20:00:00-04:00: mailbox sent timestamp invalid",
+            mailbox_result["problems"],
+        )
+        self.assertEqual(
+            brief._parse_aware_datetime("2026-08-13T00:06:00Z"),
+            brief.datetime.fromisoformat("2026-08-13T00:06:00+00:00"),
+        )
+
+    def test_producer_records_report_timezone_from_any_host_timezone(self):
+        window = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T05:10:00-07:00")
+        )
+
+        self.assertTrue(window["on_schedule"])
+        self.assertEqual(window["slot"], "morning")
+        self.assertEqual(window["scheduled_for"], "2026-08-12T08:00:00-04:00")
+        self.assertIsNotNone(
+            brief._scheduled_window_instant({"scheduled_for": window["scheduled_for"]})
+        )
+
+        winter = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-11-02T17:00:00-08:00")
+        )
+        self.assertTrue(winter["on_schedule"])
+        self.assertEqual(winter["slot"], "evening")
+        self.assertEqual(winter["scheduled_for"], "2026-11-02T20:00:00-05:00")
+
+        off_slot = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T08:00:00-07:00")
+        )
+        self.assertFalse(off_slot["on_schedule"])
+        self.assertIsNone(off_slot["scheduled_for"])
+
+        naive = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T08:00:00")
+        )
+        self.assertFalse(naive["on_schedule"])
+        self.assertIsNone(naive["scheduled_for"])
+
+    def test_schedule_reports_host_timezone_drift_from_report_timezone(self):
+        expected = brief.launch_agent_plist(Path("/opt/shadow/scripts/shadow-brief.py"))
+
+        self.assertEqual(
+            brief.schedule_configuration_problems(
+                expected,
+                expected,
+                host_timezone="America/New_York",
+            ),
+            [],
+        )
+        self.assertEqual(
+            brief.schedule_configuration_problems(
+                expected,
+                expected,
+                host_timezone="America/Bogota",
+            ),
+            ["HostTimezone"],
+        )
+        self.assertTrue(
+            brief.host_timezone_matches_report("America/New_York")
+        )
+        self.assertFalse(
+            brief.host_timezone_matches_report("America/Bogota")
+        )
+        self.assertFalse(
+            brief.host_timezone_matches_report("Etc/UTC")
+        )
+        self.assertIn(
+            "set the macOS system timezone to America/New_York",
+            brief.schedule_configuration_recovery(["HostTimezone"]),
+        )
+
+    def test_schedule_command_fails_closed_on_install_or_status_drift(self):
+        with mock.patch.object(
+            brief,
+            "schedule_install",
+            return_value={
+                "bootstrap_rc": 1,
+                "host_timezone_matches_report": True,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(brief.cmd_schedule(mock.Mock(install=True)), 1)
+
+        with mock.patch.object(
+            brief,
+            "schedule_status",
+            return_value={
+                "installed": True,
+                "configuration_ok": False,
+                "launchctl_ok": True,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(brief.cmd_schedule(mock.Mock(install=False)), 1)
+
+    def test_doctor_keeps_timezone_recovery_when_schedule_is_also_unarmed(self):
+        with tempfile.TemporaryDirectory() as home_dir, mock.patch.object(
+            brief.Path,
+            "home",
+            return_value=Path(home_dir),
+        ), mock.patch.object(
+            brief,
+            "_host_timezone_name",
+            return_value="America/Bogota",
+        ):
+            schedule = brief.schedule_status()
+
+        self.assertFalse(schedule["installed"])
+        self.assertEqual(schedule.get("configuration_problems"), ["HostTimezone"])
+        with tempfile.TemporaryDirectory() as evidence_dir, mock.patch.object(
+            brief,
+            "EVIDENCE_DIR",
+            Path(evidence_dir),
+        ), mock.patch.object(
+            brief,
+            "schedule_status",
+            return_value=schedule,
+        ), mock.patch.object(
+            brief,
+            "_mcp_remote_token",
+            return_value="available",
+        ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(brief.doctor(), 1)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(
+            any(
+                "set the macOS system timezone to America/New_York" in problem
+                for problem in payload["problems"]
             )
         )
 
