@@ -55,10 +55,12 @@ class TheDeclaration(unittest.TestCase):
             for field in ("name", "default", "fills", "absent"):
                 self.assertTrue(bucket[field].strip(), f"{bucket['name']}: empty {field}")
 
-    def test_the_three_named_buckets_ship(self) -> None:
+    def test_the_four_named_buckets_ship(self) -> None:
         # Dropping one becomes a deliberate test edit, never a silent removal.
+        # explain added 2026-08-14: the Brief contract already demanded the
+        # before/after pair and the small diagram; show-me names the filler.
         names = {b["name"] for b in buckets.declared()}
-        self.assertEqual(names, {"superpowers", "taste", "future"})
+        self.assertEqual(names, {"superpowers", "taste", "future", "explain"})
 
     def test_names_are_unique(self) -> None:
         names = [b["name"] for b in buckets.declared()]
