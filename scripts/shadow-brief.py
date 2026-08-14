@@ -3214,11 +3214,52 @@ def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
 def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
     if any(value != 0 for value in (first.minute, first.second, second.minute, second.second)):
         return False
+    if first.tzinfo is None or second.tzinfo is None:
+        return False
+    elapsed = second.astimezone(timezone.utc) - first.astimezone(timezone.utc)
+    if elapsed <= timedelta(0):
+        return False
     if first.hour == 8:
-        return second.hour == 20 and second.date() == first.date()
+        return (
+            second.hour == 20
+            and second.date() == first.date()
+            and elapsed == timedelta(hours=12)
+        )
     if first.hour == 20:
-        return second.hour == 8 and second.date() == first.date() + timedelta(days=1)
+        return (
+            second.hour == 8
+            and second.date() == first.date() + timedelta(days=1)
+            and timedelta(hours=11) <= elapsed <= timedelta(hours=13)
+        )
     return False
+
+
+def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
+    try:
+        value = datetime.fromisoformat(str(row.get("scheduled_for") or ""))
+    except ValueError:
+        return None
+    if value.tzinfo is None:
+        return None
+    return value.astimezone(timezone.utc)
+
+
+def _eligible_natural_window_receipts(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in rows
+        if row.get("schema") == WINDOW_RECEIPT_SCHEMA
+        and row.get("on_schedule")
+        and row.get("trigger") == "launchd-calendar"
+        and row.get("slot") in {"morning", "evening"}
+        and _scheduled_window_instant(row) is not None
+    ]
+
+
+def _scheduled_window_sort_key(row: dict[str, Any]) -> datetime:
+    return _scheduled_window_instant(row) or datetime.min.replace(tzinfo=timezone.utc)
 
 
 def launch_trigger_proof() -> dict[str, Any]:
@@ -3270,15 +3311,9 @@ def verify_window_receipts(
         and row.get("trigger") == "launchd-calendar"
         and row.get("slot") not in {"morning", "evening"}
     ]
-    eligible = [
-        row
-        for row in scheduled
-        if row.get("schema") == WINDOW_RECEIPT_SCHEMA
-        and row.get("trigger") == "launchd-calendar"
-        and row.get("slot") in {"morning", "evening"}
-    ]
+    eligible = _eligible_natural_window_receipts(scheduled)
     latest_by_window = {str(row["scheduled_for"]): row for row in eligible}
-    latest = [latest_by_window[key] for key in sorted(latest_by_window)[-2:]]
+    latest = sorted(latest_by_window.values(), key=_scheduled_window_sort_key)[-2:]
     problems: list[str] = []
     if len(latest) != 2:
         problems.append(
@@ -4547,7 +4582,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def cmd_readback_window(args: argparse.Namespace) -> int:
-    rows = _read_jsonl(WINDOW_LOG)
+    rows = _eligible_natural_window_receipts(_read_jsonl(WINDOW_LOG))
     if args.scheduled_for:
         candidates = [
             row for row in rows if row.get("scheduled_for") == args.scheduled_for
@@ -4557,7 +4592,9 @@ def cmd_readback_window(args: argparse.Namespace) -> int:
     if not candidates:
         print("no matching scheduled-window receipt", file=sys.stderr)
         return 2
-    readback = fetch_superhuman_mailbox_readback(candidates[-1])
+    readback = fetch_superhuman_mailbox_readback(
+        sorted(candidates, key=_scheduled_window_sort_key)[-1]
+    )
     _append_private_jsonl(MAILBOX_READBACK_LOG, readback)
     print(json.dumps(readback, indent=2))
     return 0 if readback.get("status") == "EXACT_SENT_CONFIRMED" else 1
@@ -4569,10 +4606,7 @@ def cmd_verify_windows(_args: argparse.Namespace) -> int:
     if len(result["windows"]) == 2:
         by_window = {
             str(row.get("scheduled_for")): row
-            for row in rows
-            if row.get("schema") == WINDOW_RECEIPT_SCHEMA
-            and row.get("trigger") == "launchd-calendar"
-            and row.get("slot") == "morning"
+            for row in _eligible_natural_window_receipts(rows)
         }
         latest = [by_window[str(value)] for value in result["windows"]]
         mailbox = verify_mailbox_readbacks(latest, _read_jsonl(MAILBOX_READBACK_LOG))
