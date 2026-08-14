@@ -29,12 +29,20 @@ brief = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = brief
 SPEC.loader.exec_module(brief)
 
+_TEST_SOURCE_COMMIT = subprocess.run(
+    ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.strip()
+_TEST_SCRIPT_SHA256 = hashlib.sha256(Path(brief.__file__).read_bytes()).hexdigest()
+
 
 def _m5_producer_fixture() -> dict[str, object]:
     return {
         "schema": "shadow.brief-producer.v1",
-        "source_commit": "a" * 40,
-        "script_sha256": "b" * 64,
+        "source_commit": _TEST_SOURCE_COMMIT,
+        "script_sha256": _TEST_SCRIPT_SHA256,
         "source_matches_commit": True,
     }
 
@@ -154,8 +162,10 @@ def _write_m5_window_fixture(
     slot: str,
     stamp: str,
     ledger_dir: Path | None = None,
+    send_attempt_log: Path | None = None,
 ) -> dict[str, object]:
     ledger = ledger_dir or evidence_dir / "ledger"
+    attempts = send_attempt_log or ledger / "send-attempts.jsonl"
     producer = _m5_producer_fixture()
     paint_health = {
         "local_git": {"available": True},
@@ -180,6 +190,16 @@ def _write_m5_window_fixture(
             "job_pid": 4242,
             "xpc_service_name": "com.leokwan.shadow-bidaily-brief",
             "service_matches_label": True,
+            "loaded_program": brief.launch_agent_plist(Path(brief.__file__).resolve())[
+                "ProgramArguments"
+            ][0],
+            "loaded_program_arguments": brief.launch_agent_plist(
+                Path(brief.__file__).resolve()
+            )["ProgramArguments"],
+            "loaded_path": str(
+                Path.home() / "Library" / "LaunchAgents" / f"{brief.LABEL}.plist"
+            ),
+            "loaded_command_matches": True,
             "exact_job": True,
         },
         "notification": {
@@ -193,13 +213,16 @@ def _write_m5_window_fixture(
             "status": "ok",
             "delivery_status": "sent",
             "message_id": f"message-{stamp}",
+            "thread_id": f"thread-{stamp}",
+            "draft_id": f"draft-{stamp}",
             "attempt_state": "PROVISIONAL_SENT",
-            "attempt_id": stamp.ljust(24, "0")[:24],
+            "attempt_id": None,
             "acting_email": "leojkwan@gmail.com",
             "from": "leojkwan@gmail.com",
             "to": ["leojkwan@gmail.com"],
             "subject": f"Shadow {slot} brief — {generated_at}",
             "sent_at": sent_at,
+            "local_html": str(evidence_dir / f"brief-{stamp}.html"),
         },
     }
     html_path = evidence_dir / f"brief-{stamp}.html"
@@ -237,6 +260,40 @@ def _write_m5_window_fixture(
         encoding="utf-8",
     )
     barrier_path.chmod(0o400)
+    attempts.parent.mkdir(parents=True, exist_ok=True)
+    intent = {
+        "schema": "shadow.superhuman-send-attempt.v1",
+        "state": "UNKNOWN_NO_RETRY",
+        "created_at": generated_at,
+        "acting_email": brief.SELF_MAIL,
+        "from": brief.SELF_MAIL,
+        "to": [brief.SELF_MAIL],
+        "subject": row["receipt"]["subject"],
+        "draft_id": row["receipt"]["draft_id"],
+        "thread_id": row["receipt"]["thread_id"],
+        "html_sha256": hashlib.sha256(html_bytes).hexdigest(),
+    }
+    intent["attempt_id"] = hashlib.sha256(
+        json.dumps(intent, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:24]
+    row["receipt"]["attempt_id"] = intent["attempt_id"]
+    outcome = {
+        "schema": "shadow.superhuman-send-attempt.v1",
+        "state": "PROVISIONAL_SENT",
+        "recorded_at": sent_at,
+        "attempt_id": intent["attempt_id"],
+        "message_id": row["receipt"]["message_id"],
+        "thread_id": row["receipt"]["thread_id"],
+        "sent_at": sent_at,
+    }
+    with attempts.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(intent, sort_keys=True) + "\n"
+        )
+        handle.write(
+            json.dumps(outcome, sort_keys=True) + "\n"
+        )
+    attempts.chmod(0o600)
     row.update(
         {
             "archive_html": str(html_path),
@@ -255,6 +312,7 @@ def _write_m5_window_fixture(
 def _write_m5_pair(
     evidence_dir: Path,
     ledger_dir: Path | None = None,
+    send_attempt_log: Path | None = None,
 ) -> list[dict[str, object]]:
     ledger = ledger_dir or evidence_dir / "ledger"
     return [
@@ -266,6 +324,7 @@ def _write_m5_pair(
             slot="morning",
             stamp="20260812-080000",
             ledger_dir=ledger,
+            send_attempt_log=send_attempt_log,
         ),
         _write_m5_window_fixture(
             evidence_dir,
@@ -275,11 +334,15 @@ def _write_m5_pair(
             slot="evening",
             stamp="20260812-200000",
             ledger_dir=ledger,
+            send_attempt_log=send_attempt_log,
         ),
     ]
 
 
 def _scheduled_proof_fixture() -> dict[str, object]:
+    expected_arguments = brief.launch_agent_plist(Path(brief.__file__).resolve())[
+        "ProgramArguments"
+    ]
     return {
         "is_launchd": True,
         "parent_pid": 1,
@@ -290,6 +353,12 @@ def _scheduled_proof_fixture() -> dict[str, object]:
         "job_pid": os.getpid(),
         "xpc_service_name": brief.LABEL,
         "service_matches_label": True,
+        "loaded_program": expected_arguments[0],
+        "loaded_program_arguments": expected_arguments,
+        "loaded_path": str(
+            Path.home() / "Library" / "LaunchAgents" / f"{brief.LABEL}.plist"
+        ),
+        "loaded_command_matches": True,
         "exact_job": True,
     }
 
@@ -3222,6 +3291,12 @@ class AuthorityScopeTests(unittest.TestCase):
 
     def test_launch_trigger_requires_exact_xpc_service_and_current_launchctl_job_pid(self):
         commands = []
+        expected_arguments = brief.launch_agent_plist(Path(brief.__file__).resolve())[
+            "ProgramArguments"
+        ]
+        expected_plist = (
+            Path.home() / "Library" / "LaunchAgents" / f"{brief.LABEL}.plist"
+        )
 
         def run(argv, **_kwargs):
             commands.append(argv)
@@ -3231,7 +3306,16 @@ class AuthorityScopeTests(unittest.TestCase):
                 return subprocess.CompletedProcess(
                     argv,
                     0,
-                    "gui/501/com.leokwan.shadow-bidaily-brief = {\n\tpid = 4242\n}\n",
+                    "gui/501/com.leokwan.shadow-bidaily-brief = {\n"
+                    f"\tprogram = {expected_arguments[0]}\n"
+                    "\targuments = {\n"
+                    + "".join(
+                        f"\t\t{argument}\n" for argument in expected_arguments
+                    )
+                    + "\t}\n"
+                    f"\tpath = {expected_plist}\n"
+                    "\tpid = 4242\n"
+                    "}\n",
                     "",
                 )
             raise AssertionError(argv)
@@ -3252,6 +3336,9 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertEqual(proof.get("domain"), "gui/501")
         self.assertEqual(proof.get("current_pid"), 4242)
         self.assertEqual(proof.get("job_pid"), 4242)
+        self.assertEqual(proof.get("loaded_program_arguments"), expected_arguments)
+        self.assertEqual(proof.get("loaded_path"), str(expected_plist))
+        self.assertTrue(proof.get("loaded_command_matches"))
         self.assertTrue(proof.get("exact_job"))
         self.assertEqual(commands[0][0], "/bin/ps")
         self.assertEqual(commands[1][0], "/bin/launchctl")
@@ -3270,6 +3357,20 @@ class AuthorityScopeTests(unittest.TestCase):
         )
         self.assertFalse(
             brief.scheduled_trigger_is_authorized(True, {**proof, "job_pid": 4243})
+        )
+        self.assertFalse(
+            brief.scheduled_trigger_is_authorized(
+                True,
+                {
+                    **proof,
+                    "loaded_program_arguments": [
+                        expected_arguments[0],
+                        "/old/replacement/shadow-brief.py",
+                        *expected_arguments[2:],
+                    ],
+                    "loaded_command_matches": False,
+                },
+            )
         )
 
     def test_launch_trigger_rejects_ambiguous_launchctl_pid_output(self):
@@ -3395,18 +3496,7 @@ class AuthorityScopeTests(unittest.TestCase):
                     "authority": {"board_snapshot": {"consistent": False}},
                 }
             )
-            proof = {
-                "is_launchd": True,
-                "parent_pid": 1,
-                "parent_command": "/sbin/launchd",
-                "label": brief.LABEL,
-                "domain": f"gui/{os.getuid()}",
-                "current_pid": os.getpid(),
-                "job_pid": os.getpid(),
-                "xpc_service_name": brief.LABEL,
-                "service_matches_label": True,
-                "exact_job": True,
-            }
+            proof = _scheduled_proof_fixture()
             args = mock.Mock(scheduled_trigger=True)
             try:
                 with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
@@ -3439,18 +3529,7 @@ class AuthorityScopeTests(unittest.TestCase):
                     "authority": {"board_snapshot": {"consistent": False}},
                 }
             )
-            proof = {
-                "is_launchd": True,
-                "parent_pid": 1,
-                "parent_command": "/sbin/launchd",
-                "label": brief.LABEL,
-                "domain": f"gui/{os.getuid()}",
-                "current_pid": os.getpid(),
-                "job_pid": os.getpid(),
-                "xpc_service_name": brief.LABEL,
-                "service_matches_label": True,
-                "exact_job": True,
-            }
+            proof = _scheduled_proof_fixture()
             with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
                 brief, "EVIDENCE_DIR", root / "evidence"
             ), mock.patch.object(
@@ -3479,18 +3558,7 @@ class AuthorityScopeTests(unittest.TestCase):
                     "authority": {"board_snapshot": {"consistent": False}},
                 }
             )
-            proof = {
-                "is_launchd": True,
-                "parent_pid": 1,
-                "parent_command": "/sbin/launchd",
-                "label": brief.LABEL,
-                "domain": f"gui/{os.getuid()}",
-                "current_pid": os.getpid(),
-                "job_pid": os.getpid(),
-                "xpc_service_name": brief.LABEL,
-                "service_matches_label": True,
-                "exact_job": True,
-            }
+            proof = _scheduled_proof_fixture()
             window = {
                 "on_schedule": True,
                 "slot": "morning",
@@ -3629,18 +3697,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 real_fstat(opened[0])
 
     def test_scheduled_run_lock_release_never_masks_the_run_result_or_exception(self):
-        proof = {
-            "is_launchd": True,
-            "parent_pid": 1,
-            "parent_command": "/sbin/launchd",
-            "label": brief.LABEL,
-            "domain": f"gui/{os.getuid()}",
-            "current_pid": os.getpid(),
-            "job_pid": os.getpid(),
-            "xpc_service_name": brief.LABEL,
-            "service_matches_label": True,
-            "exact_job": True,
-        }
+        proof = _scheduled_proof_fixture()
         for outcome in ("result", "exception"):
             with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -3719,18 +3776,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "slot": "morning",
                 "scheduled_for": "2026-08-12T08:00:00-04:00",
             }
-            proof = {
-                "is_launchd": True,
-                "parent_pid": 1,
-                "parent_command": "/sbin/launchd",
-                "label": brief.LABEL,
-                "domain": f"gui/{os.getuid()}",
-                "current_pid": os.getpid(),
-                "job_pid": os.getpid(),
-                "xpc_service_name": brief.LABEL,
-                "service_matches_label": True,
-                "exact_job": True,
-            }
+            proof = _scheduled_proof_fixture()
             delivered = {
                 "status": "ok",
                 "delivery_status": "sent",
@@ -4290,18 +4336,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "slot": "morning",
                 "scheduled_for": "2026-08-12T08:00:00-04:00",
             }
-            proof = {
-                "is_launchd": True,
-                "parent_pid": 1,
-                "parent_command": "/sbin/launchd",
-                "label": brief.LABEL,
-                "domain": f"gui/{os.getuid()}",
-                "current_pid": os.getpid(),
-                "job_pid": os.getpid(),
-                "xpc_service_name": brief.LABEL,
-                "service_matches_label": True,
-                "exact_job": True,
-            }
+            proof = _scheduled_proof_fixture()
             args = mock.Mock(
                 scheduled_trigger=True,
                 slot="morning",
@@ -4411,18 +4446,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "slot": "morning",
                 "scheduled_for": "2026-08-12T08:00:00-04:00",
             }
-            proof = {
-                "is_launchd": True,
-                "parent_pid": 1,
-                "parent_command": "/sbin/launchd",
-                "label": brief.LABEL,
-                "domain": f"gui/{os.getuid()}",
-                "current_pid": os.getpid(),
-                "job_pid": os.getpid(),
-                "xpc_service_name": brief.LABEL,
-                "service_matches_label": True,
-                "exact_job": True,
-            }
+            proof = _scheduled_proof_fixture()
             args = mock.Mock(
                 scheduled_trigger=True,
                 slot="morning",
@@ -4515,18 +4539,7 @@ class AuthorityScopeTests(unittest.TestCase):
             "slot": "morning",
             "scheduled_for": "2026-08-12T08:00:00-04:00",
         }
-        proof = {
-            "is_launchd": True,
-            "parent_pid": 1,
-            "parent_command": "/sbin/launchd",
-            "label": brief.LABEL,
-            "domain": f"gui/{os.getuid()}",
-            "current_pid": os.getpid(),
-            "job_pid": os.getpid(),
-            "xpc_service_name": brief.LABEL,
-            "service_matches_label": True,
-            "exact_job": True,
-        }
+        proof = _scheduled_proof_fixture()
         args = mock.Mock(
             scheduled_trigger=True,
             slot="morning",
@@ -5684,6 +5697,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "trigger": "launchd-calendar",
                 "slot": "evening",
                 "scheduled_for": evening,
+                "receipt": {},
             },
             {
                 "schema": brief.WINDOW_RECEIPT_SCHEMA,
@@ -5691,6 +5705,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "trigger": "launchd-calendar",
                 "slot": "morning",
                 "scheduled_for": morning,
+                "receipt": {},
             },
             {
                 "schema": brief.WINDOW_RECEIPT_SCHEMA,
@@ -5755,6 +5770,8 @@ class AuthorityScopeTests(unittest.TestCase):
             ), mock.patch.object(
                 brief, "LOG_DIR", ledger
             ), mock.patch.object(
+                brief, "SEND_ATTEMPT_LOG", ledger / "send-attempts.jsonl"
+            ), mock.patch.object(
                 brief, "verify_window_receipts", return_value=verification
             ) as verify, contextlib.redirect_stdout(output):
                 exit_code = brief.cmd_verify_windows(mock.Mock())
@@ -5770,6 +5787,7 @@ class AuthorityScopeTests(unittest.TestCase):
             rows,
             evidence_dir=evidence,
             ledger_dir=ledger,
+            send_attempt_log=ledger / "send-attempts.jsonl",
         )
 
     def test_window_selection_orders_offset_timestamps_by_instant(self):
@@ -5843,6 +5861,648 @@ class AuthorityScopeTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(fetch.call_args.args[0], eligible)
+
+    def test_dynamic_linked_coverage_requires_complete_or_honest_unknown_state(self):
+        def complete_expected_roster(mail):
+            third = mail["coverage"][2]
+            third.update(
+                {
+                    "linked": True,
+                    "status": "COMPLETE",
+                    "pagination": {
+                        "pages": 1,
+                        "exhausted": True,
+                        "truncated": False,
+                    },
+                }
+            )
+            third.pop("problems", None)
+            third.pop("wake", None)
+            mail["linked_accounts"].append(
+                {
+                    "acting_email": "firstbitelabs@gmail.com",
+                    "is_primary": False,
+                    "added_at": "2026-01-03T00:00:00Z",
+                    "sender_identities": ["firstbitelabs@gmail.com"],
+                    "sender_identity_complete": True,
+                }
+            )
+            mail.update(
+                {"status": "COMPLETE", "complete": True, "all_clear_allowed": True}
+            )
+
+        linked = {
+            "acting_email": "newly-linked@example.com",
+            "is_primary": False,
+            "added_at": "2026-08-14T00:00:00Z",
+            "sender_identities": ["newly-linked@example.com"],
+            "sender_identity_complete": True,
+        }
+        complete_coverage = {
+            "acting_email": "newly-linked@example.com",
+            "expected": False,
+            "linked": True,
+            "status": "COMPLETE",
+            "pagination": {"pages": 1, "exhausted": True, "truncated": False},
+        }
+
+        complete = _m5_mail_fixture()
+        complete_expected_roster(complete)
+        complete["linked_accounts"].append(linked)
+        complete["coverage"].append(complete_coverage)
+        self.assertEqual(brief._superhuman_receipt_problems(complete), [])
+
+        garbage = _m5_mail_fixture()
+        complete_expected_roster(garbage)
+        garbage["linked_accounts"].append(linked)
+        garbage["coverage"].append({**complete_coverage, "status": "GARBAGE"})
+        self.assertIn(
+            "invalid linked Superhuman identity coverage state: newly-linked@example.com",
+            brief._superhuman_receipt_problems(garbage),
+        )
+
+        unknown = _m5_mail_fixture()
+        complete_expected_roster(unknown)
+        unknown["linked_accounts"].append(linked)
+        unknown["coverage"].append(
+            {
+                **complete_coverage,
+                "status": "UNKNOWN",
+                "problems": ["provider pagination was truncated"],
+                "wake": "Rerun the bounded read-only account scan.",
+            }
+        )
+        self.assertIn(
+            "UNKNOWN mail coverage claimed an all-clear",
+            brief._superhuman_receipt_problems(unknown),
+        )
+        unknown.update(
+            {"status": "UNKNOWN", "complete": False, "all_clear_allowed": False}
+        )
+        unknown_problems = brief._superhuman_receipt_problems(unknown)
+        self.assertNotIn(
+            "invalid linked Superhuman identity coverage state: newly-linked@example.com",
+            unknown_problems,
+        )
+        self.assertNotIn("UNKNOWN mail coverage claimed an all-clear", unknown_problems)
+
+    def test_real_obligation_is_retained_linked_and_strictly_shaped(self):
+        malformed_cases = []
+        orphan = _m5_mail_fixture()
+        orphan["signals"] = []
+        malformed_cases.append(("orphan", orphan))
+
+        unlinked = _m5_mail_fixture()
+        unlinked_action = dict(unlinked["urgent_replies"][0])
+        unlinked_action["source_identities"] = ["unlinked@example.com"]
+        unlinked["urgent_replies"] = [unlinked_action]
+        malformed_cases.append(("unlinked-source", unlinked))
+
+        wrong_types = _m5_mail_fixture()
+        malformed_action = dict(wrong_types["urgent_replies"][0])
+        malformed_action.update(
+            {
+                "signal_id": 123,
+                "subject": 7,
+                "proposal": {"text": "not a string"},
+                "action_tags": ["reply", 3],
+                "source_identities": "leojkwan@gmail.com",
+            }
+        )
+        wrong_types["urgent_replies"] = [malformed_action]
+        malformed_cases.append(("wrong-types", wrong_types))
+
+        self.assertNotIn(
+            "no real mail obligation or action proposal",
+            brief._superhuman_receipt_problems(_m5_mail_fixture()),
+        )
+        for name, mail in malformed_cases:
+            with self.subTest(name=name):
+                self.assertIn(
+                    "no real mail obligation or action proposal",
+                    brief._superhuman_receipt_problems(mail),
+                )
+
+    def test_producer_identity_fields_reject_non_string_numeric_lookalikes(self):
+        self.assertFalse(brief._is_full_git_object_id(int("1" * 40)))
+        self.assertFalse(
+            brief._valid_producer_provenance(
+                {
+                    "schema": brief.PRODUCER_PROVENANCE_SCHEMA,
+                    "source_commit": int("1" * 40),
+                    "script_sha256": int("2" * 64),
+                    "source_matches_commit": True,
+                }
+            )
+        )
+
+    def test_nested_receipt_and_notification_shapes_never_crash_verifiers(self):
+        for field in ("receipt", "notification"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                rows = _write_m5_pair(Path(tmp))
+                rows[0][field] = []
+                try:
+                    result = brief.verify_window_receipts(rows)
+                except (AttributeError, TypeError) as exc:
+                    self.fail(f"JSON-valid {field} list crashed window verifier: {exc}")
+                self.assertIn(
+                    f"2026-08-12T08:00:00-04:00: {field} must be an object",
+                    result["problems"],
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            window = _write_m5_pair(Path(tmp))[0]
+            window["receipt"] = []
+            readback = {
+                "schema": brief.MAILBOX_READBACK_SCHEMA,
+                "status": "EXACT_SENT_CONFIRMED",
+                "scheduled_for": window["scheduled_for"],
+                "acting_email": brief.SELF_MAIL,
+                "from": brief.SELF_MAIL,
+                "to": [brief.SELF_MAIL],
+                "subject": "irrelevant",
+                "generated_at": window["generated_at"],
+                "board_revision": window["board_revision"],
+                "message_id": "mailbox-message",
+                "thread_id": "mailbox-thread",
+                "labels": ["SENT"],
+                "raw_html_sha256": "a" * 64,
+                "sent_at": "2026-08-12T08:06:00-04:00",
+            }
+            try:
+                mailbox = brief.verify_mailbox_readbacks([window], [readback])
+            except (AttributeError, TypeError) as exc:
+                self.fail(f"JSON-valid receipt list crashed mailbox verifier: {exc}")
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: window receipt must be an object",
+            mailbox["problems"],
+        )
+
+    def test_window_verifier_requires_exact_send_attempt_intent_and_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            attempts = ledger / "send-attempts.jsonl"
+            evidence.mkdir()
+            rows = _write_m5_pair(evidence, ledger, attempts)
+            try:
+                positive = brief.verify_window_receipts(
+                    rows,
+                    evidence_dir=evidence,
+                    ledger_dir=ledger,
+                    send_attempt_log=attempts,
+                )
+            except TypeError as exc:
+                self.fail(f"send-attempt verifier seam is missing: {exc}")
+            self.assertTrue(positive["ok"], positive["problems"])
+
+            evening_attempt_id = rows[1]["receipt"]["attempt_id"]
+            rows[1]["receipt"]["attempt_id"] = rows[0]["receipt"]["attempt_id"]
+            duplicated = brief.verify_window_receipts(
+                rows,
+                evidence_dir=evidence,
+                ledger_dir=ledger,
+                send_attempt_log=attempts,
+            )
+            self.assertIn(
+                "scheduled windows do not have distinct send-attempt receipts",
+                duplicated["problems"],
+            )
+            rows[1]["receipt"]["attempt_id"] = evening_attempt_id
+
+            original_attempt_rows = [
+                json.loads(line)
+                for line in attempts.read_text(encoding="utf-8").splitlines()
+            ]
+
+            def write_attempt_rows(candidate_rows):
+                attempts.write_text(
+                    "\n".join(json.dumps(row) for row in candidate_rows) + "\n",
+                    encoding="utf-8",
+                )
+                attempts.chmod(0o600)
+
+            def assert_morning_invalid():
+                result = brief.verify_window_receipts(
+                    rows,
+                    evidence_dir=evidence,
+                    ledger_dir=ledger,
+                    send_attempt_log=attempts,
+                )
+                self.assertIn(
+                    "2026-08-12T08:00:00-04:00: scheduled send attempt ledger proof is invalid",
+                    result["problems"],
+                )
+
+            mismatched_outcome = json.loads(json.dumps(original_attempt_rows))
+            mismatched_outcome[1]["message_id"] = "wrong-message"
+            write_attempt_rows(mismatched_outcome)
+            assert_morning_invalid()
+
+            unexpected_key = json.loads(json.dumps(original_attempt_rows))
+            unexpected_key[0]["unexpected"] = True
+            write_attempt_rows(unexpected_key)
+            assert_morning_invalid()
+
+            for name, candidate_rows in (
+                ("missing-intent", original_attempt_rows[1:]),
+                (
+                    "missing-outcome",
+                    [original_attempt_rows[0], *original_attempt_rows[2:]],
+                ),
+            ):
+                with self.subTest(attempt_mutation=name):
+                    write_attempt_rows(candidate_rows)
+                    assert_morning_invalid()
+
+            duplicate_state = json.loads(json.dumps(original_attempt_rows))
+            duplicate_state[1]["state"] = "UNKNOWN_NO_RETRY"
+            write_attempt_rows(duplicate_state)
+            assert_morning_invalid()
+
+            for name, index, key, value in (
+                ("intent-html", 0, "html_sha256", "c" * 64),
+                ("intent-route", 0, "acting_email", "other@example.com"),
+                ("intent-subject", 0, "subject", "Different subject"),
+                ("intent-draft", 0, "draft_id", "different-draft"),
+                ("outcome-thread", 1, "thread_id", "different-thread"),
+                (
+                    "outcome-sent-at",
+                    1,
+                    "sent_at",
+                    "2026-08-12T08:07:00-04:00",
+                ),
+            ):
+                with self.subTest(attempt_mutation=name):
+                    candidate_rows = json.loads(json.dumps(original_attempt_rows))
+                    candidate_rows[index][key] = value
+                    write_attempt_rows(candidate_rows)
+                    assert_morning_invalid()
+
+            nonderived_id = json.loads(json.dumps(original_attempt_rows))
+            for candidate in nonderived_id[:2]:
+                candidate["attempt_id"] = "a" * 24
+            original_attempt_id = rows[0]["receipt"]["attempt_id"]
+            rows[0]["receipt"]["attempt_id"] = "a" * 24
+            write_attempt_rows(nonderived_id)
+            assert_morning_invalid()
+            rows[0]["receipt"]["attempt_id"] = original_attempt_id
+
+            write_attempt_rows(original_attempt_rows)
+            original_local_html = rows[0]["receipt"]["local_html"]
+            rows[0]["receipt"]["local_html"] = str(evidence / "latest.html")
+            assert_morning_invalid()
+            rows[0]["receipt"]["local_html"] = original_local_html
+
+            write_attempt_rows(original_attempt_rows)
+            _rewrite_m5_html(rows[0], lambda rendered: rendered + "<!-- changed -->\n")
+            assert_morning_invalid()
+
+            attempts.write_text("{broken\n", encoding="utf-8")
+            attempts.chmod(0o600)
+            assert_morning_invalid()
+
+            attempts.unlink()
+            assert_morning_invalid()
+
+    def test_send_attempt_intent_must_precede_provider_sent_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            attempts = ledger / "send-attempts.jsonl"
+            evidence.mkdir()
+            rows = _write_m5_pair(evidence, ledger, attempts)
+            attempt_rows = [
+                json.loads(line)
+                for line in attempts.read_text(encoding="utf-8").splitlines()
+            ]
+            intent = attempt_rows[0]
+            outcome = attempt_rows[1]
+            intent["created_at"] = "2026-08-12T08:05:30-04:00"
+            identity = dict(intent)
+            identity.pop("attempt_id")
+            attempt_id = hashlib.sha256(
+                json.dumps(identity, sort_keys=True).encode("utf-8")
+            ).hexdigest()[:24]
+            intent["attempt_id"] = attempt_id
+            outcome.update(
+                {
+                    "attempt_id": attempt_id,
+                    "recorded_at": "2026-08-12T08:05:45-04:00",
+                    "sent_at": "2026-08-12T08:05:15-04:00",
+                }
+            )
+            rows[0]["receipt"].update(
+                {
+                    "attempt_id": attempt_id,
+                    "sent_at": "2026-08-12T08:05:15-04:00",
+                }
+            )
+            attempts.write_text(
+                "\n".join(json.dumps(row) for row in attempt_rows) + "\n",
+                encoding="utf-8",
+            )
+            attempts.chmod(0o600)
+
+            result = brief.verify_window_receipts(
+                rows,
+                evidence_dir=evidence,
+                ledger_dir=ledger,
+                send_attempt_log=attempts,
+            )
+
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: scheduled send attempt ledger proof is invalid",
+            result["problems"],
+        )
+
+    def test_send_attempt_stable_identities_require_exact_json_types(self):
+        for mutation in ("numeric-message", "intent-thread-list", "outcome-thread-object"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                evidence = root / "evidence"
+                ledger = root / "ledger"
+                attempts = ledger / "send-attempts.jsonl"
+                evidence.mkdir()
+                rows = _write_m5_pair(evidence, ledger, attempts)
+                attempt_rows = [
+                    json.loads(line)
+                    for line in attempts.read_text(encoding="utf-8").splitlines()
+                ]
+                intent = attempt_rows[0]
+                outcome = attempt_rows[1]
+                if mutation == "numeric-message":
+                    outcome["message_id"] = 123
+                    rows[0]["receipt"]["message_id"] = 123
+                elif mutation == "intent-thread-list":
+                    intent["thread_id"] = ["thread-in-a-list"]
+                    identity = dict(intent)
+                    identity.pop("attempt_id")
+                    attempt_id = hashlib.sha256(
+                        json.dumps(identity, sort_keys=True).encode("utf-8")
+                    ).hexdigest()[:24]
+                    intent["attempt_id"] = attempt_id
+                    outcome["attempt_id"] = attempt_id
+                    rows[0]["receipt"]["attempt_id"] = attempt_id
+                else:
+                    outcome["thread_id"] = {"id": "thread-in-an-object"}
+                    rows[0]["receipt"]["thread_id"] = {
+                        "id": "thread-in-an-object"
+                    }
+                attempts.write_text(
+                    "\n".join(json.dumps(row) for row in attempt_rows) + "\n",
+                    encoding="utf-8",
+                )
+                attempts.chmod(0o600)
+
+                result = brief.verify_window_receipts(
+                    rows,
+                    evidence_dir=evidence,
+                    ledger_dir=ledger,
+                    send_attempt_log=attempts,
+                )
+
+                self.assertIn(
+                    "2026-08-12T08:00:00-04:00: scheduled send attempt ledger proof is invalid",
+                    result["problems"],
+                )
+
+    def test_schedule_status_binds_loaded_job_path_and_exact_arguments(self):
+        def launchctl_output(arguments, path):
+            return (
+                f"gui/{os.getuid()}/{brief.LABEL} = {{\n"
+                f"\tprogram = {arguments[0]}\n"
+                "\targuments = {\n"
+                + "".join(f"\t\t{argument}\n" for argument in arguments)
+                + "\t}\n"
+                f"\tpath = {path}\n"
+                "}\n"
+            )
+
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            agents = home / "Library" / "LaunchAgents"
+            agents.mkdir(parents=True)
+            canonical = agents / f"{brief.LABEL}.plist"
+            with mock.patch.object(brief.Path, "home", return_value=home):
+                expected = brief.launch_agent_plist(Path(brief.__file__).resolve())
+                canonical.write_bytes(plistlib.dumps(expected, fmt=plistlib.FMT_XML))
+                exact_output = launchctl_output(expected["ProgramArguments"], canonical)
+                stale_arguments = [
+                    expected["ProgramArguments"][0],
+                    "/old/replacement/shadow-brief.py",
+                    *expected["ProgramArguments"][2:],
+                ]
+                reordered_arguments = list(expected["ProgramArguments"])
+                reordered_arguments[-2:] = reversed(reordered_arguments[-2:])
+                cases = (
+                    ("exact", exact_output, True),
+                    ("stale", launchctl_output(stale_arguments, canonical), False),
+                    (
+                        "reordered",
+                        launchctl_output(reordered_arguments, canonical),
+                        False,
+                    ),
+                    (
+                        "wrong-loaded-path",
+                        launchctl_output(
+                            expected["ProgramArguments"],
+                            agents / "com.example.replacement.plist",
+                        ),
+                        False,
+                    ),
+                    (
+                        "duplicate-program",
+                        exact_output.replace(
+                            "\tprogram = ",
+                            "\tprogram = /old/python\n\tprogram = ",
+                            1,
+                        ),
+                        False,
+                    ),
+                    ("missing-arguments", "program = /usr/bin/python3\n", False),
+                )
+                for name, output, expected_ok in cases:
+                    with self.subTest(name=name), mock.patch.object(
+                        brief.Path, "home", return_value=home
+                    ), mock.patch.object(
+                    brief, "_host_timezone_name", return_value="America/New_York"
+                    ), mock.patch.object(
+                        brief,
+                        "_run",
+                        return_value=subprocess.CompletedProcess([], 0, output, ""),
+                    ):
+                        status = brief.schedule_status()
+                    self.assertEqual(status["launchctl_ok"], expected_ok)
+                    self.assertEqual(status["configuration_ok"], expected_ok)
+                    if not expected_ok:
+                        self.assertIn("LoadedJob", status["configuration_problems"])
+
+    def test_env_split_string_wrappers_detect_only_executed_brief_commands(self):
+        positives = (
+            ["/usr/bin/env", "-S", "/usr/local/bin/shadow brief run --scheduled-trigger"],
+            [
+                "/usr/bin/env",
+                "--split-string",
+                "/usr/local/bin/shadow brief run --scheduled-trigger",
+            ],
+            [
+                "/usr/bin/env",
+                "--split-string=/usr/bin/python3 -I /opt/shadow-brief.py run --scheduled-trigger",
+            ],
+            ["/usr/bin/env", "-S/usr/local/bin/shadow brief run --scheduled-trigger"],
+        )
+        negatives = (
+            ["/usr/bin/env", "-S", "printf '%s' 'shadow brief run --scheduled-trigger'"],
+            ["/usr/bin/env", "--split-string=echo shadow brief run --scheduled-trigger"],
+        )
+        for values in positives:
+            with self.subTest(values=values):
+                self.assertTrue(brief._command_targets_scheduled_brief(values))
+        for values in negatives:
+            with self.subTest(values=values):
+                self.assertFalse(brief._command_targets_scheduled_brief(values))
+
+    def test_optional_host_commands_turn_process_failures_into_structured_results(self):
+        for exception in (
+            OSError("host command unavailable"),
+            subprocess.TimeoutExpired(["osascript"], 10),
+        ):
+            with self.subTest(exception=type(exception).__name__):
+                with mock.patch.object(brief, "_run", side_effect=exception):
+                    try:
+                        notification = brief.macos_notify("title", "body")
+                    except (OSError, subprocess.TimeoutExpired) as exc:
+                        self.fail(f"notification process failure escaped: {exc}")
+                self.assertEqual(notification["status"], "blocked")
+                self.assertEqual(notification["title"], "title")
+                self.assertEqual(notification["body"], "body")
+                self.assertTrue(notification.get("error"))
+
+        with mock.patch.object(
+            brief, "_run", side_effect=OSError("shadow executable unavailable")
+        ):
+            try:
+                excerpt = brief.collect_shadow_status_excerpt()
+            except OSError as exc:
+                self.fail(f"optional seat-status OSError escaped: {exc}")
+        self.assertIn("unavailable", excerpt)
+        self.assertIn("revision-checked Shadow board", excerpt)
+
+    def test_blocked_notification_persists_wake_without_sending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            deliver = mock.Mock(
+                return_value={
+                    "status": "ok",
+                    "delivery_status": "sent",
+                    "message_id": "must-not-send",
+                }
+            )
+            append = mock.Mock()
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", return_value=_scheduled_packet_fixture()
+            ), mock.patch.object(
+                brief,
+                "macos_notify",
+                return_value={
+                    "status": "blocked",
+                    "title": "Shadow brief ready",
+                    "body": "morning · board rev 41",
+                    "error": "osascript unavailable",
+                },
+            ), mock.patch.object(
+                brief, "deliver_superhuman", deliver
+            ), mock.patch.object(
+                brief, "append_scheduled_window", append
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
+
+            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 3)
+        deliver.assert_not_called()
+        append.assert_called_once()
+        self.assertEqual(last_run["notification"]["status"], "blocked")
+        self.assertIn("notification", last_run["wake"])
+        self.assertIn("do not send", last_run["wake"])
+
+    def test_success_stdout_failure_cannot_prevent_exactly_one_window_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger"
+            append = mock.Mock()
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=_scheduled_window_fixture()
+            ), mock.patch.object(
+                brief, "collect_packet", return_value=_scheduled_packet_fixture()
+            ), mock.patch.object(
+                brief,
+                "macos_notify",
+                return_value={
+                    "status": "ok",
+                    "title": "Shadow brief ready",
+                    "body": "morning · board rev 41",
+                },
+            ), mock.patch.object(
+                brief,
+                "deliver_superhuman",
+                return_value={
+                    "status": "ok",
+                    "delivery_status": "sent",
+                    "message_id": "sent-before-broken-pipe",
+                },
+            ), mock.patch.object(
+                brief, "append_scheduled_window", append
+            ), mock.patch("builtins.print", side_effect=BrokenPipeError("stdout closed")):
+                try:
+                    exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
+                except BrokenPipeError as exc:
+                    self.fail(f"success summary stdout failure escaped before append: {exc}")
+
+        self.assertEqual(exit_code, 0)
+        append.assert_called_once()
+
+    def test_selected_windows_group_equivalent_timestamp_spellings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = _write_m5_pair(Path(tmp))
+            equivalent = dict(rows[0])
+            equivalent["scheduled_for"] = "2026-08-12 08:00:00-04:00"
+            result = brief.verify_window_receipts([rows[0], equivalent, rows[1]])
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: duplicate natural-window receipts found",
+            result["problems"],
+        )
 
 
 if __name__ == "__main__":

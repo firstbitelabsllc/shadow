@@ -58,6 +58,7 @@ EXPECTED_SUPERHUMAN_IDENTITIES = (
 SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v2"
 PRODUCER_PROVENANCE_SCHEMA = "shadow.brief-producer.v1"
 SCHEDULED_ATTEMPT_SCHEMA = "shadow.bidaily-attempt.v1"
+SEND_ATTEMPT_SCHEMA = "shadow.superhuman-send-attempt.v1"
 SUPERHUMAN_LOOKBACK_DAYS = 90
 SUPERHUMAN_PAGE_LIMIT = 50
 SUPERHUMAN_MAX_PAGES = 40
@@ -277,9 +278,10 @@ def collect_shadow_status_excerpt() -> str:
     """Keep the optional seat summary from taking down the authoritative packet."""
     try:
         status = _run(["shadow", "status", "--by", "leo"], timeout=8)
-    except subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else "was unavailable"
         return (
-            "Optional seat-status summary timed out; the report continued from the "
+            f"Optional seat-status summary {reason}; the report continued from the "
             "separately read, revision-checked Shadow board."
         )
     return (status.stdout or status.stderr or "")[:4000]
@@ -5171,7 +5173,16 @@ def write_packet(packet: dict[str, Any], out_json: Path, out_html: Path) -> None
 
 def macos_notify(title: str, body: str) -> dict[str, Any]:
     script = f'display notification "{body.replace(chr(34), "")}" with title "{title.replace(chr(34), "")}"'
-    proc = _run(["osascript", "-e", script], timeout=10)
+    try:
+        proc = _run(["osascript", "-e", script], timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "status": "blocked",
+            "title": title,
+            "body": body,
+            "returncode": None,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return {
         "status": "ok" if proc.returncode == 0 else "blocked",
         "title": title,
@@ -5285,6 +5296,66 @@ def _scheduled_window_sort_key(row: dict[str, Any]) -> datetime:
     return _scheduled_window_instant(row) or datetime.min.replace(tzinfo=timezone.utc)
 
 
+def _parse_launchctl_loaded_job(output: str) -> dict[str, Any] | None:
+    """Parse the three top-level identity fields emitted by launchctl print."""
+    program_matches = re.findall(
+        r"(?m)^[ \t]+program = ([^\r\n]+)[ \t]*$",
+        output,
+    )
+    path_matches = re.findall(
+        r"(?m)^[ \t]+path = ([^\r\n]+)[ \t]*$",
+        output,
+    )
+    block_matches = list(
+        re.finditer(r"(?m)^(?P<indent>[ \t]+)arguments = \{[ \t]*$", output)
+    )
+    if (
+        len(program_matches) != 1
+        or len(path_matches) != 1
+        or len(block_matches) != 1
+    ):
+        return None
+    block = block_matches[0]
+    indent = block.group("indent")
+    lines = output[block.end() :].splitlines()
+    if lines and not lines[0]:
+        lines.pop(0)
+    arguments: list[str] = []
+    closed = False
+    for line in lines:
+        if line == f"{indent}}}":
+            closed = True
+            break
+        if not line.startswith(indent) or not line[len(indent) :].startswith((" ", "\t")):
+            return None
+        argument = line.strip()
+        if not argument:
+            return None
+        arguments.append(argument)
+    if not closed or not arguments:
+        return None
+    return {
+        "program": program_matches[0].strip(),
+        "arguments": arguments,
+        "path": path_matches[0].strip(),
+    }
+
+
+def _expected_loaded_job() -> dict[str, Any]:
+    arguments = launch_agent_plist(Path(__file__).resolve())["ProgramArguments"]
+    return {
+        "program": arguments[0],
+        "arguments": arguments,
+        "path": str(
+            Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+        ),
+    }
+
+
+def _loaded_job_matches_current(loaded: Any) -> bool:
+    return isinstance(loaded, dict) and loaded == _expected_loaded_job()
+
+
 def launch_trigger_proof() -> dict[str, Any]:
     """Bind this process to the one canonical launchd job, not just its parent."""
     uid = os.getuid()
@@ -5312,6 +5383,10 @@ def launch_trigger_proof() -> dict[str, Any]:
         (launchctl.stdout or "") if launchctl is not None else "",
     )
     job_pid = int(pid_matches[0]) if len(pid_matches) == 1 else None
+    loaded_job = _parse_launchctl_loaded_job(
+        (launchctl.stdout or "") if launchctl is not None else ""
+    )
+    loaded_command_matches = _loaded_job_matches_current(loaded_job)
     service_matches_label = xpc_service_name == LABEL
     exact_job = bool(
         proc is not None
@@ -5321,6 +5396,7 @@ def launch_trigger_proof() -> dict[str, Any]:
         and launchctl.returncode == 0
         and service_matches_label
         and job_pid == current_pid
+        and loaded_command_matches
     )
     return {
         "is_launchd": bool(
@@ -5334,6 +5410,10 @@ def launch_trigger_proof() -> dict[str, Any]:
         "job_pid": job_pid,
         "xpc_service_name": xpc_service_name,
         "service_matches_label": service_matches_label,
+        "loaded_program": loaded_job.get("program") if loaded_job else None,
+        "loaded_program_arguments": loaded_job.get("arguments") if loaded_job else None,
+        "loaded_path": loaded_job.get("path") if loaded_job else None,
+        "loaded_command_matches": loaded_command_matches,
         "exact_job": exact_job,
         "probe_errors": probe_errors,
     }
@@ -5353,6 +5433,14 @@ def scheduled_trigger_is_authorized(
         and trigger_proof.get("domain") == f"gui/{os.getuid()}"
         and trigger_proof.get("xpc_service_name") == LABEL
         and trigger_proof.get("service_matches_label") is True
+        and trigger_proof.get("loaded_command_matches") is True
+        and _loaded_job_matches_current(
+            {
+                "program": trigger_proof.get("loaded_program"),
+                "arguments": trigger_proof.get("loaded_program_arguments"),
+                "path": trigger_proof.get("loaded_path"),
+            }
+        )
         and trigger_proof.get("exact_job") is True
         and isinstance(trigger_proof.get("current_pid"), int)
         and trigger_proof.get("job_pid") == trigger_proof.get("current_pid")
@@ -5360,7 +5448,10 @@ def scheduled_trigger_is_authorized(
 
 
 def _is_full_git_object_id(value: Any) -> bool:
-    return bool(re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", str(value or "")))
+    return bool(
+        isinstance(value, str)
+        and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value)
+    )
 
 
 def _valid_producer_provenance(value: Any) -> bool:
@@ -5368,7 +5459,8 @@ def _valid_producer_provenance(value: Any) -> bool:
         isinstance(value, dict)
         and value.get("schema") == PRODUCER_PROVENANCE_SCHEMA
         and _is_full_git_object_id(value.get("source_commit"))
-        and re.fullmatch(r"[0-9a-f]{64}", str(value.get("script_sha256") or ""))
+        and isinstance(value.get("script_sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", value["script_sha256"])
         and value.get("source_matches_commit") is True
     )
 
@@ -5515,13 +5607,7 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         or any(row.get("expected") is not True for row in expected_rows)
     ):
         problems.append("expected Superhuman identity coverage mismatch")
-    unknown_coverage = bool(
-        len(expected_rows) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
-        or any(
-            row.get("linked") is not True or row.get("status") != "COMPLETE"
-            for row in expected_rows
-        )
-    )
+    unknown_coverage = len(expected_rows) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
     for row in expected_rows:
         linked = row.get("linked")
         status_value = row.get("status")
@@ -5541,6 +5627,38 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             problems.append(
                 f"invalid expected Superhuman identity coverage state: {identity}"
             )
+        if not linked_complete:
+            unknown_coverage = True
+    dynamic_linked_rows = [
+        row
+        for row in coverage
+        if str(row.get("acting_email") or "").strip().lower() in linked_emails
+        and str(row.get("acting_email") or "").strip().lower()
+        not in EXPECTED_SUPERHUMAN_IDENTITIES
+    ]
+    for row in dynamic_linked_rows:
+        identity = str(row.get("acting_email") or "").strip().lower()
+        row_problems = row.get("problems")
+        wake = row.get("wake")
+        linked_complete = row.get("linked") is True and row.get("status") == "COMPLETE"
+        honest_unknown = bool(
+            row.get("linked") is True
+            and row.get("status") == "UNKNOWN"
+            and isinstance(row_problems, list)
+            and row_problems
+            and all(
+                isinstance(problem, str) and problem.strip()
+                for problem in row_problems
+            )
+            and isinstance(wake, str)
+            and wake.strip()
+        )
+        if not linked_complete and not honest_unknown:
+            problems.append(
+                f"invalid linked Superhuman identity coverage state: {identity}"
+            )
+        if not linked_complete:
+            unknown_coverage = True
     if unknown_coverage and (
         mail.get("status") != "UNKNOWN"
         or mail.get("complete") is not False
@@ -5553,17 +5671,69 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         "waiting_replies",
         "order_return_follow_up",
     )
+    linked_source_identities = set(linked_coverage_emails)
+
+    def valid_obligation(signal: Any) -> bool:
+        if not isinstance(signal, dict):
+            return False
+        signal_id = signal.get("signal_id")
+        subject = signal.get("subject")
+        proposal = signal.get("proposal")
+        action_tags = signal.get("action_tags")
+        source_identities = signal.get("source_identities")
+        thread_id = signal.get("thread_id")
+        message_id = signal.get("last_message_id")
+        return bool(
+            signal.get("stable_provider_identity") is True
+            and signal.get("semantic_status") == "PROPOSAL"
+            and signal.get("thread_body_read") is True
+            and signal.get("proposal_only") is True
+            and isinstance(signal_id, str)
+            and signal_id.strip()
+            and isinstance(subject, str)
+            and subject.strip()
+            and isinstance(proposal, str)
+            and proposal.strip()
+            and isinstance(action_tags, list)
+            and action_tags
+            and all(isinstance(tag, str) and tag.strip() for tag in action_tags)
+            and isinstance(source_identities, list)
+            and source_identities
+            and all(
+                isinstance(identity, str) and identity.strip()
+                for identity in source_identities
+            )
+            and {
+                identity.strip().lower()
+                for identity in source_identities
+                if isinstance(identity, str)
+            }.issubset(linked_source_identities)
+            and (
+                isinstance(thread_id, str) and bool(thread_id.strip())
+                or isinstance(message_id, str) and bool(message_id.strip())
+            )
+        )
+
+    master_signals = [
+        signal for signal in buckets["signals"] if valid_obligation(signal)
+    ]
+
+    def retained_by_master(signal: dict[str, Any]) -> bool:
+        for master in master_signals:
+            if signal["signal_id"] == master["signal_id"]:
+                return True
+            for key in ("thread_id", "last_message_id"):
+                identity = signal.get(key)
+                if (
+                    isinstance(identity, str)
+                    and identity.strip()
+                    and identity == master.get(key)
+                ):
+                    return True
+        return False
+
     real_obligation = any(
-        signal.get("stable_provider_identity") is True
-        and signal.get("semantic_status") == "PROPOSAL"
-        and signal.get("thread_body_read") is True
-        and signal.get("proposal_only") is True
-        and bool(signal.get("action_tags"))
-        and bool(signal.get("signal_id"))
-        and bool(str(signal.get("subject") or "").strip())
-        and bool(signal.get("thread_id") or signal.get("last_message_id"))
-        and bool(signal.get("source_identities"))
-        and bool(str(signal.get("proposal") or "").strip())
+        valid_obligation(signal) and retained_by_master(signal)
         for key in obligation_keys
         for signal in buckets[key]
         if isinstance(signal, dict)
@@ -5664,11 +5834,149 @@ def _scheduled_attempt_barrier_is_valid(
     )
 
 
+def _read_send_attempt_proof(path: Path) -> list[dict[str, Any]] | None:
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, flags)
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or stat.S_IMODE(identity.st_mode) != 0o600
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            return None
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = None
+            text = handle.read()
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    rows: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(row, dict):
+            return None
+        rows.append(row)
+    return rows or None
+
+
+def _send_attempt_proof_is_valid(
+    row: dict[str, Any],
+    archive_html: Path,
+    attempt_rows: list[dict[str, Any]] | None,
+) -> bool:
+    receipt = row.get("receipt")
+    if not isinstance(receipt, dict) or attempt_rows is None:
+        return False
+    attempt_id = receipt.get("attempt_id")
+    if not (
+        isinstance(attempt_id, str)
+        and re.fullmatch(r"[0-9a-f]{24}", attempt_id)
+    ):
+        return False
+    matching = [candidate for candidate in attempt_rows if candidate.get("attempt_id") == attempt_id]
+    intents = [candidate for candidate in matching if candidate.get("state") == "UNKNOWN_NO_RETRY"]
+    outcomes = [candidate for candidate in matching if candidate.get("state") == "PROVISIONAL_SENT"]
+    if len(matching) != 2 or len(intents) != 1 or len(outcomes) != 1:
+        return False
+    intent = intents[0]
+    outcome = outcomes[0]
+    intent_keys = {
+        "schema",
+        "state",
+        "created_at",
+        "attempt_id",
+        "acting_email",
+        "from",
+        "to",
+        "subject",
+        "draft_id",
+        "thread_id",
+        "html_sha256",
+    }
+    outcome_keys = {
+        "schema",
+        "state",
+        "recorded_at",
+        "attempt_id",
+        "message_id",
+        "thread_id",
+        "sent_at",
+    }
+    if set(intent) != intent_keys or set(outcome) != outcome_keys:
+        return False
+    identity = dict(intent)
+    identity.pop("attempt_id")
+    recomputed_id = hashlib.sha256(
+        json.dumps(identity, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:24]
+    generated = _parse_aware_datetime(row.get("generated_at"))
+    created = _parse_aware_datetime(intent.get("created_at"))
+    recorded = _parse_aware_datetime(outcome.get("recorded_at"))
+    sent = _parse_aware_datetime(outcome.get("sent_at"))
+    intent_thread_id = intent.get("thread_id")
+    outcome_thread_id = outcome.get("thread_id")
+    receipt_thread_id = receipt.get("thread_id")
+    optional_thread_ids_are_valid = all(
+        value is None or (isinstance(value, str) and bool(value.strip()))
+        for value in (intent_thread_id, outcome_thread_id, receipt_thread_id)
+    )
+    return bool(
+        intent.get("schema") == SEND_ATTEMPT_SCHEMA
+        and outcome.get("schema") == SEND_ATTEMPT_SCHEMA
+        and recomputed_id == attempt_id
+        and intent.get("acting_email") == SELF_MAIL
+        and intent.get("from") == SELF_MAIL
+        and intent.get("to") == [SELF_MAIL]
+        and intent.get("subject") == receipt.get("subject")
+        and intent.get("draft_id") == receipt.get("draft_id")
+        and isinstance(intent.get("draft_id"), str)
+        and bool(intent["draft_id"].strip())
+        and isinstance(intent.get("html_sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", intent["html_sha256"])
+        and intent.get("html_sha256") == row.get("html_sha256")
+        and receipt.get("local_html") == str(archive_html)
+        and receipt.get("attempt_state") == "PROVISIONAL_SENT"
+        and receipt.get("acting_email") == SELF_MAIL
+        and receipt.get("from") == SELF_MAIL
+        and receipt.get("to") == [SELF_MAIL]
+        and isinstance(outcome.get("message_id"), str)
+        and bool(outcome["message_id"].strip())
+        and isinstance(receipt.get("message_id"), str)
+        and bool(receipt["message_id"].strip())
+        and optional_thread_ids_are_valid
+        and outcome.get("message_id") == receipt.get("message_id")
+        and outcome.get("thread_id") == receipt.get("thread_id")
+        and outcome.get("sent_at") == receipt.get("sent_at")
+        and generated is not None
+        and created is not None
+        and recorded is not None
+        and sent is not None
+        and generated <= created <= recorded
+        and created <= sent
+    )
+
+
 def verify_window_receipts(
     rows: list[dict[str, Any]],
     *,
     evidence_dir: Path | None = None,
     ledger_dir: Path | None = None,
+    send_attempt_log: Path | None = None,
 ) -> dict[str, Any]:
     scheduled = [row for row in rows if row.get("on_schedule") and row.get("scheduled_for")]
     ignored_legacy = [
@@ -5690,20 +5998,31 @@ def verify_window_receipts(
         and row.get("slot") not in {"morning", "evening"}
     ]
     eligible = _eligible_natural_window_receipts(scheduled)
-    receipts_by_window: dict[str, list[dict[str, Any]]] = {}
+    receipts_by_window: dict[datetime, list[dict[str, Any]]] = {}
     for row in eligible:
-        scheduled_for = str(row["scheduled_for"])
-        receipts_by_window.setdefault(scheduled_for, []).append(row)
+        scheduled_instant = _scheduled_window_instant(row)
+        if scheduled_instant is not None:
+            receipts_by_window.setdefault(scheduled_instant, []).append(row)
     selected_groups = sorted(
         receipts_by_window.values(),
         key=lambda group: _scheduled_window_sort_key(group[-1]),
     )[-2:]
     latest = [group[-1] for group in selected_groups]
-    problems: list[str] = [
-        f"{group[-1]['scheduled_for']}: duplicate natural-window receipts found"
-        for group in selected_groups
-        if len(group) > 1
-    ]
+    problems: list[str] = []
+    for group in selected_groups:
+        if len(group) > 1:
+            instant = _scheduled_window_instant(group[-1])
+            label = (
+                instant.astimezone(REPORT_TIMEZONE).isoformat(timespec="seconds")
+                if instant is not None
+                else str(group[-1].get("scheduled_for") or "")
+            )
+            problems.append(f"{label}: duplicate natural-window receipts found")
+    attempt_rows = (
+        _read_send_attempt_proof(send_attempt_log)
+        if send_attempt_log is not None
+        else None
+    )
     if len(latest) != 2:
         problems.append(
             f"need two distinct current-schema natural 08:00/20:00 windows; found {len(latest)}"
@@ -5715,8 +6034,18 @@ def verify_window_receipts(
             problems.append("latest natural 08:00/20:00 windows are not consecutive")
         for row in latest:
             scheduled_for = str(row["scheduled_for"])
-            receipt = row.get("receipt") or {}
-            notification = row.get("notification") or {}
+            receipt_value = row.get("receipt")
+            if not isinstance(receipt_value, dict):
+                problems.append(f"{scheduled_for}: receipt must be an object")
+                receipt: dict[str, Any] = {}
+            else:
+                receipt = receipt_value
+            notification_value = row.get("notification")
+            if not isinstance(notification_value, dict):
+                problems.append(f"{scheduled_for}: notification must be an object")
+                notification: dict[str, Any] = {}
+            else:
+                notification = notification_value
             if ledger_dir is not None and not _scheduled_attempt_barrier_is_valid(
                 ledger_dir,
                 row,
@@ -5787,9 +6116,18 @@ def verify_window_receipts(
                         problems.append(f"{row['scheduled_for']}: missing {source} paint health")
                     elif not health.get("available") and not health.get("wake"):
                         problems.append(f"{source} paint unavailable without exact wake")
-        sent_message_ids = [(row.get("receipt") or {}).get("message_id") for row in latest]
+        sent_message_ids = [
+            receipt.get("message_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            for row in latest
+        ]
         if all(sent_message_ids) and len(set(sent_message_ids)) != len(sent_message_ids):
             problems.append("scheduled windows do not have distinct sent-message receipts")
+        attempt_ids = [
+            receipt.get("attempt_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            for row in latest
+        ]
+        if all(attempt_ids) and len(set(attempt_ids)) != len(attempt_ids):
+            problems.append("scheduled windows do not have distinct send-attempt receipts")
         if evidence_dir is not None:
             archive_pairs: list[tuple[Path, Path]] = []
             for row in latest:
@@ -5821,6 +6159,14 @@ def verify_window_receipts(
                 if hashlib.sha256(html_bytes).hexdigest() != row.get("html_sha256"):
                     problems.append(f"{scheduled_for}: declared archived HTML hash mismatch")
                     continue
+                if send_attempt_log is not None and not _send_attempt_proof_is_valid(
+                    row,
+                    archive,
+                    attempt_rows,
+                ):
+                    problems.append(
+                        f"{scheduled_for}: scheduled send attempt ledger proof is invalid"
+                    )
                 try:
                     rendered = html_bytes.decode("utf-8")
                 except UnicodeDecodeError:
@@ -5914,7 +6260,10 @@ def verify_window_receipts(
         "ok": not problems,
         "problems": problems,
         "windows": [row.get("scheduled_for") for row in latest],
-        "message_ids": [(row.get("receipt") or {}).get("message_id") for row in latest],
+        "message_ids": [
+            receipt.get("message_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            for row in latest
+        ],
         "ignored_legacy_windows": ignored_legacy,
         "ignored_noncalendar_windows": ignored_noncalendar,
         "ignored_nonslot_windows": ignored_nonslot,
@@ -5936,6 +6285,12 @@ def verify_mailbox_readbacks(
     confirmed: list[dict[str, Any]] = []
     for window in windows:
         scheduled_for = str(window.get("scheduled_for") or "")
+        window_receipt_value = window.get("receipt")
+        if not isinstance(window_receipt_value, dict):
+            problems.append(f"{scheduled_for}: window receipt must be an object")
+            window_receipt: dict[str, Any] = {}
+        else:
+            window_receipt = window_receipt_value
         readback = latest_by_window.get(scheduled_for)
         if readback is None or readback.get("status") != "EXACT_SENT_CONFIRMED":
             problems.append(f"{scheduled_for}: exact mailbox readback missing")
@@ -5947,7 +6302,7 @@ def verify_mailbox_readbacks(
             or readback.get("to") != [SELF_MAIL]
         ):
             problems.append(f"{scheduled_for}: mailbox self-route mismatch")
-        if readback.get("subject") != (window.get("receipt") or {}).get("subject"):
+        if readback.get("subject") != window_receipt.get("subject"):
             problems.append(f"{scheduled_for}: mailbox subject mismatch")
         if readback.get("generated_at") != window.get("generated_at"):
             problems.append(f"{scheduled_for}: mailbox generation mismatch")
@@ -6146,7 +6501,7 @@ def record_send_attempt(
 ) -> dict[str, Any]:
     created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     intent = {
-        "schema": "shadow.superhuman-send-attempt.v1",
+        "schema": SEND_ATTEMPT_SCHEMA,
         "state": "UNKNOWN_NO_RETRY",
         "created_at": created_at,
         "acting_email": SELF_MAIL,
@@ -6198,7 +6553,7 @@ def _delivery_exception_receipt(subject: str, exc: Exception) -> dict[str, Any]:
     try:
         for candidate in reversed(_read_jsonl(SEND_ATTEMPT_LOG)):
             if (
-                candidate.get("schema") == "shadow.superhuman-send-attempt.v1"
+                candidate.get("schema") == SEND_ATTEMPT_SCHEMA
                 and candidate.get("subject") == subject
                 and candidate.get("attempt_id")
             ):
@@ -6616,7 +6971,7 @@ def deliver_superhuman_http(
             notes=f"Superhuman send_draft result is ambiguous: {str(send_result)[:400]}",
         )
     outcome = {
-        "schema": "shadow.superhuman-send-attempt.v1",
+        "schema": SEND_ATTEMPT_SCHEMA,
         "state": "PROVISIONAL_SENT",
         "recorded_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
         "attempt_id": attempt.get("attempt_id"),
@@ -6800,8 +7155,6 @@ def schedule_configuration_recovery(problems: list[str]) -> str:
 
 
 def _command_targets_scheduled_brief(values: list[str]) -> bool:
-    if "--scheduled-trigger" not in values:
-        return False
     command = list(values)
     assignment = r"[A-Za-z_][A-Za-z0-9_]*=.*"
     while command and (
@@ -6819,14 +7172,35 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
             if value == "--":
                 command.pop(0)
                 break
+            if value in {"-S", "--split-string"}:
+                if len(command) < 2:
+                    return False
+                try:
+                    split_command = shlex.split(command[1], posix=True)
+                except ValueError:
+                    return False
+                command = split_command + command[2:]
+                break
+            if value.startswith("-S") and value != "-S":
+                try:
+                    split_command = shlex.split(value[2:], posix=True)
+                except ValueError:
+                    return False
+                command = split_command + command[1:]
+                break
+            if value.startswith("--split-string="):
+                try:
+                    split_command = shlex.split(value.split("=", 1)[1], posix=True)
+                except ValueError:
+                    return False
+                command = split_command + command[1:]
+                break
             if value in {
                 "-u",
                 "--unset",
                 "-C",
                 "--chdir",
                 "-P",
-                "-S",
-                "--split-string",
                 "-a",
                 "--argv0",
             }:
@@ -6841,7 +7215,6 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
                 re.fullmatch(r"-u.+", value)
                 or value.startswith("--unset=")
                 or value.startswith("--chdir=")
-                or value.startswith("--split-string=")
                 or value.startswith("--argv0=")
             ):
                 command.pop(0)
@@ -6854,6 +7227,8 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
             or re.fullmatch(assignment, command[0]) is not None
         ):
             command.pop(0)
+    if "--scheduled-trigger" not in command:
+        return False
     if not command:
         return False
     program = Path(command[0]).name
@@ -7025,7 +7400,19 @@ def schedule_status() -> dict[str, Any]:
     if not program.is_file():
         configuration_problems.append("ProgramFile")
     uid = os.getuid()
-    print_out = _run(["/bin/launchctl", "print", f"gui/{uid}/{LABEL}"])
+    try:
+        print_out = _run(["/bin/launchctl", "print", f"gui/{uid}/{LABEL}"])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print_out = subprocess.CompletedProcess(
+            ["/bin/launchctl", "print", f"gui/{uid}/{LABEL}"],
+            1,
+            "",
+            f"{type(exc).__name__}: {exc}",
+        )
+    loaded_job = _parse_launchctl_loaded_job(print_out.stdout or "")
+    loaded_job_matches = _loaded_job_matches_current(loaded_job)
+    if print_out.returncode != 0 or not loaded_job_matches:
+        configuration_problems.append("LoadedJob")
     return {
         "installed": True,
         "plist": str(plist_path),
@@ -7038,7 +7425,10 @@ def schedule_status() -> dict[str, Any]:
         "host_timezone": _host_timezone_name(),
         "host_timezone_matches_report": host_timezone_matches_report(),
         "launchctl_rc": print_out.returncode,
-        "launchctl_ok": print_out.returncode == 0,
+        "launchctl_ok": print_out.returncode == 0 and loaded_job_matches,
+        "loaded_program": loaded_job.get("program") if loaded_job else None,
+        "loaded_program_arguments": loaded_job.get("arguments") if loaded_job else None,
+        "loaded_path": loaded_job.get("path") if loaded_job else None,
     }
 
 
@@ -7255,6 +7645,14 @@ def _write_last_run_best_effort(summary: dict[str, Any]) -> bool:
             json.dumps(summary, indent=2) + "\n",
             encoding="utf-8",
         )
+    except OSError:
+        return False
+    return True
+
+
+def _print_json_best_effort(payload: dict[str, Any], *, file: Any = None) -> bool:
+    try:
+        print(json.dumps(payload, indent=2), file=file)
     except OSError:
         return False
     return True
@@ -7584,7 +7982,17 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         f"{packet['slot']} · board rev {packet.get('board', {}).get('revision')}",
     )
     receipt: dict[str, Any] = {"status": "skipped", "notes": "deliver not requested"}
-    if args.deliver:
+    notification_blocked = bool(
+        args.scheduled_trigger and notification.get("status") != "ok"
+    )
+    if notification_blocked:
+        receipt = {
+            "status": "blocked",
+            "delivery_status": "not_sent",
+            "subject": subject,
+            "notes": "scheduled notification did not complete; delivery was not attempted",
+        }
+    elif args.deliver:
         try:
             receipt = deliver_superhuman(
                 archive_html_path,
@@ -7617,7 +8025,17 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         "paint_health": packet.get("paint_health") or {},
         "receipt": receipt,
     }
-    print(json.dumps(summary, indent=2))
+    if notification_blocked:
+        summary.update(
+            {
+                "status": "blocked",
+                "wake": (
+                    "scheduled macOS notification is blocked; repair the exact "
+                    "notification error before the next natural window; do not send "
+                    "or retry this reserved window"
+                ),
+            }
+        )
     _write_last_run_best_effort(summary)
     try:
         append_scheduled_window(
@@ -7635,9 +8053,13 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
                 "delivery attempt and immutable archives, and never resend this window"
             ),
         }
-        print(json.dumps(recovery, indent=2), file=sys.stderr)
         _write_last_run_best_effort(recovery)
+        _print_json_best_effort(recovery, file=sys.stderr)
         return 3
+    if notification_blocked:
+        _print_json_best_effort(summary, file=sys.stderr)
+        return 3
+    _print_json_best_effort(summary)
     return run_exit_code(receipt, notification, scheduled_trigger=args.scheduled_trigger)
 
 
@@ -7742,6 +8164,7 @@ def cmd_verify_windows(_args: argparse.Namespace) -> int:
         rows,
         evidence_dir=EVIDENCE_DIR,
         ledger_dir=LOG_DIR,
+        send_attempt_log=SEND_ATTEMPT_LOG,
     )
     if len(result["windows"]) == 2:
         by_window = {
