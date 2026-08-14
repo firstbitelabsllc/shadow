@@ -27,11 +27,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import shadow_root_board as _shadow_board
 
 LABEL = "com.leokwan.shadow-bidaily-brief"
 SLOT_HOURS = (8, 20)
+REPORT_TIMEZONE = ZoneInfo("America/New_York")
 REPORT_LOOKBACK_HOURS = 14
 GITHUB_PR_LIMIT = 20
 BOARD_PATH = Path.home() / ".shadow" / "board.json"
@@ -3175,7 +3177,7 @@ def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
 def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
     if any(value != 0 for value in (first.minute, first.second, second.minute, second.second)):
         return False
-    if first.tzinfo is None or second.tzinfo is None:
+    if not _is_report_timezone_timestamp(first) or not _is_report_timezone_timestamp(second):
         return False
     elapsed = second.astimezone(timezone.utc) - first.astimezone(timezone.utc)
     if elapsed <= timedelta(0):
@@ -3195,12 +3197,46 @@ def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
     return False
 
 
-def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
+def _parse_aware_datetime(raw: Any) -> datetime | None:
     try:
-        value = datetime.fromisoformat(str(row.get("scheduled_for") or ""))
-    except ValueError:
+        value = datetime.fromisoformat(str(raw or ""))
+        if value.tzinfo is None or value.utcoffset() is None:
+            return None
+    except (TypeError, ValueError):
         return None
-    if value.tzinfo is None:
+    return value
+
+
+def _is_report_timezone_timestamp(value: datetime) -> bool:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return False
+    local = value.astimezone(REPORT_TIMEZONE)
+    return (
+        (
+            local.year,
+            local.month,
+            local.day,
+            local.hour,
+            local.minute,
+            local.second,
+            local.microsecond,
+        )
+        == (
+            value.year,
+            value.month,
+            value.day,
+            value.hour,
+            value.minute,
+            value.second,
+            value.microsecond,
+        )
+        and local.utcoffset() == value.utcoffset()
+    )
+
+
+def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
+    value = _parse_aware_datetime(row.get("scheduled_for"))
+    if value is None or not _is_report_timezone_timestamp(value):
         return None
     return value.astimezone(timezone.utc)
 
@@ -3291,18 +3327,16 @@ def verify_window_receipts(
             notification = row.get("notification") or {}
             if not scheduled_trigger_is_authorized(True, row.get("trigger_proof")):
                 problems.append(f"{scheduled_for}: launchd trigger proof missing")
-            scheduled_at: datetime | None = None
-            generated: datetime | None = None
-            try:
-                scheduled_at = datetime.fromisoformat(scheduled_for)
-                generated = datetime.fromisoformat(str(row.get("generated_at") or ""))
+            scheduled_at = _parse_aware_datetime(scheduled_for)
+            generated = _parse_aware_datetime(row.get("generated_at"))
+            if scheduled_at is None or generated is None:
+                problems.append(f"{scheduled_for}: generated_at invalid")
+            else:
                 expected_slot = "morning" if scheduled_at.hour == 8 else "evening"
                 if row.get("slot") != expected_slot:
                     problems.append(f"{scheduled_for}: scheduled slot mismatch")
                 if not scheduled_at <= generated <= scheduled_at + timedelta(minutes=30):
                     problems.append(f"{scheduled_for}: report generation is not fresh for slot")
-            except ValueError:
-                problems.append(f"{scheduled_for}: generated_at invalid")
             if not isinstance(row.get("board_revision"), int):
                 problems.append(f"{scheduled_for}: missing board revision")
             if len(str(row.get("html_sha256") or "")) != 64:
@@ -3333,16 +3367,15 @@ def verify_window_receipts(
             expected_subject = brief_subject(row.get("slot"), row.get("generated_at"))
             if receipt.get("subject") != expected_subject:
                 problems.append(f"{scheduled_for}: sent-message subject mismatch")
-            try:
-                sent_at = datetime.fromisoformat(str(receipt.get("sent_at") or ""))
-                if (
-                    scheduled_at is None
-                    or generated is None
-                    or not generated <= sent_at <= scheduled_at + timedelta(minutes=30)
-                ):
-                    problems.append(f"{scheduled_for}: sent timestamp is not fresh for slot")
-            except ValueError:
+            sent_at = _parse_aware_datetime(receipt.get("sent_at"))
+            if sent_at is None:
                 problems.append(f"{scheduled_for}: sent timestamp invalid")
+            elif (
+                scheduled_at is None
+                or generated is None
+                or not generated <= sent_at <= scheduled_at + timedelta(minutes=30)
+            ):
+                problems.append(f"{scheduled_for}: sent timestamp is not fresh for slot")
             paint_health = row.get("paint_health")
             if not isinstance(paint_health, dict):
                 problems.append(f"{row['scheduled_for']}: missing paint health")
@@ -3471,13 +3504,12 @@ def verify_mailbox_readbacks(
             problems.append(f"{scheduled_for}: SENT label missing")
         if len(str(readback.get("raw_html_sha256") or "")) != 64:
             problems.append(f"{scheduled_for}: mailbox HTML hash missing")
-        try:
-            scheduled_at = datetime.fromisoformat(scheduled_for)
-            sent_at = datetime.fromisoformat(str(readback.get("sent_at") or ""))
-            if not scheduled_at <= sent_at <= scheduled_at + timedelta(minutes=30):
-                problems.append(f"{scheduled_for}: mailbox sent timestamp is not fresh")
-        except ValueError:
+        scheduled_at = _parse_aware_datetime(scheduled_for)
+        sent_at = _parse_aware_datetime(readback.get("sent_at"))
+        if scheduled_at is None or sent_at is None:
             problems.append(f"{scheduled_for}: mailbox sent timestamp invalid")
+        elif not scheduled_at <= sent_at <= scheduled_at + timedelta(minutes=30):
+            problems.append(f"{scheduled_for}: mailbox sent timestamp is not fresh")
     message_ids = [row.get("message_id") for row in confirmed]
     if len(message_ids) == len(windows) and len(set(message_ids)) != len(message_ids):
         problems.append("mailbox readbacks do not have distinct message IDs")
@@ -3728,9 +3760,8 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         "subject": subject,
         "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    try:
-        scheduled_at = datetime.fromisoformat(scheduled_for)
-    except ValueError:
+    scheduled_at = _parse_aware_datetime(scheduled_for)
+    if scheduled_at is None or not _is_report_timezone_timestamp(scheduled_at):
         return {**base, "status": "blocked", "wake": "scheduled_for parses as ISO 8601"}
     token = _mcp_remote_token()
     if not token:
@@ -3886,12 +3917,11 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         problems.append("exact self-route mismatch")
     if message.get("subject") != subject or "SENT" not in labels:
         problems.append("subject or SENT label mismatch")
-    try:
-        sent = datetime.fromisoformat(sent_at)
-        if not scheduled_at <= sent <= scheduled_at + timedelta(minutes=30):
-            problems.append("sent timestamp outside scheduled window")
-    except ValueError:
+    sent = _parse_aware_datetime(sent_at)
+    if sent is None:
         problems.append("sent timestamp invalid")
+    elif not scheduled_at <= sent <= scheduled_at + timedelta(minutes=30):
+        problems.append("sent timestamp outside scheduled window")
     required_html = (
         str(window.get("generated_at") or ""),
         f"board rev {window.get('board_revision')}",
