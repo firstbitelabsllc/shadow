@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tests.plan_tree_fixture import install_plan_tree
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "shadow-accept.py"
@@ -128,6 +130,84 @@ def fail_after_project_commit(*args, **kwargs):
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def test_git_backed_partitioned_plan_commits_root_and_objects_together(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            source = (repo / "PLAN.md").read_bytes()
+            install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "partition plan")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            logical = accept._board.read_plan_text(repo / "PLAN.md")
+            self.assertIn("[completed] x.txt says hello ~ab12", logical)
+            self.assertIn("~ab12 PROOF", logical)
+            self.assertTrue(accept._board.open_plan(repo / "PLAN.md").is_tree)
+            self.assertEqual(git(repo, "status", "--porcelain"), "")
+            committed = git(repo, "show", "--name-only", "--format=", "HEAD")
+            self.assertIn("PLAN.md", committed)
+            self.assertIn("PLAN.d/objects/sha256/", committed)
+
+    def test_interrupted_tree_accept_is_recovered_through_the_object_store(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            home = root / "home"
+            home.mkdir()
+            plan = repo / "PLAN.md"
+            install_plan_tree(repo, plan.read_bytes())
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "partition plan")
+            claimed = run_shadow(
+                repo, home, "throw", "--repo", str(repo), "--task", "~ab12", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            committed_root = plan.read_bytes()
+            original_atomic_write = accept.atomic_write_text
+
+            def crash_after_real_replace(path: Path, text: str):
+                receipt = original_atomic_write(path, text)
+                if path.resolve() == plan.resolve() and "- [completed] x.txt" in text:
+                    raise SystemExit(75)
+                return receipt
+
+            output = io.StringIO()
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
+                accept,
+                "atomic_write_text",
+                side_effect=crash_after_real_replace,
+            ), redirect_stdout(output), redirect_stderr(output):
+                with self.assertRaises(SystemExit) as crashed:
+                    accept.main(
+                        ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a", "--no-push"]
+                    )
+
+            self.assertEqual(crashed.exception.code, 75)
+            # The interrupted write left a newer tree generation whose root is a
+            # manifest, not plan text: recovery has to read through the objects.
+            self.assertNotEqual(plan.read_bytes(), committed_root)
+            self.assertIn(
+                "- [completed] x.txt says hello ~ab12",
+                accept._board.read_plan_text(plan),
+            )
+
+            retry, retry_output = self._accept_main(repo, home)
+
+            self.assertEqual(retry, 0, retry_output)
+            logical = accept._board.read_plan_text(plan)
+            self.assertIn("- [completed] x.txt says hello ~ab12", logical)
+            self.assertEqual(logical.count("~ab12 PROOF"), 1)
+            self.assertTrue(accept._board.open_plan(plan).is_tree)
+            self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all"), "")
+            self.assertEqual(git(repo, "rev-list", "--count", "HEAD"), "3")
+            self.assertEqual(
+                json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))["claims"],
+                [],
+            )
+
     def _accept_main(self, repo: Path, home: Path) -> tuple[int, str]:
         output = io.StringIO()
         with mock.patch.dict(os.environ, {"HOME": str(home)}), redirect_stdout(
@@ -1082,6 +1162,50 @@ class ShadowAcceptTests(unittest.TestCase):
             ),
         )
 
+    def test_a_failed_tree_commit_restores_root_index_and_objects(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            source = (repo / "PLAN.md").read_bytes()
+            install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "partition plan")
+            home = root / "home"
+            home.mkdir()
+            claimed = run_shadow(
+                repo, home, "throw", "--repo", str(repo), "--task", "~ab12", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            root_before = (repo / "PLAN.md").read_bytes()
+            objects_before = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in (repo / "PLAN.d" / "objects" / "sha256").glob("*/*")
+            }
+            original_git_completed = accept.git_completed
+
+            def refuse_project_commit(target: Path, *args: str, **kwargs):
+                if "commit" in args:
+                    return subprocess.CompletedProcess(args, 1, "", "commit refused")
+                return original_git_completed(target, *args, **kwargs)
+
+            output = io.StringIO()
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
+                accept, "git_completed", side_effect=refuse_project_commit,
+            ), redirect_stdout(output), redirect_stderr(output):
+                result = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a", "--no-push"]
+                )
+
+            objects_after = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in (repo / "PLAN.d" / "objects" / "sha256").glob("*/*")
+            }
+            self.assertEqual(result, 1, output.getvalue())
+            self.assertEqual((repo / "PLAN.md").read_bytes(), root_before)
+            self.assertEqual(objects_after, objects_before)
+            self.assertEqual(git(repo, "status", "--porcelain"), "")
+            self.assertEqual(git(repo, "rev-list", "--count", "HEAD"), "2")
+
     def test_a_failed_commit_restores_a_staged_plan_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo = make_repo(Path(dirname).resolve())
@@ -1301,7 +1425,7 @@ class ShadowAcceptTests(unittest.TestCase):
             self.assertIn("proof landed", first_output.getvalue())
             self.assertIn("[completed] x.txt says hello ~ab12", (repo / "PLAN.md").read_text())
             self.assertEqual(git(repo, "rev-list", "--count", "HEAD"), "2")
-            self.assertNotIn("[completed] x.txt says hello", git(remote, "show", "main:PLAN.md"))
+            self.assertIn("[completed] x.txt says hello", git(remote, "show", "main:PLAN.md"))
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"][0]["row"], "~ab12")
 
@@ -1427,6 +1551,17 @@ class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
             git(repo, "push", "-qu", "origin", "HEAD:main")
+            home = root / "home"
+            home.mkdir()
+            claimed = run_shadow(
+                repo, home, "throw", "--repo", str(repo), "--task", "~ab12",
+                "--by", "seat-a",
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            claim_receipt = next(
+                json.loads(line) for line in claimed.stderr.splitlines()
+                if line.startswith("{")
+            )
             hook = remote / "hooks" / "pre-receive"
             hook.write_text("#!/bin/sh\necho protected >&2\nexit 1\n", encoding="utf-8")
             hook.chmod(0o755)
@@ -1439,6 +1574,361 @@ class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
                              "the flip commit must remain reachable on the named branch")
             self.assertIn("[completed] x.txt says hello ~ab12",
                           git(repo, "show", "HEAD:PLAN.md"))
+            stored = json.loads(git(remote, "show", f"{claim_receipt['ref']}:claim.json"))
+            self.assertEqual(stored["state"], "acquired")
+            board_payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(board_payload["claims"][0]["owner"], "seat-a")
+
+
+class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
+    def fixture(self, root: Path) -> tuple[Path, Path, Path, dict]:
+        repo = make_repo(root)
+        remote = root / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        git(repo, "remote", "add", "origin", str(remote))
+        git(repo, "push", "-qu", "origin", "HEAD:main")
+        git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        home = root / "home"
+        home.mkdir()
+        claimed = run_shadow(
+            repo, home, "throw", "--repo", str(repo), "--task", "~ab12",
+            "--by", "seat-a",
+        )
+        if claimed.returncode:
+            self.fail(claimed.stderr)
+        receipt = next(
+            json.loads(line) for line in claimed.stderr.splitlines()
+            if line.startswith("{")
+        )
+        return repo, remote, home, receipt
+
+    def test_publish_then_completed_cas_then_local_release(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            acquired_tip = git(remote, "rev-parse", receipt["ref"])
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("remote claim completed", result.stdout)
+            completed_tip = git(remote, "rev-parse", receipt["ref"])
+            stored = json.loads(git(remote, "show", f"{completed_tip}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            main = git(remote, "rev-parse", "refs/heads/main")
+            parents = git(remote, "rev-list", "--parents", "-n", "1", completed_tip).split()
+            self.assertIn(acquired_tip, parents[1:])
+            self.assertIn(main, parents[1:])
+            self.assertEqual(stored["plan"]["head"], main)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+
+    def test_no_push_keeps_both_remote_and_local_claim_acquired(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            result = subprocess.run(
+                [
+                    sys.executable, str(SCRIPT), "--repo", str(repo), "--row", "~ab12",
+                    "--by", "seat-a", "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual(stored["state"], "acquired")
+            self.assertNotIn("[completed] x.txt says hello", git(remote, "show", "main:PLAN.md"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+    def test_ambiguous_completed_cas_after_publish_retains_claim_without_success(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, _ = self.fixture(Path(dirname).resolve())
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                result = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(result, 1, output.getvalue())
+            self.assertNotIn("accepted ~ab12", output.getvalue())
+            self.assertIn("[completed] x.txt says hello", git(remote, "show", "main:PLAN.md"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+    def test_completed_retry_closes_remote_claim_after_local_claim_was_released(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            plan = repo / "PLAN.md"
+            plan_token, plan_bytes = accept._board.committed_plan_snapshot(plan)
+            plan_text = plan_bytes.decode("utf-8")
+            state = accept._board.entity_state(plan, home=home)
+            claim = state["claims"][0]
+            accept._board.release(
+                plan,
+                "~ab12",
+                owner="seat-a",
+                reason="completed",
+                resumes=["~cd34"],
+                expected_plan=plan_token,
+                expected_text=plan_text,
+                expected_claim=claim,
+                home=home,
+            )
+            git(repo, "checkout", "--detach", plan_token["head"])
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            self.assertEqual(stored["plan"]["head"], git(remote, "rev-parse", "main"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+
+    def test_detached_unpublished_completion_keeps_both_claims_acquired(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            first = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            git(repo, "push", "-qu", "origin", "HEAD:feature")
+            git(repo, "config", "branch.feature.remote", "origin")
+            git(repo, "config", "branch.feature.merge", "refs/heads/feature")
+            git(repo, "checkout", "--detach", "HEAD")
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("not published", retry.stdout + retry.stderr)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("acquired", "acquire"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+    def test_detached_reverted_completion_keeps_both_claims_acquired(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            first = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            completed = git(repo, "rev-parse", "HEAD")
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            git(repo, "revert", "--no-edit", completed)
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            git(repo, "checkout", "--detach", completed)
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("no longer carries", retry.stdout + retry.stderr)
+            self.assertIn("[in_progress] x.txt says hello", git(remote, "show", "main:PLAN.md"))
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("acquired", "acquire"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"][0]["owner"], "seat-a")
+
+
+class AChallengedFoundationDoesNotFlipSilently(unittest.TestCase):
+    """The contradiction triangle: challenger, owner, dependent. A written
+    challenge against a row — or anything in its needs-ancestry — must hold
+    the flip until a person resolves it; nothing gated this before, so a
+    dependent could accept work whose basis was under an undelivered
+    challenge. The one coordination behavior that takes three roles.
+    """
+
+    HELLO_PROOF = (
+        "cmd python3 -c \"import pathlib,sys; "
+        "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\""
+    )
+
+    def _plan(self, tasks: str, contradictions: str) -> str:
+        return (
+            "# Demo\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n## Tasks\n\n"
+            "### M — file speaks\n" + tasks +
+            "\n## Contradictions\n\n" + contradictions +
+            "\n## Progress\n\n- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command\n"
+        )
+
+    def _run(self, plan: str, row: str):
+        context = tempfile.TemporaryDirectory()
+        root = Path(context.name).resolve()
+        repo = make_repo(root)
+        (repo / "PLAN.md").write_text(plan, encoding="utf-8")
+        git(repo, "commit", "-qam", "scenario plan")
+        result = run_accept(repo, row)
+        return context, repo, result
+
+    def test_a_challenge_naming_the_row_holds_its_flip(self) -> None:
+        plan = self._plan(
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF}\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- ~ab12 asserts hello but the file contract under review says goodbye\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("written challenge", result.stderr)
+            self.assertIn("file contract under review", result.stderr)
+            self.assertIn("- [in_progress] x.txt says hello ~ab12", (repo / "PLAN.md").read_text())
+
+    def test_a_challenge_on_a_needs_ancestor_holds_the_dependent(self) -> None:
+        plan = self._plan(
+            f"- [completed] foundation holds ~aa00 | proof: {self.HELLO_PROOF}\n"
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF} | needs: ~aa00\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- ~aa00 was accepted against a fixture that no longer matches production\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("needs-ancestry", result.stderr)
+            self.assertIn("~aa00", result.stderr)
+
+    def test_an_unrelated_or_empty_contradiction_does_not_hold_the_flip(self) -> None:
+        plan = self._plan(
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF}\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- None recorded yet.\n- ~zz99 an unrelated surface disagrees with its docs\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("- [completed] x.txt says hello ~ab12", (repo / "PLAN.md").read_text())
+
+
+class AForgedCompletionCannotBeLaunderedByTheFastPath(unittest.TestCase):
+    """The other end of the backdated-receipt chain (~lgrf). accept's
+    completed fast path republishes an already-completed row after checking a
+    matching receipt TEXT line — so a hand-fabricated commit (flip + typed
+    pre-cutover receipt) could be laundered to other seats instead of proven.
+    The lint gate that fast path already calls is the chokepoint: with
+    grandfathering bound to a frozen id set, a forged receipt makes the plan
+    lint-blocked, and the fast path refuses.
+    """
+
+    def test_the_fast_path_refuses_a_backdated_forged_receipt(self) -> None:
+        forged = PLAN.replace(
+            "- [in_progress] x.txt says hello ~ab12",
+            "- [completed] x.txt says hello ~ab12",
+        ).replace(
+            "## Progress\n",
+            "## Progress\n\n- 2000-01-01T00:00:00Z ~ab12 PROOF i pinky promise it passed\n",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            (repo / "PLAN.md").write_text(forged, encoding="utf-8")
+            git(repo, "commit", "-qam", "forged completion")
+            result = run_accept(repo, "~ab12")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            # Measured refusal reason: the receipt must match the row's actual
+            # proof argv, which prose cannot. The lint gate behind it is the
+            # second layer, not the first.
+            self.assertIn("without a matching accept proof", result.stderr)
+            # The forgery is never republished as proven.
+            self.assertNotIn("already proven", result.stdout)
+            self.assertIn("- [completed] x.txt says hello ~ab12",
+                          (repo / "PLAN.md").read_text(encoding="utf-8"))
 
 
 class NeedsIsAReadinessGate(unittest.TestCase):

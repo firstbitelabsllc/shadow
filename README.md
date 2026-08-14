@@ -10,6 +10,53 @@ ownership, and records proof so a chat can end without losing the task.
 Shadow reconstructs the work, chooses a reachable next move, and keeps the
 loop recoverable.
 
+## The picture
+
+```
+        you  — say what you want, in plain words
+         │
+         ▼
+   computer board   (~/.shadow — one per machine)
+   "who is doing what, right now": project priority, claims, owners, resume
+         │
+         ▼
+   project plans    (PLAN.md — one per repository)
+   "the work itself": milestones → checkpoints → proof receipts
+         │
+         ▼
+   seats            (a Claude session, a Codex session, …)
+   the AI workers — each works under one stable name
+
+   the loop every seat runs:
+   claim a checkpoint → do the work → prove it → accept → pick the next one
+```
+
+Six words carry the whole system, in plain terms:
+
+- **board** — one small ledger per computer saying who is doing what right
+  now. Not the work itself; just ownership, priority, and where to resume.
+- **plans** — each repository's `PLAN.md`: the actual work, broken into
+  checkpoints, each with the test that proves it done.
+- **seats** — the AI workers (a Claude session, a Codex session), each under
+  one stable name so work is always attributable.
+- **claim** — a seat takes a checkpoint atomically before working. Two seats
+  grabbing the same one: exactly one wins, the loser is told who owns it.
+- **proof** — no checkpoint is "done" by assertion. Each carries a named
+  check, and done means that check passed.
+- **accept** — the only way a checkpoint flips to completed: rerun its proof
+  in a clean copy and record the receipt in the plan.
+
+## How you use it
+
+Install once (below), then open a chat in any wired host — Claude Code,
+Codex — and say what you want. The seat reads the board (`shadow status`),
+claims the next reachable checkpoint (`shadow throw`), does the work, and
+closes it with proof (`shadow accept`). You never fill in a form or learn
+the grammar to get value: you speak intent, and you can always see what
+every seat is doing with `shadow status --in-flight` or the local board
+page (`shadow browse`). Kill any chat at any time — the board and the plan
+carry everything needed to resume, which is the point of the whole design.
+
 ## The loop
 
 ```mermaid
@@ -23,23 +70,38 @@ flowchart LR
 ```
 
 The board at `~/.shadow` owns project priority, entity pointers, claims,
-owners, and resume. The committed entity `PLAN.md` owns milestones,
-checkpoints, detail, and proof. The browser, a chat transcript, a worktree
-copy, or a provider's private plan is never a competing authority.
+owners, and resume. Infrastructure entities keep plans locally below
+`~/.shadow/plans/`; product repositories may keep a declared release plan with
+their source. The browser, a chat transcript, a worktree copy, or a provider's
+private plan is never a competing authority.
+
+When the current branch tracks configured `origin`, `shadow throw` also takes
+one deterministic Git coordination lock under
+`refs/heads/shadow/claims/v1/<entity>/<row>` before work leaves the seat. Its
+closed public receipt contains no task or proof text and never becomes
+authority. The tracked branch stays untouched; the repository ruleset must
+permit the claim namespace. Without a configured origin upstream, Shadow keeps
+the same local-only behavior. A refused or ambiguous coordination write prints
+no work packet; confirmed loss compensates its exact local attempt, while an
+ambiguous result retains that claim for the same-seat retry.
 
 ## Install once
 
 ```bash
-git clone https://github.com/firstbitelabsllc/shadow.git
+git clone --branch shadow-v1.0.1 --depth 1 \
+  https://github.com/firstbitelabsllc/shadow.git
 cd shadow
 bash install.sh
 shadow doctor
 ```
 
 Requirements are Git, Bash, Python 3.10+, and a supported native host. There is
-no Node, npm, database, daemon, or transcript store. The clone is the install;
-`git pull` updates it. `install.sh` mounts the same checkout into the host
-skill roots and writes Shadow's managed standing-goal block into Claude Code
+no Node, npm, database, daemon, or transcript store. The namespaced tag is the
+immutable stable release, and the clone is the install. To update, read GitHub
+Latest, fetch tags, check out that exact `shadow-v*` tag, and rerun
+`install.sh`. Contributors who intentionally want moving development source may
+clone `main` instead. `install.sh` mounts the same checkout into the host skill
+roots and writes Shadow's managed standing-goal block into Claude Code
 and Codex instruction files. Cursor's skill mount and sealed host runner are
 supported, but file-backed cold directive activation is deliberately
 unsupported until Cursor exposes a reviewed user-rule surface.
@@ -89,10 +151,17 @@ shadow status --in-flight --json   # leave a resumable handoff
 ```
 
 Task ids look like `~ab12`; quote them in zsh so the shell does not expand the
-tilde before Shadow runs. `shadow accept` is the only command-proof flip path.
+tilde before Shadow runs. A migrated row may retain an old mnemonic such as
+`P9a~formats` at the head of its text; `shadow throw` accepts that unique alias
+but records and prints the row's canonical `~hash`. `shadow accept` is the only
+command-proof flip path.
 For a person-observed `read` or `gate` proof, record the result in `PLAN.md`
 and use `shadow return`. For a blocked task, record one exact Deferred wake
 before returning the claim.
+
+For a remotely coordinated claim, `shadow accept --no-push` retains both the
+local claim and remote lock. A later ordinary accept publishes the completed
+PLAN, records the completed tombstone, and only then releases the local claim.
 
 For the other shipped rails, use the same explicit projections:
 
@@ -147,6 +216,7 @@ authentication, model, and billing choices.
 
 - [Installation](docs/guide/installation.md) — mounts, upgrades, and host limits
 - [Quick start](docs/guide/quickstart.md) — the full claim/proof loop
+- [Use Shadow in more places](docs/guide/publishing.md) — honest ChatGPT, Codex, Claude, Cursor, Custom GPT, and MCP boundaries
 - [Commands](docs/reference/commands.md) — every verb and flag
 - [Host integration](docs/reference/host-integration.md) — cold-start behavior
 - [Native hosts](docs/reference/native-hosts.md) — sealed runs and activation

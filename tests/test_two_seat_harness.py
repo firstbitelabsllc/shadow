@@ -283,7 +283,9 @@ if MODE == "cross_shim":
     raise SystemExit(0)
 
 claimed = None
-deadline = time.monotonic() + 15
+# CI can spend several seconds scheduling the two fake hosts under load. Keep
+# the rendezvous bounded, but leave enough room for both processes to start.
+deadline = time.monotonic() + 25
 completions = 2 if MODE == "one_seat" and SEAT == "claude" else 1
 for completion in range(completions):
     claimed = None
@@ -456,8 +458,50 @@ class OfflineDefaultIsSealed(unittest.TestCase):
             fixture.assert_operator_state_untouched(self)
 
 
+class ThreeSeatsCoordinateOffline(unittest.TestCase):
+    """The multi-seat regime is single-vs-multi, not two (owner law,
+    2026-08-11): three seats on one board must claim disjoint rows, all
+    observe the shared overlap, and complete everything with proof — in the
+    free offline tier, so N costs nothing. The live paid tier refuses any
+    seat count but the minimal two-seat witness.
+    """
+
+    def test_three_offline_seats_complete_three_disjoint_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--goal-file", str(fixture.goal), "--seats", "3", "--json",
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            data = receipt(result)
+            self.assertEqual(data["status"], "pass")
+            self.assertEqual(data["mode"], "offline")
+            self.assertEqual([seat["name"] for seat in data["seats"]], ["claude", "codex", "seat3"])
+            self.assertTrue(all(seat["completed"] for seat in data["seats"]))
+            self.assertEqual(data["board"]["completed"], 3)
+            self.assertEqual(data["board"]["claims"], 0)
+            fixture.assert_operator_state_untouched(self)
+            assert_closed_receipt(self, data, [str(root), GOAL, "fixture source"])
+
+    def test_live_refuses_any_seat_count_but_the_minimal_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--live", "--goal-file", str(fixture.goal), "--seats", "3", "--json",
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("minimal two-seat witness", result.stderr)
+
+
 class LiveTwoSeatProof(unittest.TestCase):
-    def _run(self, mode: str = "complete", timeout_seconds: int = 20):
+    def _run(self, mode: str = "complete", timeout_seconds: int = 30):
         context = tempfile.TemporaryDirectory()
         root = Path(context.name).resolve()
         fixture = Fixture(root)

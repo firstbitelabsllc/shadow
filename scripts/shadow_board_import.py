@@ -27,6 +27,18 @@ THROWN = re.compile(
 OWNER = re.compile(r"\| by: (?P<owner>[^|]+)")
 
 
+# These repositories are coordination machinery, not product authorities. Their
+# operating plans belong to this computer under ``~/.shadow/plans``. Product
+# repositories (for example Snowcubes) continue to keep their own committed
+# PLAN.md, so this is intentionally an explicit, small allow-list rather than
+# a heuristic based on a directory name.
+LOCAL_ONLY_REPOSITORIES = {
+    "github.com/leojkwan/ai": "ai",
+    "github.com/leojkwan/ai-leo": "ai-leo",
+    "github.com/firstbitelabsllc/shadow": "shadow",
+}
+
+
 @dataclass(frozen=True)
 class SuppressionReceipt:
     """The complete public shape of one inspectable discovery suppression."""
@@ -111,6 +123,25 @@ def _priority(plan: dict) -> int:
     if value not in range(1, 6):
         raise board.BoardError("project Priority must be 1-5 for board import")
     return value
+
+
+def _local_only_slug(plan: Path) -> str | None:
+    """Return the private-plan slug when a source checkout is disallowed."""
+    try:
+        repository, _ = board.plan_identity_parts(plan)
+    except board.BoardError:
+        return None
+    return LOCAL_ONLY_REPOSITORIES.get(repository)
+
+
+def _local_operational_plans(home: Path | None) -> list[Path]:
+    """Return the three explicit local authorities, never arbitrary aliases."""
+    root = board.local_plans_root(home)
+    return [
+        root / slug / "PLAN.md"
+        for slug in sorted(set(LOCAL_ONLY_REPOSITORIES.values()))
+        if board.regular_plan(root / slug / "PLAN.md")
+    ]
 
 
 def _assert_authority_grade(
@@ -273,6 +304,54 @@ def reconcile_portfolio(
         operator_brief=operator_brief,
         browser_error=BrowserError,
     )
+    # A source-path alias for a coordination repository is a migration error,
+    # not an alternate source of truth. When the private copy is the same
+    # bytes, re-key atomically before the normal discovery pass so live claims
+    # and the resume pointer follow it. If the bytes differ, refuse to guess
+    # which copy is authoritative.
+    # `_registered_state` excludes older-but-still-owned plan grammar, so use
+    # the raw board snapshot as well. Those legacy entities still have to lose
+    # their source-checkout locator without losing their claim or resume row.
+    registered_sources = {
+        Path(pointer)
+        for pointer in registered.values()
+    }
+    current_board = board.snapshot(home=home) or {}
+    registered_sources.update(
+        Path(entity["plan"])
+        for entity in current_board.get("entities", [])
+        if isinstance(entity.get("plan"), str)
+    )
+    for source_path in registered_sources:
+        slug = _local_only_slug(source_path)
+        if slug is None:
+            continue
+        local_plan = board.local_plans_root(home) / slug / "PLAN.md"
+        if not board.regular_plan(local_plan):
+            raise board.BoardError(
+                f"{source_path}: operational authority must live at {local_plan}"
+            )
+        existing_plans = {
+            entity.get("plan")
+            for entity in current_board.get("entities", [])
+        }
+        if (
+            str(source_path.resolve()) in existing_plans
+            and str(local_plan.resolve()) in existing_plans
+        ):
+            board.discard_unclaimed_source_alias(source_path, local_plan, home=home)
+            return reconcile_portfolio(root, amp, home=home)
+        try:
+            same_bytes = board.read_plan_bytes(source_path) == board.read_plan_bytes(local_plan)
+        except board.BoardError as exc:
+            raise board.BoardError(f"{source_path}: cannot verify local plan migration") from exc
+        if not same_bytes:
+            raise board.BoardError(
+                f"{source_path}: source and local operational plans differ; "
+                "converge them before the board can move authority"
+            )
+        board.migrate_to_local_plan(source_path, local_plan, home=home)
+        return reconcile_portfolio(root, amp, home=home)
     retired: dict[str, dict] = {}
     observed_identities: set[str] = set()
     try:
@@ -328,6 +407,10 @@ def reconcile_portfolio(
             continue
         plan_path = Path(os.path.abspath(root / relative))
         identity = record.get("_logical_entity") or board.entity_id(plan_path)
+        if _local_only_slug(plan_path) is not None:
+            # Explicit local plans below are the only authority for these
+            # coordination repositories.
+            continue
         observed_identities.add(identity)
         if not is_live(record):
             registered_retirement = registered_retired.get(identity)
@@ -417,6 +500,66 @@ def reconcile_portfolio(
             seed["repair_state"] = repair_state
         seeds.append(seed)
 
+        latest: dict[str, tuple[str, str]] = {}
+        for match in THROWN.finditer(text):
+            owner = OWNER.search(match.group("tail"))
+            latest[match.group("row")] = (
+                match.group("stamp"),
+                owner.group("owner").strip() if owner else "another seat",
+            )
+        live = {
+            row["id"]
+            for milestone in plan["milestones"]
+            for row in milestone["rows"]
+            if row["state"] == "in_progress"
+        }
+        historical.extend(
+            {
+                "plan": str(source_path),
+                "row": row,
+                "owner": owner,
+                "claimed_at": stamp,
+            }
+            for row, (stamp, owner) in latest.items()
+            if row in live
+        )
+    # These plans are intentionally outside the Development portfolio. Read
+    # them directly, with the same bounded fields as any discovered plan.
+    for source_path in _local_operational_plans(home):
+        identity = board.entity_id(source_path)
+        observed_identities.add(identity)
+        try:
+            text = read_plan(source_path)
+        except (BrowserError, OSError, UnicodeError) as exc:
+            raise board.BoardError(
+                f"{source_path} cannot be read during board import"
+            ) from exc
+        plan = amp._parse(text)
+        if not plan["brief"].get("Project") or not plan["brief"].get("Mode"):
+            continue
+        unclean = amp.unclean_note(plan)
+        if unclean:
+            raise board.BoardError(
+                f"{source_path} cannot enter the computer board: {unclean}"
+            )
+        content = text.encode("utf-8")
+        seeds.append(
+            {
+                "identity": identity,
+                "plan": str(source_path),
+                "project": plan["brief"]["Project"],
+                "priority": _priority(plan),
+                "candidates": amp._candidate_ids(plan),
+                "rows": [
+                    row["id"]
+                    for milestone in plan["milestones"]
+                    for row in milestone["rows"]
+                ],
+                "expected_size": len(content),
+                "expected_sha256": hashlib.sha256(content).hexdigest(),
+                "witnesses": [],
+            }
+        )
         latest: dict[str, tuple[str, str]] = {}
         for match in THROWN.finditer(text):
             owner = OWNER.search(match.group("tail"))

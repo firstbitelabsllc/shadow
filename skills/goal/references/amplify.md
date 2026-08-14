@@ -88,8 +88,10 @@ constraint arrives before the elaboration.
 - Every mechanism has a refusable proof, or is labelled taste with a judge.
 - The brief is **shorter than the context it replaces**. If it is longer, the
   extraction failed — go back to step 1.
-- The launcher is normally three lines and at most 80 words. Durable detail
-  belongs in `PLAN.md`, not a longer prompt.
+- The one standing Shadow goal stays unchanged and skill-free. A specific
+  launcher is normally four lines and at most 80 words, ending with one to four
+  canonical local skill names. Durable detail and the full roster belong in
+  `PLAN.md`, not a longer prompt.
 
 ## Worked example
 
@@ -106,9 +108,10 @@ captured.
 
 ```text
 Outcome: every finding in <scope> is either proven with file:line or dead.
-Resume: <repo>/PLAN.md @ origin/main; continue owned rows, then ranked reachable rows.
+Resume: ~/.shadow/plans/<entity>/PLAN.md on this computer; continue owned rows, then ranked reachable rows.
 Proof: each finding gets correctness, security, and reproduction refuters; two refutations kill it. Survivors require file:line or command evidence, <focused command> green, and <real surface> re-observed from fresh state.
+Skills: thermo, ponytail.
 ```
 
-Three mechanisms, each bound to a refusal, nothing decorative. That is the
-whole move.
+Three mechanisms, each bound to a refusal, plus the two locally available
+skills that execute the refutation. Nothing decorative. That is the whole move.

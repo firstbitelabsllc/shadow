@@ -20,6 +20,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_board_import as _import  # noqa: E402
+import shadow_remote_claim as _remote_claim  # noqa: E402
 
 # The v4 grammar parser lives in shadow-amp; status reuses it so the two
 # projections can never disagree about what the current milestone or resume
@@ -286,7 +287,7 @@ def render_v4(record: dict, seat: str | None = None) -> str:
     claimable = record.get("next_unclaimed")
     if not claimable and not record.get("owner"):
         claimable = record.get("board_resume")
-    if record.get("entity") and claimable:
+    if record.get("entity") and claimable and not record.get("broken"):
         owner = shlex.quote(seat) if seat else "YOUR-STABLE-SEAT"
         lines.append(
             f"  Claim: shadow throw --entity {record['entity']} "
@@ -343,6 +344,62 @@ def root_board_view(payload: dict) -> dict:
     }
 
 
+def projected_claims(
+    entity: dict,
+    project: str,
+    plan_path: Path,
+    parsed: dict,
+    local_claims: list[dict],
+) -> tuple[list[dict], str | None]:
+    """Join authenticated remote locks without changing the local board."""
+    claims = list(local_claims)
+    row_ids = {
+        row["id"]
+        for milestone in parsed["milestones"]
+        for row in milestone["rows"]
+    }
+    repo = _remote_claim.managed_repo_for_plan(plan_path)
+    if repo is None:
+        return claims, None
+    try:
+        token, _ = _board.frozen_plan_snapshot(plan_path)
+        if Path(token["repo"]) != repo:
+            return claims, "remote claim discovery is unavailable or unauthenticated"
+        observed = _remote_claim.discover_active(
+            repo,
+            entity=entity["id"],
+            project=project,
+            rows=sorted(row_ids),
+            relative=token["relative"],
+        )
+    except _board.BoardError:
+        return claims, "remote claim discovery is unavailable or unauthenticated"
+    except _remote_claim.RemoteClaimError:
+        return claims, "remote claim discovery is unavailable or unauthenticated"
+    for journal in observed or []:
+        projected = {
+            "entity": entity["id"],
+            "row": journal["row"],
+            "owner": journal["owner"],
+            "claimed_at": journal["claim"]["claimed_at"],
+            "return_by": journal["claim"]["return_by"],
+            "recovery": journal["claim"]["recovery"],
+            "remote": True,
+        }
+        same_row = [claim for claim in claims if claim["row"] == projected["row"]]
+        if same_row and any(
+            any(
+                claim.get(key) != projected[key]
+                for key in ("owner", "claimed_at", "return_by", "recovery")
+            )
+            for claim in same_row
+        ):
+            return claims, "local and remote claim ownership disagree"
+        if not same_row:
+            claims.append(projected)
+    return claims, None
+
+
 def board_records(payload: dict) -> list[dict]:
     records: list[dict] = []
     priorities = {project["id"]: project["priority"] for project in payload["projects"]}
@@ -354,13 +411,21 @@ def board_records(payload: dict) -> list[dict]:
         plan_path = Path(entity["plan"])
         project = entity["project"]
         locator = _board.public_plan_locator(plan_path)
-        claims = [
+        local_claims = [
             claim for claim in payload["claims"] if claim["entity"] == entity["id"]
         ]
-        entity_claims = {claim["row"] for claim in claims}
         try:
             text = _board.read_plan_text(plan_path)
             parsed = _amp._parse(text)
+            row_ids = {
+                row["id"]
+                for milestone in parsed["milestones"]
+                for row in milestone["rows"]
+            }
+            claims, remote_issue = projected_claims(
+                entity, project, plan_path, parsed, local_claims
+            )
+            entity_claims = {claim["row"] for claim in claims}
             record = v4_brief(
                 plan_path,
                 locator,
@@ -389,11 +454,6 @@ def board_records(payload: dict) -> list[dict]:
         record["entity"] = entity["id"]
         record["board_resume"] = entity["resume"]
         record["priority"] = str(priorities[project])
-        row_ids = {
-            row["id"]
-            for milestone in (parsed or {"milestones": []})["milestones"]
-            for row in milestone["rows"]
-        }
         candidates = _amp._candidate_ids(parsed) if parsed is not None else []
         rows = {
             row["id"]: row
@@ -415,24 +475,31 @@ def board_records(payload: dict) -> list[dict]:
             row_ids,
             candidates,
         )
+        record["next_unclaimed"] = next(
+            (row for row in candidates if row not in entity_claims),
+            None,
+        )
+        issue = issue or remote_issue
         if issue:
             record["resume"] = f"UNKNOWN — {issue}"
             record.pop("resume_human", None)
             record["broken"] = True
+        if remote_issue:
+            record["next_unclaimed"] = None
+            for milestone in record.get("milestones", []):
+                for checkpoint in milestone["checkpoints"]:
+                    if not checkpoint["owners"]:
+                        checkpoint["availability"] = "unknown"
         owner = next(
             (
                 claim["owner"]
-                for claim in payload["claims"]
-                if claim["entity"] == entity["id"] and claim["row"] == entity["resume"]
+                for claim in claims
+                if claim["row"] == entity["resume"]
             ),
             None,
         )
         if owner:
             record["owner"] = owner
-        record["next_unclaimed"] = next(
-            (row for row in candidates if row not in entity_claims),
-            None,
-        )
         records.append(record)
     return records
 
@@ -440,7 +507,46 @@ def board_records(payload: dict) -> list[dict]:
 def board_in_flight(payload: dict) -> list[dict]:
     rows: list[dict] = []
     entities = {entity["id"]: entity for entity in payload["entities"]}
-    for claim in payload["claims"]:
+    claims = list(payload["claims"])
+    remote_failures: list[tuple[dict, str]] = []
+    for pointer in payload["entities"]:
+        plan_path = Path(pointer["plan"])
+        local = [claim for claim in claims if claim["entity"] == pointer["id"]]
+        try:
+            parsed = _amp._parse(_board.read_plan_text(plan_path))
+        except (_board.BoardError, OSError, UnicodeError):
+            continue
+        projected, issue = projected_claims(
+            pointer, pointer["project"], plan_path, parsed, local
+        )
+        if issue:
+            remote_failures.append((pointer, issue))
+            continue
+        known = {(claim["entity"], claim["row"]) for claim in claims}
+        claims.extend(
+            claim
+            for claim in projected
+            if claim.get("remote") and (claim["entity"], claim["row"]) not in known
+        )
+    for pointer, issue in remote_failures:
+        rows.append(
+            {
+                "project": pointer["project"],
+                "entity": pointer["id"],
+                "plan": _board.public_plan_locator(Path(pointer["plan"])),
+                "milestone": "remote claim discovery",
+                "id": pointer["resume"] or "UNKNOWN",
+                "text": f"UNKNOWN — {issue}",
+                "proof": "MISSING — retry when the configured origin can be read",
+                "thrown_at": None,
+                "return_by": None,
+                "by": None,
+                "dispatched": False,
+                "broken": True,
+                "stale": False,
+            }
+        )
+    for claim in claims:
         pointer = entities[claim["entity"]]
         plan_path = Path(pointer["plan"])
         project = pointer["project"]
@@ -544,7 +650,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--in-flight",
         action="store_true",
-        help="every root-board claim across this computer — the recovery view",
+        help="local claims and authenticated remote locks — the recovery view",
     )
     return result
 

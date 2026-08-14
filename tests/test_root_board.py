@@ -21,10 +21,17 @@ PROOF_SENTINEL = "PROOF-MUST-NOT-ENTER-THE-BOARD"
 HOT_PLAN_LIMIT = 256 * 1024
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import shadow_root_board as board_api  # noqa: E402
+from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
 
-def git(repo: Path, *args: str) -> None:
+
+def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> None:
     result = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, **env} if env else None,
     )
     if result.returncode:
         raise AssertionError(result.stderr)
@@ -38,6 +45,7 @@ def project(
     display_name: str | None = None,
     priority: int = 2,
     first_proof: str = f"cmd python3 -c \"print('{PROOF_SENTINEL}')\"",
+    commit_date: str | None = None,
 ) -> Path:
     repo = root / name
     repo.mkdir()
@@ -59,7 +67,22 @@ def project(
         encoding="utf-8",
     )
     git(repo, "add", "PLAN.md")
-    git(repo, "commit", "--quiet", "-m", "seed")
+    # `commit_date` pins the seed commit's date so a fixture that models two
+    # checkouts of ONE repository can give them the equal commit dates a real
+    # worktree or clone has. Left unset, the date is wall-clock and two
+    # sequentially seeded checkouts straddle a second boundary at random.
+    git(
+        repo,
+        "commit",
+        "--quiet",
+        "-m",
+        "seed",
+        env=(
+            {"GIT_AUTHOR_DATE": commit_date, "GIT_COMMITTER_DATE": commit_date}
+            if commit_date is not None
+            else None
+        ),
+    )
     return repo
 
 
@@ -90,6 +113,75 @@ def make_plan_over_budget(repo: Path) -> None:
         stream.write("\n<!-- " + ("x" * HOT_PLAN_LIMIT) + " -->\n")
     git(repo, "add", "PLAN.md")
     git(repo, "commit", "--quiet", "-m", "exceed the hot-plan byte budget")
+
+
+class PartitionedPlansUseOneLogicalReadBoundary(unittest.TestCase):
+    def test_committed_tree_materializes_the_same_authority_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes()
+            plan = install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+
+            snapshot = board_api.open_plan(plan)
+            token, content = board_api.committed_plan_snapshot(plan)
+
+            self.assertTrue(snapshot.is_tree)
+            self.assertEqual(board_api.read_plan_bytes(plan), source)
+            self.assertEqual(content, source)
+            self.assertEqual(token["relative"], "PLAN.md")
+
+    def test_tree_state_snapshot_grades_logical_plan_not_the_small_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes()
+            plan = install_plan_tree(repo, source)
+
+            state, content = board_api.plan_state_snapshot(plan)
+
+            self.assertRegex(state, r"^[0-9a-f]{64}$")
+            self.assertEqual(content, source)
+
+    def test_oversized_tree_is_refused_before_any_object_is_traversed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes() + b"\n<!-- " + b"x" * 8192 + b" -->\n"
+            plan = install_plan_tree(repo, source)
+            snapshot = board_api.open_plan(plan)
+            self.assertLess(len(snapshot.root_bytes), len(source))
+
+            with mock.patch.object(
+                board_api, "MAX_PLAN_BYTES", len(source) - 1
+            ), mock.patch.object(
+                board_api._plan_store.PlanSnapshot,
+                "materialize",
+                side_effect=AssertionError("oversized tree was traversed"),
+            ):
+                with self.assertRaisesRegex(
+                    board_api.BoardError, "plan exceeds the bounded size limit"
+                ):
+                    board_api.read_plan_bytes(plan)
+                state, content = board_api.plan_state_snapshot(plan)
+
+            self.assertRegex(state, r"^[0-9a-f]{64}$")
+            self.assertIsNone(content)
+
+    def test_dirty_tree_object_refuses_a_committed_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            source = (repo / "PLAN.md").read_bytes()
+            plan = install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+            object_path = next((repo / "PLAN.d" / "objects" / "sha256").glob("*/*"))
+            object_path.write_bytes(object_path.read_bytes() + b"dirty")
+
+            with self.assertRaisesRegex(
+                board_api.BoardError,
+                "project plan or its staged index changed",
+            ):
+                board_api.committed_plan_snapshot(plan)
 
 
 class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
@@ -2279,9 +2371,24 @@ class ImportExcludesGhostCopiesByConstruction(unittest.TestCase):
             portfolio = root / "portfolio"
             home.mkdir()
             portfolio.mkdir()
-            canonical = project(portfolio, name="shared", display_name="shared")
+            # A worktree carries the SAME commits as the checkout it came from,
+            # so both copies are seeded at one pinned date. Election ranks
+            # commit recency ABOVE the origin-name match, so leaving the dates
+            # to wall-clock time hands the identity to whichever copy happened
+            # to be committed in the later second -- measured: the stale
+            # duplicate wins whenever the two seed commits straddle a second
+            # boundary, which reddened one CI interpreter and not its siblings.
+            # Pinned equal, recency ties and the name match this test is about
+            # decides.
+            seeded = "2026-08-10T00:00:00+00:00"
+            canonical = project(
+                portfolio, name="shared", display_name="shared", commit_date=seeded
+            )
             duplicate = project(
-                portfolio, name="shared-worktree", display_name="stale-shared"
+                portfolio,
+                name="shared-worktree",
+                display_name="stale-shared",
+                commit_date=seeded,
             )
             remote = "git@example.invalid:team/shared.git"
             git(canonical, "remote", "add", "origin", remote)

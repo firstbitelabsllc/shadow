@@ -1,15 +1,19 @@
 # Installation
 
 Requirements: Git, Bash, Python 3.10+, and one supported native coding host.
-No Node, no npm, no package manager — the clone *is* the install, and
-`git pull` is the update.
+No Node, no npm, no package manager — the stable release clone *is* the install.
 
 ```bash
-git clone https://github.com/firstbitelabsllc/shadow.git
+git clone --branch shadow-v1.0.1 --depth 1 \
+  https://github.com/firstbitelabsllc/shadow.git
 cd shadow
 bash install.sh
 shadow doctor
 ```
+
+The namespaced tag is immutable. To update, read GitHub Latest, fetch tags,
+check out its exact `shadow-v*` tag, and rerun `bash install.sh`. Clone `main`
+only when you deliberately want moving development source.
 
 `install.sh` links `bin/shadow` into `~/.local/bin` and mounts the skill in
 every host root that already exists (`~/.claude/skills`, `~/.agents/skills`,

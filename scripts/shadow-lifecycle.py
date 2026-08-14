@@ -25,24 +25,26 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_plan_grammar as _grammar  # noqa: E402
+import shadow_plan_store as _plan_store  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
 MAX_TASK_ROWS = _board.HOT_PLAN_MAX_TASK_ROWS
 MAX_MILESTONES = _board.HOT_PLAN_MAX_MILESTONES
-ROW_RE = re.compile(
-    r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
-    r"(?P<text>.+?) (?P<id>~[0-9a-z]{4})(?P<dod> \(DoD\))?"
-    r"(?P<tail>(?: \| [a-z]+:.*)?)$"
-)
-ROW_LOOSE_RE = re.compile(r"^- \[[^\]]*\] ")
-FIELD_RE = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
-HASH_RE = re.compile(r"~[0-9a-z]{4}\b")
-PROOF_LINE_RE = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
+ROW_RE = _grammar.ROW_RE
+ROW_LOOSE_RE = _grammar.ROW_LOOSE_RE
+FIELD_RE = _grammar.FIELD_RE
+HASH_RE = _grammar.HASH_RE
+PROOF_LINE_RE = _grammar.PROOF_LINE_RE
+PROOF_CLASS_RE = _grammar.PROOF_CLASS_RE
 STAMP_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ", re.MULTILINE)
+# A machine-local authority is content-addressed, not commit-addressed:
+# `frozen_plan_snapshot` stamps its head as `local:<sha256>`. The reader must
+# accept that shape or lifecycle mints receipts its own parser rejects.
 TOMBSTONE_RE_TEMPLATE = (
     r"<!-- shadow:lifecycle:{slug}:sha256:(?P<digest>[0-9a-f]{{64}}):"
-    r"cas:(?P<cas>[0-9a-f]{{64}}):head:(?P<head>[0-9a-f]{{40,64}}):"
+    r"cas:(?P<cas>[0-9a-f]{{64}}):head:(?P<head>(?:local:)?[0-9a-f]{{40,64}}):"
     r"blob:(?P<blob>[0-9a-f]{{40,64}}):"
     r"successor:(?P<successor>~[0-9a-z]{{4}}|none) -->"
 )
@@ -227,15 +229,25 @@ def progress_items(lines: list[str]) -> list[tuple[int, int, str]]:
         (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
         len(lines),
     )
-    bullets = [index for index in range(start, end) if lines[index].startswith("- ")]
-    return [
-        (
-            item_start,
-            bullets[position + 1] if position + 1 < len(bullets) else end,
-            "".join(lines[item_start : bullets[position + 1] if position + 1 < len(bullets) else end]),
-        )
-        for position, item_start in enumerate(bullets)
+    # A receipt owns its bullet plus the blank and INDENTED continuation lines
+    # under it, and nothing else. Any other top-level line — the next bullet, a
+    # nested heading, a closing paragraph — starts content this receipt does not
+    # own. The last receipt is bounded the same way instead of running to the
+    # end of the section, which at EOF swallowed unrelated trailing prose into
+    # the archive and deleted it from the live plan.
+    boundaries = [
+        index
+        for index in range(start, end)
+        if lines[index].startswith("- ")
+        or (lines[index].strip() and not lines[index][:1].isspace())
     ]
+    items: list[tuple[int, int, str]] = []
+    for position, index in enumerate(boundaries):
+        if not lines[index].startswith("- "):
+            continue
+        stop = boundaries[position + 1] if position + 1 < len(boundaries) else end
+        items.append((index, stop, "".join(lines[index:stop])))
+    return items
 
 
 def validate_milestone(
@@ -254,15 +266,25 @@ def validate_milestone(
         raise LifecycleError("milestone is not fully completed")
     for row in rows:
         proof = row["fields"].get("proof", "").strip()  # type: ignore[union-attr]
-        if re.match(r"^(?:cmd|read|gate) \S", proof) is None:
+        if PROOF_CLASS_RE.match(proof) is None:
             raise LifecycleError(f"{row['id']} has no typed proof")
 
-    all_ids = {
+    # Row ids are the only key the shared-receipt guard and the dependency fold
+    # have. A duplicate id makes the archiving row its own alias: `all_ids - ids`
+    # cannot see the live twin, so its receipt reads as exclusive and moves out
+    # of the plan, and fold_dependencies strips a still-live `needs:`. Refuse the
+    # whole archive while the plan is ambiguous.
+    plan_ids = [
         match.group("id")
         for line in lines
         if (match := ROW_RE.match(line.rstrip("\r\n")))
-    }
+    ]
+    duplicates = sorted({row_id for row_id in plan_ids if plan_ids.count(row_id) > 1})
+    if duplicates:
+        raise LifecycleError("plan has duplicate task ids: " + ", ".join(duplicates))
+    all_ids = set(plan_ids)
     selected = []
+    shared: list[str] = []
     proven: set[str] = set()
     for start, end, item in progress_items(lines):
         refs = set(HASH_RE.findall(item))
@@ -270,9 +292,18 @@ def validate_milestone(
             continue
         foreign = refs.intersection(all_ids - ids)
         if foreign:
-            raise LifecycleError(
-                "a Progress receipt is shared with a live task: " + ", ".join(sorted(foreign))
-            )
+            # A receipt naming BOTH an archiving row and a live one is live
+            # provenance: moving it would strand the live row's history in an
+            # archive file. It STAYS in the hot plan and the milestone still
+            # archives — refusing the whole archive instead made the byte
+            # ceiling unreachable, because every completed milestone here
+            # shares at least one receipt with live work (measured
+            # 2026-08-11: eight of eight refused).
+            shared.append(", ".join(sorted(foreign)))
+            for line in item.splitlines():
+                if match := PROOF_LINE_RE.match(line):
+                    proven.add(match.group("id"))
+            continue
         selected.append((start, end, item))
         for line in item.splitlines():
             if match := PROOF_LINE_RE.match(line):
@@ -280,7 +311,7 @@ def validate_milestone(
     missing = sorted(ids - proven)
     if missing:
         raise LifecycleError("completed milestone lacks PROOF receipts: " + ", ".join(missing))
-    return ids, selected
+    return ids, selected, shared
 
 
 def fold_dependencies(line: str, archived_ids: set[str]) -> tuple[str, int]:
@@ -359,10 +390,19 @@ def archive_candidate(
             raise LifecycleError("milestone heading is ambiguous")
         raise LifecycleError("milestone was not found in the live Tasks section")
     milestone = matching[0]
-    archived_ids, receipts = validate_milestone(milestone, lines)
+    archived_ids, receipts, shared = validate_milestone(milestone, lines)
     slug = safe_slug(wanted)
     block = "".join(lines[milestone.start : milestone.end])
     receipt_text = "".join(item for _, _, item in receipts)
+    # Receipts this milestone shares with still-live rows are NOT moved; the
+    # archive names them so a cold reader knows where the rest of the story is.
+    shared_note = (
+        "## Receipts left in the live plan\n\n"
+        + "".join(f"- shared with live task(s): {entry}\n" for entry in shared)
+        + "\n"
+        if shared
+        else ""
+    )
     archive_body = (
         f"# Archived milestone: {slug}\n\n"
         "Source: `PLAN.md`\n\n"
@@ -370,6 +410,7 @@ def archive_candidate(
         f"{block}"
         "## Exact Progress receipts\n\n"
         f"{receipt_text}"
+        f"{shared_note}"
     )
     if not archive_body.endswith("\n"):
         archive_body += "\n"
@@ -432,6 +473,7 @@ def archive_candidate(
         "archive": archive,
         "ids": sorted(archived_ids),
         "receipt_count": len(receipts),
+        "shared_receipts_kept": len(shared),
         "dependency_folds": dependency_folds,
         "successor": successor,
         "successor_row": successor_row,
@@ -549,8 +591,8 @@ def atomic_write(path: Path, payload: bytes, mode: int = 0o644) -> None:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
             stream.flush()
-            os.fsync(stream.fileno())
             os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
         os.replace(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY)
         try:
@@ -564,13 +606,51 @@ def atomic_write(path: Path, payload: bytes, mode: int = 0o644) -> None:
             pass
 
 
+def replace_plan(
+    plan: Path,
+    payload: bytes,
+    mode: int,
+) -> _plan_store.PublishReceipt | None:
+    try:
+        snapshot = _board.open_plan(plan)
+        if snapshot.is_tree:
+            return (
+                _plan_store.PlanTransaction.begin(
+                    plan,
+                    expected_root=snapshot.root_sha256,
+                )
+                .replace_content(payload)
+                .publish()
+            )
+    except (_board.BoardError, _plan_store.PlanStoreError) as exc:
+        raise LifecycleError(f"partitioned plan could not be replaced: {exc}") from exc
+    atomic_write(plan, payload, mode)
+    return None
+
+
+def restore_plan(
+    plan: Path,
+    original: bytes,
+    mode: int,
+    publication: _plan_store.PublishReceipt | None,
+) -> None:
+    if publication is None:
+        atomic_write(plan, original, mode)
+        return
+    try:
+        _plan_store.rollback(plan, expected_root=publication.root_sha256)
+        _plan_store.discard_unreachable(plan, publication.new_objects)
+    except _plan_store.PlanStoreError as exc:
+        raise LifecycleError("partitioned plan rollback failed") from exc
+
+
 def committed_snapshot(repo_value: Path) -> tuple[Path, Path, dict[str, str], str]:
     expanded = repo_value.expanduser()
     if expanded.is_symlink():
         raise LifecycleError("repository path must not be a symlink")
     plan = expanded.resolve() / "PLAN.md"
     try:
-        token, payload = _board.committed_plan_snapshot(plan)
+        token, payload = _board.frozen_plan_snapshot(plan)
     except _board.BoardError as exc:
         raise LifecycleError(str(exc)) from None
     repo = Path(token["repo"]).resolve()
@@ -601,7 +681,20 @@ def commit_archive_candidate(
     archive_relative: Path,
     slug: str,
 ) -> str:
-    git(repo, "add", "--", plan_relative.as_posix(), archive_relative.as_posix())
+    if _board.is_local_plan(repo / plan_relative):
+        # A machine-local authority is never committed, so the archive is
+        # finished by the atomic writes the caller already made. Its identity
+        # is the same content address `frozen_plan_snapshot` stamps, which is
+        # what the tombstone reader expects to find in the head field.
+        digest = hashlib.sha256(_board.read_plan_bytes(repo / plan_relative)).hexdigest()
+        return f"local:{digest}"
+    pathspecs = [plan_relative.as_posix(), archive_relative.as_posix()]
+    try:
+        if _board.open_plan(repo / plan_relative).is_tree:
+            pathspecs.append((plan_relative.parent / "PLAN.d").as_posix())
+    except _board.BoardError as exc:
+        raise LifecycleError(str(exc)) from None
+    git(repo, "add", "--", *pathspecs)
     git(
         repo,
         "-c",
@@ -624,8 +717,7 @@ def commit_archive_candidate(
         "-m",
         f"shadow: archive milestone {slug}",
         "--",
-        plan_relative.as_posix(),
-        archive_relative.as_posix(),
+        *pathspecs,
     )
     return git(repo, "rev-parse", "HEAD").stdout.strip()
 
@@ -729,7 +821,7 @@ def claim_successor(plan: Path, owner: str, target_row: str | None) -> dict:
     amp = amp_module()
     try:
         reconcile_portfolio(plan.parent, amp, home=Path.home())
-        token, payload = _board.committed_plan_snapshot(plan)
+        token, payload = _board.frozen_plan_snapshot(plan)
         text = payload.decode("utf-8")
         parsed = amp._parse(text)
         unclean = amp.unclean_note(parsed)
@@ -1732,6 +1824,7 @@ def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
             "milestone": wanted,
             "archive": str(archive_path),
             "receipt_count": candidate["receipt_count"],
+            "shared_receipts_kept": candidate["shared_receipts_kept"],
             "dependency_folds": candidate["dependency_folds"],
             "successor": candidate["successor"],
             "successor_row": candidate["successor_row"],
@@ -1796,9 +1889,14 @@ def apply_locked(
     original = plan.read_bytes()
     plan_mode = stat.S_IMODE(plan.stat().st_mode)
     parent_existed = archive_path.parent.exists()
+    publication: _plan_store.PublishReceipt | None = None
     try:
         atomic_write(archive_path, candidate["archive"].encode("utf-8"))
-        atomic_write(plan, candidate["plan"].encode("utf-8"), plan_mode)
+        publication = replace_plan(
+            plan,
+            candidate["plan"].encode("utf-8"),
+            plan_mode,
+        )
         commit = commit_archive_candidate(
             repo,
             plan_relative,
@@ -1806,28 +1904,19 @@ def apply_locked(
             candidate["slug"],
         )
     except (OSError, LifecycleError):
-        atomic_write(plan, original, plan_mode)
+        restore_plan(plan, original, plan_mode, publication)
         try:
             archive_path.unlink()
         except FileNotFoundError:
             pass
+        reset_paths = [plan_relative.as_posix(), archive_relative.as_posix()]
+        try:
+            if _board.open_plan(plan).is_tree:
+                reset_paths.append((plan_relative.parent / "PLAN.d").as_posix())
+        except _board.BoardError:
+            pass
         subprocess.run(
-            ["git", "-C", str(repo), "add", "--", plan_relative.as_posix()],
-            capture_output=True,
-            check=False,
-        )
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo),
-                "rm",
-                "--cached",
-                "--quiet",
-                "--ignore-unmatch",
-                "--",
-                archive_relative.as_posix(),
-            ],
+            ["git", "-C", str(repo), "reset", "--quiet", "HEAD", "--", *reset_paths],
             capture_output=True,
             check=False,
         )

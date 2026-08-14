@@ -42,18 +42,19 @@ project view is the grep across them.
 
 ## Plan location
 
-**Each entity's `PLAN.md` owns its milestone/checkpoint rows, proof, and
-evidence.** The computer authority is the local Git repository at `~/.shadow`.
+**Each infrastructure entity's local `PLAN.md` owns its milestone/checkpoint
+rows, proof, and evidence.** The computer authority is the private local
+directory at `~/.shadow`.
 Its `board.json` groups entities under projects and owns global project
 priority, claims/owners, entity pointers, and exactly one resume checkpoint id
 per entity. It never stores checkpoint text, proof, milestone detail, or
 evidence.
 
-The local file wins immediately. A private remote may be pushed separately as
-optional asynchronous recovery and may lag; it never gates or overrides a
-local write. Same-computer writers serialize a fresh read, decision, atomic
-replace, and local Git receipt under one advisory lock. Process death releases
-the lock; readers see either the complete old file or the complete new file.
+The local file wins immediately. Same-computer writers serialize a fresh read,
+decision, and atomic replace under one advisory lock. A private Git journal
+records `board.json` for recovery only; its ignore rules exclude all plans and
+archives. Process death releases the lock; readers see either the complete old
+file or the complete new file.
 
 Every claim records `claimed_at`, `return_by`, and the fixed recovery action:
 probe its proof, then adopt, park with one wake, or close it. Staleness is
@@ -73,10 +74,10 @@ grammar-clean, and otherwise healthy. Its self-demotion banner still retires
 the identity. If the registered pointer breaks or aliases multiply, no
 suppression applies: the candidate follows the ordinary fail-closed path.
 
-Discovery may show a plain-directory plan as read-only material, but actionable
-entities are Git-backed: claim, proof, acceptance, publication, and durable
-logical identity require a committed plan snapshot. A missing or unreadable Git
-context fails closed instead of silently changing identity to a local path.
+Discovery may show a source-bound product plan as read-only material. The
+actionable operational authority is the local plan below `~/.shadow/plans/`;
+claim, proof, and durable identity never require a commit merely to preserve a
+queue. A missing or unreadable local authority fails closed.
 
 A repository may declare additional plan locations in its root plan, as **one**
 Brief line carrying at most **three** comma-separated globs:
@@ -137,6 +138,12 @@ plan.
 - State ∈ `pending | in_progress | blocked | completed`.
 - IDs are four base36 chars (`~ab12`), unique per plan, stable across
   reordering; on a mint collision, re-mint. References always use the hash.
+- A migrated plan may preserve one old mnemonic such as `P9a~formats` at the
+  head of the row text, but the canonical four-character id still appears at
+  the row tail and remains the only board, dependency, proof, and remote-lock
+  address. `shadow throw --task P9a~formats` resolves that exact, unique text
+  alias to the row's canonical id before any claim; an unmapped or duplicate
+  alias refuses. Amp and accept continue with the canonical id from the packet.
 - Proof classes: `cmd <runnable>` (machine-rerunnable), `read <artifact/url
   -> expected observation>` (a human or agent re-reads the real surface), or
   `gate <owner> resume: <predicate>` (person-gated; closes agent-side with a
@@ -175,17 +182,56 @@ persisted claim and is told its owner. `shadow status --in-flight` joins the
 pointer back to entity text and proof at read time. Liveness is never asserted
 —probe the entity-owned proof, never a process.
 
-**Claim-safety scope — per computer, in plain terms.** The one-winner
-guarantee above is enforced by this computer's board under its advisory lock,
-so it holds between seats ON ONE MACHINE. Across two computers there is no
-shared lock: each machine's board takes its own claim, and the two collide
-only when their PLAN.md commits meet at push/merge time — after the work has
-already been done twice. A fleet that spans more than one computer can
-double-claim one checkpoint today, and nothing tells either loser until the
-push race. This is a stated boundary, not a bug: cross-computer claim
-serialization gets its own protocol row the moment a real fleet spans two
-machines working one entity — until then, keep one entity's claims on one
-computer.
+**Claim-safety scope.** The computer board remains the local authority for
+project priority, entity pointers, claims, owners, leases, and resume. The
+local entity `PLAN.md` remains the only authority for milestone and task text,
+state, dependencies, proof, and Progress evidence. A remote claim ref is
+only a bounded cross-computer coordination lock. It cannot rank work, supply a
+task or proof, flip a row, or replace either authority.
+
+Remote locking opts in only when the checkout's current branch configuration
+names remote `origin` and a `refs/heads/` merge target. It does not require a
+locally materialized remote-tracking ref. With no such configured `origin`
+upstream, `shadow throw` keeps the local-only per-computer behavior above and
+performs no network write. In the opted-in case, the one conventional lock is
+`refs/heads/shadow/claims/v1/<entity-id>/<row-id-without-tilde>`. Shadow first
+takes the exact local board claim, then creates that ref or compare-and-swaps
+its observed tip, and emits the work packet only after the intended acquired
+tip is confirmed. The source-backed product claim names the exact source plan
+without updating the tracked upstream or protected trunk.
+
+The ref is an append-only acquired/released/completed lifecycle. Public verbs
+never delete it and never reuse an absent name after a tombstone. `shadow
+return` appends the released tombstone before releasing the exact local claim;
+a later throw appends a new acquired child. `--adopt-expired` takes an exact
+local claim, verifies the observed remote `return_by` is overdue, and CASes a
+new acquired child rather than overwriting history. `shadow accept` commits and
+publishes the paired PLAN completion first, appends the completed tombstone,
+and then releases the exact local claim. For a remotely coordinated claim,
+`shadow accept --no-push` deliberately retains the local claim and acquired
+remote lock: other computers cannot be told completion is durable when the
+completed PLAN was not published.
+
+Ordinary `shadow status` derives the exact conventional refs only for the
+bounded row ids in each registered local PLAN, authenticates their receipt and
+named PLAN source, and projects active owners without writing them into the
+computer board. It never scans arbitrary remote branches. An unavailable or
+unauthenticated remote observation makes that entity status unknown instead of
+calling the row reachable; retry when the configured origin can be read.
+
+Every remote transition is create/CAS against one expected object id. After a
+nonzero, timeout, or disconnected result, Shadow reads the exact ref again:
+the intended object is success, the unchanged predecessor is confirmed
+failure, and another valid object is a lost race. If the tip cannot be read and
+validated, the result is ambiguous: no packet is emitted and the exact local
+claim is retained for an idempotent retry. A confirmed loss or confirmed
+failure compensates only the exact local claim created by that attempt.
+
+The configured Git server must allow the caller to create and fast-forward-CAS
+the `shadow/claims/v1/` branch namespace. A protected `main` stays protected;
+repositories whose ruleset blocks the coordination namespace fail closed and
+emit no packet. Granting this narrow ref permission grants no permission to
+update the tracked branch and does not make the ref a project queue.
 
 Historical `THROWN` lines, if present in an imported plan, are provenance only
 and never own live claims or resume selection. Each logical entity consumes

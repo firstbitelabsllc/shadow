@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.0.1 — 2026-08-11 — specific goals start with the right skills
+
+- The one standing Shadow goal remains unchanged and skill-free.
+- A specific generated goal now ends with `Skills:` naming the best one to four
+  available canonical skills for its actual work. Plugin-qualified names are
+  preferred; stale paths, conflicts, unavailable skills, and broad rosters are
+  excluded.
+- The entity `PLAN.md` still owns the complete tool surface and fallbacks, so
+  the launcher stays a bounded pointer rather than becoming a second plan.
+
+## 1.0.0 — 2026-08-11 — durable work from intent to successor
+
+This is the source candidate for Shadow 1.0. It does not by itself claim a
+public tag, GitHub Release, Latest promotion, directory listing, or completed
+live dogfood receipt.
+
+- One private Git-backed computer board selects projects and records entity
+  pointers, priorities, claims, owners, leases, and resume. Each project's
+  committed `PLAN.md` remains the sole authority for task detail and proof.
+- `shadow status`, `throw`, `amp`, `return`, and `accept` form one bounded loop:
+  select work, claim before dispatch, emit an owned execution capsule, prove
+  the result in a clean checkout, release ownership, and expose the successor.
+- Interrupted chats and independent seats recover through durable local claim
+  receipts. Opted-in Git remotes add an append-only coordination lock so a
+  protected project does not dispatch the same row on two computers.
+- The Git archive, native CLI, Claude and Codex plugin manifests, standing
+  goal, and stranger install share one release identity. Public release proof
+  remains a separate annotated `shadow-v1.0.0` tag at the exact published
+  commit.
+
 ## 0.2.0 — 2026-08-10 — one computer board, project plan shards
 
 Shadow now coordinates the whole computer without turning the root into a

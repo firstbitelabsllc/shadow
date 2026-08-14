@@ -8,11 +8,14 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest import mock
+
+from tests.plan_tree_fixture import install_plan_tree
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -267,10 +270,21 @@ def run(
     *args: str,
     extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict]:
+    # HOME defaults to a scratch directory beside the fixture repo, never the
+    # operator's. A lifecycle verb that claims or registers (any --apply --by)
+    # writes to $HOME/.shadow, so inheriting the real HOME wrote test-fixture
+    # claims onto the operator's live board — measured twice on 2026-08-11,
+    # both times corrupting the real board with temp-path entities. Tests that
+    # need a specific HOME still pass one through extra_env.
+    env = {**os.environ, **(extra_env or {})}
+    if "HOME" not in (extra_env or {}):
+        scratch = repo.parent / "test-home"
+        scratch.mkdir(parents=True, exist_ok=True)
+        env["HOME"] = str(scratch)
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--repo", str(repo), *args, "--json"],
         cwd=repo,
-        env={**os.environ, **(extra_env or {})},
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -367,6 +381,157 @@ def apply_with_cas(
         extra_env=env,
     )
     return result, report, cas
+
+
+class ASharedReceiptStaysLiveInsteadOfBlockingTheArchive(unittest.TestCase):
+    """A receipt naming BOTH an archiving row and a live one is live
+    provenance: it must STAY in the hot plan, and the milestone must still
+    archive. Refusing the whole archive made the byte ceiling unreachable —
+    measured 2026-08-11 on Shadow's own plan, where all eight completed
+    milestones refused for exactly this reason while the plan sat at its
+    256 KiB limit with no legal way to shrink.
+    """
+
+    SHARED_PLAN = PLAN.replace(
+        "- 2026-08-10T00:02:00Z NOTE unrelated history remains live\n",
+        "- 2026-08-10T00:02:00Z NOTE ~bb22 groundwork is what ~cc33 builds on\n"
+        "- 2026-08-10T00:03:00Z NOTE unrelated history remains live\n",
+    )
+
+    def test_the_milestone_archives_and_the_shared_receipt_stays(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, self.SHARED_PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+            self.assertEqual(preview.get("shared_receipts_kept"), 1, preview)
+            # Two exclusive receipts move; the shared one is kept back.
+            self.assertEqual(preview.get("receipt_count"), 2, preview)
+            applied = run(repo, "--milestone", "Finished work", "--apply",
+                          "--expect", preview["cas"], "--by", "seat-a")[1]
+            self.assertEqual(applied.get("action"), "archived", applied)
+            live = (repo / "PLAN.md").read_text(encoding="utf-8")
+            # The shared receipt stays where the live row can still read it.
+            self.assertIn("~bb22 groundwork is what ~cc33 builds on", live)
+            # The exclusive receipt left with the milestone.
+            self.assertNotIn("~aa11 PROOF true -> pass", live)
+            archive = (repo / "docs" / "plan-archive" / "finished-work.md").read_text(encoding="utf-8")
+            self.assertIn("Receipts left in the live plan", archive)
+            self.assertIn("~cc33", archive)
+
+    def test_an_exclusive_only_milestone_still_moves_every_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+            self.assertEqual(preview.get("shared_receipts_kept"), 0, preview)
+            applied = run(repo, "--milestone", "Finished work", "--apply",
+                          "--expect", preview["cas"], "--by", "seat-a")[1]
+            self.assertEqual(applied.get("action"), "archived", applied)
+            archive = (repo / "docs" / "plan-archive" / "finished-work.md").read_text(encoding="utf-8")
+            self.assertNotIn("Receipts left in the live plan", archive)
+
+
+class TestsNeverWriteToTheOperatorsBoard(unittest.TestCase):
+    """A lifecycle verb that claims or registers writes to $HOME/.shadow. If a
+    test inherits the operator's real HOME, its fixture claims land on the
+    operator's LIVE board — measured twice on 2026-08-11, both times leaving
+    temp-path entities that made `shadow status` refuse to load. The helper
+    must supply a scratch HOME by default so no future test can do it.
+    """
+
+    def test_the_helper_never_hands_a_verb_the_real_home(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            real_home = Path(os.environ["HOME"]).resolve()
+            before = (real_home / ".shadow" / "board.json")
+            stamp = before.read_bytes() if before.exists() else None
+            preview = run(repo, "--milestone", "Finished work")[1]
+            run(repo, "--milestone", "Finished work", "--apply",
+                "--expect", preview["cas"], "--by", "leak-canary")
+            after = before.read_bytes() if before.exists() else None
+            self.assertEqual(after, stamp,
+                             "a lifecycle test mutated the operator's real board")
+            scratch_board = repo.parent / "test-home" / ".shadow"
+            self.assertTrue(scratch_board.exists(),
+                            "the verb did not write to the scratch HOME either — check the helper")
+
+
+class ADuplicateRowIdCannotDefeatTheArchiveGuards(unittest.TestCase):
+    """The shared-receipt guard and the dependency fold both key on row id.
+    A duplicate id — the same `~xxxx` on an archiving row AND a live one —
+    makes the archiving id its own alias: the receipt naming the live row
+    reads as exclusive and moves out of the plan, and `fold_dependencies`
+    strips a still-live `needs:` that points at the live twin. Uniqueness is
+    asserted across the WHOLE plan before anything is archived.
+    """
+
+    # ~aa11 now names both an archiving row and a live one.
+    DUPLICATE_PLAN = PLAN.replace(
+        "- [pending] next result starts ~cc33 | proof: cmd true | needs: ~bb22\n"
+        "- [pending] next result is accepted ~dd44 (DoD) | proof: cmd true | needs: ~cc33\n",
+        "- [pending] next result starts ~aa11 | proof: cmd true | needs: ~bb22\n"
+        "- [pending] next result is accepted ~dd44 (DoD) | proof: cmd true | needs: ~aa11\n",
+    )
+
+    def test_a_duplicate_id_refuses_the_archive_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname), self.DUPLICATE_PLAN)
+            before = (repo / "PLAN.md").read_bytes()
+            head = git(repo, "rev-parse", "HEAD")
+
+            result, report = run(repo, "--milestone", "Finished work")
+
+            self.assertEqual(result.returncode, 1, report)
+            self.assertIn("duplicate", report["error"])
+            self.assertIn("~aa11", report["error"])
+            self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+
+    def test_a_unique_plan_still_archives(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname), PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+
+
+class AnArchivedReceiptRangeStopsAtTheNextBullet(unittest.TestCase):
+    """The last receipt in the Progress section owns its own continuation
+    lines only. Trailing non-bullet prose after it belongs to the live plan,
+    not to whichever milestone happens to archive next; running that range to
+    EOF silently moved unrelated content into an archive file.
+    """
+
+    TRAILING_PLAN = PLAN.replace(
+        "- 2026-08-10T00:01:00Z ~bb22 PROOF true -> pass\n"
+        "- 2026-08-10T00:02:00Z NOTE unrelated history remains live\n",
+        "- 2026-08-10T00:02:00Z NOTE unrelated history remains live\n"
+        "- 2026-08-10T00:01:00Z ~bb22 PROOF true -> pass\n"
+        "  exact accepted-result detail remains attached\n"
+        "\n"
+        "Receipts above are UTC; this closing note belongs to the live plan.\n",
+    )
+
+    def test_trailing_prose_after_the_last_receipt_stays_live(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname), self.TRAILING_PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+            applied = run(repo, "--milestone", "Finished work", "--apply",
+                          "--expect", preview["cas"], "--by", "seat-a")[1]
+            self.assertEqual(applied.get("action"), "archived", applied)
+
+            live = (repo / "PLAN.md").read_text(encoding="utf-8")
+            archive = (
+                repo / "docs" / "plan-archive" / "finished-work.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("this closing note belongs to the live plan", live)
+            self.assertNotIn("this closing note belongs to the live plan", archive)
+            # The receipt itself, and its own indented continuation, still move.
+            self.assertNotIn("~bb22 PROOF true -> pass", live)
+            self.assertIn("exact accepted-result detail remains attached", archive)
 
 
 class BudgetsAreEnforced(unittest.TestCase):
@@ -509,7 +674,66 @@ class RetirementManifestSchemaMatchesRuntime(unittest.TestCase):
         )
 
 
+class AtomicWritesAreDurable(unittest.TestCase):
+    def test_lifecycle_fsyncs_the_final_mode_before_replacing(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            destination = Path(dirname) / "archive.md"
+            observed: list[tuple[str, int]] = []
+            real_fchmod = os.fchmod
+            real_fsync = os.fsync
+
+            def fchmod(fd: int, mode: int) -> None:
+                observed.append(("fchmod", mode))
+                real_fchmod(fd, mode)
+
+            def fsync(fd: int) -> None:
+                observed.append(("fsync", stat.S_IMODE(os.fstat(fd).st_mode)))
+                real_fsync(fd)
+
+            with (
+                mock.patch.object(lifecycle.os, "fchmod", side_effect=fchmod),
+                mock.patch.object(lifecycle.os, "fsync", side_effect=fsync),
+            ):
+                lifecycle.atomic_write(destination, b"archive\n", 0o640)
+        self.assertLess(
+            next(index for index, item in enumerate(observed) if item[0] == "fchmod"),
+            next(index for index, item in enumerate(observed) if item == ("fsync", 0o640)),
+        )
+
+
 class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
+    def test_apply_commits_a_partitioned_plan_root_objects_and_archive_together(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname))
+            source = (repo / "PLAN.md").read_bytes()
+            install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+            before_head = git(repo, "rev-parse", "HEAD")
+
+            _, preview, cas = preview_cas(repo, "--milestone", "Finished work")
+            result, report, _ = apply_with_cas(
+                repo,
+                "--milestone",
+                "Finished work",
+                cas=cas,
+            )
+
+            self.assertEqual(result.returncode, 0, (result.stderr, report))
+            self.assertEqual(report["action"], "archived")
+            self.assertNotEqual(git(repo, "rev-parse", "HEAD"), before_head)
+            self.assertEqual(git(repo, "status", "--porcelain=v1"), "")
+            self.assertTrue(lifecycle._board.open_plan(repo / "PLAN.md").is_tree)
+            logical = lifecycle._board.read_plan_text(repo / "PLAN.md")
+            self.assertIn("shadow:lifecycle:finished-work", logical)
+            self.assertNotIn("first result exists ~aa11", logical)
+            changed = set(
+                git(repo, "show", "--pretty=", "--name-only", "HEAD").splitlines()
+            )
+            self.assertIn("PLAN.md", changed)
+            self.assertIn("docs/plan-archive/finished-work.md", changed)
+            self.assertTrue(any(path.startswith("PLAN.d/objects/sha256/") for path in changed))
+
     def test_exact_cas_recovers_each_atomic_archive_half_state(self) -> None:
         for crash_after in (1, 2):
             with (

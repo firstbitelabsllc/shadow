@@ -44,23 +44,29 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     )),
     (("scripts/shadow-status.py", "scripts/shadow-priority.py"), (
         "tests.test_status_focus", "tests.test_root_board", "tests.test_browser",
+        "tests.test_throw",
     )),
     (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_throw", "tests.test_status_focus")),
-    (("scripts/shadow-throw.py",), (
+    (("scripts/shadow-throw.py", "scripts/shadow_remote_claim.py"), (
         "tests.test_throw", "tests.test_root_board", "tests.test_gauntlet",
-        "tests.test_telemetry",
+        "tests.test_telemetry", "tests.test_return", "tests.test_shadow_accept",
     )),
     (("scripts/shadow-return.py",), ("tests.test_return", "tests.test_root_board", "tests.test_amp")),
     (("scripts/shadow-accept.py",), ("tests.test_shadow_accept", "tests.test_gauntlet", "tests.test_root_board")),
     (("scripts/shadow-lifecycle.py", "schemas/retirement-manifest.v1.json"), (
         "tests.test_lifecycle", "tests.test_root_board", "tests.test_status_focus",
     )),
+    (("scripts/shadow-brief.py",), ("tests.test_shadow_brief",)),
     (("browser/", "bin/shadow-browse"), (
         "tests.test_browser", "tests.test_browser_shell", "tests.test_status_focus",
         "tests.test_root_board", "tests.test_config_defaults",
     )),
     (("scripts/shadow-lint.py", "scripts/shadow_task_lib.py", "scripts/shadow-init.py"), (
         "tests.test_shadow_lint", "tests.test_shadow_init", "tests.test_grammar_contract",
+    )),
+    (("scripts/shadow_plan_grammar.py",), (
+        "tests.test_shadow_lint", "tests.test_shadow_accept", "tests.test_amp",
+        "tests.test_lifecycle", "tests.test_root_board", "tests.test_grammar_contract",
     )),
     (("install.sh", "scripts/shadow-doctor.py", "scripts/shadow-host-directives.py", "scripts/shadow-verify-host.sh"), (
         "tests.test_install_doctor", "tests.test_host_directives", "tests.test_verify_host",
@@ -103,6 +109,7 @@ RELEASE_PATHS = (
     "scripts/shadow-verify-two-seat.py",
     "scripts/shadow_process_lib.py",
     "scripts/shadow_telemetry.py",
+    "scripts/shadow_remote_claim.py",
     ".github/workflows/ci.yml",
     "scripts/shadow-release-package.py",
     "schemas/retirement-manifest.v1.json",
@@ -235,19 +242,36 @@ def pressure_decision(values: Mapping[str, str]) -> tuple[bool, str]:
 
 def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str, str]:
     """Accepted-change pressure since the newest reachable release tag."""
-    tag = subprocess.run(
-        ["git", "-C", str(root), "describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
+    baseline = ""
+    for describe in (
+        ["describe", "--match", "shadow-v[0-9]*.[0-9]*.[0-9]*", "--abbrev=0"],
+        ["describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
+    ):
+        tag = subprocess.run(
+            ["git", "-C", str(root), *describe],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        baseline = tag.stdout.strip()
+        if not tag.returncode and baseline:
+            break
+    if not baseline:
+        return {
+            "ACCEPTED_CHANGE_COUNT": "0", "OLDEST_ACCEPTED_CHANGE_HOURS": "0",
+            "SEVERITY": "none", "RELEASE_RISK": "none",
+            "RELEASE_BASELINE": "", "RELEASE_BASELINE_COMMIT": "",
+        }
+    baseline_commit = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", f"{baseline}^{{commit}}"],
         capture_output=True,
         text=True,
         timeout=15,
         check=False,
     )
-    baseline = tag.stdout.strip()
-    if tag.returncode or not baseline:
-        return {
-            "ACCEPTED_CHANGE_COUNT": "0", "OLDEST_ACCEPTED_CHANGE_HOURS": "0",
-            "SEVERITY": "none", "RELEASE_RISK": "none",
-        }
+    if baseline_commit.returncode or not baseline_commit.stdout.strip():
+        raise ValueError("release-pressure baseline commit is unreadable")
     log = subprocess.run(
         [
             "git", "-C", str(root), "log", "--no-merges", "--max-count=1001",
@@ -270,6 +294,8 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
         return {
             "ACCEPTED_CHANGE_COUNT": "0", "OLDEST_ACCEPTED_CHANGE_HOURS": "0",
             "SEVERITY": "none", "RELEASE_RISK": "none",
+            "RELEASE_BASELINE": baseline,
+            "RELEASE_BASELINE_COMMIT": baseline_commit.stdout.strip(),
         }
     changed = subprocess.run(
         ["git", "-C", str(root), "diff", "--name-only", "--no-renames", baseline, "HEAD", "--"],
@@ -298,6 +324,8 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
         "OLDEST_ACCEPTED_CHANGE_HOURS": str(min(oldest, 8760)),
         "SEVERITY": severity,
         "RELEASE_RISK": risk,
+        "RELEASE_BASELINE": baseline,
+        "RELEASE_BASELINE_COMMIT": baseline_commit.stdout.strip(),
     }
 
 

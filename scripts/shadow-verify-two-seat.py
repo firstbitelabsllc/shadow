@@ -32,6 +32,22 @@ SHADOW = ROOT / "bin" / "shadow"
 SCHEMA = "shadow.two-seat-verification.v1"
 SEATS = ("claude", "codex")
 ROW_BY_PROJECT = {"alpha": "~aa11", "beta": "~bb22"}
+SEAT_POOL = ("claude", "codex", "seat3", "seat4", "seat5")
+PROJECT_POOL = (("alpha", "~aa11"), ("beta", "~bb22"), ("gamma", "~cc33"),
+                ("delta", "~dd44"), ("epsilon", "~ee55"))
+
+
+def configure_seats(count: int) -> None:
+    """The multi-seat regime is single-vs-multi, not two (owner law,
+    2026-08-11): the OFFLINE tier proves any N of seats coordinating, at no
+    host cost; the paid live tier stays the minimal two-seat witness. This
+    rebinds the module's seat and project tables before anything reads them.
+    """
+    global SEATS, ROW_BY_PROJECT
+    if not 2 <= count <= len(SEAT_POOL):
+        raise HarnessError("fixture_failed")
+    SEATS = SEAT_POOL[:count]
+    ROW_BY_PROJECT = dict(PROJECT_POOL[:count])
 DEFAULT_GOAL = """Outcome: prove two seats share one root board.
 Authority: the scratch repositories and board created by the sealed harness.
 Resume: claim the highest reachable unclaimed checkpoint with your stable seat.
@@ -314,7 +330,7 @@ def install_scratch_wiring(home: Path, shim_dir: Path, portfolio: Path) -> None:
             "        candidate = pathlib.Path(args[args.index('--repo') + 1]).resolve(strict=True)\n"
             "    except (IndexError, OSError):\n"
             "        raise SystemExit(2)\n"
-            "    allowed = {(portfolio / 'alpha').resolve(), (portfolio / 'beta').resolve()}\n"
+            f"    allowed = {{pathlib.Path(portfolio, name).resolve() for name in {list(ROW_BY_PROJECT)!r}}}\n"
             "    if candidate not in allowed:\n"
             "        raise SystemExit(2)\n"
             "env = dict(os.environ)\n"
@@ -549,7 +565,8 @@ def final_facts(home: Path, portfolio: Path, env: dict[str, str], initial: int) 
         for project in board.get("projects", [])
         if isinstance(project, dict)
     }
-    if priorities.get("alpha") != 1 or priorities.get("beta") != 2:
+    expected_priorities = {name: index for index, name in enumerate(ROW_BY_PROJECT, start=1)}
+    if {name: priorities.get(name) for name in expected_priorities} != expected_priorities:
         raise HarnessError("board_drift")
     facts = {
         "initial_revision": initial,
@@ -584,6 +601,10 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--goal-file", type=Path, help="frozen seat-neutral goal (required with --live)")
     value.add_argument("--timeout-seconds", type=int, default=120)
     value.add_argument("--json", action="store_true", help="emit the closed machine receipt")
+    value.add_argument(
+        "--seats", type=int, default=2,
+        help="offline seat count, 2-5 (single-vs-multi law: the free tier proves any N; live stays the minimal pair)",
+    )
     return value
 
 
@@ -593,6 +614,11 @@ def main(argv: list[str] | None = None) -> int:
         parser().error("--live requires --goal-file")
     if args.timeout_seconds < 1:
         parser().error("--timeout-seconds must be positive")
+    if args.live and args.seats != 2:
+        parser().error("--live runs the minimal two-seat witness; --seats applies to the offline tier only")
+    if not 2 <= args.seats <= len(SEAT_POOL):
+        parser().error(f"--seats must be between 2 and {len(SEAT_POOL)}")
+    configure_seats(args.seats)
     mode = "live" if args.live else "offline"
     goal_hash = "0" * 64
     ref = "0" * 40
@@ -617,8 +643,8 @@ def main(argv: list[str] | None = None) -> int:
             home.mkdir()
             portfolio.mkdir()
             install_scratch_wiring(home, shim, portfolio)
-            mint_repo(scratch, portfolio, "alpha", 1)
-            mint_repo(scratch, portfolio, "beta", 2)
+            for index, name in enumerate(ROW_BY_PROJECT, start=1):
+                mint_repo(scratch, portfolio, name, index)
             env = shadow_env(home, portfolio, shim)
             initial_data = shadow_json(env, scratch, "status", "--json", "--by", "observer")
             initial = initial_data["root_board"]["revision"]
@@ -667,8 +693,8 @@ def main(argv: list[str] | None = None) -> int:
                     if goal_hash not in answer or ref not in answer:
                         raise HarnessError("identity_mismatch")
             else:
-                barrier = threading.Barrier(2)
-                with ThreadPoolExecutor(max_workers=2) as pool:
+                barrier = threading.Barrier(len(SEATS))
+                with ThreadPoolExecutor(max_workers=len(SEATS)) as pool:
                     futures = [pool.submit(deterministic_seat, seat, env, portfolio, barrier) for seat in SEATS]
                     for future in futures:
                         future.result()
@@ -678,7 +704,7 @@ def main(argv: list[str] | None = None) -> int:
                 {"name": seat, "completed": completed.get(seat, False)}
                 for seat in SEATS
             ]
-            if facts["completed"] != 2 or facts["claims"] != 0:
+            if facts["completed"] != len(SEATS) or facts["claims"] != 0:
                 raise HarnessError("partial_completion")
             if args.live:
                 peer_observation(

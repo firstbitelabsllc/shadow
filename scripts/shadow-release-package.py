@@ -18,6 +18,9 @@ import sys
 import tempfile
 from typing import Any, Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shadow_version import read_version  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parent.parent
 # Provenance is the host plus the path, not a suffix: an attacker-controlled
@@ -28,10 +31,15 @@ CANONICAL_ORIGIN = re.compile(
     r"firstbitelabsllc/shadow(?:\.git)?/?",
     re.IGNORECASE,
 )
-MAX_FILE_COUNT = 100
+# M26 adds the canonical plan-tree store, migration door, benchmark, and their
+# checked-in contract. Keep a small explicit ceiling rather than letting the
+# release grow without review.
+MAX_FILE_COUNT = 120
 MAX_UNPACKED_BYTES = 2_000_000
 REQUIRED_FILES = {
+    ".agents/plugins/marketplace.json",
     ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
     "AGENT.md",
     "CHANGELOG.md",
     "LICENSE",
@@ -47,6 +55,7 @@ REQUIRED_FILES = {
     # `shadow amp` and `shadow throw` exited 2 with "can't open file".
     "scripts/shadow-amp.py",
     "scripts/shadow-throw.py",
+    "scripts/shadow_remote_claim.py",
     "scripts/shadow-return.py",
     "scripts/shadow-priority.py",
     "scripts/shadow-lifecycle.py",
@@ -59,6 +68,9 @@ REQUIRED_FILES = {
     "scripts/shadow-verify-two-seat.py",
     "scripts/shadow_process_lib.py",
     "scripts/shadow_cmd_proof.py",
+    "scripts/shadow_plan_grammar.py",
+    "scripts/shadow-plan.py",
+    "scripts/shadow_plan_store.py",
     "scripts/shadow_telemetry.py",
     "browser/chief_of_staff.py",
     "browser/decision_mode.py",
@@ -68,6 +80,8 @@ REQUIRED_FILES = {
     "browser/static/index.html",
     "browser/static/style.css",
     "docs/reference/chief-of-staff.md",
+    "docs/guide/publishing.md",
+    "distribution/custom-gpt/instructions.md",
     "docs/reference/commands.md",
     "docs/reference/grammar.md",
     "docs/reference/method.md",
@@ -91,6 +105,10 @@ REQUIRED_FILES = {
     "scripts/shadow-public-ready-grep-gate.py",
     "install.sh",
     "skills/goal/references/amplify.md",
+    "plugins/shadow/plugin.json",
+    "plugins/shadow/.codex-plugin/plugin.json",
+    "plugins/shadow/.claude-plugin/plugin.json",
+    "plugins/shadow/skills/shadow/SKILL.md",
     "scripts/shadow-python.sh",
     "scripts/shadow-release-package.py",
     "scripts/shadow-status.py",
@@ -115,7 +133,7 @@ def normalize(value: str) -> str:
 
 
 def source_version(root: Path) -> str:
-    return (root / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
+    return read_version(root)
 
 
 def changelog_version(root: Path) -> str:
@@ -124,6 +142,43 @@ def changelog_version(root: Path) -> str:
     if match is None:
         raise RuntimeError("CHANGELOG has no release heading")
     return match.group(1)
+
+
+def inspect_release_identity(
+    root: Path, version: str, *, require_release_ref: bool = False
+) -> dict[str, Any]:
+    """Bind public release identity to one namespaced annotated tag at HEAD."""
+    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
+        raise ValueError("VERSION is not semantic x.y.z")
+    head = command(
+        ["git", "-C", str(root), "rev-parse", "--verify", "HEAD^{commit}"], root
+    ).stdout.strip()
+    expected = f"shadow-v{version}"
+    ref = f"refs/tags/{expected}"
+    present = subprocess.run(
+        ["git", "-C", str(root), "show-ref", "--verify", "--quiet", ref],
+        capture_output=True,
+        check=False,
+    ).returncode == 0
+    errors: list[str] = []
+    release_ref = None
+    if present:
+        object_type = command(["git", "-C", str(root), "cat-file", "-t", ref], root).stdout.strip()
+        if object_type != "tag":
+            if require_release_ref:
+                errors.append(f"public release tag {expected} must be annotated")
+        else:
+            tagged = command(
+                ["git", "-C", str(root), "rev-parse", "--verify", f"{ref}^{{commit}}"], root
+            ).stdout.strip()
+            if tagged != head:
+                if require_release_ref:
+                    errors.append(f"public release tag {expected} must resolve to exact HEAD")
+            else:
+                release_ref = expected
+    elif require_release_ref:
+        errors.append(f"public release requires annotated tag {expected} at exact HEAD")
+    return {"commit": head, "release_ref": release_ref, "errors": errors}
 
 
 def forbidden(path: str) -> bool:
@@ -168,8 +223,9 @@ def validate_release_candidate(
     if blocked:
         errors.append("archived artifact contains forbidden files: " + ", ".join(blocked))
     skills = sorted(path for path in files if PurePosixPath(path).name == "SKILL.md")
-    if skills != ["SKILL.md", "skills/goal/SKILL.md"]:
-        errors.append("archived artifact must contain exactly the root SKILL.md and skills/goal/SKILL.md")
+    expected_skills = ["SKILL.md", "plugins/shadow/skills/shadow/SKILL.md", "skills/goal/SKILL.md"]
+    if skills != expected_skills:
+        errors.append("archived artifact must contain exactly the native, portable, and goal skills")
     untracked = sorted(files - tracked)
     if untracked and not allow_dirty:
         errors.append("archived artifact contains untracked files: " + ", ".join(untracked))
@@ -222,7 +278,9 @@ def dirty_files(root: Path) -> set[str]:
     return paths
 
 
-def pack(root: Path, destination: Path) -> tuple[dict[str, Any], Path, str]:
+def pack(
+    root: Path, destination: Path, *, source_ref: str = "HEAD"
+) -> tuple[dict[str, Any], Path, str]:
     """Reproducible archive of the TRACKED tree via git — no packer, no manifest
     format, no package manager. The clone is the install, so the release
     artifact is simply what git would hand a stranger."""
@@ -230,7 +288,7 @@ def pack(root: Path, destination: Path) -> tuple[dict[str, Any], Path, str]:
     tarball = destination / f"shadow-{version}.tar"
     command(
         ["git", "-C", str(root), "archive", "--format=tar",
-         f"--output={tarball}", "HEAD"],
+         f"--output={tarball}", source_ref],
         root,
     )
     listing = command(["tar", "-tf", str(tarball)], root).stdout.split("\n")
@@ -393,17 +451,30 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         raise RuntimeError("installed accept did not persist its completion proof")
 
 
-def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool = False) -> dict[str, Any]:
+def verify(
+    root: Path,
+    *,
+    expected_version: str | None = None,
+    allow_dirty: bool = False,
+    require_release_ref: bool = False,
+) -> dict[str, Any]:
     plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     version = source_version(root)
+    identity = inspect_release_identity(
+        root, version, require_release_ref=require_release_ref
+    )
     with tempfile.TemporaryDirectory(prefix="shadow-release-") as dirname:
         temp = Path(dirname)
         first = temp / "first"
         second = temp / "second"
         first.mkdir()
         second.mkdir()
-        manifest, tarball, first_sha = pack(root, first)
-        second_manifest, _, second_sha = pack(root, second)
+        manifest, tarball, first_sha = pack(
+            root, first, source_ref=identity["commit"]
+        )
+        second_manifest, _, second_sha = pack(
+            root, second, source_ref=identity["commit"]
+        )
         errors = validate_release_candidate(
             plugin,
             manifest,
@@ -413,6 +484,15 @@ def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool
             allow_dirty=allow_dirty,
             expected_version=expected_version,
         )
+        errors.extend(identity["errors"])
+        if require_release_ref:
+            final_identity = inspect_release_identity(
+                root, version, require_release_ref=True
+            )
+            if final_identity != identity:
+                errors.append("public release identity changed during verification")
+        if require_release_ref and allow_dirty:
+            errors.append("public release mode cannot allow dirty bytes")
         if first_sha != second_sha or manifest.get("files") != second_manifest.get("files"):
             errors.append("repeated git archive runs are not reproducible")
         install_ok = False
@@ -423,8 +503,12 @@ def verify(root: Path, *, expected_version: str | None = None, allow_dirty: bool
     return {
         "schema": "shadow.release.v1",
         "ok": not errors,
-        "publishable": not errors and not dirty and not allow_dirty,
+        "publishable": (
+            require_release_ref and not errors and not dirty and not allow_dirty
+        ),
         "version": version,
+        "commit": identity["commit"],
+        "release_ref": identity["release_ref"],
         "file_count": len(manifest.get("files", [])),
         "unpacked_bytes": int(manifest.get("unpackedSize", 0) or 0),
         "sha256": first_sha,
@@ -440,10 +524,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--expect-version")
     parser.add_argument("--allow-dirty", action="store_true", help="allow a non-publishable development receipt")
+    parser.add_argument(
+        "--public-release",
+        action="store_true",
+        help="require the annotated shadow-v<version> tag at exact HEAD",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
-        report = verify(args.root.resolve(), expected_version=args.expect_version, allow_dirty=args.allow_dirty)
+        report = verify(
+            args.root.resolve(),
+            expected_version=args.expect_version,
+            allow_dirty=args.allow_dirty,
+            require_release_ref=args.public_release,
+        )
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         report = {"schema": "shadow.release.v1", "ok": False, "publishable": False, "errors": [str(exc)]}
     if args.json:

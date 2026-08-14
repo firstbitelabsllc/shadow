@@ -7,12 +7,12 @@ the user to supervise the system.
 
 ## Authority and hierarchy
 
-There is one Git-backed Shadow board per computer at `~/.shadow`. It owns only
+There is one private local Shadow board per computer at `~/.shadow`. It owns only
 global coordination: project priority, entity pointers, checkpoint claims,
 owners, leases, and each entity's resume checkpoint. Its local file is the
-immediate authority; a private remote may be lagging recovery but never gates a
-local write. The board stores pointers, never checkpoint text, proof, milestone
-detail, transcripts, or evidence.
+immediate authority. Its private journal records `board.json` for recovery
+only; it never tracks plan files, checkpoint text, proof, milestone detail,
+transcripts, or evidence.
 
 The operating hierarchy is:
 
@@ -22,8 +22,10 @@ computer board → project → entity → milestone → checkpoint
 
 - A project groups related work and owns one global priority. It may span many
   repositories or other independently steerable entities.
-- An entity is one committed `PLAN.md`, addressed by a durable logical identity.
-  It owns its milestones, checkpoints, decisions, proof, and evidence pointers.
+- An infrastructure entity is one local `PLAN.md` beneath `~/.shadow/plans/`,
+  addressed by a durable logical identity. It owns its milestones, checkpoints,
+  decisions, proof, and evidence pointers. Product repositories can separately
+  keep source-bound release plans when their source is the authority.
 - A milestone is a bounded outcome stage: two to seven checkpoints plus one
   definition-of-done checkpoint.
 - A checkpoint is the smallest claim and proof unit. It describes a state the
@@ -95,11 +97,15 @@ keeps the hot plan inside its versioned row, byte, and open-milestone budgets.
 ## Multi-seat work
 
 `shadow throw` is the only public claim boundary. Under the computer-board
-lock it rereads the board and committed entity snapshot, records owner and
-return time, atomically replaces the board, commits a local Git receipt, and
-only then emits a packet. Two seats racing one checkpoint produce one winner;
-the loser is told the persisted owner. Claims never mutate `PLAN.md` and do not
-require a project remote.
+lock it rereads the board and frozen entity snapshot, records owner and
+return time, then atomically replaces the local board file.
+A checkout whose current branch tracks configured `origin` also acquires the
+deterministic `refs/heads/shadow/claims/v1/<entity>/<row>` coordination lock by
+create-or-CAS before it emits a packet. The ref contains a closed public receipt
+and makes the exact PLAN commit reachable; it never contains task or proof text
+and never becomes task, proof, priority, or resume authority. With no configured
+origin upstream, claims remain local-only. Two eligible seats racing one
+checkpoint produce one winner; the loser is told the persisted owner.
 
 Fan out only bounded, path-disjoint claims with a declared independent need.
 Every handoff names allowed paths, expected return, proof, and recovery action.
@@ -107,10 +113,15 @@ Prefer named, inspectable, messageable native workers; the lead reproduces
 important proof before acceptance. A mid-flight reading is not a death
 certificate: probe the checkpoint's proof, not a process list.
 
-`shadow return --by <seat>` closes only that owner's completed, blocked, or
-explicitly handed-back claim. An overdue lease is never silently reassigned;
-another seat probes proof and uses explicit adoption. `shadow accept --by
-<seat>` requires the same owner through proof and completion.
+`shadow return --by <seat>` appends a released tombstone before it closes only
+that owner's completed, blocked, or explicitly handed-back local claim. An
+overdue lease is never silently reassigned: another seat probes proof, takes an
+exact local claim, and CAS-adopts the expired remote lock. `shadow accept --by
+<seat>` requires the same owner through proof, publishes the completed PLAN,
+appends the completed tombstone, and only then releases the local claim.
+`--no-push` retains both claims for a later publishing retry. An ambiguous Git
+outcome emits no packet and retains the exact local claim so a retry can resolve
+the same intended ref instead of manufacturing an orphan.
 
 ## Verification and release
 
@@ -118,6 +129,19 @@ Proof starts with the first usable slice. Feature and team-agent lanes run the
 declared focused falsifier early and dogfood Shadow on Shadow. Trunk runs the
 affected integration set and curates test health. These greens prove only their
 slice.
+
+Five field lessons remain standing because each caught a false conclusion:
+
+- Liveness is proven by the artifact, never the process (2026-08-10: one live
+  worker was declared dead while one dead dispatch was treated as live).
+- A worktree path is not a lane (2026-08-10: a detached L4 worktree had no
+  branch or PR on which its result could land).
+- An accusation grounds on the merge-base diff, never the tip diff
+  (2026-08-10: a clean worker was nearly blamed for another branch's PLAN edit).
+- Every read names its ref; an unfetched tree is presumed stale (2026-08-10: a
+  checkout 1,697 commits behind produced a false plan-authority finding).
+- Green fixtures prove the fixtures, never the field (2026-08-10: initialized
+  picker fixtures passed while the real uninitialized path let money through).
 
 The expensive full build, migration, story-driven end-to-end gauntlet,
 adversarial bug bash, rollback, and stranger-install source proof run on a

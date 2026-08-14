@@ -11,8 +11,8 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime
 import re
-import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Final
@@ -22,29 +22,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
 from shadow_cmd_proof import head_entry, script_operand_issue  # noqa: E402
 import shadow_root_board as _board  # noqa: E402
+import shadow_plan_grammar as _grammar  # noqa: E402
 
 
 LEGAL_MODES: Final = {"explore", "ship"}
 LEGACY_MODES: Final = {"Spike", "Defer", "Challenge", "Broad", "Close"}
 STATES: Final = ("pending", "in_progress", "blocked", "completed")
-ROW_RE: Final = re.compile(
-    r"^- \[(?P<state>pending|in_progress|blocked|completed)\] "
-    r"(?P<text>.+?) (?P<id>~[0-9a-z]{4})(?P<dod> \(DoD\))?(?P<tail>(?: \| [a-z]+:.*)?)$"
-)
-ROW_LOOSE_RE: Final = re.compile(r"^- \[[^\]]*\] ")
-FIELD_RE: Final = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
-NEEDS_VALUE_RE: Final = re.compile(r"~[0-9a-z]{4}(?:[,\s]+~[0-9a-z]{4})*")
-PROOF_CLASS_RE: Final = re.compile(r"^(?:cmd|read|gate) \S")
-PROOF_RECEIPT_PREFIX_RE: Final = re.compile(
-    r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
-    r"(?P<id>~[0-9a-z]{4}) PROOF\b"
-)
+ROW_RE = _grammar.ROW_RE
+ROW_LOOSE_RE = _grammar.ROW_LOOSE_RE
+FIELD_RE = _grammar.FIELD_RE
+NEEDS_VALUE_RE = _grammar.NEEDS_VALUE_RE
+PROOF_CLASS_RE = _grammar.PROOF_CLASS_RE
+PROOF_RECEIPT_PREFIX_RE = _grammar.PROOF_RECEIPT_PREFIX_RE
 # Older plans shipped receipt prose before claim return owned one canonical
 # shape. Preserve those historical completions; receipts from this cutover on
 # must be accepted by the same parser claim return uses.
 STRICT_PROOF_RECEIPT_SINCE: Final = "2026-08-10T22:39:12Z"
+# Grandfathering binds to the EXACT ids that carried a loose pre-cutover
+# receipt when the strict shape landed — never to a typed timestamp. A
+# timestamp is text anyone can write, so the old date-only test let a line
+# like `- 2000-01-01T00:00:00Z ~aaaa PROOF i promise it passed` mark a
+# completed row proven with no proof content at all (found by the 2026-08-11
+# top-down challenge). This set is frozen: it can only shrink as these rows
+# are re-proven under the strict shape, and nothing can join it.
+GRANDFATHERED_PROOF_IDS: Final = frozenset({
+    "~bkts", "~curs", "~debt", "~detv", "~dlaw", "~dreg", "~excs", "~home",
+    "~obsv", "~prot", "~rsch", "~slnk", "~styl", "~uxf1", "~vgal",
+})
 MODE_RE: Final = re.compile(r"^- Mode: (?P<value>.+)$")
-HASH_RE: Final = re.compile(r"~[0-9a-z]{4}\b")
+HASH_RE = _grammar.HASH_RE
 TS_RE: Final = re.compile(r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) ")
 SPIKE_RE: Final = re.compile(r"^- \S+ SPIKE (?P<id>~[0-9a-z]{4}) (?P<text>.+)$")
 DECISION_RE: Final = re.compile(r"^- \S+ DECISION (?P<id>~[0-9a-z]{4}) (?:keep|kill|promote)\b")
@@ -61,49 +67,8 @@ def _finding(check: str, line: int, severity: str, detail: str) -> dict:
 # `cmd echo done && shadow --version` therefore lints clean, runs `echo`, exits
 # 0, flips the row to completed and writes `-> pass` — while `shadow` never
 # ran. Validating the class word alone cannot see that; the argv can.
-SHELL_PUNCTUATION: Final = "();<>|&"
-SHELLS: Final = frozenset({"bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/usr/bin/env"})
-
-
-def _shell_script_index(argv: list[str]) -> int:
-    """Index of the -c script — the ONE token a deliberate shell interprets.
-
-    Exempting the whole argv here was the same false green one level up:
-    `cmd bash -c 'true' && shadow --version` hands `true` to bash and passes
-    `&&`, `shadow`, `--version` to it as positional arguments it never runs.
-    """
-    if argv[0] not in SHELLS:
-        return -1
-    for index in (1, 2):
-        if index < len(argv) and argv[index] == "-c":
-            return index + 1
-    return -1
-
-
-def _shell_operators(command: str) -> list[str]:
-    """Unquoted shell metacharacters in argument position, worst-first.
-
-    Comparing whole `shlex.split` tokens missed the operator written without a
-    space: `echo done&& false` splits to `done&&`, which equals no operator, so
-    the check passed while accept still ran `echo` alone. A second parse with
-    `punctuation_chars` is the discriminator the plain argv cannot give — it
-    breaks an unquoted metacharacter out into its own token and leaves a quoted
-    `'a&&b'` whole, which is exactly the difference between an operator a shell
-    would have interpreted and a literal the proof means to pass.
-    """
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        tokens = list(lexer)
-    except ValueError:
-        return []  # PROOF-UNPARSEABLE owns unbalanced quoting; do not double-report
-    if not tokens:
-        return []
-    script = _shell_script_index(tokens)
-    return sorted({
-        token for index, token in enumerate(tokens)
-        if index and index != script and all(char in SHELL_PUNCTUATION for char in token)
-    })
+_shell_script_index = _grammar.shell_script_index
+_shell_operators = _grammar.shell_operators
 
 
 def _check_cmd_proof(
@@ -114,7 +79,7 @@ def _check_cmd_proof(
 ) -> list[dict]:
     """A cmd proof must be a runnable argv, because that is how accept runs it."""
     try:
-        argv = shlex.split(command)
+        argv = _grammar.proof_argv(command)
     except ValueError as exc:
         return [_finding("PROOF-UNPARSEABLE", number, "blocking",
                          f"cmd proof does not parse as a command line: {exc}")]
@@ -487,7 +452,8 @@ def lint_plan(
         if receipt is not None:
             proven.add(receipt[0])
             continue
-        if prefix.group("ts") < STRICT_PROOF_RECEIPT_SINCE:
+        if (prefix.group("ts") < STRICT_PROOF_RECEIPT_SINCE
+                and prefix.group("id") in GRANDFATHERED_PROOF_IDS):
             proven.add(prefix.group("id"))
             continue
         findings.append(
@@ -515,17 +481,54 @@ def lint_plan(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        help="source checkout for a registered machine-local plan",
+    )
     parser.add_argument("plans", nargs="+", type=Path)
     args = parser.parse_args(argv)
+    proof_root: Path | None = None
+    if args.repo is not None:
+        repo = args.repo.resolve()
+        top = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if top.returncode or not top.stdout.strip():
+            parser.error("--repo must name a Git source checkout")
+        proof_root = Path(top.stdout.strip()).resolve()
     worst = 0
     for path in args.plans:
         try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            # Only canonical PLAN.md roots can be partitioned. Lint also
+            # deliberately accepts arbitrary Markdown fixtures and drafts.
+            text = (
+                _board.read_plan_text(path)
+                if path.name == "PLAN.md"
+                else path.read_text(encoding="utf-8")
+            )
+        except (_board.BoardError, OSError, UnicodeError) as exc:
             print(f"{path}: unreadable: {exc}")
             worst = 1
             continue
-        findings = lint_plan(text, root=path.resolve().parent)
+        plan = path.resolve()
+        if proof_root is not None:
+            state = _board.entity_state(plan)
+            if (
+                not _board.is_local_plan(plan)
+                or state is None
+                or state["entity"] is None
+                or Path(state["entity"]["plan"]).resolve() != plan
+            ):
+                print(f"{path}: --repo is only valid for a registered machine-local PLAN.md")
+                worst = 1
+                continue
+            findings = lint_plan(text, root=proof_root, committed=True)
+        else:
+            findings = lint_plan(text, root=plan.parent)
         for finding in findings:
             print(f"{path}:{finding['line']}: {finding['check']} [{finding['severity']}] {finding['detail']}")
             if finding["severity"] == "blocking":

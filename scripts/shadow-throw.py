@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import importlib.util
+import json
 import re
 import subprocess
 import sys
@@ -27,11 +28,15 @@ sys.modules.setdefault("shadow_amp", _amp)
 _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_remote_claim as _remote  # noqa: E402
 import shadow_telemetry as _telemetry  # noqa: E402
 
 
 BY_MAX: Final = 40
 BUSY_THRESHOLD: Final = 8
+LEGACY_TASK_ALIAS_RE: Final = re.compile(
+    r"[A-Z][A-Za-z0-9]{0,7}~[a-z0-9][a-z0-9-]{1,31}"
+)
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -64,25 +69,58 @@ def _repo_for(plan_path: Path) -> Path:
     return Path(top.stdout.strip()).resolve() if top.returncode == 0 else plan_path.parent
 
 
-def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str, str]]:
+def _canonical_task(text: str, requested: str) -> str:
+    if _board.ROW_ID.fullmatch(requested):
+        return requested
+    if LEGACY_TASK_ALIAS_RE.fullmatch(requested) is None:
+        raise _board.BoardError(
+            f"--task wants a canonical id like ~ab12 or a legacy alias like P9a~formats, got {requested}"
+        )
+    matches = []
+    for line in text.splitlines():
+        match = _amp.ROW_RE.match(line)
+        if match and (
+            match.group("text") == requested
+            or match.group("text").startswith(f"{requested} ")
+        ):
+            matches.append(match.group("id"))
+    if not matches:
+        raise _board.BoardError(
+            f"no canonical task row preserves legacy alias {requested}"
+        )
+    if len(matches) != 1:
+        raise _board.BoardError(
+            f"legacy alias {requested} is ambiguous; preserve it on exactly one canonical task row"
+        )
+    return matches[0]
+
+
+def _validated_target(
+    plan_path: Path, task: str
+) -> tuple[Path, dict, dict[str, str], str]:
     """Read one exact project authority and reject an unsafe/untakeable row."""
+    local = _board.is_local_plan(plan_path)
     repo = _repo_for(plan_path)
     relative = str(plan_path.relative_to(repo)) if plan_path.is_relative_to(repo) else plan_path.name
-    if git(repo, "ls-files", "-u", "--", relative).stdout.strip():
-        raise _board.BoardError("PLAN.md has unresolved merge conflicts; resolve them first")
-    if git(repo, "status", "--porcelain", "--", relative).stdout.strip():
-        raise _board.BoardError(
-            "PLAN.md has uncommitted changes; commit them before pointing another seat at it"
-        )
+    if not local:
+        if git(repo, "ls-files", "-u", "--", relative).stdout.strip():
+            raise _board.BoardError("PLAN.md has unresolved merge conflicts; resolve them first")
+        if git(repo, "status", "--porcelain", "--", relative).stdout.strip():
+            raise _board.BoardError(
+                "PLAN.md has uncommitted changes; commit them before pointing another seat at it"
+            )
     try:
-        token, content = _board.committed_plan_snapshot(plan_path)
+        token, content = _board.frozen_plan_snapshot(plan_path)
         text = content.decode("utf-8")
     except (OSError, UnicodeError) as exc:
         raise _board.BoardError("project plan is missing or unreadable") from exc
     plan = _amp._parse(text)
-    located = _row_line(text, task)
+    canonical_task = _canonical_task(text, task)
+    located = _row_line(text, canonical_task)
     if located is None:
-        raise _board.BoardError(f"no task carries {task} in the stored canonical project plan")
+        raise _board.BoardError(
+            f"no task carries {canonical_task} in the stored canonical project plan"
+        )
     _, match = located
     if match.group("state") not in {"pending", "in_progress"}:
         raise _board.BoardError(f"{task} is [{match.group('state')}], not claimable")
@@ -105,12 +143,14 @@ def _validated_target(plan_path: Path, task: str) -> tuple[Path, dict, dict[str,
     suffix = f"/{token['relative']}"
     public_repo = where[: -len(suffix)] if where.endswith(suffix) else where
     plan["authority_pointer"] = (
-        f"{token['relative']} @ {token['head']} in {public_repo}"
+        f"{token['relative']} @ {'this computer' if local else token['head']} in {public_repo}"
     )
-    return repo, plan, token
+    plan["local_authority"] = local
+    return repo, plan, token, canonical_task
 
 
 def main(argv: list[str] | None = None) -> int:
+    _remote.sanitize_process_git_env()
     started = time.monotonic()
     parser = argparse.ArgumentParser(
         prog="shadow throw",
@@ -118,7 +158,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--repo", default=None, help="repository root (default: cwd)")
     parser.add_argument("--entity", default=None, help="computer-board entity id")
-    parser.add_argument("--task", required=True, help="the row to claim, e.g. ~ab12")
+    parser.add_argument(
+        "--task",
+        required=True,
+        help="the canonical row id (~ab12) or one preserved legacy alias (P9a~formats)",
+    )
     parser.add_argument(
         "--by",
         required=True,
@@ -153,14 +197,19 @@ def main(argv: list[str] | None = None) -> int:
     else:
         unresolved_repo = Path(args.repo or ".")
         unresolved_plan = unresolved_repo / "PLAN.md"
+        local_plan = None
         if not _board.regular_plan(unresolved_plan):
-            print(
-                f"shadow throw: no regular, non-symlink plan at {unresolved_plan}",
-                file=sys.stderr,
-            )
-            return 2
+            # A project whose authority is machine-local carries no plan in its
+            # checkout; the board already knows where that authority lives.
+            local_plan = _board.local_plan_for_repo(unresolved_repo.resolve())
+            if local_plan is None:
+                print(
+                    f"shadow throw: no regular, non-symlink plan at {unresolved_plan}",
+                    file=sys.stderr,
+                )
+                return 2
         repo = unresolved_repo.resolve()
-        plan_path = repo / "PLAN.md"
+        plan_path = local_plan or repo / "PLAN.md"
         try:
             existing = _board.entity_state(plan_path)
             if existing is not None and existing["entity"] is not None:
@@ -173,8 +222,15 @@ def main(argv: list[str] | None = None) -> int:
     if not _board.regular_plan(plan_path):
         print(f"shadow throw: no regular, non-symlink plan at {plan_path}", file=sys.stderr)
         return 2
-    if not re.fullmatch(r"~[0-9a-z]{4}", args.task):
-        print(f"shadow throw: --task wants a four-char id like ~ab12, got {args.task}", file=sys.stderr)
+    if (
+        _board.ROW_ID.fullmatch(args.task) is None
+        and LEGACY_TASK_ALIAS_RE.fullmatch(args.task) is None
+    ):
+        print(
+            "shadow throw: --task wants a canonical id like ~ab12 or a "
+            f"legacy alias like P9a~formats, got {args.task}",
+            file=sys.stderr,
+        )
         return 2
     try:
         _board.validate_owner(args.by)
@@ -183,7 +239,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         with _board.project_lock(plan_path):
-            repo, plan, plan_token = _validated_target(plan_path, args.task)
+            repo, plan, plan_token, args.task = _validated_target(
+                plan_path, args.task
+            )
+            observed_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
+            if observed_token != plan_token:
+                raise _board.BoardError("project plan changed before the claim committed; retry")
+            plan_text = plan_bytes.decode("utf-8")
+            if _remote.uses_origin_upstream(repo) and not _remote.public_safe_plan_token(
+                plan_token
+            ):
+                raise _board.BoardError(
+                    "project plan locator is not public-safe for remote claim transport"
+                )
             if not args.entity:
                 # Normalize/register this exact bounded entity before claiming.
                 # This also rekeys a stored entity after its Git origin changes, so
@@ -234,6 +302,61 @@ def main(argv: list[str] | None = None) -> int:
             plan["entity_id"] = entity["id"]
             plan["seat_owner"] = claimed["owner"]
             block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
+            remote = _remote.acquire(
+                repo,
+                entity=entity["id"],
+                row=args.task,
+                owner=args.by,
+                project=project["id"],
+                plan_token=plan_token,
+                claimed_at=claimed["claimed_at"],
+                return_by=claimed["return_by"],
+                recovery=claimed["recovery"],
+                adopt_expired=args.adopt_expired,
+            )
+            if remote is not None and remote["status"] == "lost":
+                try:
+                    _board.release(
+                        plan_path,
+                        args.task,
+                        resumes=_amp._candidate_ids(plan),
+                        owner=args.by,
+                        reason="handback",
+                        expected_plan=plan_token,
+                        expected_text=plan_text,
+                        expected_claim=claimed,
+                    )
+                except _board.BoardError:
+                    print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+                    print(
+                        "shadow throw: remote claim failed and exact local compensation failed; "
+                        "inspect shadow status --in-flight",
+                        file=sys.stderr,
+                    )
+                    return 1
+                print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+                if remote["status"] == "lost":
+                    print(
+                        f"shadow throw: remote claim was won by {remote['winner']}; "
+                        "no work packet emitted",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "shadow throw: remote claim transport failed; no work packet emitted",
+                        file=sys.stderr,
+                    )
+                return 1
+            if remote is not None and remote["status"] != "acquired":
+                print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+                print(
+                    "shadow throw: remote claim state is ambiguous; exact local claim retained; "
+                    "no work packet emitted",
+                    file=sys.stderr,
+                )
+                return 1
+            if remote is not None:
+                print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
     except _board.AlreadyClaimed as exc:
         print(
             f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",

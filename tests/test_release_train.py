@@ -173,5 +173,40 @@ class ReleaseTrainTriggersAreDeterministic(unittest.TestCase):
         self.assertIn("tests.test_root_board", selected.modules)
 
 
+class ReleasePressureUsesTheShadowEpoch(unittest.TestCase):
+    def test_shadow_release_epoch_wins_and_lightweight_tags_do_not_move_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "release@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Release Test"], check=True)
+            env = {
+                **os.environ,
+                "GIT_AUTHOR_DATE": "2026-08-10T00:00:00Z",
+                "GIT_COMMITTER_DATE": "2026-08-10T00:00:00Z",
+            }
+
+            for index, subject in enumerate(("legacy", "shadow epoch", "after release")):
+                (repo / "state.txt").write_text(f"{index}\n", encoding="utf-8")
+                subprocess.run(["git", "-C", str(repo), "add", "state.txt"], check=True)
+                subprocess.run(["git", "-C", str(repo), "commit", "-qm", subject], env=env, check=True)
+                if subject == "legacy":
+                    subprocess.run(["git", "-C", str(repo), "tag", "-a", "v4.0.3", "-m", "legacy"], check=True)
+                if subject == "shadow epoch":
+                    subprocess.run(["git", "-C", str(repo), "tag", "-a", "shadow-v1.0.0", "-m", "Shadow 1.0"], check=True)
+
+            subprocess.run(["git", "-C", str(repo), "tag", "shadow-v9.9.9"], check=True)
+            measured = ci.repository_pressure(repo, now=1786352400)
+            shadow_release = subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "shadow-v1.0.0^{commit}"],
+                text=True,
+            ).strip()
+
+        self.assertEqual(measured["ACCEPTED_CHANGE_COUNT"], "1")
+        self.assertEqual(measured["RELEASE_RISK"], "none")
+        self.assertEqual(measured.get("RELEASE_BASELINE"), "shadow-v1.0.0")
+        self.assertEqual(measured.get("RELEASE_BASELINE_COMMIT"), shadow_release)
+
+
 if __name__ == "__main__":
     unittest.main()
