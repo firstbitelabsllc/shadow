@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tests.plan_tree_fixture import install_plan_tree
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "shadow-accept.py"
@@ -128,6 +130,84 @@ def fail_after_project_commit(*args, **kwargs):
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def test_git_backed_partitioned_plan_commits_root_and_objects_together(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            source = (repo / "PLAN.md").read_bytes()
+            install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "partition plan")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            logical = accept._board.read_plan_text(repo / "PLAN.md")
+            self.assertIn("[completed] x.txt says hello ~ab12", logical)
+            self.assertIn("~ab12 PROOF", logical)
+            self.assertTrue(accept._board.open_plan(repo / "PLAN.md").is_tree)
+            self.assertEqual(git(repo, "status", "--porcelain"), "")
+            committed = git(repo, "show", "--name-only", "--format=", "HEAD")
+            self.assertIn("PLAN.md", committed)
+            self.assertIn("PLAN.d/objects/sha256/", committed)
+
+    def test_interrupted_tree_accept_is_recovered_through_the_object_store(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            home = root / "home"
+            home.mkdir()
+            plan = repo / "PLAN.md"
+            install_plan_tree(repo, plan.read_bytes())
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "partition plan")
+            claimed = run_shadow(
+                repo, home, "throw", "--repo", str(repo), "--task", "~ab12", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            committed_root = plan.read_bytes()
+            original_atomic_write = accept.atomic_write_text
+
+            def crash_after_real_replace(path: Path, text: str):
+                receipt = original_atomic_write(path, text)
+                if path.resolve() == plan.resolve() and "- [completed] x.txt" in text:
+                    raise SystemExit(75)
+                return receipt
+
+            output = io.StringIO()
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
+                accept,
+                "atomic_write_text",
+                side_effect=crash_after_real_replace,
+            ), redirect_stdout(output), redirect_stderr(output):
+                with self.assertRaises(SystemExit) as crashed:
+                    accept.main(
+                        ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a", "--no-push"]
+                    )
+
+            self.assertEqual(crashed.exception.code, 75)
+            # The interrupted write left a newer tree generation whose root is a
+            # manifest, not plan text: recovery has to read through the objects.
+            self.assertNotEqual(plan.read_bytes(), committed_root)
+            self.assertIn(
+                "- [completed] x.txt says hello ~ab12",
+                accept._board.read_plan_text(plan),
+            )
+
+            retry, retry_output = self._accept_main(repo, home)
+
+            self.assertEqual(retry, 0, retry_output)
+            logical = accept._board.read_plan_text(plan)
+            self.assertIn("- [completed] x.txt says hello ~ab12", logical)
+            self.assertEqual(logical.count("~ab12 PROOF"), 1)
+            self.assertTrue(accept._board.open_plan(plan).is_tree)
+            self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all"), "")
+            self.assertEqual(git(repo, "rev-list", "--count", "HEAD"), "3")
+            self.assertEqual(
+                json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))["claims"],
+                [],
+            )
+
     def _accept_main(self, repo: Path, home: Path) -> tuple[int, str]:
         output = io.StringIO()
         with mock.patch.dict(os.environ, {"HOME": str(home)}), redirect_stdout(
@@ -1081,6 +1161,50 @@ class ShadowAcceptTests(unittest.TestCase):
                 "commit",
             ),
         )
+
+    def test_a_failed_tree_commit_restores_root_index_and_objects(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            source = (repo / "PLAN.md").read_bytes()
+            install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "partition plan")
+            home = root / "home"
+            home.mkdir()
+            claimed = run_shadow(
+                repo, home, "throw", "--repo", str(repo), "--task", "~ab12", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            root_before = (repo / "PLAN.md").read_bytes()
+            objects_before = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in (repo / "PLAN.d" / "objects" / "sha256").glob("*/*")
+            }
+            original_git_completed = accept.git_completed
+
+            def refuse_project_commit(target: Path, *args: str, **kwargs):
+                if "commit" in args:
+                    return subprocess.CompletedProcess(args, 1, "", "commit refused")
+                return original_git_completed(target, *args, **kwargs)
+
+            output = io.StringIO()
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
+                accept, "git_completed", side_effect=refuse_project_commit,
+            ), redirect_stdout(output), redirect_stderr(output):
+                result = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a", "--no-push"]
+                )
+
+            objects_after = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in (repo / "PLAN.d" / "objects" / "sha256").glob("*/*")
+            }
+            self.assertEqual(result, 1, output.getvalue())
+            self.assertEqual((repo / "PLAN.md").read_bytes(), root_before)
+            self.assertEqual(objects_after, objects_before)
+            self.assertEqual(git(repo, "status", "--porcelain"), "")
+            self.assertEqual(git(repo, "rev-list", "--count", "HEAD"), "2")
 
     def test_a_failed_commit_restores_a_staged_plan_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

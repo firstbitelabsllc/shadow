@@ -10,11 +10,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_root_board as board  # noqa: E402
+from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
 
 
 PLAN = """# Local demo
@@ -37,7 +39,133 @@ PLAN = """# Local demo
 """
 
 
+_LIFECYCLE_SPEC = importlib.util.spec_from_file_location(
+    "shadow_lifecycle", ROOT / "scripts" / "shadow-lifecycle.py"
+)
+assert _LIFECYCLE_SPEC and _LIFECYCLE_SPEC.loader
+lifecycle = importlib.util.module_from_spec(_LIFECYCLE_SPEC)
+sys.modules[_LIFECYCLE_SPEC.name] = lifecycle
+_LIFECYCLE_SPEC.loader.exec_module(lifecycle)
+
+
+def lifecycle_tombstone_re(slug: str) -> str:
+    """The lifecycle module's own tombstone reader, for the archived slug."""
+    return lifecycle.TOMBSTONE_RE_TEMPLATE.format(slug=slug)
+
+
+ARCHIVABLE_PLAN = """# Local demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+- Priority: 2
+
+## Tasks
+
+### Finished work
+- [completed] first local result exists ~aa11 | proof: cmd true
+- [completed] finished local result is accepted ~bb22 (DoD) | proof: cmd true | needs: ~aa11
+
+### Next work
+- [pending] next local result starts ~cc33 | proof: cmd true | needs: ~bb22
+- [pending] next local result is accepted ~dd44 (DoD) | proof: cmd true | needs: ~cc33
+
+## Progress
+
+- 2026-08-11T00:00:00Z ~aa11 PROOF true -> pass
+- 2026-08-11T00:01:00Z ~bb22 PROOF true -> pass
+- 2026-08-11T00:02:00Z NOTE unrelated history remains live
+"""
+
+
 class LocalPlanStore(unittest.TestCase):
+    def test_accept_mutates_a_partitioned_local_plan_without_losing_the_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            repo = root / "dev" / "feature-checkout"
+            repo.mkdir(parents=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            (repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
+            for args in (
+                ("init", "--quiet"),
+                ("config", "user.email", "shadow-test@example.invalid"),
+                ("config", "user.name", "Shadow Test"),
+                ("remote", "add", "origin", "git@github.com:example/widget.git"),
+                ("add", "README.md", "PLAN.md"),
+                ("commit", "--quiet", "-m", "seed"),
+            ):
+                result = subprocess.run(
+                    ["git", "-C", str(repo), *args],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+            plan_root = home / ".shadow" / "plans" / "widget"
+            plan_root.mkdir(parents=True)
+            source = PLAN.replace("[pending]", "[in_progress]", 1).encode("utf-8")
+            plan = install_plan_tree(plan_root, source)
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~aa11"]}],
+                [],
+                home=home,
+            )
+            board.claim(plan, "~aa11", "local-seat", project="widget", priority=2, home=home)
+
+            accepted = subprocess.run(
+                [
+                    str(ROOT / "bin" / "shadow"), "accept", "--repo", str(repo),
+                    "--row", "~aa11", "--by", "local-seat",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            logical = board.read_plan_text(plan)
+            self.assertIn("[completed] prove local authority ~aa11", logical)
+            self.assertIn("~aa11 PROOF true -> pass (accept)", logical)
+            self.assertTrue(board.open_plan(plan).is_tree)
+            self.assertEqual(board.entity_state(plan, home=home)["claims"], [])
+
+    def test_lifecycle_archives_a_partitioned_local_plan_losslessly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            plan_root = home / ".shadow" / "plans" / "widget"
+            plan_root.mkdir(parents=True)
+            plan = install_plan_tree(plan_root, ARCHIVABLE_PLAN.encode("utf-8"))
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~cc33"]}],
+                [],
+                home=home,
+            )
+            before = board.read_plan_text(plan)
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                preview, _ = lifecycle.inspect(plan_root, "Finished work")
+                report = lifecycle.apply(
+                    plan_root,
+                    "Finished work",
+                    expected=preview["cas"],
+                    owner="local-seat",
+                )
+
+            self.assertTrue(report["ok"], report)
+            self.assertEqual(report["action"], "archived")
+            self.assertTrue(board.open_plan(plan).is_tree)
+            logical = board.read_plan_text(plan)
+            archive = plan_root / "docs" / "plan-archive" / "finished-work.md"
+            self.assertIn("shadow:lifecycle:finished-work", logical)
+            self.assertNotIn("first local result exists ~aa11", logical)
+            self.assertIn("first local result exists ~aa11", archive.read_text())
+            self.assertIn("unrelated history remains live", logical)
+            self.assertNotEqual(logical, before)
+
     def test_portfolio_import_moves_registered_ai_leo_plan_to_private_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -164,6 +292,99 @@ class LocalPlanStore(unittest.TestCase):
             self.assertIn("read that local file directly", block.stdout)
             self.assertNotIn("current origin ref", block.stdout)
 
+    def test_a_local_plan_can_archive_a_proven_milestone(self) -> None:
+        """The hot-plan byte ceiling must have a reachable remedy locally.
+
+        `HOT-PLAN-BYTES` names exactly one remedy -- archive one proven
+        milestone with `shadow lifecycle`. Every sibling verb already routes a
+        machine-local authority through `frozen_plan_snapshot`; lifecycle alone
+        still demanded a Git-tracked PLAN.md, so the one documented way to
+        shrink a local plan refused by construction. Measured 2026-08-12 on
+        Shadow's own plan: 506 bytes of headroom and no legal way to reclaim
+        any.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            plan = home / ".shadow" / "plans" / "demo" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(ARCHIVABLE_PLAN, encoding="utf-8")
+
+            board.reconcile(
+                [{"plan": str(plan), "project": "demo", "priority": 2, "candidates": ["~cc33"]}],
+                [],
+                home=home,
+            )
+            self.assertTrue(board.is_local_plan(plan, home=home))
+
+            preview = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "shadow-lifecycle.py"),
+                    "--repo",
+                    str(plan.parent),
+                    "--milestone",
+                    "Finished work",
+                    "--json",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(preview.returncode, 0, preview.stderr)
+            report = json.loads(preview.stdout or "{}")
+            cas = report.get("cas")
+            self.assertTrue(
+                isinstance(cas, str) and cas,
+                f"a local dry run must emit a CAS token, got {report}",
+            )
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "shadow-lifecycle.py"),
+                    "--repo",
+                    str(plan.parent),
+                    "--milestone",
+                    "Finished work",
+                    "--apply",
+                    "--expect",
+                    cas,
+                    "--by",
+                    "local-archive-seat",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            # The archive is finished by atomic local writes, never a commit.
+            archive = plan.parent / "docs" / "plan-archive" / "finished-work.md"
+            self.assertTrue(archive.is_file(), "the archive file must be written")
+            compacted = plan.read_text(encoding="utf-8")
+            self.assertNotIn("### Finished work", compacted)
+            self.assertIn("### Next work", compacted)
+
+            # Provenance survives: the tombstone must carry the content address
+            # `frozen_plan_snapshot` stamps, and the reader must accept it.
+            self.assertRegex(compacted, r"head:local:[0-9a-f]{64}")
+            slug = "finished-work"
+            self.assertRegex(
+                compacted,
+                lifecycle_tombstone_re(slug),
+                "lifecycle must not mint a receipt its own reader rejects",
+            )
+
+            # The private authority stays out of the board's Git journal.
+            tracked = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "ls-files"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(tracked.stdout.strip(), "board.json")
+
     def test_local_plan_claim_is_not_git_tracked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
@@ -207,3 +428,91 @@ class LocalPlanStore(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(tracked.stdout, "")
+
+    def test_lint_and_accept_run_a_local_plan_against_its_source_checkout(self) -> None:
+        """A private authority still proves work from its registered source repo.
+
+        The local plan deliberately has no Git checkout of its own.  A public
+        `shadow lint --repo` and `shadow accept --repo` must therefore use the
+        clean source checkout for the proof while leaving the completed PLAN
+        private to this computer.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            repo = root / "dev" / "widget"
+            repo.mkdir(parents=True)
+            (repo / "proof.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
+            for args in (
+                ("init", "--quiet"),
+                ("config", "user.email", "shadow-test@example.invalid"),
+                ("config", "user.name", "Shadow Test"),
+                ("add", "proof.py"),
+                ("commit", "--quiet", "-m", "seed proof"),
+            ):
+                result = subprocess.run(
+                    ["git", "-C", str(repo), *args],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+            plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(
+                PLAN.replace("cmd true", "cmd python3 proof.py", 1).replace("[pending]", "[in_progress]", 1),
+                encoding="utf-8",
+            )
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~aa11"]}],
+                [],
+                home=home,
+            )
+            board.claim(plan, "~aa11", "local-seat", project="widget", priority=2, home=home)
+            env = {**os.environ, "HOME": str(home)}
+
+            lint = subprocess.run(
+                [str(ROOT / "bin" / "shadow"), "lint", "--repo", str(repo), str(plan)],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(lint.returncode, 0, lint.stderr)
+
+            accept_argv = [
+                str(ROOT / "bin" / "shadow"), "accept", "--repo", str(repo),
+                "--row", "~aa11", "--by", "local-seat",
+            ]
+            before = plan.read_text(encoding="utf-8")
+            failed = subprocess.run(
+                accept_argv,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(failed.returncode, 1)
+            self.assertIn("proof did not pass in a clean source checkout", failed.stderr)
+            self.assertEqual(plan.read_text(encoding="utf-8"), before)
+            self.assertEqual(len(board.entity_state(plan, home=home)["claims"]), 1)
+
+            (repo / "proof.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "proof.py"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "--quiet", "-m", "fix proof"], check=True)
+            accepted = subprocess.run(
+                accept_argv,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            text = plan.read_text(encoding="utf-8")
+            self.assertIn("[completed] prove local authority ~aa11", text)
+            self.assertIn("~aa11 PROOF python3 proof.py -> pass (accept)", text)
+            self.assertEqual(board.entity_state(plan, home=home)["claims"], [])
+            self.assertEqual(subprocess.run(
+                ["git", "-C", str(repo), "status", "--porcelain"],
+                capture_output=True, text=True, check=False,
+            ).stdout, "")
