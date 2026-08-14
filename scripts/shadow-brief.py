@@ -689,6 +689,20 @@ def build_superhuman_context(
         match = re.search(r"[^<\s]+@[^>\s]+\.[^>\s]+", raw)
         return identity(match.group(0)) if match else ""
 
+    def message_recipients(message: dict[str, Any]) -> set[str]:
+        recipients: set[str] = set()
+        for key in ("to", "cc", "bcc", "recipients"):
+            values = message.get(key)
+            if values is None:
+                continue
+            if not isinstance(values, list):
+                values = [values]
+            for value in values:
+                recipient = message_identity(value)
+                if recipient:
+                    recipients.add(recipient)
+        return recipients
+
     def unknown_coverage(
         acting_email: str,
         *,
@@ -1049,6 +1063,7 @@ def build_superhuman_context(
                     "acting_email": acting_email,
                     "thread_id": thread_id or None,
                     "last_message_id": message_id or None,
+                    "native_link": native_link,
                 }
             ],
             "semantic_status": "OBSERVED" if not tags else "UNKNOWN",
@@ -1215,6 +1230,15 @@ def build_superhuman_context(
     coverage: list[dict[str, Any]] = []
     all_signals: list[dict[str, Any]] = []
     calendar_proposals: list[dict[str, Any]] = []
+    owned_sender_identities = {
+        sender_identity
+        for linked_account in linked_accounts
+        for sender_identity in (linked_account.get("sender_identities") or [])
+    }
+    owned_sender_identity_complete = bool(linked_accounts) and all(
+        bool(linked_account.get("sender_identity_complete"))
+        for linked_account in linked_accounts
+    )
     global_action_reads = 0
     global_action_limit_hit = False
     read_budget_hit = False
@@ -1653,12 +1677,13 @@ def build_superhuman_context(
                     elif signal.get("kind") == "human_or_other":
                         tags = list(signal.get("action_tags") or [])
                         active_labels = set(signal.get("source_labels") or [])
-                        sender_identities = set(account.get("sender_identities") or [acting_email])
-                        sender_identity_complete = bool(
-                            account.get("sender_identity_complete")
-                        )
-                        if sender_email in sender_identities:
-                            tags = [tag for tag in tags if tag != "reply"]
+                        recipients = message_recipients(last_message)
+                        if sender_email in owned_sender_identities:
+                            tags = [
+                                tag
+                                for tag in tags
+                                if tag not in {"reply", "proactive"}
+                            ]
                             outbound_text = " ".join(
                                 str(last_message.get(key) or "")
                                 for key in ("subject", "snippet", "body")
@@ -1678,17 +1703,27 @@ def build_superhuman_context(
                                     "what is the status",
                                 )
                             )
-                            if expects_response and "waiting_reply" not in tags:
-                                tags.append("waiting_reply")
-                            if not expects_response:
-                                tags = [tag for tag in tags if tag != "waiting_reply"]
-                            signal["waiting_direction"] = (
-                                "last visible message sent by Leo with an explicit response expectation"
-                                if expects_response
-                                else "last visible message sent by Leo without a response expectation"
+                            internal_delivery = bool(recipients) and recipients.issubset(
+                                owned_sender_identities
                             )
+                            if internal_delivery:
+                                tags = [tag for tag in tags if tag != "waiting_reply"]
+                            elif expects_response and "waiting_reply" not in tags:
+                                tags.append("waiting_reply")
+                            elif not expects_response:
+                                tags = [tag for tag in tags if tag != "waiting_reply"]
+                            if internal_delivery:
+                                signal["waiting_direction"] = (
+                                    "latest visible message stayed within Leo-owned linked identities"
+                                )
+                            else:
+                                signal["waiting_direction"] = (
+                                    "last visible message sent by Leo with an explicit response expectation"
+                                    if expects_response
+                                    else "last visible message sent by Leo without a response expectation"
+                                )
                         else:
-                            if not sender_identity_complete:
+                            if not owned_sender_identity_complete:
                                 detail_problems.append(
                                     "send-as alias coverage is unavailable, so inbound/outbound direction is ambiguous"
                                 )
@@ -1723,6 +1758,9 @@ def build_superhuman_context(
                 if signal.get("fail_closed_reasons"):
                     signal["semantic_status"] = "UNKNOWN"
                     signal["confidence"] = "LOW"
+                elif not signal.get("action_tags"):
+                    signal["semantic_status"] = "OBSERVED"
+                    signal["confidence"] = "MEDIUM"
                 else:
                     signal["semantic_status"] = "PROPOSAL"
                     signal["confidence"] = "MEDIUM"
@@ -2092,6 +2130,7 @@ def superhuman_account_context(context: dict[str, Any], acting_email: str) -> di
         )
         account_signal["thread_id"] = source_ref.get("thread_id") or account_signal.get("thread_id")
         account_signal["last_message_id"] = source_ref.get("last_message_id") or account_signal.get("last_message_id")
+        account_signal["native_link"] = source_ref.get("native_link")
         signals.append(account_signal)
     metrics = coverage.get("metrics") or {}
     available = bool(coverage.get("linked"))
@@ -3652,7 +3691,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         ),
         "superhuman": (
             {"available": True}
-            if mail.get("status") == "COMPLETE"
+            if mail.get("available")
             else {
                 "available": False,
                 "error": str(
@@ -3738,6 +3777,69 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
 
 def _esc(s: Any) -> str:
     return html.escape("" if s is None else str(s), quote=True)
+
+
+def reader_safe_mail_wake(
+    value: Any,
+    *,
+    row: dict[str, Any] | None = None,
+    mail: dict[str, Any] | None = None,
+) -> str:
+    """Keep the concrete wake while removing private provider mechanics."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    subject = str((row or {}).get("subject") or "this item").strip()
+    signals = [row] if isinstance(row, dict) else []
+    if isinstance(mail, dict):
+        signals.extend(
+            signal
+            for signal in (mail.get("signals") or [])
+            if isinstance(signal, dict)
+        )
+    opaque_ids: set[str] = set()
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        for key in ("thread_id", "last_message_id"):
+            candidate = str(signal.get(key) or "").strip()
+            if candidate:
+                opaque_ids.add(candidate)
+        for source in signal.get("source_threads") or []:
+            if not isinstance(source, dict):
+                continue
+            for key in ("thread_id", "last_message_id"):
+                candidate = str(source.get(key) or "").strip()
+                if candidate:
+                    opaque_ids.add(candidate)
+    replacement = f"for {subject}"
+    for opaque_id in sorted(opaque_ids, key=len, reverse=True):
+        text = re.sub(
+            rf"(?<![A-Za-z0-9]){re.escape(opaque_id)}(?![A-Za-z0-9])",
+            replacement,
+            text,
+        )
+    text = re.sub(
+        r"(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?",
+        r"\1",
+        text,
+    )
+    text = re.sub(
+        r"exhaust every cursor",
+        "finish the full declared scan",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"pagination cursor",
+        "mailbox continuation",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bcursor\b", "continuation", text, flags=re.IGNORECASE)
+    return text.replace("thread_id", "thread identity").replace(
+        "message_id", "message identity"
+    )
 
 
 def human_datetime(value: Any) -> str:
@@ -4174,10 +4276,16 @@ def render_html(packet: dict[str, Any]) -> str:
             else "partial"
         )
         if not row.get("linked"):
-            reader_boundary = row.get("wake") or "Link this expected identity before relying on mail coverage."
+            reader_boundary = reader_safe_mail_wake(
+                row.get("wake")
+                or "Link this expected identity before relying on mail coverage.",
+                mail=mail,
+            )
         elif row.get("status") == "UNKNOWN":
-            reader_boundary = (
-                "Open this account in Superhuman and finish its named UNKNOWN read before relying on an all-clear."
+            reader_boundary = reader_safe_mail_wake(
+                row.get("wake")
+                or "Open this account in Superhuman and finish its named UNKNOWN read before relying on an all-clear.",
+                mail=mail,
             )
         else:
             reader_boundary = "No source recovery is needed for this declared scan."
@@ -4224,7 +4332,7 @@ def render_html(packet: dict[str, Any]) -> str:
                 f"<p class='meta'>{_esc(row.get('proposal') or 'Proposal only: read the exact source before acting.')}</p>"
                 f"<p class='source-note'>{_esc(source or 'Superhuman')} · observed {_esc(human_datetime(row.get('last_message_at')))}"
                 + (
-                    f"<br/>Wake: Open the exact Superhuman thread for {_esc(row.get('subject') or 'this item')} before acting."
+                    f"<br/>Wake: {_esc(reader_safe_mail_wake(row.get('wake'), row=row))}"
                     if row.get("wake")
                     else ""
                 )
@@ -4261,7 +4369,7 @@ def render_html(packet: dict[str, Any]) -> str:
         f"<p>{_esc(mail_summary)}</p>"
         f"<p class='confidence'>{'MEDIUM' if mail.get('all_clear_allowed') else 'LOW'} confidence</p>"
         + (
-            "<p class='source-note'>Wake: Open Superhuman and finish every named UNKNOWN source before relying on an all-clear.</p>"
+            f"<p class='source-note'>Wake: {_esc(reader_safe_mail_wake(mail.get('wake'), mail=mail))}</p>"
             if mail.get("wake")
             else ""
         )

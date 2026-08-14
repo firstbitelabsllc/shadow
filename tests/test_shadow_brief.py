@@ -1364,6 +1364,87 @@ class PrivateStoreTests(unittest.TestCase):
             {"list_accounts", "list_threads", "get_thread", "query_email_and_calendar"},
         )
 
+    def test_cross_account_self_mail_is_not_a_relationship_action(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        personal = "leojkwan@gmail.com"
+        business = "trysnowcubes@gmail.com"
+        identities = (personal, business, "firstbitelabs@gmail.com")
+        sent_row = {
+            "thread_id": "personal-self-copy",
+            "last_message_id": "shared-self-message",
+            "last_message_at": "2026-08-14T10:00:00Z",
+            "subject": "Can we review this?",
+            "snippet": "Please let me know.",
+            "labels": ["SENT"],
+        }
+        inbox_row = {
+            **sent_row,
+            "thread_id": "business-self-copy",
+            "labels": ["INBOX"],
+        }
+        tool_names = []
+
+        def call_tool(name, arguments):
+            tool_names.append(name)
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []}
+                        for email in identities
+                    ]
+                }
+            if name == "list_threads":
+                email = arguments["acting_email"]
+                labels = arguments["labels"]
+                if email == personal and labels == ["SENT"]:
+                    return {"threads": [sent_row], "total_estimate": 1}
+                if email == business and labels == ["INBOX"]:
+                    return {"threads": [inbox_row], "total_estimate": 1}
+                return {"threads": [], "total_estimate": 0}
+            if name == "get_thread":
+                row = sent_row if arguments["acting_email"] == personal else inbox_row
+                return {
+                    **row,
+                    "message_count": 1,
+                    "messages": [
+                        {
+                            "message_id": "shared-self-message",
+                            "sent_at": "2026-08-14T10:00:00Z",
+                            "body": "Can we review this? Please let me know.",
+                            "from": personal,
+                            "to": [business],
+                        }
+                    ],
+                }
+            if name == "query_email_and_calendar":
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
+            raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        signal = next(
+            row for row in context["signals"]
+            if row["last_message_id"] == "shared-self-message"
+        )
+        self.assertEqual(signal["source_identities"], [personal, business])
+        self.assertEqual(signal["action_tags"], [])
+        self.assertEqual(signal["semantic_status"], "OBSERVED")
+        for category in (
+            "urgent_replies",
+            "waiting_replies",
+            "proactive_candidates",
+        ):
+            self.assertNotIn(signal["signal_id"], {
+                row["signal_id"] for row in context[category]
+            })
+        self.assertEqual(
+            set(tool_names),
+            {"list_accounts", "list_threads", "get_thread", "query_email_and_calendar"},
+        )
+
     def test_packet_and_render_have_one_reader_first_mail_section_from_one_read_only_collection(self):
         def signal(signal_id, subject, *, status="PROPOSAL", wake=None):
             return {
@@ -1388,7 +1469,10 @@ class PrivateStoreTests(unittest.TestCase):
             "raw-forgotten-id",
             "Driver license renewal",
             status="UNKNOWN",
-            wake="Open the exact Superhuman thread for Driver license renewal before deciding.",
+            wake=(
+                "Open Superhuman as leojkwan@gmail.com, read exact thread raw-thread-raw-forgotten-id "
+                "including return-label.pdf; action-bearing attachment content unread."
+            ),
         )
         order_return = signal("raw-order-id", "Lamp return follow-through")
         proactive = signal("raw-proactive-id", "Snowcubes cafe follow-up")
@@ -1403,10 +1487,16 @@ class PrivateStoreTests(unittest.TestCase):
             "human_or_other_threads": 1,
             "cursor_limit_threads": 0,
             "problems": ["Forgotten-obligation history is not exhaustive."],
-            "wake": "Search older mail before relying on an all-clear.",
+            "wake": (
+                "Search read-only Superhuman mail before 2026-05-16 for unresolved registration, "
+                "driver license, payment, order, and return obligations."
+            ),
             "forgotten_horizon": {
                 "status": "UNKNOWN",
-                "wake": "Search older mail before relying on an all-clear.",
+                "wake": (
+                    "Search read-only Superhuman mail before 2026-05-16 for unresolved registration, "
+                    "driver license, payment, order, and return obligations."
+                ),
             },
             "coverage": [
                 {
@@ -1486,8 +1576,14 @@ class PrivateStoreTests(unittest.TestCase):
         ):
             self.assertIn(category, html)
             self.assertLess(html.index(category), html.index("What was checked"))
+        self.assertIn("Search read-only Superhuman mail before 2026-05-16", html)
+        self.assertIn("leojkwan@gmail.com", html)
+        self.assertIn("return-label.pdf", html)
+        self.assertIn("action-bearing attachment content unread", html)
+        self.assertIn("exact thread", html)
+        self.assertIn("Driver license renewal", html)
         self.assertLess(
-            html.index("Open Superhuman and finish every named UNKNOWN source"),
+            html.index("Search read-only Superhuman mail before 2026-05-16"),
             html.index("What was checked"),
         )
         self.assertIn("MEDIUM confidence", html)
@@ -1505,6 +1601,76 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("thread_id", html)
         self.assertNotIn("message_id", html)
         self.assertNotIn("Send reply", html)
+
+    def test_account_projection_keeps_only_its_exact_native_mail_route(self):
+        personal_link = "https://mail.superhuman.com/thread/personal-route"
+        business_link = "https://mail.superhuman.com/thread/business-route"
+        context = {
+            "coverage": [
+                {
+                    "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                    "linked": True,
+                    "status": "COMPLETE",
+                    "metrics": {},
+                }
+            ],
+            "signals": [
+                {
+                    "signal_id": "shared-message",
+                    "last_message_id": "shared-message",
+                    "thread_id": "personal-thread",
+                    "native_link": personal_link,
+                    "subject": "Snowcubes customer follow-up",
+                    "kind": "human_or_other",
+                    "action_tags": ["reply", "proactive"],
+                    "semantic_status": "PROPOSAL",
+                    "thread_body_read": True,
+                    "source_identities": [
+                        brief.SELF_MAIL,
+                        brief.SNOWCUBES_BUSINESS_MAIL,
+                    ],
+                    "source_threads": [
+                        {
+                            "acting_email": brief.SELF_MAIL,
+                            "thread_id": "personal-thread",
+                            "last_message_id": "shared-message",
+                            "native_link": personal_link,
+                        },
+                        {
+                            "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                            "thread_id": "business-thread",
+                            "last_message_id": "shared-message",
+                            "native_link": business_link,
+                        },
+                    ],
+                }
+            ],
+        }
+
+        business_mail = brief.superhuman_account_context(
+            context, brief.SNOWCUBES_BUSINESS_MAIL
+        )
+        self.assertEqual(business_mail["signals"][0]["native_link"], business_link)
+        with mock.patch.object(brief, "collect_board", return_value={"revision": 9}), \
+            mock.patch.object(
+                brief,
+                "_snowcubes_m12_surface",
+                return_value={"name": "M12 cafe-doctor", "state": "unavailable"},
+            ):
+            companion = brief.collect_snowcubes_context(
+                vercel={"available": False},
+                board={"revision": 9},
+                mail=business_mail,
+            )
+        reply = companion["surfaces"][0]
+        self.assertEqual(reply["native_link"], business_link)
+        self.assertNotEqual(reply["native_link"], personal_link)
+
+        context["signals"][0]["source_threads"][1]["native_link"] = None
+        route_unknown = brief.superhuman_account_context(
+            context, brief.SNOWCUBES_BUSINESS_MAIL
+        )
+        self.assertIsNone(route_unknown["signals"][0]["native_link"])
 
     def test_snowcubes_companion_keeps_missing_business_sources_explicit(self):
         with mock.patch.object(
@@ -2274,6 +2440,8 @@ class AuthorityScopeTests(unittest.TestCase):
             packet = brief.collect_packet(slot="morning")
 
         self.assertIs(packet["board"], board)
+        self.assertTrue(packet["paint_health"]["superhuman"]["available"])
+        self.assertEqual(packet["superhuman_context"]["status"], "UNKNOWN")
         self.assertIs(collect_companion.call_args.kwargs["board"], packet["board"])
         self.assertEqual(collect_mail.call_count, 1)
         self.assertEqual(
