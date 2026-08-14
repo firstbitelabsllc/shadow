@@ -1019,14 +1019,6 @@ def build_superhuman_context(
             )
         signal_id = hashlib.sha256(stable_source.encode("utf-8")).hexdigest()[:24]
         kind, tags = action_tags(row, acting_email)
-        native_link = next(
-            (
-                str(row.get(key)).strip()
-                for key in ("native_link", "thread_url", "web_url", "url", "link")
-                if str(row.get(key) or "").strip().startswith(("https://", "http://"))
-            ),
-            None,
-        )
         if "order_return" in tags:
             proposal = "Proposal only: verify the order, return, refund, and deadline facts before any merchant action."
         elif "reply" in tags or "waiting_reply" in tags:
@@ -1056,14 +1048,12 @@ def build_superhuman_context(
                 normalized_message_time(row.get("last_message_at")),
             ),
             "unread": "unread" in {str(label).lower() for label in (row.get("labels") or [])},
-            "native_link": native_link,
             "source_identities": [acting_email],
             "source_threads": [
                 {
                     "acting_email": acting_email,
                     "thread_id": thread_id or None,
                     "last_message_id": message_id or None,
-                    "native_link": native_link,
                 }
             ],
             "semantic_status": "OBSERVED" if not tags else "UNKNOWN",
@@ -1086,8 +1076,14 @@ def build_superhuman_context(
         return result
 
     def merge_signal(existing: dict[str, Any], incoming: dict[str, Any]) -> None:
-        existing["source_identities"] = list(
-            dict.fromkeys((existing.get("source_identities") or []) + (incoming.get("source_identities") or []))
+        existing_status = str(existing.get("semantic_status") or "UNKNOWN")
+        incoming_status = str(incoming.get("semantic_status") or "UNKNOWN")
+        existing["source_identities"] = sorted(
+            dict.fromkeys(
+                (existing.get("source_identities") or [])
+                + (incoming.get("source_identities") or [])
+            ),
+            key=identity_sort_key,
         )
         seen_refs = {
             (
@@ -1105,8 +1101,11 @@ def build_superhuman_context(
             if key not in seen_refs:
                 existing.setdefault("source_threads", []).append(ref)
                 seen_refs.add(key)
-        existing["action_tags"] = list(
-            dict.fromkeys((existing.get("action_tags") or []) + (incoming.get("action_tags") or []))
+        existing["action_tags"] = sorted(
+            dict.fromkeys(
+                (existing.get("action_tags") or [])
+                + (incoming.get("action_tags") or [])
+            )
         )
         existing["source_labels"] = sorted(
             dict.fromkeys(
@@ -1120,23 +1119,74 @@ def build_superhuman_context(
                 + (incoming.get("source_lanes") or [])
             )
         )
-        if incoming.get("semantic_status") == "UNKNOWN":
+        existing["unread"] = bool(existing.get("unread") or incoming.get("unread"))
+        classification_conflict = {
+            existing_status,
+            incoming_status,
+        } == {"OBSERVED", "PROPOSAL"}
+        if "UNKNOWN" in {existing_status, incoming_status}:
             existing["semantic_status"] = "UNKNOWN"
-        if incoming.get("confidence") == "LOW" or existing.get("confidence") == "LOW":
+        elif classification_conflict:
+            existing["semantic_status"] = "UNKNOWN"
+        elif existing_status == incoming_status:
+            existing["semantic_status"] = existing_status
+        else:
+            existing["semantic_status"] = "UNKNOWN"
+            classification_conflict = True
+        if (
+            existing.get("semantic_status") == "UNKNOWN"
+            or incoming.get("confidence") == "LOW"
+            or existing.get("confidence") == "LOW"
+        ):
             existing["confidence"] = "LOW"
-        existing["fail_closed_reasons"] = list(
+        existing["fail_closed_reasons"] = sorted(
             dict.fromkeys(
                 (existing.get("fail_closed_reasons") or [])
                 + (incoming.get("fail_closed_reasons") or [])
             )
         )
+        if classification_conflict:
+            existing["fail_closed_reasons"] = sorted(
+                dict.fromkeys(
+                    (existing.get("fail_closed_reasons") or [])
+                    + ["cross-account classification/lifecycle conflict"]
+                )
+            )
+            subject = str(existing.get("subject") or "this mail item")
+            identities = ", ".join(existing.get("source_identities") or [])
+            conflict_wake = (
+                f"Open Superhuman separately as {identities} and verify {subject}; "
+                "cross-account classification/lifecycle facts disagree, so no relationship action is inferred."
+            )
+        else:
+            conflict_wake = ""
         wakes = [value for value in (existing.get("wake"), incoming.get("wake")) if value]
+        if conflict_wake:
+            wakes.append(conflict_wake)
         if wakes:
-            existing["wake"] = "; ".join(dict.fromkeys(wakes))
-        existing["source_identities"] = sorted(
-            dict.fromkeys(existing.get("source_identities") or []),
-            key=identity_sort_key,
-        )
+            existing["wake"] = "; ".join(sorted(dict.fromkeys(str(value) for value in wakes)))
+        snapshots = [
+            snapshot
+            for snapshot in (
+                (existing.get("account_snapshots") or [])
+                + (incoming.get("account_snapshots") or [])
+            )
+            if isinstance(snapshot, dict) and snapshot.get("acting_email")
+        ]
+        if snapshots:
+            snapshots_by_identity = {
+                str(snapshot["acting_email"]): snapshot for snapshot in snapshots
+            }
+            existing["account_snapshots"] = sorted(
+                snapshots_by_identity.values(),
+                key=lambda snapshot: identity_sort_key(
+                    str(snapshot.get("acting_email") or "")
+                ),
+            )
+            existing["thread_body_read"] = all(
+                snapshot.get("thread_body_read") is True
+                for snapshot in existing["account_snapshots"]
+            )
         existing["source_threads"] = sorted(
             (existing.get("source_threads") or []),
             key=lambda ref: (
@@ -1145,6 +1195,10 @@ def build_superhuman_context(
                 str(ref.get("last_message_id") or ""),
             ),
         )
+        if existing["source_threads"]:
+            canonical_ref = existing["source_threads"][0]
+            existing["thread_id"] = canonical_ref.get("thread_id")
+            existing["last_message_id"] = canonical_ref.get("last_message_id")
 
     def dedupe_signal_rows(
         rows: list[dict[str, Any]],
@@ -1226,6 +1280,31 @@ def build_superhuman_context(
     def append_signal_wake(signal: dict[str, Any], wake: str) -> None:
         wakes = [str(value) for value in (signal.get("wake"), wake) if value]
         signal["wake"] = "; ".join(dict.fromkeys(wakes))
+
+    account_snapshot_fields = (
+        "thread_id",
+        "last_message_id",
+        "action_tags",
+        "source_labels",
+        "source_lanes",
+        "semantic_status",
+        "confidence",
+        "fail_closed_reasons",
+        "wake",
+        "thread_body_read",
+        "waiting_direction",
+        "message_age_hours",
+        "verified_message_at",
+        "unread",
+        "proposal",
+    )
+
+    def account_snapshot(signal: dict[str, Any], acting_email: str) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {"acting_email": acting_email}
+        for key in account_snapshot_fields:
+            value = signal.get(key)
+            snapshot[key] = list(value) if isinstance(value, list) else value
+        return snapshot
 
     coverage: list[dict[str, Any]] = []
     all_signals: list[dict[str, Any]] = []
@@ -1545,7 +1624,7 @@ def build_superhuman_context(
                         "acting_email": acting_email,
                         "thread_id": thread_id,
                         "include_comments": False,
-                        "include_drafts": True,
+                        "include_drafts": False,
                         "message_limit": 100,
                     },
                 )
@@ -1555,6 +1634,10 @@ def build_superhuman_context(
                     raise RuntimeError(str(detail.get("error")))
                 if str(detail.get("thread_id") or "") != thread_id:
                     detail_problems.append("exact thread identity mismatch")
+                if detail.get("user_is_participant") is not True:
+                    detail_problems.append(
+                        "exact thread does not prove the acting user is a participant"
+                    )
                 messages = detail.get("messages") or []
                 if not isinstance(messages, list):
                     messages = []
@@ -1571,7 +1654,20 @@ def build_superhuman_context(
                     if not isinstance(message, dict):
                         detail_problems.append("thread contains an unusable message row")
                         continue
-                    if message.get("is_draft"):
+                    message_labels = message.get("labels")
+                    if not isinstance(message_labels, list):
+                        detail_problems.append(
+                            "thread message lifecycle labels are missing or malformed"
+                        )
+                        continue
+                    if str(message.get("thread_id") or "") != thread_id:
+                        detail_problems.append(
+                            "thread contains a message from a different thread"
+                        )
+                        continue
+                    if message.get("is_draft") is True or "draft" in {
+                        str(label).casefold() for label in message_labels
+                    }:
                         continue
                     visible_messages.append(message)
                     attachments = [
@@ -1706,13 +1802,23 @@ def build_superhuman_context(
                             internal_delivery = bool(recipients) and recipients.issubset(
                                 owned_sender_identities
                             )
-                            if internal_delivery:
+                            if not recipients:
+                                tags = [tag for tag in tags if tag != "waiting_reply"]
+                                detail_problems.append(
+                                    "latest owned-sender message has no proven recipients"
+                                )
+                                signal["waiting_direction"] = (
+                                    "latest visible message is owned, but its recipients are unavailable"
+                                )
+                            elif internal_delivery:
                                 tags = [tag for tag in tags if tag != "waiting_reply"]
                             elif expects_response and "waiting_reply" not in tags:
                                 tags.append("waiting_reply")
                             elif not expects_response:
                                 tags = [tag for tag in tags if tag != "waiting_reply"]
-                            if internal_delivery:
+                            if not recipients:
+                                pass
+                            elif internal_delivery:
                                 signal["waiting_direction"] = (
                                     "latest visible message stayed within Leo-owned linked identities"
                                 )
@@ -1891,6 +1997,8 @@ def build_superhuman_context(
                     f"Re-read {acting_email} through Superhuman from {start_date} to {end_date}, exhaust every cursor, "
                     "and open each named UNKNOWN thread before any all-clear."
                 )
+        for signal in account_signals:
+            signal["account_snapshots"] = [account_snapshot(signal, acting_email)]
         coverage.append(coverage_row)
         all_signals.extend(account_signals)
 
@@ -2128,9 +2236,50 @@ def superhuman_account_context(context: dict[str, Any], acting_email: str) -> di
             ),
             {},
         )
+        snapshot = next(
+            (
+                item
+                for item in (signal.get("account_snapshots") or [])
+                if isinstance(item, dict) and item.get("acting_email") == normalized
+            ),
+            None,
+        )
+        if snapshot is None:
+            account_signal["action_tags"] = []
+            account_signal["semantic_status"] = "UNKNOWN"
+            account_signal["confidence"] = "LOW"
+            account_signal["fail_closed_reasons"] = [
+                "per-account classification snapshot unavailable"
+            ]
+            account_signal["wake"] = (
+                f"Re-read the exact mail item as {normalized}; its per-account classification snapshot is unavailable."
+            )
+            account_signal["thread_body_read"] = False
+        else:
+            for key in (
+                "thread_id",
+                "last_message_id",
+                "action_tags",
+                "source_labels",
+                "source_lanes",
+                "semantic_status",
+                "confidence",
+                "fail_closed_reasons",
+                "wake",
+                "thread_body_read",
+                "waiting_direction",
+                "message_age_hours",
+                "verified_message_at",
+                "unread",
+                "proposal",
+            ):
+                value = snapshot.get(key)
+                account_signal[key] = list(value) if isinstance(value, list) else value
         account_signal["thread_id"] = source_ref.get("thread_id") or account_signal.get("thread_id")
         account_signal["last_message_id"] = source_ref.get("last_message_id") or account_signal.get("last_message_id")
-        account_signal["native_link"] = source_ref.get("native_link")
+        account_signal["source_identities"] = [normalized]
+        account_signal["source_threads"] = [source_ref] if source_ref else []
+        account_signal.pop("native_link", None)
         signals.append(account_signal)
     metrics = coverage.get("metrics") or {}
     available = bool(coverage.get("linked"))
@@ -2246,7 +2395,6 @@ def _snowcubes_surface(
     wake: str | None = None,
     native_link: str | None = None,
     proposal: str | None = None,
-    thread_id: str | None = None,
 ) -> dict[str, Any]:
     """Create one source-labelled card without creating a task or business record."""
     card: dict[str, Any] = {
@@ -2263,9 +2411,6 @@ def _snowcubes_surface(
         card["native_link"] = native_link
     if proposal:
         card["proposal"] = proposal
-    if thread_id:
-        # This is private evidence for reconciliation, not a customer queue.
-        card["thread_id"] = thread_id
     return card
 
 
@@ -2423,6 +2568,7 @@ def collect_snowcubes_context(
         if isinstance(mail, dict)
         else collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
     )
+    newest: dict[str, Any] | None = None
     if mail.get("available"):
         human = [
             row
@@ -2440,48 +2586,65 @@ def collect_snowcubes_context(
             and row.get("thread_body_read") is True
             and mail.get("complete") is True
         ]
-        newest = next((row for row in verified if row.get("native_link")), None)
+        newest = next(iter(verified), None)
         if newest:
-            reply = "Review first: a verified active Snowcubes reply candidate has a native Superhuman route."
+            subject = str(newest.get("subject") or "the named Snowcubes mail item")
+            reply = (
+                f"Review first: {subject} is a verified active Snowcubes reply candidate in "
+                f"{mail.get('acting_email') or SNOWCUBES_BUSINESS_MAIL}."
+            )
             relationship = "Keep the next verified active relationship visible after this proposal."
             mail_state = "available"
             mail_wake = None
-            mail_link = newest.get("native_link")
-            mail_thread_id = newest.get("thread_id")
-            proposal = "Proposal only: open this thread in Superhuman and prepare a reply for Leo to approve; no draft or send was created."
+            proposal = (
+                f"Proposal only: open Superhuman as {mail.get('acting_email') or SNOWCUBES_BUSINESS_MAIL}, "
+                f"find {subject}, and prepare a reply for Leo to approve; no draft or send was created."
+            )
+        elif human and all(
+            row.get("semantic_status") == "OBSERVED"
+            and not row.get("action_tags")
+            for row in human
+        ) and mail.get("complete") is True:
+            reply = "No active Snowcubes reply candidate was proven in the declared read."
+            relationship = "No relationship follow-up is proposed from these neutral observations."
+            mail_state = "available"
+            mail_wake = None
+            proposal = None
         elif human:
-            candidate_wake = next(
-                (str(row.get("wake")) for row in human if row.get("wake")),
+            candidate = next(
+                (row for row in human if row.get("wake")),
                 None,
             )
             reply = (
                 "A possible human thread was read, but it is not ranked as a reply because "
-                "active status, exact body coverage, account coverage, or its native route remains UNKNOWN."
+                "active status, exact body coverage, or account coverage remains UNKNOWN."
             )
-            relationship = "No relationship follow-up is inferred until the active thread and native route are verified."
+            relationship = "No relationship follow-up is inferred until the named mail evidence is verified."
             mail_state = "unknown"
-            mail_wake = candidate_wake or (
-                "Return a verified active Superhuman reply candidate with exact body coverage and a native thread URL; "
-                "do not manufacture a route from an opaque provider ID."
+            mail_wake = (
+                reader_safe_mail_wake(candidate.get("wake"), row=candidate)
+                if candidate
+                else (
+                    f"Open Superhuman as {mail.get('acting_email') or SNOWCUBES_BUSINESS_MAIL} and verify the named "
+                    "candidate's lifecycle and exact body; do not infer an action from a provider ID."
+                )
             )
-            mail_link = None
-            mail_thread_id = None
             proposal = None
         else:
-            reply = "No human correspondence with a verified Superhuman link was surfaced in the declared 90-day read."
+            reply = "No human correspondence was surfaced in the declared 90-day read."
             relationship = "No relationship follow-up is inferred from the bounded read."
-            mail_state = "unknown"
-            mail_wake = "Return a bounded human correspondence result with a verified Superhuman thread URL; no inbox state is inferred from automated notices."
-            mail_link = None
-            mail_thread_id = None
+            mail_state = "available" if mail.get("complete") is True else "unknown"
+            mail_wake = (
+                None
+                if mail_state == "available"
+                else "Complete the declared Snowcubes business-mail read before inferring correspondence state."
+            )
             proposal = None
     else:
         reply = "Reply priority is unavailable; no inbox state is inferred."
         relationship = "Relationship follow-up is unavailable; no customer action is invented."
         mail_state = "unavailable"
         mail_wake = "Link trysnowcubes@gmail.com in Superhuman, then run the declared read-only 90-day thread query."
-        mail_link = None
-        mail_thread_id = None
         proposal = None
 
     unavailable = {
@@ -2537,9 +2700,7 @@ def collect_snowcubes_context(
             source="Superhuman business inbox (trysnowcubes@gmail.com)",
             observed_at=observed_at,
             wake=mail_wake,
-            native_link=mail_link,
             proposal=proposal,
-            thread_id=mail_thread_id,
         ),
         _snowcubes_surface(
             name="Relationships to nurture",
@@ -2547,19 +2708,17 @@ def collect_snowcubes_context(
             now=relationship,
             next_action=(
                 "Keep the relationship visible after Leo reviews the reply-now item."
-                if mail_state == "available"
-                else "No relationship action is inferred until the business read includes a verified native thread route."
+                if newest
+                else "No relationship action is inferred until the business read proves an active candidate."
             ),
             source="Superhuman business inbox (trysnowcubes@gmail.com)",
             observed_at=observed_at,
             wake=mail_wake,
-            native_link=mail_link,
             proposal=(
                 "Proposal only: after Leo approves the reply, keep a short personal follow-up in view; no draft or send was created."
                 if mail_state == "available" and newest
                 else None
             ),
-            thread_id=mail_thread_id,
         ),
         *[
             _snowcubes_surface(

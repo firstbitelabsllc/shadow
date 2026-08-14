@@ -169,7 +169,12 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        {
+                            "accountEmail": email,
+                            "addedAt": "2026-01-01T00:00:00Z",
+                            "isPrimary": index == 0,
+                            "aliases": [],
+                        }
                         for index, email in enumerate(linked)
                     ]
                 }
@@ -191,6 +196,7 @@ class PrivateStoreTests(unittest.TestCase):
                 }[(account, thread_id)]
                 return {
                     **selected,
+                    "user_is_participant": True,
                     "messages": [
                         {
                             "message_id": selected["last_message_id"],
@@ -337,13 +343,17 @@ class PrivateStoreTests(unittest.TestCase):
                     )
                     return {
                         **selected,
+                        "user_is_participant": True,
                         "message_count": 1,
                         "messages": [
                             {
                                 "message_id": selected.get("last_message_id") or "detail-message",
+                                "thread_id": selected["thread_id"],
                                 "sent_at": selected["last_message_at"],
+                                "labels": list(selected["labels"]),
                                 "body": selected["snippet"],
                                 "from": "sender@example.com",
+                                "to": [arguments["acting_email"]],
                             }
                         ],
                     }
@@ -429,7 +439,11 @@ class PrivateStoreTests(unittest.TestCase):
                     }
                 return {"threads": [], "total_estimate": 0}
             if name == "get_thread":
-                return {**truncated_thread, "messages": []}
+                return {
+                    **truncated_thread,
+                    "user_is_participant": True,
+                    "messages": [],
+                }
             if name == "query_email_and_calendar":
                 return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
             raise AssertionError(f"unexpected Superhuman tool: {name}")
@@ -466,7 +480,12 @@ class PrivateStoreTests(unittest.TestCase):
 
         def call_tool(name, arguments):
             if name == "list_accounts":
-                return {"accounts": [{"accountEmail": email} for email in identities]}
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []}
+                        for email in identities
+                    ]
+                }
             if name == "list_threads":
                 if arguments["acting_email"] == identities[0]:
                     # No cursor and no explicit truncation flag: the estimate is
@@ -482,10 +501,13 @@ class PrivateStoreTests(unittest.TestCase):
                 # even though the connector omits `truncated`.
                 return {
                     **registration,
+                    "user_is_participant": True,
                     "messages": [
                         {
                             "message_id": registration["last_message_id"],
+                            "thread_id": registration["thread_id"],
                             "sent_at": registration["last_message_at"],
+                            "labels": list(registration["labels"]),
                             "body": "One visible message",
                             "from": "agency@example.com",
                             "to": [identities[0]],
@@ -648,6 +670,7 @@ class PrivateStoreTests(unittest.TestCase):
                 )
                 return {
                     "thread_id": arguments["thread_id"],
+                    "user_is_participant": True,
                     "message_count": 1,
                     "messages": [
                         {
@@ -656,9 +679,12 @@ class PrivateStoreTests(unittest.TestCase):
                                 if arguments["thread_id"] == "naive-timestamp-thread"
                                 else "valid-message"
                             ),
+                            "thread_id": arguments["thread_id"],
                             "sent_at": sent_at,
+                            "labels": ["INBOX"],
                             "body": "No requested action",
                             "from": "sender@example.com",
+                            "to": [identities[0]],
                         }
                     ],
                 }
@@ -847,10 +873,13 @@ class PrivateStoreTests(unittest.TestCase):
                 )
                 return {
                     **selected,
+                    "user_is_participant": True,
                     "messages": [
                         {
                             "message_id": selected["last_message_id"],
+                            "thread_id": selected["thread_id"],
                             "sent_at": selected["last_message_at"],
+                            "labels": list(selected["labels"]),
                             "body": selected["snippet"],
                             "from": "agency@example.com",
                             "to": [arguments["acting_email"]],
@@ -931,7 +960,12 @@ class PrivateStoreTests(unittest.TestCase):
 
         def call_tool(name, arguments):
             if name == "list_accounts":
-                return {"accounts": [{"accountEmail": email} for email in identities]}
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []}
+                        for email in identities
+                    ]
+                }
             if name == "list_threads":
                 account_rows = rows if arguments["acting_email"] == identities[0] else []
                 return {"threads": account_rows, "total_estimate": len(account_rows)}
@@ -939,11 +973,14 @@ class PrivateStoreTests(unittest.TestCase):
                 selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
                 return {
                     **selected,
+                    "user_is_participant": True,
                     "message_count": 1,
                     "messages": [
                         {
                             "message_id": selected["last_message_id"],
+                            "thread_id": selected["thread_id"],
                             "sent_at": selected["last_message_at"],
+                            "labels": list(selected["labels"]),
                             "body": selected["snippet"],
                             "from": "agency@example.com",
                             "to": [identities[0]],
@@ -1038,7 +1075,12 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        {
+                            "accountEmail": email,
+                            "addedAt": "2026-01-01T00:00:00Z",
+                            "isPrimary": index == 0,
+                            "aliases": [],
+                        }
                         for index, email in enumerate(identities)
                     ]
                 }
@@ -1074,7 +1116,11 @@ class PrivateStoreTests(unittest.TestCase):
                 if selected["thread_id"] == "return-attachment":
                     message["body"] = ""
                     message["attachments"] = ["return-label.pdf"]
-                return {**selected, "messages": [message]}
+                return {
+                    **selected,
+                    "user_is_participant": True,
+                    "messages": [message],
+                }
             if name == "query_email_and_calendar":
                 return {
                     "answer": "Proposal only: review the next fourteen days for conflicts.",
@@ -1227,16 +1273,19 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "get_thread":
                 selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
                 if selected["thread_id"] == "empty-exact-thread":
-                    return {**selected, "messages": []}
+                    return {**selected, "user_is_participant": True, "messages": []}
                 if selected["thread_id"] == "detail-error-thread":
                     return {"error": "exact detail payload rejected"}
                 if selected["thread_id"] == "missing-listed-latest":
                     return {
                         **selected,
+                        "user_is_participant": True,
                         "messages": [
                             {
                                 "message_id": "older-outbound-only",
+                                "thread_id": selected["thread_id"],
                                 "sent_at": "2026-08-13T12:00:00Z",
+                                "labels": list(selected["labels"]),
                                 "body": "Could you let me know?",
                                 "from": identities[0],
                                 "to": ["person@example.com"],
@@ -1246,17 +1295,22 @@ class PrivateStoreTests(unittest.TestCase):
                 if selected["thread_id"] == "equal-time-direction":
                     return {
                         **selected,
+                        "user_is_participant": True,
                         "messages": [
                             {
                                 "message_id": "equal-outbound",
+                                "thread_id": selected["thread_id"],
                                 "sent_at": selected["last_message_at"],
+                                "labels": list(selected["labels"]),
                                 "body": "Could you let me know?",
                                 "from": identities[0],
                                 "to": ["person@example.com"],
                             },
                             {
                                 "message_id": "equal-inbound",
+                                "thread_id": selected["thread_id"],
                                 "sent_at": selected["last_message_at"],
+                                "labels": list(selected["labels"]),
                                 "body": "Maybe",
                                 "from": "person@example.com",
                                 "to": [identities[0]],
@@ -1266,7 +1320,9 @@ class PrivateStoreTests(unittest.TestCase):
                 messages = [
                     {
                         "message_id": selected["last_message_id"],
+                        "thread_id": selected["thread_id"],
                         "sent_at": selected["last_message_at"],
+                        "labels": list(selected["labels"]),
                         "body": selected["snippet"],
                         "from": (
                             identities[0]
@@ -1289,13 +1345,19 @@ class PrivateStoreTests(unittest.TestCase):
                         0,
                         {
                             "message_id": "mixed-outbound-older",
+                            "thread_id": selected["thread_id"],
                             "sent_at": "2026-08-13T12:00:00Z",
+                            "labels": list(selected["labels"]),
                             "body": "Leo's earlier note",
                             "from": identities[0],
                             "to": ["person@example.com"],
                         },
                     )
-                return {**selected, "messages": messages}
+                return {
+                    **selected,
+                    "user_is_participant": True,
+                    "messages": messages,
+                }
             if name == "query_email_and_calendar":
                 return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
             raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
@@ -1405,11 +1467,14 @@ class PrivateStoreTests(unittest.TestCase):
                 row = sent_row if arguments["acting_email"] == personal else inbox_row
                 return {
                     **row,
+                    "user_is_participant": True,
                     "message_count": 1,
                     "messages": [
                         {
                             "message_id": "shared-self-message",
+                            "thread_id": row["thread_id"],
                             "sent_at": "2026-08-14T10:00:00Z",
+                            "labels": list(row["labels"]),
                             "body": "Can we review this? Please let me know.",
                             "from": personal,
                             "to": [business],
@@ -1444,6 +1509,254 @@ class PrivateStoreTests(unittest.TestCase):
             set(tool_names),
             {"list_accounts", "list_threads", "get_thread", "query_email_and_calendar"},
         )
+
+    def test_exact_thread_schema_proves_participation_membership_drafts_and_recipients(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        personal = "leojkwan@gmail.com"
+        identities = (
+            personal,
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        rows = [
+            {
+                "thread_id": "draft-labelled-thread",
+                "last_message_id": "draft-labelled-visible",
+                "last_message_at": "2026-08-14T09:00:00Z",
+                "subject": "Please reply",
+                "snippet": "The non-draft message needs a reply.",
+                "labels": ["INBOX"],
+            },
+            {
+                "thread_id": "nonparticipant-thread",
+                "last_message_id": "nonparticipant-message",
+                "last_message_at": "2026-08-14T09:10:00Z",
+                "subject": "Please reply to nonparticipant",
+                "snippet": "This payload is not Leo's thread.",
+                "labels": ["INBOX"],
+            },
+            {
+                "thread_id": "wrong-message-thread",
+                "last_message_id": "wrong-message",
+                "last_message_at": "2026-08-14T09:20:00Z",
+                "subject": "Please reply to wrong thread",
+                "snippet": "The message belongs elsewhere.",
+                "labels": ["INBOX"],
+            },
+            {
+                "thread_id": "owned-missing-recipients",
+                "last_message_id": "owned-missing-recipients-message",
+                "last_message_at": "2026-08-14T09:30:00Z",
+                "subject": "Can you answer?",
+                "snippet": "Please let me know.",
+                "labels": ["SENT"],
+            },
+        ]
+        get_thread_arguments = []
+
+        def exact_message(row, **overrides):
+            return {
+                "message_id": row["last_message_id"],
+                "thread_id": row["thread_id"],
+                "sent_at": row["last_message_at"],
+                "labels": list(row["labels"]),
+                "body": row["snippet"],
+                "from": "sender@example.com",
+                "to": [personal],
+                **overrides,
+            }
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []}
+                        for email in identities
+                    ]
+                }
+            if name == "list_threads":
+                if arguments["acting_email"] != personal:
+                    return {"threads": [], "total_estimate": 0}
+                label = arguments["labels"][0]
+                lane_rows = [row for row in rows if label in row["labels"]]
+                return {"threads": lane_rows, "total_estimate": len(lane_rows)}
+            if name == "get_thread":
+                get_thread_arguments.append(dict(arguments))
+                row = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                if row["thread_id"] == "draft-labelled-thread":
+                    messages = [
+                        exact_message(row),
+                        {
+                            "message_id": "optional-is-draft-omitted",
+                            "thread_id": row["thread_id"],
+                            "sent_at": "2026-08-14T10:00:00Z",
+                            "labels": ["DRAFT"],
+                            "body": "Draft answer that must not determine direction.",
+                            "from": personal,
+                            "to": ["sender@example.com"],
+                        },
+                    ]
+                    participant = True
+                elif row["thread_id"] == "nonparticipant-thread":
+                    messages = [exact_message(row)]
+                    participant = False
+                elif row["thread_id"] == "wrong-message-thread":
+                    messages = [exact_message(row, thread_id="different-thread")]
+                    participant = True
+                else:
+                    messages = [
+                        exact_message(
+                            row,
+                            **{
+                                "from": personal,
+                                "to": None,
+                            },
+                        )
+                    ]
+                    participant = True
+                return {
+                    **row,
+                    "user_is_participant": participant,
+                    "message_count": len(messages),
+                    "messages": messages,
+                }
+            if name == "query_email_and_calendar":
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
+            raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+        by_thread = {row["thread_id"]: row for row in context["signals"]}
+
+        self.assertTrue(get_thread_arguments)
+        self.assertTrue(all(call["include_drafts"] is False for call in get_thread_arguments))
+        self.assertEqual(by_thread["draft-labelled-thread"]["semantic_status"], "PROPOSAL")
+        self.assertIn("reply", by_thread["draft-labelled-thread"]["action_tags"])
+        for thread_id in (
+            "nonparticipant-thread",
+            "wrong-message-thread",
+            "owned-missing-recipients",
+        ):
+            self.assertEqual(by_thread[thread_id]["semantic_status"], "UNKNOWN")
+            self.assertTrue(by_thread[thread_id].get("wake"))
+        self.assertNotIn(
+            "waiting_reply",
+            by_thread["owned-missing-recipients"]["action_tags"],
+        )
+
+    def test_cross_account_classification_is_stable_and_projects_account_snapshot(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        personal = "leojkwan@gmail.com"
+        business = "trysnowcubes@gmail.com"
+        third = "firstbitelabs@gmail.com"
+        common = {
+            "last_message_id": "shared-external-message",
+            "last_message_at": "2026-08-14T10:00:00Z",
+            "subject": "External customer update",
+            "snippet": "Here is the update.",
+        }
+        personal_row = {
+            **common,
+            "thread_id": "personal-active-copy",
+            "labels": ["INBOX"],
+        }
+        business_row = {
+            **common,
+            "thread_id": "business-sent-only-copy",
+            "labels": ["SENT"],
+        }
+
+        def collect(order):
+            def call_tool(name, arguments):
+                if name == "list_accounts":
+                    return {
+                        "accounts": [
+                            {"accountEmail": email, "aliases": []}
+                            for email in order
+                        ]
+                    }
+                if name == "list_threads":
+                    email = arguments["acting_email"]
+                    label = arguments["labels"][0]
+                    if email == personal and label == "INBOX":
+                        return {"threads": [personal_row], "total_estimate": 1}
+                    if email == business and label == "SENT":
+                        return {"threads": [business_row], "total_estimate": 1}
+                    return {"threads": [], "total_estimate": 0}
+                if name == "get_thread":
+                    row = personal_row if arguments["acting_email"] == personal else business_row
+                    return {
+                        **row,
+                        "user_is_participant": True,
+                        "message_count": 1,
+                        "messages": [
+                            {
+                                "message_id": row["last_message_id"],
+                                "thread_id": row["thread_id"],
+                                "sent_at": row["last_message_at"],
+                                "labels": list(row["labels"]),
+                                "body": row["snippet"],
+                                "from": "customer@example.com",
+                                "to": [arguments["acting_email"]],
+                            }
+                        ],
+                    }
+                if name == "query_email_and_calendar":
+                    return {
+                        "answer": "No conflict surfaced.",
+                        "sources": [{"id": "calendar-source"}],
+                    }
+                raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+
+            return brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        forward = collect((personal, business, third))
+        reverse = collect((third, business, personal))
+        forward_signal = next(
+            row for row in forward["signals"]
+            if row["last_message_id"] == "shared-external-message"
+        )
+        reverse_signal = next(
+            row for row in reverse["signals"]
+            if row["last_message_id"] == "shared-external-message"
+        )
+        for key in (
+            "signal_id",
+            "semantic_status",
+            "confidence",
+            "action_tags",
+            "fail_closed_reasons",
+            "wake",
+        ):
+            self.assertEqual(forward_signal[key], reverse_signal[key])
+        self.assertEqual(forward_signal["semantic_status"], "UNKNOWN")
+        self.assertEqual(forward_signal["confidence"], "LOW")
+        self.assertIn("cross-account classification", forward_signal["wake"])
+
+        personal_mail = brief.superhuman_account_context(forward, personal)
+        business_mail = brief.superhuman_account_context(forward, business)
+        self.assertEqual(personal_mail["signals"][0]["semantic_status"], "PROPOSAL")
+        self.assertIn("reply", personal_mail["signals"][0]["action_tags"])
+        self.assertEqual(business_mail["signals"][0]["semantic_status"], "OBSERVED")
+        self.assertEqual(business_mail["signals"][0]["action_tags"], [])
+        with mock.patch.object(
+            brief,
+            "_snowcubes_m12_surface",
+            return_value={"name": "M12 cafe-doctor", "state": "unavailable"},
+        ):
+            companion = brief.collect_snowcubes_context(
+                vercel={"available": False},
+                board={"revision": 9},
+                mail=business_mail,
+            )
+        reply = companion["surfaces"][0]
+        self.assertEqual(reply["state"], "available")
+        self.assertIn("No active Snowcubes reply", reply["now"])
+        self.assertNotIn("proposal", reply)
+        self.assertNotIn("thread_id", reply)
+        self.assertNotIn("native_link", reply)
 
     def test_packet_and_render_have_one_reader_first_mail_section_from_one_read_only_collection(self):
         def signal(signal_id, subject, *, status="PROPOSAL", wake=None):
@@ -1602,9 +1915,7 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("message_id", html)
         self.assertNotIn("Send reply", html)
 
-    def test_account_projection_keeps_only_its_exact_native_mail_route(self):
-        personal_link = "https://mail.superhuman.com/thread/personal-route"
-        business_link = "https://mail.superhuman.com/thread/business-route"
+    def test_superhuman_projection_does_not_manufacture_a_native_mail_route(self):
         context = {
             "coverage": [
                 {
@@ -1619,7 +1930,6 @@ class PrivateStoreTests(unittest.TestCase):
                     "signal_id": "shared-message",
                     "last_message_id": "shared-message",
                     "thread_id": "personal-thread",
-                    "native_link": personal_link,
                     "subject": "Snowcubes customer follow-up",
                     "kind": "human_or_other",
                     "action_tags": ["reply", "proactive"],
@@ -1634,14 +1944,26 @@ class PrivateStoreTests(unittest.TestCase):
                             "acting_email": brief.SELF_MAIL,
                             "thread_id": "personal-thread",
                             "last_message_id": "shared-message",
-                            "native_link": personal_link,
                         },
                         {
                             "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
                             "thread_id": "business-thread",
                             "last_message_id": "shared-message",
-                            "native_link": business_link,
                         },
+                    ],
+                    "account_snapshots": [
+                        {
+                            "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                            "thread_id": "business-thread",
+                            "last_message_id": "shared-message",
+                            "action_tags": ["reply", "proactive"],
+                            "source_labels": ["inbox"],
+                            "source_lanes": ["active_inbox"],
+                            "semantic_status": "PROPOSAL",
+                            "confidence": "MEDIUM",
+                            "fail_closed_reasons": [],
+                            "thread_body_read": True,
+                        }
                     ],
                 }
             ],
@@ -1650,7 +1972,7 @@ class PrivateStoreTests(unittest.TestCase):
         business_mail = brief.superhuman_account_context(
             context, brief.SNOWCUBES_BUSINESS_MAIL
         )
-        self.assertEqual(business_mail["signals"][0]["native_link"], business_link)
+        self.assertNotIn("native_link", business_mail["signals"][0])
         with mock.patch.object(brief, "collect_board", return_value={"revision": 9}), \
             mock.patch.object(
                 brief,
@@ -1663,14 +1985,11 @@ class PrivateStoreTests(unittest.TestCase):
                 mail=business_mail,
             )
         reply = companion["surfaces"][0]
-        self.assertEqual(reply["native_link"], business_link)
-        self.assertNotEqual(reply["native_link"], personal_link)
-
-        context["signals"][0]["source_threads"][1]["native_link"] = None
-        route_unknown = brief.superhuman_account_context(
-            context, brief.SNOWCUBES_BUSINESS_MAIL
-        )
-        self.assertIsNone(route_unknown["signals"][0]["native_link"])
+        self.assertEqual(reply["state"], "available")
+        self.assertIn("Snowcubes customer follow-up", reply["now"])
+        self.assertIn("Proposal only", reply["proposal"])
+        self.assertNotIn("native_link", reply)
+        self.assertNotIn("thread_id", reply)
 
     def test_snowcubes_companion_keeps_missing_business_sources_explicit(self):
         with mock.patch.object(
@@ -1695,13 +2014,12 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("M12 cafe-doctor", by_name)
         self.assertEqual(by_name["Relationships to nurture"]["state"], "unavailable")
 
-    def test_business_signal_has_private_thread_identity_and_proposal_not_draft(self):
+    def test_business_signal_has_account_subject_and_proposal_not_draft(self):
         signal = {
             "subject": "Some Knicks swag from Snowcubes",
             "last_message_at": "2026-08-12T00:17:20Z",
             "kind": "human_or_other",
             "thread_id": "19f5396bf1f4ab27",
-            "native_link": "https://mail.superhuman.com/thread/opaque",
             "action_tags": ["reply", "proactive"],
             "semantic_status": "PROPOSAL",
             "thread_body_read": True,
@@ -1715,8 +2033,10 @@ class PrivateStoreTests(unittest.TestCase):
         ):
             context = brief.collect_snowcubes_context(vercel={"available": False})
         reply = context["surfaces"][0]
-        self.assertEqual(reply["thread_id"], signal["thread_id"])
-        self.assertEqual(reply["native_link"], signal["native_link"])
+        self.assertIn(brief.SNOWCUBES_BUSINESS_MAIL, reply["source"])
+        self.assertIn(signal["subject"], reply["now"])
+        self.assertNotIn("thread_id", reply)
+        self.assertNotIn("native_link", reply)
         self.assertIn("Proposal only", reply["proposal"])
         self.assertIn("no draft or send was created", reply["proposal"])
         nurture = next(item for item in context["surfaces"] if item["name"] == "Relationships to nurture")
@@ -1728,7 +2048,6 @@ class PrivateStoreTests(unittest.TestCase):
             "last_message_at": "2026-08-12T00:17:20Z",
             "kind": "human_or_other",
             "thread_id": "opaque-thread-id",
-            "native_link": None,
         }
         with mock.patch.object(
             brief,
@@ -1743,13 +2062,13 @@ class PrivateStoreTests(unittest.TestCase):
         nurture = next(item for item in context["surfaces"] if item["name"] == "Relationships to nurture")
         self.assertEqual(reply["state"], "unknown")
         self.assertIn("not ranked as a reply", reply["now"])
-        self.assertIn("do not manufacture", reply["wake"])
+        self.assertIn("do not infer an action", reply["wake"])
         self.assertNotIn("native_link", reply)
         self.assertNotIn("proposal", reply)
         self.assertEqual(nurture["state"], "unknown")
         self.assertNotIn("proposal", nurture)
 
-    def test_rendered_companion_shows_native_link_and_proposal(self):
+    def test_rendered_companion_shows_proposal_without_manufactured_mail_link(self):
         packet = {
             "slot": "morning",
             "generated_at": "2026-08-12T08:00:00-04:00",
@@ -1768,13 +2087,12 @@ class PrivateStoreTests(unittest.TestCase):
                         "source": "Superhuman business inbox",
                         "observed_at": "2026-08-12T12:00:00Z",
                         "proposal": "Proposal only: prepare for Leo's approval.",
-                        "native_link": "https://mail.superhuman.com/thread/opaque",
                     }
                 ]
             },
         }
         html = brief.render_html(packet)
-        self.assertIn("Open native source", html)
+        self.assertNotIn("mail.superhuman.com", html)
         self.assertIn("Proposal only", html)
         self.assertIn("Superhuman business inbox", html)
 
