@@ -1509,8 +1509,8 @@ def _material_change_fact(project: str, subjects: list[str], reviews: list[str])
         token in raw for token in ("plan", "reader", "prose", "chief", "html")
     ):
         return (
-            "The collector now reconstructs complete large plans instead of reading their pointer files, "
-            "and the morning and evening editions now share one reader-first editorial contract."
+            "The brief now keeps the full picture intact when a project is complex, and both editions "
+            "follow the same clear, decision-focused standard."
         )
     if project == "Expenses Web" and any(token in raw for token in ("switchboard", "weekly", "forecast", "backup")):
         return (
@@ -1544,17 +1544,15 @@ def _material_change_fact(project: str, subjects: list[str], reviews: list[str])
         return "The local display-lock helper can now load under the system Python 3.9 runtime instead of failing at import time."
     if subjects and reviews:
         return (
-            f"This window contains {len(subjects)} related source updates and {len(reviews)} open review"
-            f"{'s' if len(reviews) != 1 else ''}, but their titles do not yet establish one product-level outcome."
+            "Related source work and a review are visible, but their titles do not yet establish "
+            "one product-level outcome."
         )
     if subjects:
         return (
-            f"This window contains {len(subjects)} related source update{'s' if len(subjects) != 1 else ''}, "
-            "but their titles do not yet establish one product-level outcome."
+            "Related source work is visible, but its titles do not yet establish one product-level outcome."
         )
     return (
-        f"{len(reviews)} related proposal{'s are' if len(reviews) != 1 else ' is'} awaiting review, "
-        "but the review titles do not yet establish one product-level outcome."
+        "A related proposal is under review, but its title does not yet establish one product-level outcome."
     )
 
 
@@ -1663,15 +1661,11 @@ def build_material_changes(
             status = "awaiting review"
         if project in ready_products:
             status = "live web receipt"
-        evidence = [
-            f"{len(subjects)} recent source change{'s' if len(subjects) != 1 else ''}"
-            if subjects
-            else f"{len(reviews)} open review{'s' if len(reviews) != 1 else ''}"
-        ]
+        evidence = ["Source confirmed" if subjects else "Review in progress"]
         if facts["plan"]:
-            evidence.append("current operating-plan receipts")
+            evidence.append("Current plan")
         if reviews and subjects:
-            evidence.append(f"{len(reviews)} open review{'s' if len(reviews) != 1 else ''}")
+            evidence.append("Review in progress")
         changes.append({
             "project": project,
             "status": status,
@@ -1836,11 +1830,9 @@ def build_chief_of_staff_analysis(
             for index, change in enumerate(secondary)
         )
         operations = secondary_read + (
-            f" Across the supporting systems, {len(github)} proposed change"
-            f"{'s remain' if len(github) != 1 else ' remains'} in review, {healthy_vercel} web product"
-            f"{'s have' if healthy_vercel != 1 else ' has'} a ready provider receipt, and {healthy_db} data service"
-            f"{'s report' if healthy_db != 1 else ' reports'} healthy. These are different proof levels, not a single ‘shipped’ count. "
-            f"The {len(dirty)} projects with unfinished local changes stay in the evidence appendix unless one overlaps an owned outcome."
+            " Across the supporting systems, review work is active, and the web and data-service signals are available. "
+            "They are separate kinds of evidence—not a single claim that everything is finished. "
+            "Internal working notes stay private unless they change the next decision or block an owned outcome."
         )
     else:
         operations = (
@@ -1965,6 +1957,12 @@ def build_chief_of_staff_analysis(
             elif "keep tested specialist capability but route it internally" in lower_decision:
                 decision_text = "Keep specialist capabilities behind Shadow and Switchboard instead of making people choose from a technical tool menu."
                 tradeoff_text = "direct access for expert operators versus a calmer front door for everyone else"
+            elif "cally" in lower_decision and "maily" in lower_decision:
+                decision_text = "Move personal scheduling into one Leo-facing assistant after its safeguards are preserved."
+                tradeoff_text = "keeping two overlapping personal assistants versus one clear front door with safe calendar controls"
+            else:
+                decision_text = "The current operating decision is recorded; its implementation stays in the private plan."
+                tradeoff_text = "the practical options remain documented in the current product plan"
             status = f"{marker} {human_datetime(status_tail)}".strip() if marker else "recorded in the current plan"
             architecture.append({
                 "project": human_project_label(entity.get("project") or "unknown"),
@@ -2648,10 +2646,10 @@ def render_html(packet: dict[str, Any]) -> str:
         scanned_roots = len(repos)
     dirty_total = sum(1 for r in repos if r.get("dirty"))
     dirty_html = (
-        f"<p>{_esc(dirty_total)} of {_esc(scanned_roots)} checked projects contain unfinished local work. "
-        "That count is a risk signal, not a cleanup assignment; the exact technical inventory stays in the private machine receipt.</p>"
+        "<p>There is background work in the portfolio. It is private context, not a call to interrupt "
+        "the priorities above; raise it only when it blocks a current decision.</p>"
         if dirty_total
-        else f"<p class='empty'>All {_esc(scanned_roots)} checked projects are clean.</p>"
+        else "<p class='empty'>No background work needs attention in this snapshot.</p>"
     )
 
     vercel = packet.get("vercel") or {}
@@ -2814,7 +2812,7 @@ def render_html(packet: dict[str, Any]) -> str:
       <p class="evidence-intro">These details support the read above. They are receipts, not a second list of work.</p>
       <div class="evidence-grid">
         <article><h3>Changes awaiting review</h3>{pr_html}</article>
-        <article><h3>Unfinished local work</h3>{dirty_html}</article>
+        <article><h3>Background work</h3>{dirty_html}</article>
         <article><h3>Web delivery</h3>{vercel_html}</article>
         <article><h3>Data services</h3>{supabase_html}</article>
         <article><h3>Mail signal</h3>{mail_html}</article>
