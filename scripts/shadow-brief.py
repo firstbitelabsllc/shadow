@@ -33,7 +33,8 @@ import shadow_root_board as _shadow_board
 
 LABEL = "com.leokwan.shadow-bidaily-brief"
 SLOT_HOURS = (8, 20)
-REPORT_TIMEZONE = ZoneInfo("America/New_York")
+REPORT_TIMEZONE_NAME = "America/New_York"
+REPORT_TIMEZONE = ZoneInfo(REPORT_TIMEZONE_NAME)
 REPORT_LOOKBACK_HOURS = 14
 GITHUB_PR_LIMIT = 20
 BOARD_PATH = Path.home() / ".shadow" / "board.json"
@@ -3204,7 +3205,10 @@ def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
 
 def _parse_aware_datetime(raw: Any) -> datetime | None:
     try:
-        value = datetime.fromisoformat(str(raw or ""))
+        encoded = str(raw or "")
+        if encoded.endswith("Z"):
+            encoded = f"{encoded[:-1]}+00:00"
+        value = datetime.fromisoformat(encoded)
         if value.tzinfo is None or value.utcoffset() is None:
             return None
     except (TypeError, ValueError):
@@ -4241,24 +4245,32 @@ def launch_agent_plist(program: Path) -> dict[str, Any]:
     }
 
 
-def host_timezone_matches_report(now: datetime | None = None) -> bool:
+def _host_timezone_name() -> str | None:
+    try:
+        target = str(Path("/etc/localtime").resolve(strict=True))
+    except OSError:
+        target = ""
+    marker = "/zoneinfo/"
+    if marker in target:
+        return target.split(marker, 1)[1]
+    key = getattr(datetime.now().astimezone().tzinfo, "key", None)
+    return str(key) if key else None
+
+
+def host_timezone_matches_report(host_timezone: str | None = None) -> bool:
     """launchd calendar intervals fire in host-local time.
 
-    The 08:00/20:00 slots only land on the enforced report timezone while the host
-    offset agrees with America/New_York, so a host in another timezone is drift the
-    operator has to see rather than silently missing windows.
+    Matching one current UTC offset is insufficient because another zone may follow
+    different daylight-saving rules. Require the actual IANA zone that launchd uses.
     """
-    current = now or datetime.now().astimezone()
-    if current.tzinfo is None or current.utcoffset() is None:
-        return False
-    return current.utcoffset() == current.astimezone(REPORT_TIMEZONE).utcoffset()
+    return (host_timezone or _host_timezone_name()) == REPORT_TIMEZONE_NAME
 
 
 def schedule_configuration_problems(
     installed: dict[str, Any],
     expected: dict[str, Any],
     *,
-    now: datetime | None = None,
+    host_timezone: str | None = None,
 ) -> list[str]:
     keys = (
         "Label",
@@ -4270,9 +4282,20 @@ def schedule_configuration_problems(
         "EnvironmentVariables",
     )
     problems = [key for key in keys if installed.get(key) != expected.get(key)]
-    if not host_timezone_matches_report(now):
+    if not host_timezone_matches_report(host_timezone):
         problems.append("HostTimezone")
     return problems
+
+
+def schedule_configuration_recovery(problems: list[str]) -> str:
+    steps: list[str] = []
+    if "HostTimezone" in problems:
+        steps.append(
+            f"set the macOS system timezone to {REPORT_TIMEZONE_NAME}, then run schedule --status"
+        )
+    if any(problem != "HostTimezone" for problem in problems):
+        steps.append("run schedule --install, then run schedule --status")
+    return "; ".join(steps)
 
 
 def schedule_install() -> dict[str, Any]:
@@ -4293,7 +4316,8 @@ def schedule_install() -> dict[str, Any]:
         "bootstrap_rc": load.returncode,
         "bootstrap_err": (load.stderr or "")[:300],
         "hours": list(SLOT_HOURS),
-        "report_timezone": str(REPORT_TIMEZONE),
+        "report_timezone": REPORT_TIMEZONE_NAME,
+        "host_timezone": _host_timezone_name(),
         "host_timezone_matches_report": host_timezone_matches_report(),
     }
 
@@ -4301,7 +4325,18 @@ def schedule_install() -> dict[str, Any]:
 def schedule_status() -> dict[str, Any]:
     plist_path = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
     if not plist_path.is_file():
-        return {"installed": False, "plist": str(plist_path)}
+        host_timezone = _host_timezone_name()
+        host_timezone_ok = host_timezone_matches_report(host_timezone)
+        return {
+            "installed": False,
+            "plist": str(plist_path),
+            "configuration_ok": False,
+            "configuration_problems": [] if host_timezone_ok else ["HostTimezone"],
+            "report_timezone": REPORT_TIMEZONE_NAME,
+            "host_timezone": host_timezone,
+            "host_timezone_matches_report": host_timezone_ok,
+            "launchctl_ok": False,
+        }
     with plist_path.open("rb") as fh:
         doc = plistlib.load(fh)
     arguments = doc.get("ProgramArguments") or []
@@ -4320,7 +4355,8 @@ def schedule_status() -> dict[str, Any]:
         "EnvironmentVariables": doc.get("EnvironmentVariables"),
         "configuration_ok": not configuration_problems,
         "configuration_problems": configuration_problems,
-        "report_timezone": str(REPORT_TIMEZONE),
+        "report_timezone": REPORT_TIMEZONE_NAME,
+        "host_timezone": _host_timezone_name(),
         "host_timezone_matches_report": host_timezone_matches_report(),
         "launchctl_rc": print_out.returncode,
         "launchctl_ok": print_out.returncode == 0,
@@ -4341,11 +4377,13 @@ def doctor() -> int:
     sched = schedule_status()
     if not sched.get("installed") or not sched.get("launchctl_ok"):
         problems.append("schedule not armed — run schedule --install")
-    elif not sched.get("configuration_ok"):
+    configuration_problems = sched.get("configuration_problems") or []
+    if configuration_problems:
         problems.append(
             "schedule configuration drift: "
-            + ", ".join(sched.get("configuration_problems") or [])
-            + " — run schedule --install"
+            + ", ".join(configuration_problems)
+            + " — "
+            + schedule_configuration_recovery(configuration_problems)
         )
     if not _mcp_remote_token():
         problems.append(
@@ -4471,8 +4509,8 @@ def cmd_run(args: argparse.Namespace) -> int:
                 reason = (
                     "the host timezone does not match "
                     f"{REPORT_TIMEZONE}, so the launchd 08:00/20:00 calendar does not "
-                    "land on the report windows; run schedule --install after setting "
-                    "the host timezone"
+                    "land on the report windows; set the macOS system timezone to "
+                    f"{REPORT_TIMEZONE_NAME}, then run schedule --status"
                 )
             else:
                 reason = "scheduled trigger is outside the 08:00/20:00 freshness window"
@@ -4565,10 +4603,19 @@ def cmd_deliver(args: argparse.Namespace) -> int:
 
 def cmd_schedule(args: argparse.Namespace) -> int:
     if args.install:
-        print(json.dumps(schedule_install(), indent=2))
-        return 0
-    print(json.dumps(schedule_status(), indent=2))
-    return 0 if schedule_status().get("launchctl_ok") else 1
+        installed = schedule_install()
+        print(json.dumps(installed, indent=2))
+        return 0 if (
+            installed.get("bootstrap_rc") == 0
+            and installed.get("host_timezone_matches_report") is True
+        ) else 1
+    status = schedule_status()
+    print(json.dumps(status, indent=2))
+    return 0 if (
+        status.get("installed") is True
+        and status.get("configuration_ok") is True
+        and status.get("launchctl_ok") is True
+    ) else 1
 
 
 def cmd_proof(_args: argparse.Namespace) -> int:

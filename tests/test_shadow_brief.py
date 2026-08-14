@@ -799,6 +799,10 @@ class AuthorityScopeTests(unittest.TestCase):
             "2026-08-12T20:00:00-04:00: mailbox sent timestamp invalid",
             mailbox_result["problems"],
         )
+        self.assertEqual(
+            brief._parse_aware_datetime("2026-08-13T00:06:00Z"),
+            brief.datetime.fromisoformat("2026-08-13T00:06:00+00:00"),
+        )
 
     def test_producer_records_report_timezone_from_any_host_timezone(self):
         window = brief.scheduled_window(
@@ -838,7 +842,7 @@ class AuthorityScopeTests(unittest.TestCase):
             brief.schedule_configuration_problems(
                 expected,
                 expected,
-                now=brief.datetime.fromisoformat("2026-08-12T08:00:00-04:00"),
+                host_timezone="America/New_York",
             ),
             [],
         )
@@ -846,23 +850,80 @@ class AuthorityScopeTests(unittest.TestCase):
             brief.schedule_configuration_problems(
                 expected,
                 expected,
-                now=brief.datetime.fromisoformat("2026-08-12T08:00:00-07:00"),
+                host_timezone="America/Bogota",
             ),
             ["HostTimezone"],
         )
         self.assertTrue(
-            brief.host_timezone_matches_report(
-                brief.datetime.fromisoformat("2026-11-02T20:00:00-05:00")
-            )
+            brief.host_timezone_matches_report("America/New_York")
         )
         self.assertFalse(
-            brief.host_timezone_matches_report(
-                brief.datetime.fromisoformat("2026-11-02T20:00:00-04:00")
-            )
+            brief.host_timezone_matches_report("America/Bogota")
         )
         self.assertFalse(
-            brief.host_timezone_matches_report(
-                brief.datetime.fromisoformat("2026-11-02T20:00:00")
+            brief.host_timezone_matches_report("Etc/UTC")
+        )
+        self.assertIn(
+            "set the macOS system timezone to America/New_York",
+            brief.schedule_configuration_recovery(["HostTimezone"]),
+        )
+
+    def test_schedule_command_fails_closed_on_install_or_status_drift(self):
+        with mock.patch.object(
+            brief,
+            "schedule_install",
+            return_value={
+                "bootstrap_rc": 1,
+                "host_timezone_matches_report": True,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(brief.cmd_schedule(mock.Mock(install=True)), 1)
+
+        with mock.patch.object(
+            brief,
+            "schedule_status",
+            return_value={
+                "installed": True,
+                "configuration_ok": False,
+                "launchctl_ok": True,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(brief.cmd_schedule(mock.Mock(install=False)), 1)
+
+    def test_doctor_keeps_timezone_recovery_when_schedule_is_also_unarmed(self):
+        with tempfile.TemporaryDirectory() as home_dir, mock.patch.object(
+            brief.Path,
+            "home",
+            return_value=Path(home_dir),
+        ), mock.patch.object(
+            brief,
+            "_host_timezone_name",
+            return_value="America/Bogota",
+        ):
+            schedule = brief.schedule_status()
+
+        self.assertFalse(schedule["installed"])
+        self.assertEqual(schedule.get("configuration_problems"), ["HostTimezone"])
+        with tempfile.TemporaryDirectory() as evidence_dir, mock.patch.object(
+            brief,
+            "EVIDENCE_DIR",
+            Path(evidence_dir),
+        ), mock.patch.object(
+            brief,
+            "schedule_status",
+            return_value=schedule,
+        ), mock.patch.object(
+            brief,
+            "_mcp_remote_token",
+            return_value="available",
+        ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(brief.doctor(), 1)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(
+            any(
+                "set the macOS system timezone to America/New_York" in problem
+                for problem in payload["problems"]
             )
         )
 
