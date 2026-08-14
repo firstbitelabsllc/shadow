@@ -1654,8 +1654,8 @@ class PrivateStoreTests(unittest.TestCase):
         common = {
             "last_message_id": "shared-external-message",
             "last_message_at": "2026-08-14T10:00:00Z",
-            "subject": "External customer update",
-            "snippet": "Here is the update.",
+            "subject": "Order return deadline",
+            "snippet": "Here is the customer update.",
         }
         personal_row = {
             **common,
@@ -1666,6 +1666,11 @@ class PrivateStoreTests(unittest.TestCase):
             **common,
             "thread_id": "business-sent-only-copy",
             "labels": ["SENT"],
+        }
+        third_row = {
+            **common,
+            "thread_id": "third-active-copy",
+            "labels": ["INBOX"],
         }
 
         def collect(order):
@@ -1684,12 +1689,19 @@ class PrivateStoreTests(unittest.TestCase):
                         return {"threads": [personal_row], "total_estimate": 1}
                     if email == business and label == "SENT":
                         return {"threads": [business_row], "total_estimate": 1}
+                    if email == third and label == "INBOX":
+                        return {"threads": [third_row], "total_estimate": 1}
                     return {"threads": [], "total_estimate": 0}
                 if name == "get_thread":
-                    row = personal_row if arguments["acting_email"] == personal else business_row
+                    rows_by_identity = {
+                        personal: personal_row,
+                        business: business_row,
+                        third: third_row,
+                    }
+                    row = rows_by_identity[arguments["acting_email"]]
                     return {
                         **row,
-                        "user_is_participant": True,
+                        "user_is_participant": arguments["acting_email"] != third,
                         "message_count": 1,
                         "messages": [
                             {
@@ -1714,6 +1726,7 @@ class PrivateStoreTests(unittest.TestCase):
 
         forward = collect((personal, business, third))
         reverse = collect((third, business, personal))
+        business_first = collect((business, personal, third))
         forward_signal = next(
             row for row in forward["signals"]
             if row["last_message_id"] == "shared-external-message"
@@ -1722,25 +1735,43 @@ class PrivateStoreTests(unittest.TestCase):
             row for row in reverse["signals"]
             if row["last_message_id"] == "shared-external-message"
         )
-        for key in (
-            "signal_id",
-            "semantic_status",
-            "confidence",
-            "action_tags",
-            "fail_closed_reasons",
-            "wake",
-        ):
-            self.assertEqual(forward_signal[key], reverse_signal[key])
+        business_first_signal = next(
+            row for row in business_first["signals"]
+            if row["last_message_id"] == "shared-external-message"
+        )
+        comparisons = (
+            ("proposal", forward_signal, business_first_signal),
+            ("signal_id", forward_signal, reverse_signal),
+            ("semantic_status", forward_signal, reverse_signal),
+            ("confidence", forward_signal, reverse_signal),
+            ("action_tags", forward_signal, reverse_signal),
+            ("fail_closed_reasons", forward_signal, reverse_signal),
+            ("wake", forward_signal, reverse_signal),
+            ("proposal", forward_signal, reverse_signal),
+        )
+        for key, left, right in comparisons:
+            with self.subTest(global_merge_field=key):
+                self.assertEqual(left[key], right[key])
         self.assertEqual(forward_signal["semantic_status"], "UNKNOWN")
         self.assertEqual(forward_signal["confidence"], "LOW")
         self.assertIn("cross-account classification", forward_signal["wake"])
+        self.assertIn(third, forward_signal["wake"])
+        self.assertIn("verify the order, return", forward_signal["proposal"])
 
         personal_mail = brief.superhuman_account_context(forward, personal)
         business_mail = brief.superhuman_account_context(forward, business)
         self.assertEqual(personal_mail["signals"][0]["semantic_status"], "PROPOSAL")
         self.assertIn("reply", personal_mail["signals"][0]["action_tags"])
+        self.assertIn(
+            "verify the order, return",
+            personal_mail["signals"][0]["proposal"],
+        )
         self.assertEqual(business_mail["signals"][0]["semantic_status"], "OBSERVED")
         self.assertEqual(business_mail["signals"][0]["action_tags"], [])
+        self.assertIn(
+            "read the exact source",
+            business_mail["signals"][0]["proposal"],
+        )
         with mock.patch.object(
             brief,
             "_snowcubes_m12_surface",

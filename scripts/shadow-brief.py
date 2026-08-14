@@ -1000,6 +1000,16 @@ def build_superhuman_context(
             tags.append("proactive")
         return kind, list(dict.fromkeys(tags))
 
+    def proposal_for_tags(tags: Any) -> str:
+        tag_set = {str(tag) for tag in (tags or [])}
+        if "order_return" in tag_set:
+            return "Proposal only: verify the order, return, refund, and deadline facts before any merchant action."
+        if tag_set.intersection({"reply", "waiting_reply"}):
+            return "Proposal only: read the exact thread and prepare a reply for Leo to approve; no draft or send was created."
+        if "calendar" in tag_set:
+            return "Proposal only: reconcile the exact interval and conflicts before any calendar write or invitation."
+        return "Proposal only: read the exact source before deciding whether follow-through is needed."
+
     def stable_signal(row: dict[str, Any], acting_email: str) -> dict[str, Any]:
         thread_id = str(row.get("thread_id") or row.get("id") or "").strip()
         message_id = str(row.get("last_message_id") or "").strip()
@@ -1019,14 +1029,6 @@ def build_superhuman_context(
             )
         signal_id = hashlib.sha256(stable_source.encode("utf-8")).hexdigest()[:24]
         kind, tags = action_tags(row, acting_email)
-        if "order_return" in tags:
-            proposal = "Proposal only: verify the order, return, refund, and deadline facts before any merchant action."
-        elif "reply" in tags or "waiting_reply" in tags:
-            proposal = "Proposal only: read the exact thread and prepare a reply for Leo to approve; no draft or send was created."
-        elif "calendar" in tags:
-            proposal = "Proposal only: reconcile the exact interval and conflicts before any calendar write or invitation."
-        else:
-            proposal = "Proposal only: read the exact source before deciding whether follow-through is needed."
         stable_provider_identity = bool(message_id or thread_id)
         result = {
             "signal_id": signal_id,
@@ -1062,7 +1064,7 @@ def build_superhuman_context(
             "source_observed_at": end_date,
             "source_age_hours": 0.0,
             "message_age_hours": source_age(row.get("last_message_at")),
-            "proposal": proposal,
+            "proposal": proposal_for_tags(tags),
             "proposal_only": True,
         }
         if not stable_provider_identity:
@@ -1120,51 +1122,6 @@ def build_superhuman_context(
             )
         )
         existing["unread"] = bool(existing.get("unread") or incoming.get("unread"))
-        classification_conflict = {
-            existing_status,
-            incoming_status,
-        } == {"OBSERVED", "PROPOSAL"}
-        if "UNKNOWN" in {existing_status, incoming_status}:
-            existing["semantic_status"] = "UNKNOWN"
-        elif classification_conflict:
-            existing["semantic_status"] = "UNKNOWN"
-        elif existing_status == incoming_status:
-            existing["semantic_status"] = existing_status
-        else:
-            existing["semantic_status"] = "UNKNOWN"
-            classification_conflict = True
-        if (
-            existing.get("semantic_status") == "UNKNOWN"
-            or incoming.get("confidence") == "LOW"
-            or existing.get("confidence") == "LOW"
-        ):
-            existing["confidence"] = "LOW"
-        existing["fail_closed_reasons"] = sorted(
-            dict.fromkeys(
-                (existing.get("fail_closed_reasons") or [])
-                + (incoming.get("fail_closed_reasons") or [])
-            )
-        )
-        if classification_conflict:
-            existing["fail_closed_reasons"] = sorted(
-                dict.fromkeys(
-                    (existing.get("fail_closed_reasons") or [])
-                    + ["cross-account classification/lifecycle conflict"]
-                )
-            )
-            subject = str(existing.get("subject") or "this mail item")
-            identities = ", ".join(existing.get("source_identities") or [])
-            conflict_wake = (
-                f"Open Superhuman separately as {identities} and verify {subject}; "
-                "cross-account classification/lifecycle facts disagree, so no relationship action is inferred."
-            )
-        else:
-            conflict_wake = ""
-        wakes = [value for value in (existing.get("wake"), incoming.get("wake")) if value]
-        if conflict_wake:
-            wakes.append(conflict_wake)
-        if wakes:
-            existing["wake"] = "; ".join(sorted(dict.fromkeys(str(value) for value in wakes)))
         snapshots = [
             snapshot
             for snapshot in (
@@ -1187,6 +1144,143 @@ def build_superhuman_context(
                 snapshot.get("thread_body_read") is True
                 for snapshot in existing["account_snapshots"]
             )
+            snapshot_identities = {
+                str(snapshot.get("acting_email") or "")
+                for snapshot in existing["account_snapshots"]
+            }
+            missing_snapshot_identities = sorted(
+                set(existing.get("source_identities") or []) - snapshot_identities,
+                key=identity_sort_key,
+            )
+            snapshot_statuses = {
+                str(snapshot.get("semantic_status") or "UNKNOWN")
+                for snapshot in existing["account_snapshots"]
+            }
+            known_statuses = snapshot_statuses.intersection(
+                {"OBSERVED", "PROPOSAL"}
+            )
+            classification_conflict = known_statuses == {
+                "OBSERVED",
+                "PROPOSAL",
+            }
+            has_unknown = (
+                bool(missing_snapshot_identities)
+                or "UNKNOWN" in snapshot_statuses
+                or bool(
+                    snapshot_statuses
+                    - {"UNKNOWN", "OBSERVED", "PROPOSAL"}
+                )
+            )
+            if has_unknown or classification_conflict or not snapshot_statuses:
+                existing["semantic_status"] = "UNKNOWN"
+            elif len(known_statuses) == 1:
+                existing["semantic_status"] = next(iter(known_statuses))
+            else:
+                existing["semantic_status"] = "UNKNOWN"
+            snapshot_confidences = {
+                str(snapshot.get("confidence") or "LOW")
+                for snapshot in existing["account_snapshots"]
+            }
+            if existing["semantic_status"] == "UNKNOWN" or "LOW" in snapshot_confidences:
+                existing["confidence"] = "LOW"
+            elif "MEDIUM" in snapshot_confidences:
+                existing["confidence"] = "MEDIUM"
+            else:
+                existing["confidence"] = "HIGH"
+            existing["action_tags"] = sorted(
+                {
+                    str(tag)
+                    for snapshot in existing["account_snapshots"]
+                    for tag in (snapshot.get("action_tags") or [])
+                }
+            )
+            existing["source_labels"] = sorted(
+                {
+                    str(label)
+                    for snapshot in existing["account_snapshots"]
+                    for label in (snapshot.get("source_labels") or [])
+                }
+            )
+            existing["source_lanes"] = sorted(
+                {
+                    str(lane)
+                    for snapshot in existing["account_snapshots"]
+                    for lane in (snapshot.get("source_lanes") or [])
+                }
+            )
+            existing["unread"] = any(
+                snapshot.get("unread") is True
+                for snapshot in existing["account_snapshots"]
+            )
+            reasons = {
+                str(reason)
+                for snapshot in existing["account_snapshots"]
+                for reason in (snapshot.get("fail_closed_reasons") or [])
+            }
+            if missing_snapshot_identities:
+                reasons.add("per-account classification snapshot unavailable")
+            if classification_conflict:
+                reasons.add("cross-account classification/lifecycle conflict")
+            existing["fail_closed_reasons"] = sorted(reasons)
+            wakes = {
+                str(snapshot.get("wake"))
+                for snapshot in existing["account_snapshots"]
+                if snapshot.get("wake")
+            }
+            if missing_snapshot_identities:
+                wakes.add(
+                    "Re-read the exact mail item as "
+                    + ", ".join(missing_snapshot_identities)
+                    + "; its per-account classification snapshot is unavailable."
+                )
+            if classification_conflict:
+                subject = str(existing.get("subject") or "this mail item")
+                identities = ", ".join(existing.get("source_identities") or [])
+                wakes.add(
+                    f"Open Superhuman separately as {identities} and verify {subject}; "
+                    "cross-account classification/lifecycle facts disagree, so no relationship action is inferred."
+                )
+            if wakes:
+                existing["wake"] = "; ".join(sorted(wakes))
+            else:
+                existing.pop("wake", None)
+        else:
+            classification_conflict = {
+                existing_status,
+                incoming_status,
+            } == {"OBSERVED", "PROPOSAL"}
+            if "UNKNOWN" in {existing_status, incoming_status} or classification_conflict:
+                existing["semantic_status"] = "UNKNOWN"
+            elif existing_status == incoming_status:
+                existing["semantic_status"] = existing_status
+            else:
+                existing["semantic_status"] = "UNKNOWN"
+                classification_conflict = True
+            if (
+                existing.get("semantic_status") == "UNKNOWN"
+                or incoming.get("confidence") == "LOW"
+                or existing.get("confidence") == "LOW"
+            ):
+                existing["confidence"] = "LOW"
+            existing["fail_closed_reasons"] = sorted(
+                dict.fromkeys(
+                    (existing.get("fail_closed_reasons") or [])
+                    + (incoming.get("fail_closed_reasons") or [])
+                    + (
+                        ["cross-account classification/lifecycle conflict"]
+                        if classification_conflict
+                        else []
+                    )
+                )
+            )
+            wakes = {
+                str(value)
+                for value in (existing.get("wake"), incoming.get("wake"))
+                if value
+            }
+            if wakes:
+                existing["wake"] = "; ".join(sorted(wakes))
+        existing["proposal"] = proposal_for_tags(existing.get("action_tags") or [])
         existing["source_threads"] = sorted(
             (existing.get("source_threads") or []),
             key=lambda ref: (
@@ -1843,6 +1937,7 @@ def build_superhuman_context(
             except Exception as exc:
                 preserve_assertion(exc)
                 detail_problems.append(f"exact thread read failed: {exc}")
+            signal["proposal"] = proposal_for_tags(signal.get("action_tags") or [])
             if detail_problems:
                 attachment_note = (
                     " including " + ", ".join(sorted(dict.fromkeys(attachment_names)))
