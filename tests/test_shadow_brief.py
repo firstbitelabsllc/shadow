@@ -3305,6 +3305,47 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIn("JSON object", result["error"])
         self.assertIn("Restore a readable local Shadow board", result["wake"])
 
+    def test_collect_board_fails_closed_on_malformed_nested_schema(self):
+        base = {
+            "revision": 1,
+            "projects": [],
+            "entities": [],
+            "claims": [],
+        }
+        cases = (
+            ("projects-container", {**base, "projects": 7}),
+            ("entities-container", {**base, "entities": 7}),
+            ("claims-container", {**base, "claims": 7}),
+            ("project-row", {**base, "projects": [None]}),
+            ("entity-row", {**base, "entities": [None]}),
+            ("claim-row", {**base, "claims": [None]}),
+            (
+                "entity-plan",
+                {
+                    **base,
+                    "entities": [
+                        {"id": "entity", "project": "project", "plan": []}
+                    ],
+                },
+            ),
+        )
+        for name, payload in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                board_path = Path(tmp) / "board.json"
+                board_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+                with mock.patch.object(brief, "BOARD_PATH", board_path):
+                    try:
+                        result = brief.collect_board()
+                    except (AttributeError, TypeError) as exc:
+                        self.fail(f"JSON-valid nested board shape crashed: {exc}")
+
+                self.assertIsNone(result["revision"])
+                self.assertEqual(result["projects"], [])
+                self.assertEqual(result["entities"], [])
+                self.assertEqual(result["claims"], [])
+                self.assertIn("board unreadable", result["error"])
+                self.assertIn("Restore a readable local Shadow board", result["wake"])
+
     def test_snowcubes_card_names_a_partial_shadow_plan_outage(self):
         plan = Path("/tmp/example-unreadable-plan.md")
         board = {
@@ -4862,6 +4903,8 @@ class AuthorityScopeTests(unittest.TestCase):
             for exception in (
                 OSError(f"{collector_name} executable unavailable"),
                 subprocess.TimeoutExpired([collector_name], 45),
+                ValueError(f"{collector_name} JSON decoder limit exceeded"),
+                RecursionError(f"{collector_name} JSON nesting limit exceeded"),
             ):
                 with self.subTest(
                     collector=collector_name,
@@ -4934,7 +4977,12 @@ class AuthorityScopeTests(unittest.TestCase):
                                 args,
                                 _scheduled_proof_fixture(),
                             )
-                        except (OSError, subprocess.TimeoutExpired) as exc:
+                        except (
+                            OSError,
+                            subprocess.TimeoutExpired,
+                            ValueError,
+                            RecursionError,
+                        ) as exc:
                             self.fail(
                                 f"{collector_name} process failure escaped after barrier: {exc}"
                             )
@@ -5417,9 +5465,35 @@ class AuthorityScopeTests(unittest.TestCase):
         duplicate["coverage"].extend([coverage, dict(coverage)])
         duplicate_problems = brief._superhuman_receipt_problems(duplicate)
 
+        stray = _m5_mail_fixture()
+        stray["coverage"].append(
+            {
+                "acting_email": "stray@example.com",
+                "expected": False,
+                "linked": False,
+                "status": "GARBAGE",
+                "pagination": {
+                    "pages": 0,
+                    "exhausted": False,
+                    "truncated": True,
+                },
+            }
+        )
+        stray_problems = brief._superhuman_receipt_problems(stray)
+
+        wrong_expected = _m5_mail_fixture()
+        wrong_expected["linked_accounts"].append(linked)
+        wrong_expected["coverage"].append({**coverage, "expected": True})
+        wrong_expected_problems = brief._superhuman_receipt_problems(wrong_expected)
+
         self.assertIn("linked Superhuman account coverage mismatch", missing_problems)
         self.assertNotIn("linked Superhuman account coverage mismatch", exact_problems)
         self.assertIn("linked Superhuman account coverage mismatch", duplicate_problems)
+        self.assertIn("Superhuman coverage identity universe mismatch", stray_problems)
+        self.assertIn(
+            "dynamic linked Superhuman identity expected marker mismatch: newly-linked@example.com",
+            wrong_expected_problems,
+        )
 
     def test_superhuman_verifier_validates_account_discovery_and_linked_account_shapes(self):
         cases = (
@@ -5537,6 +5611,7 @@ class AuthorityScopeTests(unittest.TestCase):
             (False, "COMPLETE", [], None),
             (None, "UNKNOWN", ["provider problem"], "retry read-only scan"),
             (True, "UNKNOWN", [], "retry read-only scan"),
+            (False, "UNKNOWN", [{}], "retry read-only scan"),
         )
         for linked, status_value, row_problems, wake in cases:
             with self.subTest(linked=linked, status=status_value):
@@ -7362,6 +7437,26 @@ class AuthorityScopeTests(unittest.TestCase):
         wrong_types["urgent_replies"] = [malformed_action]
         malformed_cases.append(("wrong-types", wrong_types))
 
+        bucket_tag_cases = {
+            "urgent_replies": ["neutral"],
+            "waiting_replies": ["reply"],
+            "order_return_follow_up": ["reply"],
+            "forgotten_obligations": ["urgent"],
+        }
+        for bucket, tags in bucket_tag_cases.items():
+            mail = _m5_mail_fixture()
+            action = {**mail["signals"][0], "action_tags": tags}
+            mail["signals"] = [action]
+            for obligation_bucket in (
+                "urgent_replies",
+                "waiting_replies",
+                "order_return_follow_up",
+                "forgotten_obligations",
+            ):
+                mail[obligation_bucket] = []
+            mail[bucket] = [dict(action)]
+            malformed_cases.append((f"{bucket}-tags", mail))
+
         self.assertNotIn(
             "no real mail obligation or action proposal",
             brief._superhuman_receipt_problems(_m5_mail_fixture()),
@@ -7372,6 +7467,50 @@ class AuthorityScopeTests(unittest.TestCase):
                     "no real mail obligation or action proposal",
                     brief._superhuman_receipt_problems(mail),
                 )
+
+    def test_superhuman_action_buckets_reject_non_object_rows(self):
+        for bucket in (
+            "signals",
+            "urgent_replies",
+            "waiting_replies",
+            "forgotten_obligations",
+            "order_return_follow_up",
+            "proactive_candidates",
+            "calendar_proposals",
+        ):
+            with self.subTest(bucket=bucket):
+                mail = _m5_mail_fixture()
+                mail[bucket].append(7)
+
+                problems = brief._superhuman_receipt_problems(mail)
+
+                self.assertIn(
+                    f"Superhuman {bucket} row must be an object",
+                    problems,
+                )
+
+    def test_mcp_payload_parsers_fail_closed_on_json_decoder_limits(self):
+        text_result = {
+            "result": {
+                "content": [
+                    {"type": "text", "text": '{"threads": []}'},
+                ]
+            }
+        }
+        for exc in (
+            ValueError("integer string conversion limit exceeded"),
+            RecursionError("maximum recursion depth exceeded"),
+        ):
+            with self.subTest(exception=type(exc).__name__), mock.patch.object(
+                brief.json, "loads", side_effect=exc
+            ):
+                plain = brief._parse_mcp_sse('{"result": {}}')
+                streamed = brief._parse_mcp_sse('data: {"result": {}}')
+                payload = brief._mcp_text_payload(text_result)
+
+                self.assertIn("raw", plain)
+                self.assertIn("raw", streamed)
+                self.assertEqual(payload, {})
 
     def test_producer_identity_fields_reject_non_string_numeric_lookalikes(self):
         self.assertFalse(brief._is_full_git_object_id(int("1" * 40)))

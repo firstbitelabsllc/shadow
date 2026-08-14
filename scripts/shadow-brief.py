@@ -466,15 +466,44 @@ def collect_board() -> dict[str, Any]:
             "error": "board unreadable: board root must be a JSON object",
             "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
         }
+    projects = board.get("projects", [])
+    entity_rows = board.get("entities", [])
+    claims = board.get("claims", [])
+    nested_error = None
+    for name, value in (
+        ("projects", projects),
+        ("entities", entity_rows),
+        ("claims", claims),
+    ):
+        if not isinstance(value, list):
+            nested_error = f"{name} must be a list"
+            break
+        if any(not isinstance(row, dict) for row in value):
+            nested_error = f"{name} rows must be objects"
+            break
+    if nested_error is None and any(
+        not isinstance(entity.get("plan"), str) or not entity.get("plan", "").strip()
+        for entity in entity_rows
+    ):
+        nested_error = "entity plan paths must be nonempty strings"
+    if nested_error is not None:
+        return {
+            "revision": None,
+            "entities": [],
+            "projects": [],
+            "claims": [],
+            "error": f"board unreadable: {nested_error}",
+            "wake": "Restore a readable local Shadow board, then run shadow status --by leo.",
+        }
     # The root board owns project priority; a plan's own Priority line is stale
     # as soon as `shadow priority --value` moves the board-owned value.
     board_priority = {
         str(project.get("id") or ""): project.get("priority")
-        for project in (board.get("projects") or [])
+        for project in projects
         if isinstance(project, dict) and isinstance(project.get("priority"), int)
     }
     entities: list[EntityBrief] = []
-    for ent in board.get("entities") or []:
+    for ent in entity_rows:
         project_id = str(ent.get("project") or "")
         plan_path = Path(ent.get("plan") or "")
         if not plan_path.is_file():
@@ -511,8 +540,8 @@ def collect_board() -> dict[str, Any]:
     return {
         "revision": board.get("revision"),
         "schema": board.get("schema"),
-        "projects": board.get("projects") or [],
-        "claims": board.get("claims") or [],
+        "projects": projects,
+        "claims": claims,
         "entities": [asdict(e) for e in entities],
     }
 
@@ -5630,6 +5659,11 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
     coverage = [row for row in buckets["coverage"] if isinstance(row, dict)]
     if len(coverage) != len(buckets["coverage"]):
         problems.append("Superhuman coverage row must be an object")
+    for key in action_bucket_keys:
+        object_rows = [row for row in buckets[key] if isinstance(row, dict)]
+        if len(object_rows) != len(buckets[key]):
+            problems.append(f"Superhuman {key} row must be an object")
+        buckets[key] = object_rows
     coverage_emails = [
         str(row.get("acting_email") or "").strip().lower()
         for row in coverage
@@ -5639,6 +5673,14 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         for row in coverage
         if row.get("linked") is True
     ]
+    coverage_identity_universe = set(EXPECTED_SUPERHUMAN_IDENTITIES) | set(
+        linked_emails
+    )
+    if (
+        set(coverage_emails) != coverage_identity_universe
+        or len(coverage_emails) != len(coverage_identity_universe)
+    ):
+        problems.append("Superhuman coverage identity universe mismatch")
     if (
         len(linked_emails) != len(set(linked_emails))
         or any(coverage_emails.count(email) != 1 for email in linked_emails)
@@ -5688,6 +5730,10 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             and status_value == "UNKNOWN"
             and isinstance(row_problems, list)
             and bool(row_problems)
+            and all(
+                isinstance(problem, str) and problem.strip()
+                for problem in row_problems
+            )
             and isinstance(wake, str)
             and bool(wake.strip())
         )
@@ -5707,6 +5753,11 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
     ]
     for row in dynamic_linked_rows:
         identity = str(row.get("acting_email") or "").strip().lower()
+        if row.get("expected") is not False:
+            problems.append(
+                "dynamic linked Superhuman identity expected marker mismatch: "
+                f"{identity}"
+            )
         row_problems = row.get("problems")
         wake = row.get("wake")
         linked_complete = linked_complete_coverage(row)
@@ -5801,8 +5852,31 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
                     return True
         return False
 
+    def matches_obligation_bucket(key: str, signal: dict[str, Any]) -> bool:
+        tags = set(signal.get("action_tags") or [])
+        if key == "urgent_replies":
+            return "urgent" in tags and bool(tags & {"reply", "waiting_reply"})
+        if key == "waiting_replies":
+            return "waiting_reply" in tags
+        if key == "order_return_follow_up":
+            return "order_return" in tags
+        if key == "forgotten_obligations":
+            return bool(
+                tags
+                & {
+                    "obligation",
+                    "order_return",
+                    "waiting_reply",
+                    "reply",
+                    "calendar",
+                }
+            )
+        return False
+
     real_obligation = any(
-        valid_obligation(signal) and retained_by_master(signal)
+        valid_obligation(signal)
+        and retained_by_master(signal)
+        and matches_obligation_bucket(key, signal)
         for key in obligation_keys
         for signal in buckets[key]
         if isinstance(signal, dict)
@@ -6602,14 +6676,14 @@ def _parse_mcp_sse(raw: str) -> dict[str, Any]:
         try:
             parsed = json.loads(raw)
             return parsed if isinstance(parsed, dict) else {"raw": raw[:500]}
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             return {"raw": raw[:500]}
     for chunk in reversed(chunks):
         try:
             parsed = json.loads(chunk)
             if isinstance(parsed, dict):
                 return parsed
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             continue
     return {"raw": "\n".join(chunks)[:800]}
 
@@ -6631,7 +6705,7 @@ def _mcp_text_payload(result: dict[str, Any]) -> dict[str, Any]:
             continue
         try:
             payload = json.loads(text)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             continue
         if isinstance(payload, dict):
             return payload
@@ -8157,7 +8231,12 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         }
     try:
         packet = collect_packet(slot=args.slot)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except (
+        OSError,
+        subprocess.TimeoutExpired,
+        ValueError,
+        RecursionError,
+    ) as exc:
         if not args.scheduled_trigger:
             raise
         summary = {
