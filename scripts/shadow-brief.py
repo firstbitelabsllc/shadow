@@ -88,6 +88,12 @@ SNOWCUBES_NATIVE_LINKS = {
 WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v4"
 MAILBOX_READBACK_SCHEMA = "shadow.superhuman-mailbox-readback.v1"
 SUPERHUMAN_MCP_RESOURCE = "https://mcp.mail.superhuman.com/mcp"
+
+
+class PrivateJSONLError(OSError):
+    """An existing private JSONL ledger cannot be trusted as authority."""
+
+
 SUPERHUMAN_TOKEN_ENDPOINT = "https://mcp.auth.mail.superhuman.com/oauth2/token"
 SUPERHUMAN_MCP_CACHE_KEY = hashlib.md5(
     SUPERHUMAN_MCP_RESOURCE.encode("utf-8"), usedforsecurity=False
@@ -508,7 +514,11 @@ def _read_board_revision() -> int | None:
     except (OSError, json.JSONDecodeError):
         return None
     revision = board.get("revision")
-    return revision if isinstance(revision, int) else None
+    return (
+        revision
+        if isinstance(revision, int) and not isinstance(revision, bool)
+        else None
+    )
 
 
 def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
@@ -4049,10 +4059,14 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
     for attempt in range(1, 4):
         board = collect_board()
         final_revision = _read_board_revision()
+        board_revision = board.get("revision")
         board_snapshot = {
             "consistent": (
-                isinstance(board.get("revision"), int)
-                and board.get("revision") == final_revision
+                isinstance(board_revision, int)
+                and not isinstance(board_revision, bool)
+                and isinstance(final_revision, int)
+                and not isinstance(final_revision, bool)
+                and board_revision == final_revision
             ),
             "attempts": attempt,
             "revision": final_revision,
@@ -4187,6 +4201,12 @@ def human_datetime(value: Any) -> str:
     month_day = parsed.strftime("%b %d").replace(" 0", " ")
     hour = parsed.strftime("%I").lstrip("0") or "12"
     return f"{month_day} · {hour}:{parsed.strftime('%M')} {parsed.strftime('%p')}"
+
+
+def _reader_generation_marker(slot: Any, generated_at: Any) -> str:
+    if not isinstance(slot, str) or not slot.strip():
+        return ""
+    return f"{slot.title()} note · twice-daily · {human_datetime(generated_at)}"
 
 
 def render_html(packet: dict[str, Any]) -> str:
@@ -5148,7 +5168,7 @@ def render_html(packet: dict[str, Any]) -> str:
   <div class="wrap">
     <header>
       <h1>{_esc(headline)}</h1>
-      <p class="stamp">{_esc(slot.title())} note · twice-daily · {_esc(human_datetime(when))}</p>
+      <p class="stamp">{_esc(_reader_generation_marker(slot, when))}</p>
       <h2>Today’s read</h2>
       <p class="summary">{_esc(summary)}</p>
     </header>
@@ -5631,7 +5651,7 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             and isinstance(pagination, dict)
             and isinstance(pages, int)
             and not isinstance(pages, bool)
-            and pages >= 0
+            and pages > 0
             and pagination.get("exhausted") is True
             and pagination.get("truncated") is False
             and (row_problems is None or row_problems == [])
@@ -5850,7 +5870,7 @@ def _scheduled_attempt_barrier_is_valid(
         with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
             descriptor = None
             payload = json.load(handle)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError):
         return False
     finally:
         if descriptor is not None:
@@ -5896,7 +5916,7 @@ def _read_send_attempt_proof(path: Path) -> list[dict[str, Any]] | None:
             continue
         try:
             row = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             return None
         if not isinstance(row, dict):
             return None
@@ -6102,7 +6122,10 @@ def verify_window_receipts(
                     problems.append(f"{scheduled_for}: scheduled slot mismatch")
                 if not scheduled_at <= generated <= scheduled_at + timedelta(minutes=30):
                     problems.append(f"{scheduled_for}: report generation is not fresh for slot")
-            if not isinstance(row.get("board_revision"), int):
+            if not (
+                isinstance(row.get("board_revision"), int)
+                and not isinstance(row.get("board_revision"), bool)
+            ):
                 problems.append(f"{scheduled_for}: missing board revision")
             if len(str(row.get("html_sha256") or "")) != 64:
                 problems.append(f"{scheduled_for}: missing HTML hash")
@@ -6232,6 +6255,14 @@ def verify_window_receipts(
                     continue
                 if f"board rev {row.get('board_revision')}" not in rendered:
                     problems.append(f"{scheduled_for}: archived HTML board revision mismatch")
+                generation_marker = _reader_generation_marker(
+                    row.get("slot"),
+                    row.get("generated_at"),
+                )
+                if not generation_marker or generation_marker not in rendered:
+                    problems.append(
+                        f"{scheduled_for}: archived HTML generation marker mismatch"
+                    )
                 required_html = (
                     "<!DOCTYPE html>",
                     'name="viewport"',
@@ -6264,7 +6295,7 @@ def verify_window_receipts(
                     continue
                 try:
                     packet = json.loads(json_bytes.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
+                except (UnicodeDecodeError, ValueError, RecursionError):
                     problems.append(f"{scheduled_for}: archived JSON unreadable")
                     continue
                 if not isinstance(packet, dict):
@@ -6279,7 +6310,11 @@ def verify_window_receipts(
                     problems.append(
                         f"{scheduled_for}: archived JSON board must be an object"
                     )
-                elif board.get("revision") != row.get("board_revision"):
+                elif not (
+                    isinstance(board.get("revision"), int)
+                    and not isinstance(board.get("revision"), bool)
+                    and board.get("revision") == row.get("board_revision")
+                ):
                     problems.append(
                         f"{scheduled_for}: archived JSON board revision mismatch"
                     )
@@ -6293,6 +6328,8 @@ def verify_window_receipts(
                     board_snapshot = authority.get("board_snapshot")
                 if not isinstance(board_snapshot, dict) or (
                     board_snapshot.get("consistent") is not True
+                    or not isinstance(board_snapshot.get("revision"), int)
+                    or isinstance(board_snapshot.get("revision"), bool)
                     or board_snapshot.get("revision") != row.get("board_revision")
                 ):
                     problems.append(f"{scheduled_for}: board snapshot consistency missing")
@@ -6363,7 +6400,16 @@ def verify_mailbox_readbacks(
             problems.append(f"{scheduled_for}: mailbox subject mismatch")
         if readback.get("generated_at") != window.get("generated_at"):
             problems.append(f"{scheduled_for}: mailbox generation mismatch")
-        if readback.get("board_revision") != window.get("board_revision"):
+        window_revision = window.get("board_revision")
+        readback_revision = readback.get("board_revision")
+        if not (
+            isinstance(window_revision, int)
+            and not isinstance(window_revision, bool)
+            and isinstance(readback_revision, int)
+            and not isinstance(readback_revision, bool)
+        ):
+            problems.append(f"{scheduled_for}: mailbox board revision invalid")
+        elif readback_revision != window_revision:
             problems.append(f"{scheduled_for}: mailbox board revision mismatch")
         message_id = readback.get("message_id")
         thread_id = readback.get("thread_id")
@@ -6618,6 +6664,7 @@ def record_send_attempt(
     draft_id: str,
     thread_id: str | None,
 ) -> dict[str, Any]:
+    _read_jsonl(SEND_ATTEMPT_LOG)
     created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     intent = {
         "schema": SEND_ATTEMPT_SCHEMA,
@@ -6669,6 +6716,7 @@ def ambiguous_send_receipt(
 
 def _delivery_exception_receipt(subject: str, exc: Exception) -> dict[str, Any]:
     attempt: dict[str, Any] | None = None
+    attempt_ledger_error: Exception | None = None
     try:
         for candidate in reversed(_read_jsonl(SEND_ATTEMPT_LOG)):
             if (
@@ -6678,9 +6726,15 @@ def _delivery_exception_receipt(subject: str, exc: Exception) -> dict[str, Any]:
             ):
                 attempt = candidate
                 break
-    except (OSError, UnicodeError):
+    except (OSError, UnicodeError) as read_error:
         attempt = None
+        attempt_ledger_error = read_error
     notes = f"Superhuman delivery raised after its outcome became unknown: {exc}"
+    if attempt_ledger_error is not None:
+        notes += (
+            "; send-attempt ledger is unsafe or corrupt: "
+            f"{attempt_ledger_error}"
+        )
     if attempt is not None:
         return ambiguous_send_receipt(
             attempt,
@@ -6701,8 +6755,13 @@ def _delivery_exception_receipt(subject: str, exc: Exception) -> dict[str, Any]:
         "sent_at": None,
         "notes": notes,
         "wake": (
-            f"inspect {SEND_ATTEMPT_LOG} and the exact {SELF_MAIL} SENT mailbox route "
-            f"for subject {subject!r}; never retry delivery for this scheduled window"
+            (
+                f"repair the unsafe or corrupt send-attempt ledger at {SEND_ATTEMPT_LOG}; "
+                if attempt_ledger_error is not None
+                else f"inspect {SEND_ATTEMPT_LOG}; "
+            )
+            + f"inspect the exact {SELF_MAIL} SENT mailbox route for subject {subject!r}; "
+            "never retry delivery for this scheduled window"
         ),
     }
 
@@ -6973,10 +7032,11 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
     elif not scheduled_at <= sent <= scheduled_at + timedelta(minutes=30):
         problems.append("sent timestamp outside scheduled window")
     required_html = (
+        _reader_generation_marker(window.get("slot"), window.get("generated_at")),
         f"board rev {window.get('board_revision')}",
         "Supporting checks inform the note; they do not create another to-do list.",
     )
-    if any(marker not in raw_html for marker in required_html):
+    if not all(required_html) or any(marker not in raw_html for marker in required_html):
         problems.append("mailbox HTML does not match scheduled report identity")
     if problems:
         return {
@@ -7951,11 +8011,47 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         attempt_barrier_path = (
             LOG_DIR / f"scheduled-attempt-{scheduled_stamp}.json"
         )
+        try:
+            existing_window_rows = _read_jsonl(WINDOW_LOG)
+        except PrivateJSONLError as exc:
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "wake": (
+                    f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}; "
+                    "repair the exact private ledger; do not collect, notify, send, "
+                    "overwrite, or retry this scheduled window"
+                ),
+            }
+            _write_last_run_best_effort(summary)
+            _print_json_best_effort(summary, file=sys.stderr)
+            return 3
+        try:
+            _read_jsonl(SEND_ATTEMPT_LOG)
+        except PrivateJSONLError as exc:
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "wake": (
+                    f"send-attempt ledger is unsafe or corrupt at {SEND_ATTEMPT_LOG}: {exc}; "
+                    "repair the exact private ledger; do not collect, notify, send, "
+                    "overwrite, or retry this scheduled window"
+                ),
+            }
+            _write_last_run_best_effort(summary)
+            _print_json_best_effort(summary, file=sys.stderr)
+            return 3
         existing_window = any(
             row.get("schema") == WINDOW_RECEIPT_SCHEMA
             and row.get("trigger") == "launchd-calendar"
             and row.get("scheduled_for") == trigger_window.get("scheduled_for")
-            for row in _read_jsonl(WINDOW_LOG)
+            for row in existing_window_rows
         )
         archive_barrier = os.path.lexists(archive_html_path) or os.path.lexists(
             archive_json_path
@@ -8127,11 +8223,33 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
             print(json.dumps(summary, indent=2), file=sys.stderr)
             _write_last_run_best_effort(summary)
             return 3
+        try:
+            existing_window_rows = _read_jsonl(WINDOW_LOG)
+        except PrivateJSONLError as exc:
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "generated_at": packet.get("generated_at"),
+                "board_revision": (packet.get("board") or {}).get("revision"),
+                "producer": packet.get("producer"),
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "attempt_barrier": attempt_barrier,
+                "wake": (
+                    f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}; "
+                    "repair the exact private ledger; do not notify, send, overwrite, "
+                    "or retry this reserved scheduled window"
+                ),
+            }
+            _write_last_run_best_effort(summary)
+            _print_json_best_effort(summary, file=sys.stderr)
+            return 3
         existing_window = any(
             row.get("schema") == WINDOW_RECEIPT_SCHEMA
             and row.get("trigger") == "launchd-calendar"
             and row.get("scheduled_for") == trigger_window.get("scheduled_for")
-            for row in _read_jsonl(WINDOW_LOG)
+            for row in existing_window_rows
         )
         if existing_window:
             reason = "this scheduled window already has a durable receipt"
@@ -8349,21 +8467,123 @@ def cmd_proof(_args: argparse.Namespace) -> int:
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    identity: os.stat_result | None = None
+    try:
+        try:
+            descriptor = os.open(path, flags)
+        except FileNotFoundError as exc:
+            if not os.path.lexists(path):
+                return []
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: unresolved path"
+            ) from exc
+        except OSError as exc:
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: open failed: {exc}"
+            ) from exc
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or stat.S_IMODE(identity.st_mode) != 0o600
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or not stat.S_ISREG(named_identity.st_mode)
+            or named_identity.st_uid != os.getuid()
+            or stat.S_IMODE(named_identity.st_mode) != 0o600
+            or named_identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: unsafe file identity"
+            )
+        handle = os.fdopen(descriptor, "r", encoding="utf-8")
+        descriptor = None
+        with handle:
+            text = handle.read()
+            final_identity = os.fstat(handle.fileno())
+            final_named_identity = os.lstat(path)
+            if (
+                not stat.S_ISREG(final_identity.st_mode)
+                or final_identity.st_uid != os.getuid()
+                or stat.S_IMODE(final_identity.st_mode) != 0o600
+                or final_identity.st_nlink != 1
+                or stat.S_ISLNK(final_named_identity.st_mode)
+                or not stat.S_ISREG(final_named_identity.st_mode)
+                or final_named_identity.st_uid != os.getuid()
+                or stat.S_IMODE(final_named_identity.st_mode) != 0o600
+                or final_named_identity.st_nlink != 1
+                or (identity.st_dev, identity.st_ino)
+                != (final_identity.st_dev, final_identity.st_ino)
+                or (identity.st_dev, identity.st_ino)
+                != (final_named_identity.st_dev, final_named_identity.st_ino)
+            ):
+                raise PrivateJSONLError(
+                    f"unsafe or corrupt private JSONL ledger {path}: identity changed while reading"
+                )
+    except PrivateJSONLError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise PrivateJSONLError(
+            f"unsafe or corrupt private JSONL ledger {path}: read failed: {exc}"
+        ) from exc
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
     rows: list[dict[str, Any]] = []
-    if not path.is_file():
-        return rows
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
         try:
             row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
+        except (ValueError, RecursionError) as exc:
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: invalid JSON on line {line_number}"
+            ) from exc
+        if not isinstance(row, dict):
+            raise PrivateJSONLError(
+                f"unsafe or corrupt private JSONL ledger {path}: non-object row on line {line_number}"
+            )
+        rows.append(row)
     return rows
 
 
 def cmd_readback_window(args: argparse.Namespace) -> int:
-    rows = _eligible_natural_window_receipts(_read_jsonl(WINDOW_LOG))
+    try:
+        rows = _eligible_natural_window_receipts(_read_jsonl(WINDOW_LOG))
+    except PrivateJSONLError as exc:
+        result = {
+            "schema": MAILBOX_READBACK_SCHEMA,
+            "status": "blocked",
+            "wake": (
+                f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}; "
+                "repair the exact private ledger before any mailbox provider read or append"
+            ),
+        }
+        print(json.dumps(result, indent=2))
+        return 1
+    try:
+        _read_jsonl(MAILBOX_READBACK_LOG)
+    except PrivateJSONLError as exc:
+        result = {
+            "schema": MAILBOX_READBACK_SCHEMA,
+            "status": "blocked",
+            "wake": (
+                f"mailbox ledger is unsafe or corrupt at {MAILBOX_READBACK_LOG}: {exc}; "
+                "repair the exact private ledger before any mailbox provider read or append"
+            ),
+        }
+        print(json.dumps(result, indent=2))
+        return 1
     if args.scheduled_for:
         candidates = [
             row for row in rows if row.get("scheduled_for") == args.scheduled_for
@@ -8382,7 +8602,52 @@ def cmd_readback_window(args: argparse.Namespace) -> int:
 
 
 def cmd_verify_windows(_args: argparse.Namespace) -> int:
-    rows = _read_jsonl(WINDOW_LOG)
+    try:
+        rows = _read_jsonl(WINDOW_LOG)
+    except PrivateJSONLError as exc:
+        result = {
+            "ok": False,
+            "status": "blocked",
+            "problems": [
+                f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}"
+            ],
+            "windows": [],
+            "message_ids": [],
+            "ignored_legacy_windows": [],
+            "ignored_noncalendar_windows": [],
+            "ignored_nonslot_windows": [],
+            "mailbox_readbacks": {
+                "ok": False,
+                "problems": ["window ledger unavailable; mailbox proof was not read"],
+                "message_ids": [],
+            },
+        }
+        print(json.dumps(result, indent=2))
+        return 1
+    try:
+        mailbox_rows = _read_jsonl(MAILBOX_READBACK_LOG)
+    except PrivateJSONLError as exc:
+        result = {
+            "ok": False,
+            "status": "blocked",
+            "problems": [
+                f"mailbox ledger is unsafe or corrupt at {MAILBOX_READBACK_LOG}: {exc}"
+            ],
+            "windows": [],
+            "message_ids": [],
+            "ignored_legacy_windows": [],
+            "ignored_noncalendar_windows": [],
+            "ignored_nonslot_windows": [],
+            "mailbox_readbacks": {
+                "ok": False,
+                "problems": [
+                    f"mailbox ledger is unsafe or corrupt at {MAILBOX_READBACK_LOG}: {exc}"
+                ],
+                "message_ids": [],
+            },
+        }
+        print(json.dumps(result, indent=2))
+        return 1
     result = verify_window_receipts(
         rows,
         evidence_dir=EVIDENCE_DIR,
@@ -8395,7 +8660,7 @@ def cmd_verify_windows(_args: argparse.Namespace) -> int:
             for row in _eligible_natural_window_receipts(rows)
         }
         latest = [by_window[str(value)] for value in result["windows"]]
-        mailbox = verify_mailbox_readbacks(latest, _read_jsonl(MAILBOX_READBACK_LOG))
+        mailbox = verify_mailbox_readbacks(latest, mailbox_rows)
         result["mailbox_readbacks"] = mailbox
         result["problems"].extend(mailbox["problems"])
         result["ok"] = result["ok"] and mailbox["ok"]
