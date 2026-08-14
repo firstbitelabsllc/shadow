@@ -284,6 +284,21 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("root cas", prose.lower())
         self.assertNotIn("plan-scale-live", prose)
 
+    def test_analysis_has_no_retired_nia_context(self):
+        analysis = brief.build_chief_of_staff_analysis(
+            board={"entities": [], "claims": []},
+            repos=[],
+            github=[],
+            vercel={"available": True, "deployments": []},
+            supabase={"available": True, "projects": []},
+            mail={"available": False},
+            source_health={},
+        )
+
+        reasoning = analysis["reasoning_contract"]
+        self.assertNotIn("historical_context", reasoning)
+        self.assertNotIn("nia", json.dumps(analysis).lower())
+
     def test_expenses_web_change_is_not_mislabeled_as_snowcubes(self):
         changes = brief.build_material_changes(
             board={"projects": [], "entities": [], "claims": []},
@@ -620,7 +635,7 @@ class AuthorityScopeTests(unittest.TestCase):
             mock.patch.object(brief, "collect_github", return_value=[]), \
             mock.patch.object(brief, "collect_vercel", return_value={"available": False}), \
             mock.patch.object(brief, "collect_supabase", return_value={"available": False}), \
-            mock.patch.object(brief, "collect_nia_status", return_value={"available": False}), \
+            mock.patch.object(brief.shutil, "which", side_effect=AssertionError("the brief must not query Nia")), \
             mock.patch.object(
                 brief,
                 "collect_superhuman_context",
@@ -644,6 +659,8 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIs(packet["board"], board)
         self.assertIs(collect_companion.call_args.kwargs["board"], packet["board"])
         self.assertIs(collect_companion.call_args.kwargs["mail"], business_mail)
+        self.assertNotIn("nia", packet)
+        self.assertNotIn("nia", packet["paint_health"])
 
     def test_scheduled_receipt_keeps_original_trigger_window(self):
         with tempfile.TemporaryDirectory() as tmp:

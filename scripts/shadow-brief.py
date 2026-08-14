@@ -590,32 +590,6 @@ def collect_supabase() -> dict[str, Any]:
     return {"available": True, "projects": projects, "total_projects": len(projects)}
 
 
-def collect_nia_status() -> dict[str, Any]:
-    """Check whether the unattended runtime can use Nia without synthesizing claims."""
-    nia = shutil.which("nia")
-    if not nia:
-        return {"available": False, "error": "Nia CLI is not installed"}
-    proc = _run(
-        [nia, "status", "--json"],
-        timeout=20,
-        env={
-            "HOME": str(Path.home()),
-            "PATH": os.environ.get("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"),
-        },
-    )
-    try:
-        payload = json.loads(proc.stdout or "{}")
-    except json.JSONDecodeError:
-        payload = {}
-    error = payload.get("error") if isinstance(payload, dict) else None
-    if proc.returncode != 0 or error:
-        return {
-            "available": False,
-            "error": str(error or proc.stderr or "Nia CLI is not authenticated")[:300],
-        }
-    return {"available": True, "status": payload}
-
-
 def collect_growth_source_status() -> dict[str, dict[str, Any]]:
     astro_available = False
     try:
@@ -1791,7 +1765,7 @@ def build_chief_of_staff_analysis(
         1 for row in (supabase.get("projects") or []) if "HEALTHY" in str(row.get("status") or "").upper()
     )
     source_gaps = [name for name, health in source_health.items() if not health.get("available")]
-    decision_source_gaps = [name for name in source_gaps if name != "nia"]
+    decision_source_gaps = source_gaps
     material_changes = build_material_changes(
         board=board,
         repos=repos,
@@ -2184,7 +2158,6 @@ def build_chief_of_staff_analysis(
         "reasoning_contract": {
             "authority": "current Shadow portfolio and active product plans",
             "current_evidence": ["local Git", "GitHub", "Vercel", "Supabase", "Superhuman"],
-            "historical_context": ["Nia indexed sources"],
             "rule": "missing or stale sources lower confidence; they never become zero activity or override today’s active plans",
         },
         "future_of_building": (
@@ -2204,7 +2177,6 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
     github = collect_github()
     vercel = collect_vercel()
     supabase = collect_supabase()
-    nia = collect_nia_status()
     mail = collect_superhuman_context()
     snowcubes_mail = collect_superhuman_context(acting_email=SNOWCUBES_BUSINESS_MAIL)
     growth_health = collect_growth_source_status()
@@ -2227,15 +2199,6 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
                 "available": False,
                 "error": str(mail.get("error") or "Superhuman unavailable"),
                 "wake": "refresh Superhuman mcp-remote OAuth, then run a read-only list_threads check",
-            }
-        ),
-        "nia": (
-            {"available": True}
-            if nia.get("available")
-            else {
-                "available": False,
-                "error": str(nia.get("error") or "Nia unavailable"),
-                "wake": "nia login && nia status --json",
             }
         ),
         **growth_health,
@@ -2292,7 +2255,6 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "github_query": github_query,
         "vercel": vercel,
         "supabase": supabase,
-        "nia": nia,
         "superhuman_context": mail,
         "snowcubes_context": snowcubes,
         "paint_health": paint_health,
@@ -2739,7 +2701,6 @@ def render_html(packet: dict[str, Any]) -> str:
         "vercel": ("Web delivery", "The note cannot confirm whether the latest web versions are ready."),
         "supabase": ("Data services", "The note cannot confirm current data-service health."),
         "superhuman": ("Mail", "External requests and review notifications may be missing from this read."),
-        "nia": ("Project history", "Historical product context was not refreshed, so it cannot strengthen or overturn today’s judgment."),
         "astro_aso": ("App Store visibility", "Keyword movement, ratings, and competitive search position are absent."),
         "ahrefs_seo": ("Web search visibility", "Organic demand, backlinks, and search-performance changes are absent."),
         "app_store_connect": ("App Store delivery", "The note cannot confirm processing, testing, or release state from App Store Connect."),
