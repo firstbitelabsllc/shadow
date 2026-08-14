@@ -90,6 +90,21 @@ Repo-relative only — no absolute path, `..`, leading `/`, recursive `**`, or
 symlink traversal. Nothing else in the repository is scanned, so a worktree
 pool, vendored copy, or archive cannot enter the board by accident.
 
+An archived same-identity copy continues to retire the entity unless a
+strictly newer committed copy of that plan declines to repeat the demotion, or
+the already registered current plan contains this exact Brief line:
+
+```text
+- Supersedes archive commit: <40-character archived Git commit SHA>
+```
+
+The named commit must be the archive copy's committed `HEAD`, the current
+registered `PLAN.md` must itself be committed, and the named commit must be an
+ancestor of that current committed `HEAD`. This is a narrow migration handoff,
+not a general escape hatch: an invalid/missing line, a changed checkout, a
+non-ancestor, or more than one archived commit leaves the archive veto in
+place. The board records the successful handoff as a public suppression receipt.
+
 Bounded discovery walks **project roots, not directories**: the portfolio root's
 immediate children that own a `PLAN.md`, each asked for its own plan plus its
 declared globs. There is no recursive search, and both each repository and the
