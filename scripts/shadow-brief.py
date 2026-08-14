@@ -5278,6 +5278,19 @@ def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def _scheduled_for_is_canonical(row: dict[str, Any]) -> bool:
+    raw = row.get("scheduled_for")
+    value = _parse_aware_datetime(raw)
+    return bool(
+        isinstance(raw, str)
+        and value is not None
+        and _is_report_timezone_timestamp(value)
+        and value.microsecond == 0
+        and raw
+        == value.astimezone(REPORT_TIMEZONE).isoformat(timespec="seconds")
+    )
+
+
 def _eligible_natural_window_receipts(
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -5607,13 +5620,30 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         or any(row.get("expected") is not True for row in expected_rows)
     ):
         problems.append("expected Superhuman identity coverage mismatch")
+
+    def linked_complete_coverage(row: dict[str, Any]) -> bool:
+        pagination = row.get("pagination")
+        pages = pagination.get("pages") if isinstance(pagination, dict) else None
+        row_problems = row.get("problems")
+        return bool(
+            row.get("linked") is True
+            and row.get("status") == "COMPLETE"
+            and isinstance(pagination, dict)
+            and isinstance(pages, int)
+            and not isinstance(pages, bool)
+            and pages >= 0
+            and pagination.get("exhausted") is True
+            and pagination.get("truncated") is False
+            and (row_problems is None or row_problems == [])
+        )
+
     unknown_coverage = len(expected_rows) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
     for row in expected_rows:
         linked = row.get("linked")
         status_value = row.get("status")
         row_problems = row.get("problems")
         wake = row.get("wake")
-        linked_complete = linked is True and status_value == "COMPLETE"
+        linked_complete = linked_complete_coverage(row)
         honest_unknown = (
             (linked is True or linked is False)
             and status_value == "UNKNOWN"
@@ -5640,7 +5670,7 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         identity = str(row.get("acting_email") or "").strip().lower()
         row_problems = row.get("problems")
         wake = row.get("wake")
-        linked_complete = row.get("linked") is True and row.get("status") == "COMPLETE"
+        linked_complete = linked_complete_coverage(row)
         honest_unknown = bool(
             row.get("linked") is True
             and row.get("status") == "UNKNOWN"
@@ -5889,12 +5919,13 @@ def _send_attempt_proof_is_valid(
     ):
         return False
     matching = [candidate for candidate in attempt_rows if candidate.get("attempt_id") == attempt_id]
-    intents = [candidate for candidate in matching if candidate.get("state") == "UNKNOWN_NO_RETRY"]
-    outcomes = [candidate for candidate in matching if candidate.get("state") == "PROVISIONAL_SENT"]
-    if len(matching) != 2 or len(intents) != 1 or len(outcomes) != 1:
+    if (
+        len(matching) != 2
+        or matching[0].get("state") != "UNKNOWN_NO_RETRY"
+        or matching[1].get("state") != "PROVISIONAL_SENT"
+    ):
         return False
-    intent = intents[0]
-    outcome = outcomes[0]
+    intent, outcome = matching
     intent_keys = {
         "schema",
         "state",
@@ -6010,6 +6041,12 @@ def verify_window_receipts(
     latest = [group[-1] for group in selected_groups]
     problems: list[str] = []
     for group in selected_groups:
+        for candidate in group:
+            if not _scheduled_for_is_canonical(candidate):
+                raw = str(candidate.get("scheduled_for") or "")
+                problems.append(
+                    f"{raw}: scheduled_for is not a canonical report-window timestamp"
+                )
         if len(group) > 1:
             instant = _scheduled_window_instant(group[-1])
             label = (
@@ -6081,11 +6118,19 @@ def verify_window_receipts(
                 != f"{row.get('slot')} · board rev {row.get('board_revision')}"
             ):
                 problems.append(f"{scheduled_for}: notification identity mismatch")
-            if receipt.get("status") != "ok" or receipt.get("delivery_status") != "sent" or not receipt.get("message_id"):
+            message_id = receipt.get("message_id")
+            if (
+                receipt.get("status") != "ok"
+                or receipt.get("delivery_status") != "sent"
+                or not isinstance(message_id, str)
+                or not message_id.strip()
+            ):
                 problems.append(f"{scheduled_for}: sent-message receipt missing")
+            attempt_id = receipt.get("attempt_id")
             if (
                 receipt.get("attempt_state") != "PROVISIONAL_SENT"
-                or len(str(receipt.get("attempt_id") or "")) != 24
+                or not isinstance(attempt_id, str)
+                or re.fullmatch(r"[0-9a-f]{24}", attempt_id) is None
             ):
                 problems.append(f"{scheduled_for}: durable pre-send attempt receipt missing")
             if (
@@ -6120,13 +6165,26 @@ def verify_window_receipts(
             receipt.get("message_id") if isinstance(receipt := row.get("receipt"), dict) else None
             for row in latest
         ]
-        if all(sent_message_ids) and len(set(sent_message_ids)) != len(sent_message_ids):
+        if (
+            all(
+                isinstance(value, str) and bool(value.strip())
+                for value in sent_message_ids
+            )
+            and len(set(sent_message_ids)) != len(sent_message_ids)
+        ):
             problems.append("scheduled windows do not have distinct sent-message receipts")
         attempt_ids = [
             receipt.get("attempt_id") if isinstance(receipt := row.get("receipt"), dict) else None
             for row in latest
         ]
-        if all(attempt_ids) and len(set(attempt_ids)) != len(attempt_ids):
+        if (
+            all(
+                isinstance(value, str)
+                and re.fullmatch(r"[0-9a-f]{24}", value) is not None
+                for value in attempt_ids
+            )
+            and len(set(attempt_ids)) != len(attempt_ids)
+        ):
             problems.append("scheduled windows do not have distinct send-attempt receipts")
         if evidence_dir is not None:
             archive_pairs: list[tuple[Path, Path]] = []
@@ -6177,7 +6235,6 @@ def verify_window_receipts(
                 required_html = (
                     "<!DOCTYPE html>",
                     'name="viewport"',
-                    str(row.get("generated_at") or ""),
                     "Today’s read",
                     "What materially changed",
                     "The chief-of-staff read",
@@ -6308,11 +6365,28 @@ def verify_mailbox_readbacks(
             problems.append(f"{scheduled_for}: mailbox generation mismatch")
         if readback.get("board_revision") != window.get("board_revision"):
             problems.append(f"{scheduled_for}: mailbox board revision mismatch")
-        if not readback.get("message_id") or not readback.get("thread_id"):
+        message_id = readback.get("message_id")
+        thread_id = readback.get("thread_id")
+        if not (
+            isinstance(message_id, str)
+            and message_id.strip()
+            and isinstance(thread_id, str)
+            and thread_id.strip()
+        ):
             problems.append(f"{scheduled_for}: stable mailbox identity missing")
-        if "SENT" not in (readback.get("labels") or []):
+        labels = readback.get("labels")
+        if not (
+            isinstance(labels, list)
+            and all(isinstance(label, str) for label in labels)
+        ):
+            problems.append(f"{scheduled_for}: mailbox labels must be a string list")
+        elif "SENT" not in labels:
             problems.append(f"{scheduled_for}: SENT label missing")
-        if len(str(readback.get("raw_html_sha256") or "")) != 64:
+        raw_html_sha256 = readback.get("raw_html_sha256")
+        if not (
+            isinstance(raw_html_sha256, str)
+            and re.fullmatch(r"[0-9a-f]{64}", raw_html_sha256)
+        ):
             problems.append(f"{scheduled_for}: mailbox HTML hash missing")
         scheduled_at = _parse_aware_datetime(scheduled_for)
         sent_at = _parse_aware_datetime(readback.get("sent_at"))
@@ -6321,7 +6395,14 @@ def verify_mailbox_readbacks(
         elif not scheduled_at <= sent_at <= scheduled_at + timedelta(minutes=30):
             problems.append(f"{scheduled_for}: mailbox sent timestamp is not fresh")
     message_ids = [row.get("message_id") for row in confirmed]
-    if len(message_ids) == len(windows) and len(set(message_ids)) != len(message_ids):
+    if (
+        len(message_ids) == len(windows)
+        and all(
+            isinstance(value, str) and bool(value.strip())
+            for value in message_ids
+        )
+        and len(set(message_ids)) != len(message_ids)
+    ):
         problems.append("mailbox readbacks do not have distinct message IDs")
     return {
         "ok": not problems,
@@ -6462,12 +6543,22 @@ def _parse_mcp_sse(raw: str) -> dict[str, Any]:
 
 
 def _mcp_text_payload(result: dict[str, Any]) -> dict[str, Any]:
-    content = ((result.get("result") or {}).get("content") or [])
+    if not isinstance(result, dict):
+        return {}
+    envelope = result.get("result")
+    if not isinstance(envelope, dict):
+        return {}
+    content = envelope.get("content")
+    if not isinstance(content, list):
+        return {}
     for item in content:
         if not isinstance(item, dict) or item.get("type") != "text":
             continue
+        text = item.get("text")
+        if not isinstance(text, str):
+            continue
         try:
-            payload = json.loads(item.get("text") or "")
+            payload = json.loads(text)
         except json.JSONDecodeError:
             continue
         if isinstance(payload, dict):
@@ -6477,19 +6568,47 @@ def _mcp_text_payload(result: dict[str, Any]) -> dict[str, Any]:
 
 def _append_private_jsonl(path: Path, row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
-    descriptor = os.open(path, flags, 0o600)
-    os.fchmod(descriptor, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = os.open(path, flags, 0o600)
+    identity: os.stat_result | None = None
     try:
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or named_identity.st_uid != os.getuid()
+            or named_identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PermissionError(f"unsafe private JSONL identity: {path}")
+        os.fchmod(descriptor, 0o600)
         handle = os.fdopen(descriptor, "a", encoding="utf-8")
-    except BaseException:
-        os.close(descriptor)
-        raise
-    with handle:
-        handle.write(json.dumps(row, sort_keys=True) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    path.chmod(0o600)
+        descriptor = None
+        with handle:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(named_identity.st_mode)
+            or named_identity.st_uid != os.getuid()
+            or named_identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            raise PermissionError(f"private JSONL identity changed while appending: {path}")
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    _fsync_directory(path.parent)
 
 
 def record_send_attempt(
@@ -6598,9 +6717,18 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
     import urllib.error
     import urllib.request
 
+    if not isinstance(window, dict):
+        return {
+            "schema": MAILBOX_READBACK_SCHEMA,
+            "status": "blocked",
+            "wake": "window receipt must be a JSON object before mailbox readback",
+            "problems": ["window row shape invalid"],
+        }
     scheduled_for = str(window.get("scheduled_for") or "")
-    receipt = window.get("receipt") or {}
-    subject = str(receipt.get("subject") or "")
+    receipt_value = window.get("receipt")
+    receipt = receipt_value if isinstance(receipt_value, dict) else {}
+    subject_value = receipt.get("subject")
+    subject = subject_value if isinstance(subject_value, str) else ""
     base = {
         "schema": MAILBOX_READBACK_SCHEMA,
         "scheduled_for": scheduled_for,
@@ -6610,6 +6738,13 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         "subject": subject,
         "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+    if not isinstance(receipt_value, dict) or not subject.strip():
+        return {
+            **base,
+            "status": "blocked",
+            "wake": "window receipt must contain an exact string subject before mailbox readback",
+            "problems": ["window receipt shape invalid"],
+        }
     scheduled_at = _parse_aware_datetime(scheduled_for)
     if scheduled_at is None or not _is_report_timezone_timestamp(scheduled_at):
         return {**base, "status": "blocked", "wake": "scheduled_for parses as ISO 8601"}
@@ -6686,12 +6821,41 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
             session_id=sid,
         )
         listed_payload = _mcp_text_payload(listed)
+        listed_threads = listed_payload.get("threads")
+        if not isinstance(listed_threads, list):
+            return {
+                **base,
+                "status": "blocked",
+                "wake": "inspect malformed Superhuman list_threads readback; never retry send_draft",
+                "problems": ["thread list shape invalid"],
+            }
+        malformed_threads: list[str] = []
+        for index, item in enumerate(listed_threads):
+            if not isinstance(item, dict):
+                malformed_threads.append(f"thread {index} row shape invalid")
+                continue
+            labels = item.get("labels")
+            if not isinstance(labels, list) or any(
+                not isinstance(label, str) for label in labels
+            ):
+                malformed_threads.append(f"thread {index} labels shape invalid")
+            if not isinstance(item.get("subject"), str):
+                malformed_threads.append(f"thread {index} subject shape invalid")
+            for key in ("thread_id", "last_message_id"):
+                value = item.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    malformed_threads.append(f"thread {index} {key} shape invalid")
+        if malformed_threads:
+            return {
+                **base,
+                "status": "blocked",
+                "wake": "inspect malformed Superhuman list_threads readback; never retry send_draft",
+                "problems": malformed_threads,
+            }
         candidates = [
             item
-            for item in (listed_payload.get("threads") or [])
-            if isinstance(item, dict)
-            and item.get("subject") == subject
-            and "SENT" in (item.get("labels") or [])
+            for item in listed_threads
+            if item.get("subject") == subject and "SENT" in item["labels"]
         ]
         if len(candidates) != 1:
             return {
@@ -6704,8 +6868,8 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
                 "candidate_count": len(candidates),
             }
         candidate = candidates[0]
-        thread_id = str(candidate.get("thread_id") or "")
-        message_id = str(candidate.get("last_message_id") or "")
+        thread_id = candidate["thread_id"]
+        message_id = candidate["last_message_id"]
         _sid, thread_result = post(
             {
                 "jsonrpc": "2.0",
@@ -6748,13 +6912,49 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         }
 
     message_payload = _mcp_text_payload(message_result)
-    message = message_payload.get("message") or {}
-    raw_html = str(message.get("raw_html") or "")
-    from_email = _normalized_email(message.get("from"))
-    to_emails = [_normalized_email(value) for value in (message.get("to") or [])]
-    labels = message.get("labels") or []
-    sent_at = str(message.get("sent_at") or "")
+    message_value = message_payload.get("message")
+    message = message_value if isinstance(message_value, dict) else {}
+    raw_html_value = message.get("raw_html")
+    raw_html = raw_html_value if isinstance(raw_html_value, str) else ""
+    from_value = message.get("from")
+    from_email = _normalized_email(from_value) if isinstance(from_value, str) else ""
+    to_value = message.get("to")
+    to_emails = (
+        [_normalized_email(value) for value in to_value]
+        if isinstance(to_value, list)
+        and all(isinstance(value, str) for value in to_value)
+        else []
+    )
+    labels_value = message.get("labels")
+    labels = (
+        labels_value
+        if isinstance(labels_value, list)
+        and all(isinstance(label, str) for label in labels_value)
+        else []
+    )
+    sent_at_value = message.get("sent_at")
+    sent_at = sent_at_value if isinstance(sent_at_value, str) else ""
     problems: list[str] = []
+    if not isinstance(message_value, dict):
+        problems.append("message row shape invalid")
+    if not isinstance(raw_html_value, str):
+        problems.append("raw HTML shape invalid")
+    if not isinstance(from_value, str) or not (
+        isinstance(to_value, list)
+        and all(isinstance(value, str) for value in to_value)
+    ):
+        problems.append("mailbox route shape invalid")
+    if not (
+        isinstance(labels_value, list)
+        and all(isinstance(label, str) for label in labels_value)
+    ):
+        problems.append("message labels shape invalid")
+    if not isinstance(sent_at_value, str):
+        problems.append("sent timestamp shape invalid")
+    for key in ("message_id", "thread_id"):
+        value = message.get(key)
+        if not isinstance(value, str) or not value.strip():
+            problems.append(f"message {key} shape invalid")
     if (
         thread.get("thread_id") != thread_id
         or thread.get("last_message_id") != message_id
@@ -6773,7 +6973,6 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
     elif not scheduled_at <= sent <= scheduled_at + timedelta(minutes=30):
         problems.append("sent timestamp outside scheduled window")
     required_html = (
-        str(window.get("generated_at") or ""),
         f"board rev {window.get('board_revision')}",
         "Supporting checks inform the note; they do not create another to-do list.",
     )
@@ -7834,7 +8033,31 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
             "path": str(attempt_barrier_path),
             "state": "PRESENT",
         }
-    packet = collect_packet(slot=args.slot)
+    try:
+        packet = collect_packet(slot=args.slot)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if not args.scheduled_trigger:
+            raise
+        summary = {
+            "schema": WINDOW_RECEIPT_SCHEMA,
+            "status": "blocked",
+            "trigger_proof": trigger_proof,
+            "scheduled_window": trigger_window,
+            "scheduled_for": trigger_window.get("scheduled_for"),
+            "attempt_barrier": attempt_barrier,
+            "collection_error": {
+                "type": type(exc).__name__,
+                "message": str(exc),
+            },
+            "wake": (
+                "scheduled packet collection failed after reserving this window; "
+                "repair the exact collector process error before the next natural "
+                "window; do not notify or send, and never retry this reserved window"
+            ),
+        }
+        _write_last_run_best_effort(summary)
+        _print_json_best_effort(summary, file=sys.stderr)
+        return 3
     board_snapshot = ((packet.get("authority") or {}).get("board_snapshot") or {})
     if board_snapshot.get("consistent") is not True:
         summary = {

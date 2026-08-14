@@ -425,6 +425,79 @@ def _rewrite_m5_html(row: dict[str, object], mutate) -> None:
 
 
 class PrivateStoreTests(unittest.TestCase):
+    def test_new_private_jsonl_entry_fsyncs_parent_and_preserves_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ledger" / "events.jsonl"
+            real_fsync = os.fsync
+            synced_kinds: list[str] = []
+
+            def observe_fsync(descriptor):
+                mode = os.fstat(descriptor).st_mode
+                synced_kinds.append(
+                    "directory" if stat.S_ISDIR(mode) else "file"
+                )
+                return real_fsync(descriptor)
+
+            with mock.patch.object(
+                brief.os,
+                "fsync",
+                side_effect=observe_fsync,
+            ):
+                brief._append_private_jsonl(path, {"sequence": 1})
+                first_append_kinds = list(synced_kinds)
+                brief._append_private_jsonl(path, {"sequence": 2})
+
+            rows = [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            file_mode = stat.S_IMODE(path.stat().st_mode)
+
+        self.assertIn("file", first_append_kinds)
+        self.assertIn("directory", first_append_kinds)
+        self.assertEqual(rows, [{"sequence": 1}, {"sequence": 2}])
+        self.assertEqual(file_mode, 0o600)
+
+    def test_private_jsonl_rejects_symlink_and_hardlink_targets(self):
+        for link_kind in ("symlink", "hardlink"):
+            with self.subTest(link_kind=link_kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                ledger = root / "ledger"
+                ledger.mkdir()
+                target = root / "unrelated.txt"
+                target.write_text("do not mutate\n", encoding="utf-8")
+                target.chmod(0o640)
+                path = ledger / "events.jsonl"
+                if link_kind == "symlink":
+                    path.symlink_to(target)
+                else:
+                    os.link(target, path)
+                before = target.read_bytes()
+                before_mode = stat.S_IMODE(target.stat().st_mode)
+
+                with self.assertRaises(OSError):
+                    brief._append_private_jsonl(path, {"must": "not append"})
+
+                self.assertEqual(target.read_bytes(), before)
+                self.assertEqual(stat.S_IMODE(target.stat().st_mode), before_mode)
+
+    def test_private_jsonl_opens_nonblocking_before_fifo_shape_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            os.mkfifo(path, 0o600)
+            real_open = os.open
+
+            def require_nonblocking(candidate, flags, mode=0o777):
+                self.assertTrue(flags & os.O_NONBLOCK)
+                return real_open(candidate, flags, mode)
+
+            with mock.patch.object(
+                brief.os,
+                "open",
+                side_effect=require_nonblocking,
+            ), self.assertRaises(OSError):
+                brief._append_private_jsonl(path, {"must": "not block"})
+
     def test_optional_shadow_status_timeout_does_not_abort_collection(self):
         timeout = subprocess.TimeoutExpired(["shadow", "status", "--by", "leo"], 8)
         with mock.patch.object(brief, "_run", side_effect=timeout):
@@ -4304,6 +4377,119 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertEqual(last_run["producer"], invalid)
         self.assertIn("producer provenance", last_run["wake"])
 
+    def test_scheduled_collector_process_failures_preserve_attempt_barrier(self):
+        collector_defaults = {
+            "collect_github": [],
+            "collect_vercel": {"available": False},
+            "collect_supabase": {"available": False},
+        }
+        for collector_name in collector_defaults:
+            for exception in (
+                OSError(f"{collector_name} executable unavailable"),
+                subprocess.TimeoutExpired([collector_name], 45),
+            ):
+                with self.subTest(
+                    collector=collector_name,
+                    exception=type(exception).__name__,
+                ), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    evidence = root / "evidence"
+                    ledger = root / "ledger"
+                    notify = mock.Mock()
+                    deliver = mock.Mock()
+                    append = mock.Mock()
+                    args = mock.Mock(
+                        scheduled_trigger=True,
+                        slot="morning",
+                        deliver=True,
+                        dry_run=False,
+                        send_authorized_self=True,
+                    )
+                    with contextlib.ExitStack() as stack:
+                        stack.enter_context(
+                            mock.patch.object(brief, "EVIDENCE_DIR", evidence)
+                        )
+                        stack.enter_context(mock.patch.object(brief, "LOG_DIR", ledger))
+                        stack.enter_context(
+                            mock.patch.object(
+                                brief,
+                                "WINDOW_LOG",
+                                ledger / "windows.jsonl",
+                            )
+                        )
+                        stack.enter_context(
+                            mock.patch.object(
+                                brief,
+                                "scheduled_window",
+                                return_value=_scheduled_window_fixture(),
+                            )
+                        )
+                        stack.enter_context(
+                            mock.patch.object(brief, "portfolio_root", return_value=root)
+                        )
+                        stack.enter_context(
+                            mock.patch.object(brief, "collect_repos", return_value=[])
+                        )
+                        for name, default in collector_defaults.items():
+                            stack.enter_context(
+                                mock.patch.object(
+                                    brief,
+                                    name,
+                                    side_effect=(
+                                        exception if name == collector_name else None
+                                    ),
+                                    return_value=(
+                                        default if name != collector_name else mock.DEFAULT
+                                    ),
+                                )
+                            )
+                        stack.enter_context(
+                            mock.patch.object(brief, "macos_notify", notify)
+                        )
+                        stack.enter_context(
+                            mock.patch.object(brief, "deliver_superhuman", deliver)
+                        )
+                        stack.enter_context(
+                            mock.patch.object(brief, "append_scheduled_window", append)
+                        )
+                        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                        stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+                        try:
+                            exit_code = brief._cmd_run_locked(
+                                args,
+                                _scheduled_proof_fixture(),
+                            )
+                        except (OSError, subprocess.TimeoutExpired) as exc:
+                            self.fail(
+                                f"{collector_name} process failure escaped after barrier: {exc}"
+                            )
+
+                    barrier = ledger / "scheduled-attempt-20260812-080000.json"
+                    barrier_payload = json.loads(
+                        barrier.read_text(encoding="utf-8")
+                    )
+                    last_run = json.loads(
+                        (ledger / "last-run.json").read_text(encoding="utf-8")
+                    )
+
+                    self.assertEqual(exit_code, 3)
+                    self.assertEqual(stat.S_IMODE(barrier.stat().st_mode), 0o400)
+                    self.assertEqual(barrier_payload["state"], "RESERVED")
+                    self.assertEqual(last_run["status"], "blocked")
+                    self.assertEqual(
+                        last_run["attempt_barrier"],
+                        {"path": str(barrier), "state": "PRESENT"},
+                    )
+                    self.assertEqual(
+                        last_run["collection_error"]["type"],
+                        type(exception).__name__,
+                    )
+                    self.assertIn(collector_name, last_run["collection_error"]["message"])
+                    self.assertIn("do not notify or send", last_run["wake"])
+                    self.assertEqual(notify.call_count, 0)
+                    self.assertEqual(deliver.call_count, 0)
+                    self.assertEqual(append.call_count, 0)
+
     def test_archive_publication_oserror_preserves_barrier_and_blocks_retry(self):
         class FrozenDateTime(brief.datetime):
             @classmethod
@@ -5060,6 +5246,338 @@ class AuthorityScopeTests(unittest.TestCase):
             "2026-08-12T08:00:00-04:00: archived HTML must contain exactly one Mail and calendar coverage section",
             result["problems"],
         )
+
+    def test_actual_reader_html_satisfies_archive_and_mailbox_identity(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.headers = {}
+                self._raw = json.dumps(payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return self._raw
+
+        def tool_result(payload):
+            return {
+                "result": {
+                    "content": [
+                        {"type": "text", "text": json.dumps(payload)}
+                    ]
+                }
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "evidence"
+            ledger = Path(tmp) / "ledger"
+            evidence.mkdir()
+            rows = _write_m5_pair(evidence, ledger)
+            actual_html: dict[str, str] = {}
+            for row in rows:
+                archive_json = Path(row["archive_json"])
+                packet = json.loads(archive_json.read_text(encoding="utf-8"))
+                rendered = brief.render_html(packet)
+                actual_html[str(row["scheduled_for"])] = rendered
+                self.assertNotRegex(rendered, r"\d{4}-\d{2}-\d{2}T")
+                self.assertIn(f"board rev {row['board_revision']}", rendered)
+                self.assertIn(
+                    "Supporting checks inform the note; they do not create another to-do list.",
+                    rendered,
+                )
+                archive_html = Path(row["archive_html"])
+                archive_html.chmod(0o600)
+                archive_html.write_text(rendered, encoding="utf-8")
+                archive_html.chmod(0o400)
+                row["html_sha256"] = hashlib.sha256(
+                    rendered.encode("utf-8")
+                ).hexdigest()
+
+            archive_result = brief.verify_window_receipts(
+                rows,
+                evidence_dir=evidence,
+                ledger_dir=ledger,
+            )
+
+            window = rows[0]
+            receipt = window["receipt"]
+            subject = receipt["subject"]
+            message_id = receipt["message_id"]
+            thread_id = receipt["thread_id"]
+            raw_html = actual_html[str(window["scheduled_for"])]
+            responses = [
+                FakeResponse({}),
+                FakeResponse({}),
+                FakeResponse(
+                    tool_result(
+                        {
+                            "threads": [
+                                {
+                                    "subject": subject,
+                                    "labels": ["SENT"],
+                                    "thread_id": thread_id,
+                                    "last_message_id": message_id,
+                                }
+                            ]
+                        }
+                    )
+                ),
+                FakeResponse(
+                    tool_result(
+                        {
+                            "thread_id": thread_id,
+                            "last_message_id": message_id,
+                            "subject": subject,
+                        }
+                    )
+                ),
+                FakeResponse(
+                    tool_result(
+                        {
+                            "message": {
+                                "message_id": message_id,
+                                "thread_id": thread_id,
+                                "from": brief.SELF_MAIL,
+                                "to": [brief.SELF_MAIL],
+                                "subject": subject,
+                                "labels": ["SENT"],
+                                "sent_at": receipt["sent_at"],
+                                "raw_html": raw_html,
+                            }
+                        }
+                    )
+                ),
+            ]
+            with mock.patch.object(
+                brief,
+                "_mcp_remote_token",
+                return_value="test-token",
+            ), mock.patch(
+                "urllib.request.urlopen",
+                side_effect=responses,
+            ):
+                mailbox_result = brief.fetch_superhuman_mailbox_readback(window)
+            mailbox_verification = brief.verify_mailbox_readbacks(
+                [window],
+                [mailbox_result],
+            )
+
+        self.assertTrue(archive_result["ok"], archive_result["problems"])
+        self.assertEqual(mailbox_result["status"], "EXACT_SENT_CONFIRMED")
+        self.assertTrue(
+            mailbox_verification["ok"],
+            mailbox_verification["problems"],
+        )
+        self.assertEqual(mailbox_result["subject"], subject)
+        self.assertEqual(mailbox_result["raw_html_sha256"], hashlib.sha256(raw_html.encode("utf-8")).hexdigest())
+
+    def test_live_mailbox_readback_blocks_malformed_provider_identity_shapes(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.headers = {}
+                self._raw = json.dumps(payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return self._raw
+
+        def tool_result(payload):
+            return {
+                "result": {
+                    "content": [
+                        {"type": "text", "text": json.dumps(payload)}
+                    ]
+                }
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            window = _write_m5_pair(Path(tmp))[0]
+            receipt = window["receipt"]
+            subject = receipt["subject"]
+            valid_thread_id = receipt["thread_id"]
+            valid_message_id = receipt["message_id"]
+            raw_html = Path(window["archive_html"]).read_text(encoding="utf-8")
+            cases = (
+                (
+                    "candidate-labels-bool",
+                    {
+                        "subject": subject,
+                        "labels": True,
+                        "thread_id": valid_thread_id,
+                        "last_message_id": valid_message_id,
+                    },
+                    valid_thread_id,
+                    valid_message_id,
+                    ["SENT"],
+                ),
+                (
+                    "candidate-container-ids",
+                    {
+                        "subject": subject,
+                        "labels": ["SENT"],
+                        "thread_id": ["thread"],
+                        "last_message_id": True,
+                    },
+                    "['thread']",
+                    "True",
+                    ["SENT"],
+                ),
+                (
+                    "message-labels-bool",
+                    {
+                        "subject": subject,
+                        "labels": ["SENT"],
+                        "thread_id": valid_thread_id,
+                        "last_message_id": valid_message_id,
+                    },
+                    valid_thread_id,
+                    valid_message_id,
+                    True,
+                ),
+            )
+            for (
+                case_name,
+                candidate,
+                echoed_thread_id,
+                echoed_message_id,
+                message_labels,
+            ) in cases:
+                with self.subTest(case=case_name):
+                    responses = [
+                        FakeResponse({}),
+                        FakeResponse({}),
+                        FakeResponse(tool_result({"threads": [candidate]})),
+                        FakeResponse(
+                            tool_result(
+                                {
+                                    "thread_id": echoed_thread_id,
+                                    "last_message_id": echoed_message_id,
+                                    "subject": subject,
+                                }
+                            )
+                        ),
+                        FakeResponse(
+                            tool_result(
+                                {
+                                    "message": {
+                                        "message_id": echoed_message_id,
+                                        "thread_id": echoed_thread_id,
+                                        "from": brief.SELF_MAIL,
+                                        "to": [brief.SELF_MAIL],
+                                        "subject": subject,
+                                        "labels": message_labels,
+                                        "sent_at": receipt["sent_at"],
+                                        "raw_html": raw_html,
+                                    }
+                                }
+                            )
+                        ),
+                    ]
+                    with mock.patch.object(
+                        brief,
+                        "_mcp_remote_token",
+                        return_value="test-token",
+                    ), mock.patch(
+                        "urllib.request.urlopen",
+                        side_effect=responses,
+                    ):
+                        try:
+                            result = brief.fetch_superhuman_mailbox_readback(window)
+                        except (TypeError, AttributeError) as exc:
+                            self.fail(f"malformed provider JSON escaped: {exc}")
+
+                    self.assertEqual(result["status"], "blocked")
+                    self.assertTrue(result.get("wake"))
+
+    def test_live_mailbox_readback_blocks_malformed_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            window = _write_m5_pair(Path(tmp))[0]
+            malformed_receipt = {**window, "receipt": ["not", "an", "object"]}
+            try:
+                result = brief.fetch_superhuman_mailbox_readback(malformed_receipt)
+            except AttributeError as exc:
+                self.fail(f"malformed receipt escaped: {exc}")
+            self.assertEqual(result["status"], "blocked")
+            self.assertTrue(result.get("wake"))
+
+    def test_live_mailbox_readback_blocks_malformed_mcp_envelope(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.headers = {}
+                self._raw = json.dumps(payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return self._raw
+
+        with tempfile.TemporaryDirectory() as tmp:
+            window = _write_m5_pair(Path(tmp))[0]
+            responses = [
+                FakeResponse({}),
+                FakeResponse({}),
+                FakeResponse({"result": [{"not": "an object envelope"}]}),
+            ]
+            with mock.patch.object(
+                brief,
+                "_mcp_remote_token",
+                return_value="test-token",
+            ), mock.patch(
+                "urllib.request.urlopen",
+                side_effect=responses,
+            ):
+                try:
+                    result = brief.fetch_superhuman_mailbox_readback(window)
+                except AttributeError as exc:
+                    self.fail(f"malformed MCP envelope escaped: {exc}")
+            self.assertEqual(result["status"], "blocked")
+            self.assertTrue(result.get("wake"))
+
+    def test_mailbox_html_hash_requires_exact_lowercase_hex_string(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            window = _write_m5_pair(Path(tmp))[0]
+            readback = {
+                "schema": brief.MAILBOX_READBACK_SCHEMA,
+                "status": "EXACT_SENT_CONFIRMED",
+                "scheduled_for": window["scheduled_for"],
+                "acting_email": brief.SELF_MAIL,
+                "from": brief.SELF_MAIL,
+                "to": [brief.SELF_MAIL],
+                "subject": window["receipt"]["subject"],
+                "generated_at": window["generated_at"],
+                "board_revision": window["board_revision"],
+                "message_id": "mailbox-message",
+                "thread_id": "mailbox-thread",
+                "labels": ["SENT"],
+                "raw_html_sha256": "a" * 64,
+                "sent_at": "2026-08-12T08:06:00-04:00",
+            }
+            positive = brief.verify_mailbox_readbacks([window], [readback])
+            self.assertTrue(positive["ok"], positive["problems"])
+
+            for bad_hash in (int("1" * 64), "z" * 64, ["a" * 64]):
+                with self.subTest(bad_hash_type=type(bad_hash).__name__):
+                    malformed = {**readback, "raw_html_sha256": bad_hash}
+                    result = brief.verify_mailbox_readbacks(
+                        [window],
+                        [malformed],
+                    )
+                    self.assertIn(
+                        "2026-08-12T08:00:00-04:00: mailbox HTML hash missing",
+                        result["problems"],
+                    )
 
     def test_window_verifier_rejects_mismatched_runtime_producer_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -5946,6 +6464,46 @@ class AuthorityScopeTests(unittest.TestCase):
         )
         self.assertNotIn("UNKNOWN mail coverage claimed an all-clear", unknown_problems)
 
+    def test_linked_complete_coverage_requires_exhausted_clean_pagination(self):
+        for mutation in (
+            {"pagination": {"pages": True, "exhausted": True, "truncated": False}},
+            {"pagination": {"pages": -1, "exhausted": True, "truncated": False}},
+            {"pagination": {"pages": 1, "exhausted": False, "truncated": False}},
+            {"pagination": {"pages": 1, "exhausted": True, "truncated": True}},
+            {"problems": ["cursor coverage was incomplete"]},
+        ):
+            with self.subTest(mutation=mutation):
+                mail = _m5_mail_fixture()
+                linked = {
+                    "acting_email": "newly-linked@example.com",
+                    "is_primary": False,
+                    "added_at": "2026-08-14T00:00:00Z",
+                    "sender_identities": ["newly-linked@example.com"],
+                    "sender_identity_complete": True,
+                }
+                coverage = {
+                    "acting_email": "newly-linked@example.com",
+                    "expected": False,
+                    "linked": True,
+                    "status": "COMPLETE",
+                    "pagination": {
+                        "pages": 1,
+                        "exhausted": True,
+                        "truncated": False,
+                    },
+                    "problems": [],
+                    **mutation,
+                }
+                mail["linked_accounts"].append(linked)
+                mail["coverage"].append(coverage)
+
+                problems = brief._superhuman_receipt_problems(mail)
+
+                self.assertIn(
+                    "invalid linked Superhuman identity coverage state: newly-linked@example.com",
+                    problems,
+                )
+
     def test_real_obligation_is_retained_linked_and_strictly_shaped(self):
         malformed_cases = []
         orphan = _m5_mail_fixture()
@@ -6037,6 +6595,62 @@ class AuthorityScopeTests(unittest.TestCase):
             "2026-08-12T08:00:00-04:00: window receipt must be an object",
             mailbox["problems"],
         )
+
+    def test_window_and_mailbox_stable_ids_require_exact_json_types(self):
+        window_cases = (
+            ("message_id", ["message-in-list"], "sent-message receipt missing"),
+            ("message_id", True, "sent-message receipt missing"),
+            ("attempt_id", {"id": "attempt-in-object"}, "durable pre-send attempt receipt missing"),
+            ("attempt_id", True, "durable pre-send attempt receipt missing"),
+        )
+        for field, value, expected_problem in window_cases:
+            with self.subTest(window_field=field, value=value), tempfile.TemporaryDirectory() as tmp:
+                rows = _write_m5_pair(Path(tmp))
+                rows[0]["receipt"][field] = value
+                try:
+                    result = brief.verify_window_receipts(rows)
+                except TypeError as exc:
+                    self.fail(f"JSON-valid window {field} crashed verifier: {exc}")
+                self.assertIn(
+                    f"2026-08-12T08:00:00-04:00: {expected_problem}",
+                    result["problems"],
+                )
+
+        mailbox_cases = (
+            ("message_id", ["message-in-list"], "stable mailbox identity missing"),
+            ("message_id", True, "stable mailbox identity missing"),
+            ("thread_id", {"id": "thread-in-object"}, "stable mailbox identity missing"),
+            ("labels", True, "mailbox labels must be a string list"),
+            ("labels", ["SENT", 7], "mailbox labels must be a string list"),
+        )
+        for field, value, expected_problem in mailbox_cases:
+            with self.subTest(mailbox_field=field, value=value), tempfile.TemporaryDirectory() as tmp:
+                window = _write_m5_pair(Path(tmp))[0]
+                readback = {
+                    "schema": brief.MAILBOX_READBACK_SCHEMA,
+                    "status": "EXACT_SENT_CONFIRMED",
+                    "scheduled_for": window["scheduled_for"],
+                    "acting_email": brief.SELF_MAIL,
+                    "from": brief.SELF_MAIL,
+                    "to": [brief.SELF_MAIL],
+                    "subject": window["receipt"]["subject"],
+                    "generated_at": window["generated_at"],
+                    "board_revision": window["board_revision"],
+                    "message_id": "mailbox-message",
+                    "thread_id": "mailbox-thread",
+                    "labels": ["SENT"],
+                    "raw_html_sha256": "a" * 64,
+                    "sent_at": "2026-08-12T08:06:00-04:00",
+                }
+                readback[field] = value
+                try:
+                    result = brief.verify_mailbox_readbacks([window], [readback])
+                except TypeError as exc:
+                    self.fail(f"JSON-valid mailbox {field} crashed verifier: {exc}")
+                self.assertIn(
+                    f"2026-08-12T08:00:00-04:00: {expected_problem}",
+                    result["problems"],
+                )
 
     def test_window_verifier_requires_exact_send_attempt_intent_and_outcome(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6165,6 +6779,37 @@ class AuthorityScopeTests(unittest.TestCase):
 
             attempts.unlink()
             assert_morning_invalid()
+
+    def test_send_attempt_log_requires_intent_before_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            attempts = ledger / "send-attempts.jsonl"
+            evidence.mkdir()
+            rows = _write_m5_pair(evidence, ledger, attempts)
+            attempt_rows = [
+                json.loads(line)
+                for line in attempts.read_text(encoding="utf-8").splitlines()
+            ]
+            attempt_rows[:2] = reversed(attempt_rows[:2])
+            attempts.write_text(
+                "\n".join(json.dumps(row) for row in attempt_rows) + "\n",
+                encoding="utf-8",
+            )
+            attempts.chmod(0o600)
+
+            result = brief.verify_window_receipts(
+                rows,
+                evidence_dir=evidence,
+                ledger_dir=ledger,
+                send_attempt_log=attempts,
+            )
+
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: scheduled send attempt ledger proof is invalid",
+            result["problems"],
+        )
 
     def test_send_attempt_intent_must_precede_provider_sent_timestamp(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6503,6 +7148,39 @@ class AuthorityScopeTests(unittest.TestCase):
             "2026-08-12T08:00:00-04:00: duplicate natural-window receipts found",
             result["problems"],
         )
+
+    def test_selected_windows_require_exact_second_precision_timestamp_form(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            ledger = evidence / "ledger"
+            rows = _write_m5_pair(evidence, ledger)
+            fractional_values = (
+                "2026-08-12T08:00:00.123456-04:00",
+                "2026-08-12T20:00:00.654321-04:00",
+            )
+            for row, fractional in zip(rows, fractional_values):
+                row["scheduled_for"] = fractional
+                barrier = Path(row["attempt_barrier"]["path"])
+                payload = json.loads(barrier.read_text(encoding="utf-8"))
+                payload["scheduled_for"] = fractional
+                barrier.chmod(0o600)
+                barrier.write_text(
+                    json.dumps(payload, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                barrier.chmod(0o400)
+
+            result = brief.verify_window_receipts(
+                rows,
+                evidence_dir=evidence,
+                ledger_dir=ledger,
+            )
+
+        for fractional in fractional_values:
+            self.assertIn(
+                f"{fractional}: scheduled_for is not a canonical report-window timestamp",
+                result["problems"],
+            )
 
 
 if __name__ == "__main__":
