@@ -5427,7 +5427,13 @@ def _expected_loaded_job() -> dict[str, Any]:
 
 
 def _loaded_job_matches_current(loaded: Any) -> bool:
-    return isinstance(loaded, dict) and loaded == _expected_loaded_job()
+    if not isinstance(loaded, dict):
+        return False
+    try:
+        expected = _expected_loaded_job()
+    except (OSError, RuntimeError):
+        return False
+    return loaded == expected
 
 
 def launch_trigger_proof() -> dict[str, Any]:
@@ -5461,10 +5467,14 @@ def launch_trigger_proof() -> dict[str, Any]:
         (launchctl.stdout or "") if launchctl is not None else ""
     )
     try:
-        loaded_command_matches = _loaded_job_matches_current(loaded_job)
+        expected_loaded_job = _expected_loaded_job()
     except (OSError, RuntimeError) as exc:
         probe_errors["expected_job"] = f"{type(exc).__name__}: {exc}"
         loaded_command_matches = False
+    else:
+        loaded_command_matches = (
+            isinstance(loaded_job, dict) and loaded_job == expected_loaded_job
+        )
     service_matches_label = xpc_service_name == LABEL
     exact_job = bool(
         proc is not None

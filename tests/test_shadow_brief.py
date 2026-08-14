@@ -3822,6 +3822,34 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIn("expected_job", proof["probe_errors"])
         self.assertFalse(brief.scheduled_trigger_is_authorized(True, proof))
 
+    def test_authorization_fails_closed_when_expected_job_later_cannot_resolve(self):
+        expected_job = brief._expected_loaded_job()
+        pid = os.getpid()
+        proof = {
+            "is_launchd": True,
+            "parent_pid": 1,
+            "parent_command": "/sbin/launchd",
+            "label": brief.LABEL,
+            "domain": f"gui/{os.getuid()}",
+            "current_pid": pid,
+            "job_pid": pid,
+            "xpc_service_name": brief.LABEL,
+            "service_matches_label": True,
+            "loaded_program": expected_job["program"],
+            "loaded_program_arguments": expected_job["arguments"],
+            "loaded_path": expected_job["path"],
+            "loaded_command_matches": True,
+            "exact_job": True,
+        }
+
+        with mock.patch.object(
+            brief,
+            "_expected_loaded_job",
+            side_effect=RuntimeError("Could not determine home directory."),
+        ):
+            self.assertFalse(brief._loaded_job_matches_current(expected_job))
+            self.assertFalse(brief.scheduled_trigger_is_authorized(True, proof))
+
     def test_scheduled_command_emits_blocked_proof_when_launch_probe_fails(self):
         def run(argv, **_kwargs):
             if argv[0] == "/bin/ps":
