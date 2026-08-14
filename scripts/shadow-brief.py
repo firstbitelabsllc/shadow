@@ -2320,7 +2320,14 @@ def build_superhuman_context(
         # Classify from the FULL collision-safe set, never from the retention
         # sample: the sample is ordered action-first, so once action-tagged
         # signals exceed SUPERHUMAN_SIGNAL_LIMIT the tail is real obligations.
-        matched = [signal for signal in unique_signals if predicate(signal)]
+        # Order by action-candidate priority (obligation class first, then
+        # ascending timestamp) before capping: unique_signals is
+        # reverse-chronological, so a raw slice would drop the
+        # longest-neglected rows this section exists to surface.
+        matched = sorted(
+            (signal for signal in unique_signals if predicate(signal)),
+            key=action_candidate_sort_key,
+        )
         if len(matched) > SUPERHUMAN_CATEGORY_LIMIT:
             category_omissions[name] = len(matched) - SUPERHUMAN_CATEGORY_LIMIT
         return matched[:SUPERHUMAN_CATEGORY_LIMIT]
