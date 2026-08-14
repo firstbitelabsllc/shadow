@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -281,6 +283,21 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("#468", prose)
         self.assertNotIn("root cas", prose.lower())
         self.assertNotIn("plan-scale-live", prose)
+
+    def test_analysis_has_no_retired_nia_context(self):
+        analysis = brief.build_chief_of_staff_analysis(
+            board={"entities": [], "claims": []},
+            repos=[],
+            github=[],
+            vercel={"available": True, "deployments": []},
+            supabase={"available": True, "projects": []},
+            mail={"available": False},
+            source_health={},
+        )
+
+        reasoning = analysis["reasoning_contract"]
+        self.assertNotIn("historical_context", reasoning)
+        self.assertNotIn("nia", json.dumps(analysis).lower())
 
     def test_expenses_web_change_is_not_mislabeled_as_snowcubes(self):
         changes = brief.build_material_changes(
@@ -618,7 +635,7 @@ class AuthorityScopeTests(unittest.TestCase):
             mock.patch.object(brief, "collect_github", return_value=[]), \
             mock.patch.object(brief, "collect_vercel", return_value={"available": False}), \
             mock.patch.object(brief, "collect_supabase", return_value={"available": False}), \
-            mock.patch.object(brief, "collect_nia_status", return_value={"available": False}), \
+            mock.patch.object(brief.shutil, "which", side_effect=AssertionError("the brief must not query Nia")), \
             mock.patch.object(
                 brief,
                 "collect_superhuman_context",
@@ -642,6 +659,8 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIs(packet["board"], board)
         self.assertIs(collect_companion.call_args.kwargs["board"], packet["board"])
         self.assertIs(collect_companion.call_args.kwargs["mail"], business_mail)
+        self.assertNotIn("nia", packet)
+        self.assertNotIn("nia", packet["paint_health"])
 
     def test_scheduled_receipt_keeps_original_trigger_window(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -703,6 +722,367 @@ class AuthorityScopeTests(unittest.TestCase):
                 brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
             )
         )
+        self.assertFalse(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-14T08:00:00+14:00"),
+            )
+        )
+        self.assertFalse(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-14T08:00:00+05:00"),
+            )
+        )
+        self.assertFalse(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-08-13T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-08-14T08:00:00-05:00"),
+            )
+        )
+        self.assertTrue(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-10-31T20:00:00-04:00"),
+                brief.datetime.fromisoformat("2026-11-01T08:00:00-05:00"),
+            )
+        )
+        self.assertTrue(
+            brief.natural_windows_are_consecutive(
+                brief.datetime.fromisoformat("2026-03-07T20:00:00-05:00"),
+                brief.datetime.fromisoformat("2026-03-08T08:00:00-04:00"),
+            )
+        )
+
+    def test_window_and_mailbox_receipts_reject_naive_timestamps(self):
+        morning = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": "morning",
+            "scheduled_for": "2026-08-12T08:00:00-04:00",
+            "generated_at": "2026-08-12T08:05:00",
+            "receipt": {"sent_at": "2026-08-12T08:06:00-04:00"},
+        }
+        evening = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": "evening",
+            "scheduled_for": "2026-08-12T20:00:00-04:00",
+            "generated_at": "2026-08-12T20:05:00-04:00",
+            "receipt": {"sent_at": "2026-08-12T20:06:00"},
+        }
+
+        window_result = brief.verify_window_receipts([morning, evening])
+
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: generated_at invalid",
+            window_result["problems"],
+        )
+        self.assertIn(
+            "2026-08-12T20:00:00-04:00: sent timestamp invalid",
+            window_result["problems"],
+        )
+
+        mailbox_result = brief.verify_mailbox_readbacks(
+            [evening],
+            [
+                {
+                    "schema": brief.MAILBOX_READBACK_SCHEMA,
+                    "status": "EXACT_SENT_CONFIRMED",
+                    "scheduled_for": evening["scheduled_for"],
+                    "sent_at": "2026-08-12T20:06:00",
+                }
+            ],
+        )
+        self.assertIn(
+            "2026-08-12T20:00:00-04:00: mailbox sent timestamp invalid",
+            mailbox_result["problems"],
+        )
+        self.assertEqual(
+            brief._parse_aware_datetime("2026-08-13T00:06:00Z"),
+            brief.datetime.fromisoformat("2026-08-13T00:06:00+00:00"),
+        )
+
+    def test_producer_records_report_timezone_from_any_host_timezone(self):
+        window = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T05:10:00-07:00")
+        )
+
+        self.assertTrue(window["on_schedule"])
+        self.assertEqual(window["slot"], "morning")
+        self.assertEqual(window["scheduled_for"], "2026-08-12T08:00:00-04:00")
+        self.assertIsNotNone(
+            brief._scheduled_window_instant({"scheduled_for": window["scheduled_for"]})
+        )
+
+        winter = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-11-02T17:00:00-08:00")
+        )
+        self.assertTrue(winter["on_schedule"])
+        self.assertEqual(winter["slot"], "evening")
+        self.assertEqual(winter["scheduled_for"], "2026-11-02T20:00:00-05:00")
+
+        off_slot = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T08:00:00-07:00")
+        )
+        self.assertFalse(off_slot["on_schedule"])
+        self.assertIsNone(off_slot["scheduled_for"])
+
+        naive = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T08:00:00")
+        )
+        self.assertFalse(naive["on_schedule"])
+        self.assertIsNone(naive["scheduled_for"])
+
+    def test_schedule_reports_host_timezone_drift_from_report_timezone(self):
+        expected = brief.launch_agent_plist(Path("/opt/shadow/scripts/shadow-brief.py"))
+
+        self.assertEqual(
+            brief.schedule_configuration_problems(
+                expected,
+                expected,
+                host_timezone="America/New_York",
+            ),
+            [],
+        )
+        self.assertEqual(
+            brief.schedule_configuration_problems(
+                expected,
+                expected,
+                host_timezone="America/Bogota",
+            ),
+            ["HostTimezone"],
+        )
+        self.assertTrue(
+            brief.host_timezone_matches_report("America/New_York")
+        )
+        self.assertFalse(
+            brief.host_timezone_matches_report("America/Bogota")
+        )
+        self.assertFalse(
+            brief.host_timezone_matches_report("Etc/UTC")
+        )
+        self.assertIn(
+            "set the macOS system timezone to America/New_York",
+            brief.schedule_configuration_recovery(["HostTimezone"]),
+        )
+
+    def test_schedule_command_fails_closed_on_install_or_status_drift(self):
+        with mock.patch.object(
+            brief,
+            "schedule_install",
+            return_value={
+                "bootstrap_rc": 1,
+                "host_timezone_matches_report": True,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(brief.cmd_schedule(mock.Mock(install=True)), 1)
+
+        with mock.patch.object(
+            brief,
+            "schedule_status",
+            return_value={
+                "installed": True,
+                "configuration_ok": False,
+                "launchctl_ok": True,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(brief.cmd_schedule(mock.Mock(install=False)), 1)
+
+    def test_doctor_keeps_timezone_recovery_when_schedule_is_also_unarmed(self):
+        with tempfile.TemporaryDirectory() as home_dir, mock.patch.object(
+            brief.Path,
+            "home",
+            return_value=Path(home_dir),
+        ), mock.patch.object(
+            brief,
+            "_host_timezone_name",
+            return_value="America/Bogota",
+        ):
+            schedule = brief.schedule_status()
+
+        self.assertFalse(schedule["installed"])
+        self.assertEqual(schedule.get("configuration_problems"), ["HostTimezone"])
+        with tempfile.TemporaryDirectory() as evidence_dir, mock.patch.object(
+            brief,
+            "EVIDENCE_DIR",
+            Path(evidence_dir),
+        ), mock.patch.object(
+            brief,
+            "schedule_status",
+            return_value=schedule,
+        ), mock.patch.object(
+            brief,
+            "_mcp_remote_token",
+            return_value="available",
+        ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(brief.doctor(), 1)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(
+            any(
+                "set the macOS system timezone to America/New_York" in problem
+                for problem in payload["problems"]
+            )
+        )
+
+    def test_verify_windows_reads_mixed_slot_mailbox_pair(self):
+        evening = "2026-08-13T20:00:00-04:00"
+        morning = "2026-08-14T08:00:00-04:00"
+        rows = [
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "evening",
+                "scheduled_for": evening,
+            },
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "morning",
+                "scheduled_for": morning,
+            },
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": False,
+                "trigger": "launchd-calendar",
+                "slot": "morning",
+                "scheduled_for": morning,
+                "receipt": {"subject": "off-schedule duplicate"},
+            },
+        ]
+
+        def readback(scheduled_for: str, suffix: str) -> dict[str, object]:
+            return {
+                "schema": brief.MAILBOX_READBACK_SCHEMA,
+                "status": "EXACT_SENT_CONFIRMED",
+                "scheduled_for": scheduled_for,
+                "acting_email": brief.SELF_MAIL,
+                "from": brief.SELF_MAIL,
+                "to": [brief.SELF_MAIL],
+                "message_id": f"mailbox-{suffix}",
+                "thread_id": f"thread-{suffix}",
+                "labels": ["SENT"],
+                "raw_html_sha256": "a" * 64,
+                "sent_at": scheduled_for,
+            }
+
+        verification = {
+            "ok": True,
+            "problems": [],
+            "windows": [evening, morning],
+            "message_ids": [],
+            "ignored_legacy_windows": [],
+            "ignored_noncalendar_windows": [],
+            "ignored_nonslot_windows": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            window_log = root / "windows.jsonl"
+            mailbox_log = root / "mailbox.jsonl"
+            window_log.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            mailbox_log.write_text(
+                "\n".join(
+                    json.dumps(row)
+                    for row in (
+                        readback(evening, "evening"),
+                        readback(morning, "morning"),
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
+                brief, "MAILBOX_READBACK_LOG", mailbox_log
+            ), mock.patch.object(brief, "verify_window_receipts", return_value=verification), contextlib.redirect_stdout(output):
+                exit_code = brief.cmd_verify_windows(mock.Mock())
+
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(output.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(
+            payload["mailbox_readbacks"]["message_ids"],
+            ["mailbox-evening", "mailbox-morning"],
+        )
+
+    def test_window_selection_orders_offset_timestamps_by_instant(self):
+        rows = [
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "evening",
+                "scheduled_for": "2026-08-12T20:00:00+14:00",
+            },
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "morning",
+                "scheduled_for": "2026-08-12T08:00:00-04:00",
+            },
+            {
+                "schema": brief.WINDOW_RECEIPT_SCHEMA,
+                "on_schedule": True,
+                "trigger": "launchd-calendar",
+                "slot": "evening",
+                "scheduled_for": "2026-08-12T20:00:00-04:00",
+            },
+        ]
+
+        result = brief.verify_window_receipts(rows)
+
+        self.assertEqual(
+            result["windows"],
+            ["2026-08-12T08:00:00-04:00", "2026-08-12T20:00:00-04:00"],
+        )
+        self.assertNotIn(
+            "latest natural 08:00/20:00 windows are not consecutive",
+            result["problems"],
+        )
+
+    def test_readback_ignores_trailing_off_schedule_duplicate(self):
+        scheduled_for = "2026-08-14T08:00:00-04:00"
+        eligible = {
+            "schema": brief.WINDOW_RECEIPT_SCHEMA,
+            "on_schedule": True,
+            "trigger": "launchd-calendar",
+            "slot": "morning",
+            "scheduled_for": scheduled_for,
+        }
+        off_schedule = {
+            **eligible,
+            "on_schedule": False,
+            "receipt": {"subject": "off-schedule duplicate"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            window_log = root / "windows.jsonl"
+            mailbox_log = root / "mailbox.jsonl"
+            window_log.write_text(
+                "\n".join(json.dumps(row) for row in (eligible, off_schedule)) + "\n",
+                encoding="utf-8",
+            )
+            readback = {
+                "schema": brief.MAILBOX_READBACK_SCHEMA,
+                "status": "EXACT_SENT_CONFIRMED",
+            }
+            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
+                brief, "MAILBOX_READBACK_LOG", mailbox_log
+            ), mock.patch.object(
+                brief, "fetch_superhuman_mailbox_readback", return_value=readback
+            ) as fetch, contextlib.redirect_stdout(io.StringIO()):
+                exit_code = brief.cmd_readback_window(mock.Mock(scheduled_for=None))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(fetch.call_args.args[0], eligible)
 
 
 if __name__ == "__main__":
