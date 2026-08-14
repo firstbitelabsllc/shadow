@@ -2229,8 +2229,22 @@ class AuthorityScopeTests(unittest.TestCase):
 
     def test_packet_snowcubes_card_uses_the_final_board_snapshot(self):
         board = {"revision": 23, "entities": [], "claims": []}
-        personal_mail = {"available": False, "error": "personal mail unavailable"}
-        business_mail = {"available": False, "error": "business mail unavailable"}
+        mail = {
+            "available": True,
+            "status": "UNKNOWN",
+            "problems": ["business mail unavailable"],
+            "coverage": [
+                {
+                    "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                    "linked": True,
+                    "status": "UNKNOWN",
+                    "problems": ["business mail unavailable"],
+                    "wake": "Restore the read-only business-mail source.",
+                    "metrics": {},
+                }
+            ],
+            "signals": [],
+        }
         companion = {"observed_at": "2026-08-13T15:00:00Z", "surfaces": []}
 
         with mock.patch.object(brief, "portfolio_root", return_value=Path("/tmp/portfolio")), \
@@ -2242,8 +2256,8 @@ class AuthorityScopeTests(unittest.TestCase):
             mock.patch.object(
                 brief,
                 "collect_superhuman_context",
-                side_effect=[personal_mail, business_mail],
-            ), \
+                return_value=mail,
+            ) as collect_mail, \
             mock.patch.object(brief, "collect_growth_source_status", return_value={}), \
             mock.patch.object(brief, "build_local_git_health", return_value={"available": True}), \
             mock.patch.object(brief, "build_paint_health", return_value={}), \
@@ -2261,7 +2275,15 @@ class AuthorityScopeTests(unittest.TestCase):
 
         self.assertIs(packet["board"], board)
         self.assertIs(collect_companion.call_args.kwargs["board"], packet["board"])
-        self.assertIs(collect_companion.call_args.kwargs["mail"], business_mail)
+        self.assertEqual(collect_mail.call_count, 1)
+        self.assertEqual(
+            collect_companion.call_args.kwargs["mail"]["acting_email"],
+            brief.SNOWCUBES_BUSINESS_MAIL,
+        )
+        self.assertIn(
+            "business mail unavailable",
+            collect_companion.call_args.kwargs["mail"]["error"],
+        )
         self.assertNotIn("nia", packet)
         self.assertNotIn("nia", packet["paint_health"])
 

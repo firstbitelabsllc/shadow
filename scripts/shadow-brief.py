@@ -2415,7 +2415,10 @@ def collect_snowcubes_context(
                 (str(row.get("wake")) for row in human if row.get("wake")),
                 None,
             )
-            reply = "A possible human thread was read, but active reply status, exact body coverage, account coverage, or its native route remains UNKNOWN."
+            reply = (
+                "A possible human thread was read, but it is not ranked as a reply because "
+                "active status, exact body coverage, account coverage, or its native route remains UNKNOWN."
+            )
             relationship = "No relationship follow-up is inferred until the active thread and native route are verified."
             mail_state = "unknown"
             mail_wake = candidate_wake or (
