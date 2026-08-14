@@ -175,6 +175,28 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("Proposal only", html)
         self.assertIn("Superhuman business inbox", html)
 
+    def test_evidence_keeps_background_work_out_of_the_reader_story(self):
+        html = brief.render_html({
+            "slot": "morning",
+            "generated_at": "2026-08-12T08:00:00-04:00",
+            "board": {"revision": 9, "entities": [], "claims": []},
+            "repos": [{"name": "shadow", "dirty": True}],
+            "github_open_prs": [],
+            "recommendations": [],
+            "analysis": {},
+            "snowcubes_context": {"surfaces": []},
+            "paint_health": {"local_git": {"scanned_roots": 1}},
+            "vercel": {"deployments": []},
+            "supabase": {"projects": []},
+            "superhuman_context": {"available": False},
+        })
+
+        self.assertIn("Background work", html)
+        self.assertIn("background work", html.lower())
+        self.assertNotIn("checked projects", html.lower())
+        self.assertNotIn("unfinished local work", html.lower())
+        self.assertNotIn("technical inventory", html.lower())
+
     def test_morning_brief_is_the_same_reader_first_umbrella_product(self):
         names = [
             "Reply and relationships",
@@ -278,11 +300,80 @@ class PrivateStoreTests(unittest.TestCase):
 
         change = analysis["material_changes"][0]
         self.assertEqual(change["project"], "Shadow")
-        self.assertIn("plan", (change["headline"] + change["fact"] + change["meaning"]).lower())
+        self.assertIn("brief", (change["headline"] + change["fact"] + change["meaning"]).lower())
         prose = json.dumps(change)
         self.assertNotIn("#468", prose)
         self.assertNotIn("root cas", prose.lower())
         self.assertNotIn("plan-scale-live", prose)
+        self.assertNotIn("collector", prose.lower())
+        self.assertNotIn("pointer files", prose.lower())
+
+    def test_brief_change_fact_keeps_collection_mechanics_private(self):
+        fact = brief._material_change_fact(
+            "Shadow",
+            ["feat(brief): keep the full plan readable for the chief-of-staff brief"],
+            [],
+        )
+
+        self.assertEqual(
+            fact,
+            "The brief now keeps the full picture intact when a project is complex, and both editions "
+            "follow the same clear, decision-focused standard.",
+        )
+        self.assertNotIn("collector", fact.lower())
+        self.assertNotIn("pointer files", fact.lower())
+        self.assertNotIn("editorial contract", fact.lower())
+
+    def test_material_change_evidence_uses_reader_labels_not_activity_counts(self):
+        changes = brief.build_material_changes(
+            board={"projects": [], "entities": [], "claims": []},
+            repos=[
+                brief.RepoPaint(
+                    name="shadow",
+                    path="/private/shadow",
+                    recent_commits=["feat(brief): keep the full plan readable"],
+                )
+            ],
+            github=[{
+                "title": "Review the reader-first brief copy",
+                "url": "https://example.test/review/1",
+                "repository": {"nameWithOwner": "leokwan/shadow"},
+            }],
+            vercel={"available": True, "deployments": []},
+        )
+
+        evidence = changes[0]["evidence"]
+        self.assertEqual(evidence, ["Source confirmed", "Review in progress"])
+        self.assertNotIn("recent source change", " ".join(evidence).lower())
+        self.assertNotIn("open review", " ".join(evidence).lower())
+
+    def test_executive_read_does_not_turn_internal_activity_into_the_story(self):
+        analysis = brief.build_chief_of_staff_analysis(
+            board={"entities": [], "claims": []},
+            repos=[
+                brief.RepoPaint(
+                    name="shadow",
+                    path="/private/shadow",
+                    dirty=True,
+                    recent_commits=["feat(brief): keep the full plan readable"],
+                )
+            ],
+            github=[{
+                "title": "Review the reader-first brief copy",
+                "url": "https://example.test/review/1",
+                "repository": {"nameWithOwner": "leokwan/shadow"},
+            }],
+            vercel={"available": True, "deployments": [{"state": "READY"}]},
+            supabase={"available": True, "projects": [{"status": "HEALTHY"}]},
+            mail={"available": False},
+            source_health={},
+        )
+
+        executive = " ".join(analysis["executive_read"])
+        self.assertIn("review work is active", executive.lower())
+        self.assertIn("separate kinds of evidence", executive.lower())
+        self.assertNotIn("proposed changes", executive.lower())
+        self.assertNotIn("unfinished local changes", executive.lower())
 
     def test_analysis_has_no_retired_nia_context(self):
         analysis = brief.build_chief_of_staff_analysis(
@@ -298,6 +389,81 @@ class PrivateStoreTests(unittest.TestCase):
         reasoning = analysis["reasoning_contract"]
         self.assertNotIn("historical_context", reasoning)
         self.assertNotIn("nia", json.dumps(analysis).lower())
+
+    def test_architecture_decision_translates_maily_calendar_retirement_for_readers(self):
+        raw_decision = (
+            "shared Cally retention vs Leo's explicit instruction to retire Cally and use Maily "
+            "| winner: M5 `~m5sk` retires both shared Cally and private Cally Leo only after "
+            "their calendar selection, conflict, notification, exact-authorization, execute-once, "
+            "and provider-ID readback rules move into Maily/Maily Leo and targeted three-host removal "
+            "has a recorded rollback | closed 2026-08-14T05:56:09Z"
+        )
+        analysis = brief.build_chief_of_staff_analysis(
+            board={
+                "entities": [{
+                    "project": "ai-leo",
+                    "priority": 1,
+                    "decisions": [raw_decision],
+                }],
+                "claims": [],
+            },
+            repos=[],
+            github=[],
+            vercel={"available": True, "deployments": []},
+            supabase={"available": True, "projects": []},
+            mail={"available": False},
+            source_health={},
+        )
+
+        decision = analysis["architecture_decisions"][0]
+        self.assertEqual(
+            decision["decision"],
+            "Move personal scheduling into one Leo-facing assistant after its safeguards are preserved.",
+        )
+        self.assertEqual(
+            decision["tradeoff"],
+            "keeping two overlapping personal assistants versus one clear front door with safe calendar controls",
+        )
+        reader_copy = json.dumps(decision)
+        self.assertNotIn("~m5sk", reader_copy)
+        self.assertNotIn("provider-ID", reader_copy)
+
+    def test_untranslated_architecture_decision_keeps_implementation_private(self):
+        raw_decision = (
+            "fast host work vs a trustworthy release "
+            "| winner: ~ops123 runs `root-cas` on branch feature/fast-host until ACK-42 returns "
+            "| opened 2026-08-14T06:00:00Z"
+        )
+        analysis = brief.build_chief_of_staff_analysis(
+            board={
+                "entities": [{
+                    "project": "resplit-ios",
+                    "priority": 1,
+                    "decisions": [raw_decision],
+                }],
+                "claims": [],
+            },
+            repos=[],
+            github=[],
+            vercel={"available": True, "deployments": []},
+            supabase={"available": True, "projects": []},
+            mail={"available": False},
+            source_health={},
+        )
+
+        decision = analysis["architecture_decisions"][0]
+        self.assertEqual(
+            decision["decision"],
+            "The current operating decision is recorded; its implementation stays in the private plan.",
+        )
+        self.assertEqual(
+            decision["tradeoff"],
+            "the practical options remain documented in the current product plan",
+        )
+        reader_copy = json.dumps(decision)
+        self.assertNotIn("~ops123", reader_copy)
+        self.assertNotIn("root-cas", reader_copy)
+        self.assertNotIn("feature/fast-host", reader_copy)
 
     def test_expenses_web_change_is_not_mislabeled_as_snowcubes(self):
         changes = brief.build_material_changes(
