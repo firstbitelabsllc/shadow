@@ -132,7 +132,9 @@ Lead with:
 - The one decision needed, expressed as at most A/B/C
 
 Explain every term in the same message that uses it. A change gets a
-before/after pair; a flow gets a small diagram; a fact gets one line:
+before/after pair; a flow gets a small diagram; a fact gets one line —
+and when the `explain` bucket is filled (default: the mounted `show-me`
+skill), render these through it rather than improvising the format:
 
 ```
 BEFORE                       AFTER
