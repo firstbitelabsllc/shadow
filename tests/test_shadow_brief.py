@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import contextlib
+import fcntl
+import hashlib
 import importlib.util
 import io
 import json
+import os
+import plistlib
+import stat
 import subprocess
 import sys
 import tempfile
@@ -23,6 +28,230 @@ assert SPEC and SPEC.loader
 brief = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = brief
 SPEC.loader.exec_module(brief)
+
+
+def _m5_producer_fixture() -> dict[str, object]:
+    return {
+        "schema": "shadow.brief-producer.v1",
+        "source_commit": "a" * 40,
+        "script_sha256": "b" * 64,
+        "source_matches_commit": True,
+    }
+
+
+def _m5_mail_fixture(*, include_action: bool = True) -> dict[str, object]:
+    expected_identities = [
+        "leojkwan@gmail.com",
+        "trysnowcubes@gmail.com",
+        "firstbitelabs@gmail.com",
+    ]
+    coverage = [
+        {
+            "acting_email": "leojkwan@gmail.com",
+            "expected": True,
+            "linked": True,
+            "status": "COMPLETE",
+            "pagination": {"pages": 1, "exhausted": True, "truncated": False},
+        },
+        {
+            "acting_email": "trysnowcubes@gmail.com",
+            "expected": True,
+            "linked": True,
+            "status": "COMPLETE",
+            "pagination": {"pages": 1, "exhausted": True, "truncated": False},
+        },
+        {
+            "acting_email": "firstbitelabs@gmail.com",
+            "expected": True,
+            "linked": False,
+            "status": "UNKNOWN",
+            "pagination": {"pages": 0, "exhausted": False, "truncated": True},
+            "problems": ["expected identity is not linked"],
+            "wake": "Link firstbitelabs@gmail.com in Superhuman and rerun the read-only scan.",
+        },
+    ]
+    action = {
+        "signal_id": "mail-action-1",
+        "thread_id": "thread-action-1",
+        "last_message_id": "message-action-1",
+        "stable_provider_identity": True,
+        "thread_body_read": True,
+        "action_tags": ["reply", "urgent"],
+        "semantic_status": "PROPOSAL",
+        "subject": "Reply requested before Friday",
+        "proposal": "Proposal only: review the exact reply before any send.",
+        "proposal_only": True,
+        "source_identities": ["leojkwan@gmail.com"],
+    }
+    actions = [action] if include_action else []
+    return {
+        "schema": "shadow.superhuman-context.v2",
+        "available": True,
+        "complete": False,
+        "status": "UNKNOWN",
+        "all_clear_allowed": False,
+        "expected_identities": expected_identities,
+        "linked_accounts": [
+            {"acting_email": "leojkwan@gmail.com"},
+            {"acting_email": "trysnowcubes@gmail.com"},
+        ],
+        "coverage": coverage,
+        "signals": actions,
+        "urgent_replies": actions,
+        "waiting_replies": [],
+        "forgotten_obligations": [],
+        "order_return_follow_up": [],
+        "proactive_candidates": [],
+        "calendar_proposals": [],
+    }
+
+
+def _m5_html_fixture(row: dict[str, object]) -> str:
+    return f"""<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width"/></head><body>
+<!-- private machine identity: board rev {row['board_revision']} -->
+<h1>Today’s read</h1>
+<section><h2>What materially changed</h2></section>
+<section><h2>The chief-of-staff read</h2></section>
+<section><h2>Decided for you</h2></section>
+<section><h2>Needs Leo now</h2></section>
+<section><h2>Mail and calendar coverage</h2></section>
+<section><h2>Architecture decisions you need to know about</h2></section>
+<section><h2>Questions to challenge your point of view</h2></section>
+<section><h2>Completion outlook</h2></section>
+<section><h2>Lanes losing momentum — and how to improve them</h2></section>
+<section><h2>Snowcubes in the portfolio</h2></section>
+<section><h2>Evidence and blind spots</h2></section>
+<p>{row['generated_at']}</p>
+<footer>Supporting checks inform the note; they do not create another to-do list.</footer>
+</body></html>
+"""
+
+
+def _write_m5_window_fixture(
+    evidence_dir: Path,
+    *,
+    scheduled_for: str,
+    generated_at: str,
+    sent_at: str,
+    slot: str,
+    stamp: str,
+) -> dict[str, object]:
+    producer = _m5_producer_fixture()
+    paint_health = {
+        "local_git": {"available": True},
+        "github": {"available": True},
+        "vercel": {"available": True},
+    }
+    row: dict[str, object] = {
+        "schema": "shadow.bidaily-window.v4",
+        "on_schedule": True,
+        "trigger": "launchd-calendar",
+        "slot": slot,
+        "scheduled_for": scheduled_for,
+        "generated_at": generated_at,
+        "board_revision": 41,
+        "trigger_proof": {
+            "is_launchd": True,
+            "parent_pid": 1,
+            "parent_command": "/sbin/launchd",
+            "label": "com.leokwan.shadow-bidaily-brief",
+            "domain": f"gui/{os.getuid()}",
+            "current_pid": 4242,
+            "job_pid": 4242,
+            "xpc_service_name": "com.leokwan.shadow-bidaily-brief",
+            "service_matches_label": True,
+            "exact_job": True,
+        },
+        "notification": {
+            "status": "ok",
+            "title": "Shadow brief ready",
+            "body": f"{slot} · board rev 41",
+        },
+        "paint_health": paint_health,
+        "producer": producer,
+        "receipt": {
+            "status": "ok",
+            "delivery_status": "sent",
+            "message_id": f"message-{stamp}",
+            "attempt_state": "PROVISIONAL_SENT",
+            "attempt_id": stamp.ljust(24, "0")[:24],
+            "acting_email": "leojkwan@gmail.com",
+            "from": "leojkwan@gmail.com",
+            "to": ["leojkwan@gmail.com"],
+            "subject": f"Shadow {slot} brief — {generated_at}",
+            "sent_at": sent_at,
+        },
+    }
+    html_path = evidence_dir / f"brief-{stamp}.html"
+    json_path = evidence_dir / f"brief-{stamp}.json"
+    packet = {
+        "generated_at": generated_at,
+        "slot": slot,
+        "board": {"revision": 41},
+        "authority": {
+            "board_snapshot": {"consistent": True, "revision": 41},
+        },
+        "paint_health": paint_health,
+        "superhuman_context": _m5_mail_fixture(),
+        "producer": producer,
+    }
+    html_bytes = _m5_html_fixture(row).encode("utf-8")
+    json_bytes = (json.dumps(packet, indent=2) + "\n").encode("utf-8")
+    html_path.write_bytes(html_bytes)
+    json_path.write_bytes(json_bytes)
+    html_path.chmod(0o400)
+    json_path.chmod(0o400)
+    row.update(
+        {
+            "archive_html": str(html_path),
+            "archive_json": str(json_path),
+            "html_sha256": hashlib.sha256(html_bytes).hexdigest(),
+            "json_sha256": hashlib.sha256(json_bytes).hexdigest(),
+        }
+    )
+    return row
+
+
+def _write_m5_pair(evidence_dir: Path) -> list[dict[str, object]]:
+    return [
+        _write_m5_window_fixture(
+            evidence_dir,
+            scheduled_for="2026-08-12T08:00:00-04:00",
+            generated_at="2026-08-12T08:05:00-04:00",
+            sent_at="2026-08-12T08:06:00-04:00",
+            slot="morning",
+            stamp="20260812-080000",
+        ),
+        _write_m5_window_fixture(
+            evidence_dir,
+            scheduled_for="2026-08-12T20:00:00-04:00",
+            generated_at="2026-08-12T20:05:00-04:00",
+            sent_at="2026-08-12T20:06:00-04:00",
+            slot="evening",
+            stamp="20260812-200000",
+        ),
+    ]
+
+
+def _rewrite_m5_packet(row: dict[str, object], mutate) -> None:
+    path = Path(str(row["archive_json"]))
+    path.chmod(0o600)
+    packet = json.loads(path.read_text(encoding="utf-8"))
+    mutate(packet)
+    rendered = (json.dumps(packet, indent=2) + "\n").encode("utf-8")
+    path.write_bytes(rendered)
+    path.chmod(0o400)
+    row["json_sha256"] = hashlib.sha256(rendered).hexdigest()
+
+
+def _rewrite_m5_html(row: dict[str, object], mutate) -> None:
+    path = Path(str(row["archive_html"]))
+    path.chmod(0o600)
+    rendered = mutate(path.read_text(encoding="utf-8")).encode("utf-8")
+    path.write_bytes(rendered)
+    path.chmod(0o400)
+    row["html_sha256"] = hashlib.sha256(rendered).hexdigest()
 
 
 class PrivateStoreTests(unittest.TestCase):
@@ -2803,6 +3032,10 @@ class AuthorityScopeTests(unittest.TestCase):
         )
         self.assertNotIn("nia", packet)
         self.assertNotIn("nia", packet["paint_health"])
+        self.assertEqual(
+            set((packet.get("producer") or {}).keys()),
+            {"schema", "source_commit", "script_sha256", "source_matches_commit"},
+        )
 
     def test_scheduled_receipt_keeps_original_trigger_window(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2829,6 +3062,390 @@ class AuthorityScopeTests(unittest.TestCase):
             row = json.loads(log.read_text(encoding="utf-8"))
             self.assertEqual(row["scheduled_for"], scheduled_for)
             self.assertEqual(row["slot"], "morning")
+
+    def test_launch_trigger_requires_exact_xpc_service_and_current_launchctl_job_pid(self):
+        commands = []
+
+        def run(argv, **_kwargs):
+            commands.append(argv)
+            if Path(argv[0]).name == "ps":
+                return subprocess.CompletedProcess(argv, 0, "/sbin/launchd\n", "")
+            if Path(argv[0]).name == "launchctl" and argv[1] == "print":
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    "gui/501/com.leokwan.shadow-bidaily-brief = {\n\tpid = 4242\n}\n",
+                    "",
+                )
+            raise AssertionError(argv)
+
+        with mock.patch.dict(
+            os.environ,
+            {"XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief"},
+            clear=True,
+        ), mock.patch.object(brief.os, "getpid", return_value=4242), mock.patch.object(
+            brief.os, "getppid", return_value=1
+        ), mock.patch.object(brief.os, "getuid", return_value=501), mock.patch.object(
+            brief, "_run", side_effect=run
+        ):
+            proof = brief.launch_trigger_proof()
+
+        self.assertTrue(brief.scheduled_trigger_is_authorized(True, proof))
+        self.assertEqual(proof.get("label"), "com.leokwan.shadow-bidaily-brief")
+        self.assertEqual(proof.get("domain"), "gui/501")
+        self.assertEqual(proof.get("current_pid"), 4242)
+        self.assertEqual(proof.get("job_pid"), 4242)
+        self.assertTrue(proof.get("exact_job"))
+        self.assertEqual(commands[0][0], "/bin/ps")
+        self.assertEqual(commands[1][0], "/bin/launchctl")
+
+        parent_only = {
+            "is_launchd": True,
+            "parent_pid": 1,
+            "parent_command": "/sbin/launchd",
+        }
+        self.assertFalse(brief.scheduled_trigger_is_authorized(True, parent_only))
+        self.assertFalse(
+            brief.scheduled_trigger_is_authorized(
+                True,
+                {**proof, "xpc_service_name": "com.example.lookalike"},
+            )
+        )
+        self.assertFalse(
+            brief.scheduled_trigger_is_authorized(True, {**proof, "job_pid": 4243})
+        )
+
+    def test_launch_trigger_rejects_ambiguous_launchctl_pid_output(self):
+        def run(argv, **_kwargs):
+            if Path(argv[0]).name == "ps":
+                return subprocess.CompletedProcess(argv, 0, "/sbin/launchd\n", "")
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "gui/501/com.leokwan.shadow-bidaily-brief = {\n\tpid = 4242\n\tpid = 4243\n}\n",
+                "",
+            )
+
+        with mock.patch.dict(
+            os.environ,
+            {"XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief"},
+            clear=True,
+        ), mock.patch.object(brief.os, "getpid", return_value=4242), mock.patch.object(
+            brief.os, "getppid", return_value=1
+        ), mock.patch.object(brief.os, "getuid", return_value=501), mock.patch.object(
+            brief, "_run", side_effect=run
+        ):
+            proof = brief.launch_trigger_proof()
+
+        self.assertIsNone(proof.get("job_pid"))
+        self.assertFalse(proof.get("exact_job"))
+        self.assertFalse(brief.scheduled_trigger_is_authorized(True, proof))
+
+    def test_scheduled_run_lock_rejects_second_invocation_before_collection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_path = root / "scheduled-run.lock"
+            descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            collect = mock.Mock(
+                return_value={
+                    "generated_at": "2026-08-12T08:05:00-04:00",
+                    "board": {"revision": 1},
+                    "authority": {"board_snapshot": {"consistent": False}},
+                }
+            )
+            proof = {
+                "is_launchd": True,
+                "parent_pid": 1,
+                "parent_command": "/sbin/launchd",
+                "label": brief.LABEL,
+                "domain": f"gui/{os.getuid()}",
+                "current_pid": os.getpid(),
+                "job_pid": os.getpid(),
+                "xpc_service_name": brief.LABEL,
+                "service_matches_label": True,
+                "exact_job": True,
+            }
+            args = mock.Mock(scheduled_trigger=True)
+            try:
+                with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
+                    brief, "EVIDENCE_DIR", root / "evidence"
+                ), mock.patch.object(
+                    brief, "launch_trigger_proof", return_value=proof
+                ), mock.patch.object(
+                    brief, "collect_packet", collect
+                ), contextlib.redirect_stderr(io.StringIO()):
+                    exit_code = brief.cmd_run(args)
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                os.close(descriptor)
+
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(collect.call_count, 0)
+
+    def test_scheduled_run_lock_rejects_a_preplaced_hard_link_without_mutating_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "unrelated-private-state"
+            target.write_text("do not touch", encoding="utf-8")
+            target.chmod(0o640)
+            os.link(target, root / "scheduled-run.lock")
+            original_mode = stat.S_IMODE(target.stat().st_mode)
+            collect = mock.Mock(
+                return_value={
+                    "generated_at": "2026-08-12T08:05:00-04:00",
+                    "board": {"revision": 1},
+                    "authority": {"board_snapshot": {"consistent": False}},
+                }
+            )
+            proof = {
+                "is_launchd": True,
+                "parent_pid": 1,
+                "parent_command": "/sbin/launchd",
+                "label": brief.LABEL,
+                "domain": f"gui/{os.getuid()}",
+                "current_pid": os.getpid(),
+                "job_pid": os.getpid(),
+                "xpc_service_name": brief.LABEL,
+                "service_matches_label": True,
+                "exact_job": True,
+            }
+            with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
+                brief, "EVIDENCE_DIR", root / "evidence"
+            ), mock.patch.object(
+                brief, "launch_trigger_proof", return_value=proof
+            ), mock.patch.object(
+                brief, "collect_packet", collect
+            ), contextlib.redirect_stderr(io.StringIO()):
+                exit_code = brief.cmd_run(mock.Mock(scheduled_trigger=True))
+            resulting_mode = stat.S_IMODE(target.stat().st_mode)
+            resulting_content = target.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(collect.call_count, 0)
+        self.assertEqual(resulting_mode, original_mode)
+        self.assertEqual(resulting_content, "do not touch")
+
+    def test_scheduled_archive_is_exclusive_read_only_and_the_delivery_source(self):
+        class FrozenDateTime(brief.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value = cls.fromisoformat("2026-08-14T08:05:00-04:00")
+                return value if tz is None else value.astimezone(tz)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            packet = {
+                "generated_at": "2026-08-12T08:05:00-04:00",
+                "slot": "morning",
+                "board": {"revision": 41, "entities": [], "claims": []},
+                "authority": {"board_snapshot": {"consistent": True, "revision": 41}},
+                "paint_health": {},
+                "producer": _m5_producer_fixture(),
+                "superhuman_context": _m5_mail_fixture(),
+                "repos": [],
+                "github_open_prs": [],
+                "recommendations": [],
+                "analysis": {},
+                "snowcubes_context": {"surfaces": []},
+            }
+            trigger_window = {
+                "on_schedule": True,
+                "slot": "morning",
+                "scheduled_for": "2026-08-12T08:00:00-04:00",
+            }
+            proof = {
+                "is_launchd": True,
+                "parent_pid": 1,
+                "parent_command": "/sbin/launchd",
+                "label": brief.LABEL,
+                "domain": f"gui/{os.getuid()}",
+                "current_pid": os.getpid(),
+                "job_pid": os.getpid(),
+                "xpc_service_name": brief.LABEL,
+                "service_matches_label": True,
+                "exact_job": True,
+            }
+            delivered = {
+                "status": "ok",
+                "delivery_status": "sent",
+                "message_id": "sent-once",
+            }
+            deliver = mock.Mock(return_value=delivered)
+            notify = mock.Mock(return_value={"status": "ok"})
+            collect = mock.Mock(return_value=packet)
+            append_lock_states = []
+
+            def append_while_locked(*_args, **_kwargs):
+                descriptor = os.open(ledger / "scheduled-run.lock", os.O_RDWR)
+                try:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        append_lock_states.append("held")
+                    else:
+                        append_lock_states.append("free")
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                finally:
+                    os.close(descriptor)
+
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot="morning",
+                deliver=True,
+                dry_run=False,
+                send_authorized_self=True,
+            )
+            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
+                brief, "LOG_DIR", ledger
+            ), mock.patch.object(
+                brief, "WINDOW_LOG", ledger / "windows.jsonl"
+            ), mock.patch.object(
+                brief, "datetime", FrozenDateTime
+            ), mock.patch.object(
+                brief, "launch_trigger_proof", return_value=proof
+            ), mock.patch.object(
+                brief, "collect_packet", collect
+            ), mock.patch.object(
+                brief, "scheduled_window", return_value=trigger_window
+            ), mock.patch.object(
+                brief, "macos_notify", notify
+            ), mock.patch.object(
+                brief, "deliver_superhuman", deliver
+            ), mock.patch.object(
+                brief, "append_scheduled_window", side_effect=append_while_locked
+            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                first_exit = brief.cmd_run(args)
+                archive = next(evidence.glob("brief-*.html"))
+                first_bytes = archive.read_bytes()
+                second_exit = brief.cmd_run(args)
+
+            self.assertEqual(first_exit, 0)
+            self.assertEqual(archive.name, "brief-20260812-080000.html")
+            self.assertEqual(second_exit, 3)
+            self.assertEqual(collect.call_count, 1)
+            self.assertEqual(append_lock_states, ["held"])
+            self.assertEqual(deliver.call_count, 1)
+            self.assertEqual(notify.call_count, 1)
+            self.assertEqual(deliver.call_args.args[0], archive)
+            self.assertEqual(archive.read_bytes(), first_bytes)
+            self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o400)
+            json_archive = archive.with_suffix(".json")
+            self.assertTrue(json_archive.is_file())
+            self.assertEqual(stat.S_IMODE(json_archive.stat().st_mode), 0o400)
+
+    def test_window_verifier_accepts_honest_unknown_expected_identity_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertTrue(result["ok"], result["problems"])
+
+    def test_window_verifier_binds_the_exact_declared_archive_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+            rows[0]["archive_html"] = str(evidence / "missing-declared.html")
+
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: declared archived HTML is invalid",
+            result["problems"],
+        )
+
+    def test_window_verifier_requires_v2_expected_identity_coverage_with_honest_unknowns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+
+            def make_dishonest(packet):
+                mail = packet["superhuman_context"]
+                mail["schema"] = "shadow.superhuman-context.v1"
+                mail["coverage"] = mail["coverage"][:-1]
+                mail["status"] = "COMPLETE"
+                mail["complete"] = True
+                mail["all_clear_allowed"] = True
+
+            _rewrite_m5_packet(rows[0], make_dishonest)
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertFalse(result["ok"])
+        joined = "\n".join(result["problems"])
+        self.assertIn("Superhuman context schema mismatch", joined)
+        self.assertIn("expected Superhuman identity coverage mismatch", joined)
+        self.assertIn("UNKNOWN mail coverage claimed an all-clear", joined)
+
+    def test_window_verifier_requires_a_real_mail_obligation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+            _rewrite_m5_packet(
+                rows[1],
+                lambda packet: packet.__setitem__(
+                    "superhuman_context", _m5_mail_fixture(include_action=False)
+                ),
+            )
+
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "2026-08-12T20:00:00-04:00: no real mail obligation or action proposal",
+            result["problems"],
+        )
+
+    def test_window_verifier_requires_exactly_one_mail_and_calendar_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+            _rewrite_m5_html(
+                rows[0],
+                lambda rendered: rendered.replace(
+                    "</body>", "<h2>Mail and calendar coverage</h2></body>"
+                ),
+            )
+
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: archived HTML must contain exactly one Mail and calendar coverage section",
+            result["problems"],
+        )
+
+    def test_window_verifier_rejects_mismatched_runtime_producer_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+            rows[0]["producer"] = {**_m5_producer_fixture(), "source_commit": "c" * 40}
+
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: archived producer provenance mismatch",
+            result["problems"],
+        )
+
+    def test_window_verifier_rejects_duplicate_receipts_for_one_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            rows = _write_m5_pair(evidence)
+            rows.append(dict(rows[0]))
+
+            result = brief.verify_window_receipts(rows, evidence_dir=evidence)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "2026-08-12T08:00:00-04:00: duplicate natural-window receipts found",
+            result["problems"],
+        )
 
     def test_delivery_evidence_accepts_two_consecutive_twice_daily_windows(self):
         morning = {
@@ -3009,6 +3626,107 @@ class AuthorityScopeTests(unittest.TestCase):
             "set the macOS system timezone to America/New_York",
             brief.schedule_configuration_recovery(["HostTimezone"]),
         )
+
+    def test_schedule_status_rejects_an_alternate_program_and_other_scheduled_producers(self):
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            agents = home / "Library" / "LaunchAgents"
+            agents.mkdir(parents=True)
+            alternate = home / "other" / "shadow-brief.py"
+            alternate.parent.mkdir()
+            alternate.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            canonical = agents / f"{brief.LABEL}.plist"
+            canonical.write_bytes(
+                plistlib.dumps(brief.launch_agent_plist(alternate), fmt=plistlib.FMT_XML)
+            )
+            duplicate = agents / "com.example.shadow-copy.plist"
+            duplicate_doc = brief.launch_agent_plist(Path(brief.__file__).resolve())
+            duplicate_doc["Label"] = "com.example.shadow-copy"
+            duplicate.write_bytes(plistlib.dumps(duplicate_doc, fmt=plistlib.FMT_XML))
+            cli_duplicate = agents / "com.example.shadow-cli.plist"
+            cli_duplicate.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.shadow-cli",
+                        "ProgramArguments": [
+                            "/usr/local/bin/shadow",
+                            "brief",
+                            "run",
+                            "--scheduled-trigger",
+                        ],
+                        "StartCalendarInterval": {"Hour": 8, "Minute": 0},
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+            unrelated = agents / "com.example.unrelated.plist"
+            unrelated.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.example.unrelated",
+                        "ProgramArguments": ["/bin/echo", "--scheduled-trigger"],
+                    },
+                    fmt=plistlib.FMT_XML,
+                )
+            )
+
+            with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
+                brief, "_host_timezone_name", return_value="America/New_York"
+            ), mock.patch.object(
+                brief,
+                "_run",
+                return_value=subprocess.CompletedProcess([], 0, "loaded", ""),
+            ):
+                status = brief.schedule_status()
+
+        self.assertFalse(status["configuration_ok"])
+        self.assertIn("ProgramArguments", status["configuration_problems"])
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-copy.plist",
+            status["configuration_problems"],
+        )
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-cli.plist",
+            status["configuration_problems"],
+        )
+        self.assertNotIn(
+            "OtherScheduledBriefLaunchAgent:com.example.unrelated.plist",
+            status["configuration_problems"],
+        )
+
+    def test_schedule_status_reports_other_producer_even_when_canonical_plist_is_missing(self):
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            agents = home / "Library" / "LaunchAgents"
+            agents.mkdir(parents=True)
+            duplicate = agents / "com.example.shadow-copy.plist"
+            duplicate_doc = brief.launch_agent_plist(Path(brief.__file__).resolve())
+            duplicate_doc["Label"] = "com.example.shadow-copy"
+            duplicate.write_bytes(plistlib.dumps(duplicate_doc, fmt=plistlib.FMT_XML))
+
+            with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
+                brief, "_host_timezone_name", return_value="America/New_York"
+            ):
+                status = brief.schedule_status()
+
+        self.assertFalse(status["installed"])
+        self.assertIn(
+            "OtherScheduledBriefLaunchAgent:com.example.shadow-copy.plist",
+            status["configuration_problems"],
+        )
+
+    def test_schedule_install_command_requires_post_install_configuration_proof(self):
+        with mock.patch.object(
+            brief,
+            "schedule_install",
+            return_value={
+                "bootstrap_rc": 0,
+                "host_timezone_matches_report": True,
+                "configuration_ok": False,
+                "launchctl_ok": True,
+            },
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(brief.cmd_schedule(mock.Mock(install=True)), 1)
 
     def test_schedule_command_fails_closed_on_install_or_status_drift(self):
         with mock.patch.object(

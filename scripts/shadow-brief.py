@@ -11,6 +11,7 @@ never carries operational plans, mailbox receipts, or a second task queue.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import html
 import json
@@ -20,6 +21,7 @@ import re
 import shlex
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -53,6 +55,7 @@ EXPECTED_SUPERHUMAN_IDENTITIES = (
     "firstbitelabs@gmail.com",
 )
 SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v2"
+PRODUCER_PROVENANCE_SCHEMA = "shadow.brief-producer.v1"
 SUPERHUMAN_LOOKBACK_DAYS = 90
 SUPERHUMAN_PAGE_LIMIT = 50
 SUPERHUMAN_MAX_PAGES = 40
@@ -197,6 +200,70 @@ def _run(
         check=False,
         env=env,
     )
+
+
+def producer_provenance() -> dict[str, Any]:
+    """Bind a packet to the exact checked-in producer bytes that created it."""
+    script = Path(__file__).resolve()
+    try:
+        script_sha256 = hashlib.sha256(script.read_bytes()).hexdigest()
+    except OSError:
+        script_sha256 = ""
+    source_commit: str | None = None
+    source_matches_commit = False
+    root_result = _run(["git", "-C", str(script.parent), "rev-parse", "--show-toplevel"])
+    if root_result.returncode == 0:
+        root = Path((root_result.stdout or "").strip()).expanduser()
+        try:
+            relative = script.relative_to(root.resolve(strict=True))
+        except (OSError, ValueError):
+            relative = None
+        if relative is not None:
+            commit_result = _run(["git", "-C", str(root), "rev-parse", "HEAD"])
+            candidate = (commit_result.stdout or "").strip().lower()
+            if commit_result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40,64}", candidate):
+                source_commit = candidate
+                status_result = _run(
+                    [
+                        "git",
+                        "-C",
+                        str(root),
+                        "status",
+                        "--porcelain",
+                        "--untracked-files=all",
+                        "--",
+                        str(relative),
+                    ]
+                )
+                working_blob = _run(
+                    ["git", "-C", str(root), "hash-object", str(relative)]
+                )
+                committed_blob = _run(
+                    [
+                        "git",
+                        "-C",
+                        str(root),
+                        "rev-parse",
+                        f"HEAD:{relative.as_posix()}",
+                    ]
+                )
+                working_identity = (working_blob.stdout or "").strip().lower()
+                committed_identity = (committed_blob.stdout or "").strip().lower()
+                source_matches_commit = (
+                    status_result.returncode == 0
+                    and not (status_result.stdout or "").strip()
+                    and working_blob.returncode == 0
+                    and committed_blob.returncode == 0
+                    and bool(re.fullmatch(r"[0-9a-f]{40,64}", working_identity))
+                    and working_identity == committed_identity
+                    and len(script_sha256) == 64
+                )
+    return {
+        "schema": PRODUCER_PROVENANCE_SCHEMA,
+        "source_commit": source_commit,
+        "script_sha256": script_sha256,
+        "source_matches_commit": source_matches_commit,
+    }
 
 
 def collect_shadow_status_excerpt() -> str:
@@ -4014,6 +4081,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "vercel": vercel,
         "supabase": supabase,
         "superhuman_context": mail,
+        "producer": producer_provenance(),
         "snowcubes_context": snowcubes,
         "paint_health": paint_health,
         "analysis": analysis,
@@ -5211,14 +5279,41 @@ def _scheduled_window_sort_key(row: dict[str, Any]) -> datetime:
 
 
 def launch_trigger_proof() -> dict[str, Any]:
-    """Record whether this process was started directly by macOS launchd."""
+    """Bind this process to the one canonical launchd job, not just its parent."""
+    uid = os.getuid()
+    domain = f"gui/{uid}"
+    current_pid = os.getpid()
     parent_pid = os.getppid()
-    proc = _run(["ps", "-p", str(parent_pid), "-o", "comm="], timeout=5)
+    proc = _run(["/bin/ps", "-p", str(parent_pid), "-o", "comm="], timeout=5)
     parent_command = (proc.stdout or "").strip()
+    xpc_service_name = os.environ.get("XPC_SERVICE_NAME")
+    launchctl = _run(["/bin/launchctl", "print", f"{domain}/{LABEL}"], timeout=5)
+    pid_matches = re.findall(
+        r"(?m)^[ \t]*pid = ([0-9]+)[ \t]*$",
+        launchctl.stdout or "",
+    )
+    job_pid = int(pid_matches[0]) if len(pid_matches) == 1 else None
+    service_matches_label = xpc_service_name == LABEL
+    exact_job = bool(
+        launchctl.returncode == 0
+        and service_matches_label
+        and job_pid == current_pid
+    )
     return {
-        "is_launchd": proc.returncode == 0 and Path(parent_command).name == "launchd",
+        "is_launchd": bool(
+            proc.returncode == 0
+            and Path(parent_command).name == "launchd"
+            and exact_job
+        ),
         "parent_pid": parent_pid,
         "parent_command": parent_command or None,
+        "label": LABEL,
+        "domain": domain,
+        "current_pid": current_pid,
+        "job_pid": job_pid,
+        "xpc_service_name": xpc_service_name,
+        "service_matches_label": service_matches_label,
+        "exact_job": exact_job,
     }
 
 
@@ -5232,7 +5327,134 @@ def scheduled_trigger_is_authorized(
         and trigger_proof.get("is_launchd") is True
         and isinstance(trigger_proof.get("parent_pid"), int)
         and Path(str(trigger_proof.get("parent_command") or "")).name == "launchd"
+        and trigger_proof.get("label") == LABEL
+        and trigger_proof.get("domain") == f"gui/{os.getuid()}"
+        and trigger_proof.get("xpc_service_name") == LABEL
+        and trigger_proof.get("service_matches_label") is True
+        and trigger_proof.get("exact_job") is True
+        and isinstance(trigger_proof.get("current_pid"), int)
+        and trigger_proof.get("job_pid") == trigger_proof.get("current_pid")
     )
+
+
+def _valid_producer_provenance(value: Any) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and value.get("schema") == PRODUCER_PROVENANCE_SCHEMA
+        and re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("source_commit") or ""))
+        and re.fullmatch(r"[0-9a-f]{64}", str(value.get("script_sha256") or ""))
+        and value.get("source_matches_commit") is True
+    )
+
+
+def _superhuman_receipt_problems(mail: Any) -> list[str]:
+    problems: list[str] = []
+    if not isinstance(mail, dict):
+        return ["Superhuman context missing"]
+    if mail.get("schema") != SUPERHUMAN_CONTEXT_SCHEMA:
+        problems.append("Superhuman context schema mismatch")
+    if mail.get("expected_identities") != list(EXPECTED_SUPERHUMAN_IDENTITIES):
+        problems.append("expected Superhuman identity roster mismatch")
+    coverage = [row for row in (mail.get("coverage") or []) if isinstance(row, dict)]
+    expected_rows = [
+        row
+        for row in coverage
+        if str(row.get("acting_email") or "").strip().lower()
+        in EXPECTED_SUPERHUMAN_IDENTITIES
+    ]
+    covered = [str(row.get("acting_email") or "").strip().lower() for row in expected_rows]
+    if (
+        set(covered) != set(EXPECTED_SUPERHUMAN_IDENTITIES)
+        or len(covered) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
+        or any(row.get("expected") is not True for row in expected_rows)
+    ):
+        problems.append("expected Superhuman identity coverage mismatch")
+    unknown_coverage = bool(
+        len(expected_rows) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
+        or any(
+            row.get("linked") is not True or row.get("status") != "COMPLETE"
+            for row in expected_rows
+        )
+    )
+    dishonest_unknown = any(
+        (row.get("linked") is not True and row.get("status") != "UNKNOWN")
+        or (
+            row.get("status") == "UNKNOWN"
+            and (not row.get("problems") or not row.get("wake"))
+        )
+        for row in expected_rows
+    )
+    if dishonest_unknown:
+        problems.append("expected UNKNOWN Superhuman coverage lacks its exact problem and wake")
+    if unknown_coverage and (
+        mail.get("status") != "UNKNOWN"
+        or mail.get("complete") is not False
+        or mail.get("all_clear_allowed") is not False
+    ):
+        problems.append("UNKNOWN mail coverage claimed an all-clear")
+    obligation_keys = (
+        "forgotten_obligations",
+        "urgent_replies",
+        "waiting_replies",
+        "order_return_follow_up",
+    )
+    real_obligation = any(
+        signal.get("stable_provider_identity") is True
+        and signal.get("semantic_status") == "PROPOSAL"
+        and signal.get("thread_body_read") is True
+        and signal.get("proposal_only") is True
+        and bool(signal.get("action_tags"))
+        and bool(signal.get("signal_id"))
+        and bool(str(signal.get("subject") or "").strip())
+        and bool(signal.get("thread_id") or signal.get("last_message_id"))
+        and bool(signal.get("source_identities"))
+        and bool(str(signal.get("proposal") or "").strip())
+        for key in obligation_keys
+        for signal in (mail.get(key) or [])
+        if isinstance(signal, dict)
+    )
+    if not real_obligation:
+        problems.append("no real mail obligation or action proposal")
+    return problems
+
+
+def _scheduled_archive_stem(row: dict[str, Any]) -> str | None:
+    scheduled = _parse_aware_datetime(row.get("scheduled_for"))
+    if scheduled is None or not _is_report_timezone_timestamp(scheduled):
+        return None
+    return scheduled.astimezone(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+
+
+def _declared_archive_path(
+    evidence_dir: Path,
+    row: dict[str, Any],
+    *,
+    key: str,
+    suffix: str,
+) -> Path | None:
+    stem = _scheduled_archive_stem(row)
+    if stem is None:
+        return None
+    root = evidence_dir.resolve()
+    declared = Path(str(row.get(key) or ""))
+    if (
+        not declared.is_absolute()
+        or declared.name != f"brief-{stem}{suffix}"
+        or declared.parent.resolve() != root
+        or declared.is_symlink()
+    ):
+        return None
+    try:
+        identity = declared.lstat()
+    except OSError:
+        return None
+    if (
+        not stat.S_ISREG(identity.st_mode)
+        or stat.S_IMODE(identity.st_mode) != 0o400
+        or identity.st_nlink != 1
+    ):
+        return None
+    return declared
 
 
 def verify_window_receipts(
@@ -5260,9 +5482,17 @@ def verify_window_receipts(
         and row.get("slot") not in {"morning", "evening"}
     ]
     eligible = _eligible_natural_window_receipts(scheduled)
+    receipt_counts: dict[str, int] = {}
+    for row in eligible:
+        scheduled_for = str(row["scheduled_for"])
+        receipt_counts[scheduled_for] = receipt_counts.get(scheduled_for, 0) + 1
     latest_by_window = {str(row["scheduled_for"]): row for row in eligible}
     latest = sorted(latest_by_window.values(), key=_scheduled_window_sort_key)[-2:]
-    problems: list[str] = []
+    problems: list[str] = [
+        f"{scheduled_for}: duplicate natural-window receipts found"
+        for scheduled_for, count in sorted(receipt_counts.items())
+        if count > 1
+    ]
     if len(latest) != 2:
         problems.append(
             f"need two distinct current-schema natural 08:00/20:00 windows; found {len(latest)}"
@@ -5294,6 +5524,8 @@ def verify_window_receipts(
                 problems.append(f"{scheduled_for}: missing HTML hash")
             if len(str(row.get("json_sha256") or "")) != 64:
                 problems.append(f"{scheduled_for}: missing JSON hash")
+            if not _valid_producer_provenance(row.get("producer")):
+                problems.append(f"{scheduled_for}: runtime producer provenance missing")
             if notification.get("status") != "ok":
                 problems.append(f"{scheduled_for}: notification failed")
             if (
@@ -5341,27 +5573,39 @@ def verify_window_receipts(
         if all(sent_message_ids) and len(set(sent_message_ids)) != len(sent_message_ids):
             problems.append("scheduled windows do not have distinct sent-message receipts")
         if evidence_dir is not None:
-            archives_by_hash: dict[str, Path] = {}
-            for archive in evidence_dir.glob("brief-*.html"):
-                try:
-                    archives_by_hash[hashlib.sha256(archive.read_bytes()).hexdigest()] = archive
-                except OSError:
-                    continue
-            json_archives_by_hash: dict[str, Path] = {}
-            for archive in evidence_dir.glob("brief-*.json"):
-                try:
-                    json_archives_by_hash[hashlib.sha256(archive.read_bytes()).hexdigest()] = archive
-                except OSError:
-                    continue
+            archive_pairs: list[tuple[Path, Path]] = []
             for row in latest:
                 scheduled_for = str(row["scheduled_for"])
-                archive = archives_by_hash.get(str(row.get("html_sha256") or ""))
+                archive = _declared_archive_path(
+                    evidence_dir,
+                    row,
+                    key="archive_html",
+                    suffix=".html",
+                )
                 if archive is None:
-                    problems.append(f"{scheduled_for}: no archived HTML matches receipt hash")
+                    problems.append(f"{scheduled_for}: declared archived HTML is invalid")
+                    continue
+                json_archive = _declared_archive_path(
+                    evidence_dir,
+                    row,
+                    key="archive_json",
+                    suffix=".json",
+                )
+                if json_archive is None:
+                    problems.append(f"{scheduled_for}: declared archived JSON is invalid")
+                    continue
+                archive_pairs.append((archive, json_archive))
+                try:
+                    html_bytes = archive.read_bytes()
+                except OSError:
+                    problems.append(f"{scheduled_for}: archived HTML unreadable")
+                    continue
+                if hashlib.sha256(html_bytes).hexdigest() != row.get("html_sha256"):
+                    problems.append(f"{scheduled_for}: declared archived HTML hash mismatch")
                     continue
                 try:
-                    rendered = archive.read_text(encoding="utf-8")
-                except OSError:
+                    rendered = html_bytes.decode("utf-8")
+                except UnicodeDecodeError:
                     problems.append(f"{scheduled_for}: archived HTML unreadable")
                     continue
                 if f"board rev {row.get('board_revision')}" not in rendered:
@@ -5385,13 +5629,21 @@ def verify_window_receipts(
                 )
                 if any(marker not in rendered for marker in required_html):
                     problems.append(f"{scheduled_for}: archived HTML missing report structure")
-                json_archive = json_archives_by_hash.get(str(row.get("json_sha256") or ""))
-                if json_archive is None:
-                    problems.append(f"{scheduled_for}: no archived JSON matches receipt hash")
+                if rendered.count("<h2>Mail and calendar coverage</h2>") != 1:
+                    problems.append(
+                        f"{scheduled_for}: archived HTML must contain exactly one Mail and calendar coverage section"
+                    )
+                try:
+                    json_bytes = json_archive.read_bytes()
+                except OSError:
+                    problems.append(f"{scheduled_for}: archived JSON unreadable")
+                    continue
+                if hashlib.sha256(json_bytes).hexdigest() != row.get("json_sha256"):
+                    problems.append(f"{scheduled_for}: declared archived JSON hash mismatch")
                     continue
                 try:
-                    packet = json.loads(json_archive.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
+                    packet = json.loads(json_bytes.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
                     problems.append(f"{scheduled_for}: archived JSON unreadable")
                     continue
                 if packet.get("generated_at") != row.get("generated_at"):
@@ -5406,6 +5658,21 @@ def verify_window_receipts(
                     problems.append(f"{scheduled_for}: board snapshot consistency missing")
                 if (packet.get("paint_health") or {}) != (row.get("paint_health") or {}):
                     problems.append(f"{scheduled_for}: archived JSON paint health mismatch")
+                packet_producer = packet.get("producer")
+                if (
+                    not _valid_producer_provenance(packet_producer)
+                    or packet_producer != row.get("producer")
+                ):
+                    problems.append(f"{scheduled_for}: archived producer provenance mismatch")
+                problems.extend(
+                    f"{scheduled_for}: {problem}"
+                    for problem in _superhuman_receipt_problems(
+                        packet.get("superhuman_context")
+                    )
+                )
+            flattened = [path for pair in archive_pairs for path in pair]
+            if len(flattened) != len(set(flattened)):
+                problems.append("natural windows do not have distinct immutable archives")
     return {
         "ok": not problems,
         "problems": problems,
@@ -6235,9 +6502,59 @@ def schedule_configuration_recovery(problems: list[str]) -> str:
         steps.append(
             f"set the macOS system timezone to {REPORT_TIMEZONE_NAME}, then run schedule --status"
         )
-    if any(problem != "HostTimezone" for problem in problems):
+    duplicate_agents = [
+        problem.split(":", 1)[1]
+        for problem in problems
+        if problem.startswith("OtherScheduledBriefLaunchAgent:")
+    ]
+    if duplicate_agents:
+        steps.append(
+            "bootout and remove the other scheduled brief LaunchAgent plist(s) "
+            + ", ".join(duplicate_agents)
+            + ", then run schedule --status"
+        )
+    if any(
+        problem != "HostTimezone"
+        and not problem.startswith("OtherScheduledBriefLaunchAgent:")
+        for problem in problems
+    ):
         steps.append("run schedule --install, then run schedule --status")
     return "; ".join(steps)
+
+
+def _targets_scheduled_brief(doc: dict[str, Any]) -> bool:
+    arguments = doc.get("ProgramArguments")
+    if not isinstance(arguments, list):
+        return False
+    values = [str(value) for value in arguments]
+    if "--scheduled-trigger" not in values:
+        return False
+    direct_script = any(Path(value).name == "shadow-brief.py" for value in values)
+    shadow_cli = bool(
+        values
+        and Path(values[0]).name == "shadow"
+        and len(values) >= 3
+        and values[1:3] == ["brief", "run"]
+    )
+    return direct_script or shadow_cli
+
+
+def _other_scheduled_brief_agents(canonical: Path) -> list[Path]:
+    agents = canonical.parent
+    if not agents.is_dir():
+        return []
+    found: list[Path] = []
+    for candidate in sorted(agents.glob("*.plist")):
+        if candidate == canonical:
+            continue
+        try:
+            with candidate.open("rb") as handle:
+                doc = plistlib.load(handle)
+        except (OSError, plistlib.InvalidFileException):
+            continue
+        if isinstance(doc, dict) and _targets_scheduled_brief(doc):
+            found.append(candidate)
+    return found
 
 
 def schedule_install() -> dict[str, Any]:
@@ -6251,8 +6568,9 @@ def schedule_install() -> dict[str, Any]:
     tmp.write_bytes(rendered)
     tmp.replace(plist_path)
     uid = os.getuid()
-    _run(["launchctl", "bootout", f"gui/{uid}", str(plist_path)])
-    load = _run(["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)])
+    _run(["/bin/launchctl", "bootout", f"gui/{uid}", str(plist_path)])
+    load = _run(["/bin/launchctl", "bootstrap", f"gui/{uid}", str(plist_path)])
+    status = schedule_status()
     return {
         "plist": str(plist_path),
         "bootstrap_rc": load.returncode,
@@ -6261,11 +6579,19 @@ def schedule_install() -> dict[str, Any]:
         "report_timezone": REPORT_TIMEZONE_NAME,
         "host_timezone": _host_timezone_name(),
         "host_timezone_matches_report": host_timezone_matches_report(),
+        "configuration_ok": status.get("configuration_ok") is True,
+        "configuration_problems": status.get("configuration_problems") or [],
+        "launchctl_ok": status.get("launchctl_ok") is True,
+        "post_install_status": status,
     }
 
 
 def schedule_status() -> dict[str, Any]:
     plist_path = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    duplicate_problems = [
+        f"OtherScheduledBriefLaunchAgent:{path.name}"
+        for path in _other_scheduled_brief_agents(plist_path)
+    ]
     if not plist_path.is_file():
         host_timezone = _host_timezone_name()
         host_timezone_ok = host_timezone_matches_report(host_timezone)
@@ -6273,7 +6599,10 @@ def schedule_status() -> dict[str, Any]:
             "installed": False,
             "plist": str(plist_path),
             "configuration_ok": False,
-            "configuration_problems": [] if host_timezone_ok else ["HostTimezone"],
+            "configuration_problems": (
+                ([] if host_timezone_ok else ["HostTimezone"])
+                + duplicate_problems
+            ),
             "report_timezone": REPORT_TIMEZONE_NAME,
             "host_timezone": host_timezone,
             "host_timezone_matches_report": host_timezone_ok,
@@ -6281,14 +6610,15 @@ def schedule_status() -> dict[str, Any]:
         }
     with plist_path.open("rb") as fh:
         doc = plistlib.load(fh)
-    arguments = doc.get("ProgramArguments") or []
-    program = Path(arguments[1]) if len(arguments) > 1 else Path(__file__).resolve()
+    program = Path(__file__).resolve()
     expected = launch_agent_plist(program)
-    configuration_problems = schedule_configuration_problems(doc, expected)
+    configuration_problems = (
+        schedule_configuration_problems(doc, expected) + duplicate_problems
+    )
     if not program.is_file():
         configuration_problems.append("ProgramFile")
     uid = os.getuid()
-    print_out = _run(["launchctl", "print", f"gui/{uid}/{LABEL}"])
+    print_out = _run(["/bin/launchctl", "print", f"gui/{uid}/{LABEL}"])
     return {
         "installed": True,
         "plist": str(plist_path),
@@ -6390,9 +6720,107 @@ def run_exit_code(
     return 0 if receipt.get("status") in {"ok", "dry-run", "skipped"} else 1
 
 
+def _acquire_scheduled_run_lock() -> Any | None:
+    """Take the one nonblocking lock before any scheduled provider collection."""
+    path = LOG_DIR / "scheduled-run.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    identity = os.fstat(descriptor)
+    try:
+        named_identity = os.lstat(path)
+    except OSError:
+        os.close(descriptor)
+        raise
+    if (
+        not stat.S_ISREG(identity.st_mode)
+        or identity.st_uid != os.getuid()
+        or identity.st_nlink != 1
+        or (identity.st_dev, identity.st_ino)
+        != (named_identity.st_dev, named_identity.st_ino)
+    ):
+        os.close(descriptor)
+        raise PermissionError(f"unsafe scheduled run lock identity: {path}")
+    os.fchmod(descriptor, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(descriptor)
+        return None
+    try:
+        return os.fdopen(descriptor, "r+", encoding="utf-8")
+    except BaseException:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+        raise
+
+
+def _release_scheduled_run_lock(handle: Any | None) -> None:
+    if handle is None:
+        return
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _place_private_archive(path: Path, content: bytes) -> None:
+    """Publish complete immutable bytes once; an existing name is never replaced."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    temporary: Path | None = None
+    for nonce in range(100):
+        candidate = path.parent / f".{path.name}.{os.getpid()}.{nonce}.tmp"
+        try:
+            descriptor = os.open(candidate, flags, 0o600)
+        except FileExistsError:
+            continue
+        temporary = candidate
+        break
+    if descriptor is None or temporary is None:
+        raise FileExistsError(f"could not reserve a private archive temporary for {path}")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            os.fchmod(handle.fileno(), 0o400)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            raise FileExistsError(f"immutable archive already exists: {path}") from None
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+        _fsync_directory(path.parent)
+
+
+def _archive_stamp(
+    *,
+    scheduled_trigger: bool,
+    trigger_window: dict[str, Any],
+) -> str:
+    if scheduled_trigger:
+        scheduled = _parse_aware_datetime(trigger_window.get("scheduled_for"))
+        if scheduled is None or not _is_report_timezone_timestamp(scheduled):
+            raise ValueError("scheduled archive has no canonical report window")
+        return scheduled.astimezone(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+    return datetime.now(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     trigger_proof: dict[str, Any] = {}
-    trigger_window: dict[str, Any] = {}
     if args.scheduled_trigger:
         trigger_proof = launch_trigger_proof()
         if not scheduled_trigger_is_authorized(True, trigger_proof):
@@ -6410,6 +6838,108 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 2
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    lock_handle = None
+    if args.scheduled_trigger:
+        try:
+            lock_handle = _acquire_scheduled_run_lock()
+        except OSError as exc:
+            print(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "error": f"scheduled run lock unavailable: {exc}",
+                        "trigger_proof": trigger_proof,
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 3
+        if lock_handle is None:
+            print(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "error": "another scheduled brief invocation holds the run lock",
+                        "trigger_proof": trigger_proof,
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 3
+    try:
+        return _cmd_run_locked(args, trigger_proof)
+    finally:
+        _release_scheduled_run_lock(lock_handle)
+
+
+def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> int:
+    trigger_window: dict[str, Any] = {}
+    if args.scheduled_trigger:
+        trigger_window = scheduled_window(datetime.now(REPORT_TIMEZONE))
+        if not trigger_window.get("on_schedule"):
+            if not host_timezone_matches_report():
+                reason = (
+                    "the host timezone does not match "
+                    f"{REPORT_TIMEZONE}, so the launchd 08:00/20:00 calendar does not "
+                    "land on the report windows; set the macOS system timezone to "
+                    f"{REPORT_TIMEZONE_NAME}, then run schedule --status"
+                )
+            else:
+                reason = "scheduled trigger is outside the 08:00/20:00 freshness window"
+            print(
+                json.dumps(
+                    {
+                        "schema": WINDOW_RECEIPT_SCHEMA,
+                        "status": "blocked",
+                        "trigger_proof": trigger_proof,
+                        "scheduled_window": trigger_window,
+                        "wake": f"{reason}; do not collect, notify, or send",
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 3
+        stamp = _archive_stamp(
+            scheduled_trigger=True,
+            trigger_window=trigger_window,
+        )
+        archive_html_path = EVIDENCE_DIR / f"brief-{stamp}.html"
+        archive_json_path = EVIDENCE_DIR / f"brief-{stamp}.json"
+        existing_window = any(
+            row.get("schema") == WINDOW_RECEIPT_SCHEMA
+            and row.get("trigger") == "launchd-calendar"
+            and row.get("scheduled_for") == trigger_window.get("scheduled_for")
+            for row in _read_jsonl(WINDOW_LOG)
+        )
+        archive_barrier = os.path.lexists(archive_html_path) or os.path.lexists(
+            archive_json_path
+        )
+        if existing_window or archive_barrier:
+            reason = (
+                "this scheduled window already has a durable receipt"
+                if existing_window
+                else "this scheduled window already has an immutable archive barrier"
+            )
+            print(
+                json.dumps(
+                    {
+                        "schema": WINDOW_RECEIPT_SCHEMA,
+                        "status": "blocked",
+                        "trigger_proof": trigger_proof,
+                        "scheduled_window": trigger_window,
+                        "scheduled_for": trigger_window.get("scheduled_for"),
+                        "archive_html": str(archive_html_path),
+                        "archive_json": str(archive_json_path),
+                        "wake": f"{reason}; do not collect, notify, send, overwrite, or retry",
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 3
     packet = collect_packet(slot=args.slot)
     board_snapshot = ((packet.get("authority") or {}).get("board_snapshot") or {})
     if board_snapshot.get("consistent") is not True:
@@ -6418,6 +6948,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             "status": "blocked",
             "generated_at": packet.get("generated_at"),
             "board_revision": (packet.get("board") or {}).get("revision"),
+            "producer": packet.get("producer"),
             "trigger_proof": trigger_proof,
             "board_snapshot": board_snapshot,
             "wake": (
@@ -6432,35 +6963,43 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         return 1
     if args.scheduled_trigger:
-        try:
-            trigger_window = scheduled_window(
-                datetime.fromisoformat(str(packet.get("generated_at") or ""))
-            )
-        except ValueError:
-            trigger_window = {"on_schedule": False, "scheduled_for": None}
+        scheduled_at = _parse_aware_datetime(trigger_window.get("scheduled_for"))
+        generated_at = _parse_aware_datetime(packet.get("generated_at"))
+        if (
+            scheduled_at is None
+            or generated_at is None
+            or not scheduled_at <= generated_at <= scheduled_at + timedelta(minutes=30)
+        ):
+            summary = {
+                "schema": WINDOW_RECEIPT_SCHEMA,
+                "status": "blocked",
+                "generated_at": packet.get("generated_at"),
+                "board_revision": (packet.get("board") or {}).get("revision"),
+                "producer": packet.get("producer"),
+                "trigger_proof": trigger_proof,
+                "scheduled_window": trigger_window,
+                "scheduled_for": trigger_window.get("scheduled_for"),
+                "wake": (
+                    "collection did not finish within the admitted scheduled window; "
+                    "do not notify or send, and wait for the next natural window"
+                ),
+            }
+            print(json.dumps(summary, indent=2), file=sys.stderr)
+            return 3
         existing_window = any(
             row.get("schema") == WINDOW_RECEIPT_SCHEMA
             and row.get("trigger") == "launchd-calendar"
             and row.get("scheduled_for") == trigger_window.get("scheduled_for")
             for row in _read_jsonl(WINDOW_LOG)
         )
-        if not trigger_window.get("on_schedule") or existing_window:
-            if trigger_window.get("on_schedule"):
-                reason = "this scheduled window already has a durable receipt"
-            elif not host_timezone_matches_report():
-                reason = (
-                    "the host timezone does not match "
-                    f"{REPORT_TIMEZONE}, so the launchd 08:00/20:00 calendar does not "
-                    "land on the report windows; set the macOS system timezone to "
-                    f"{REPORT_TIMEZONE_NAME}, then run schedule --status"
-                )
-            else:
-                reason = "scheduled trigger is outside the 08:00/20:00 freshness window"
+        if existing_window:
+            reason = "this scheduled window already has a durable receipt"
             summary = {
                 "schema": WINDOW_RECEIPT_SCHEMA,
                 "status": "blocked",
                 "generated_at": packet.get("generated_at"),
                 "board_revision": (packet.get("board") or {}).get("revision"),
+                "producer": packet.get("producer"),
                 "trigger_proof": trigger_proof,
                 "scheduled_window": trigger_window,
                 "scheduled_for": trigger_window.get("scheduled_for"),
@@ -6474,12 +7013,43 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 3
     json_path = EVIDENCE_DIR / "latest.json"
     html_path = EVIDENCE_DIR / "latest.html"
-    stamp = datetime.now(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+    try:
+        stamp = _archive_stamp(
+            scheduled_trigger=args.scheduled_trigger,
+            trigger_window=trigger_window,
+        )
+    except ValueError as exc:
+        print(json.dumps({"status": "blocked", "error": str(exc)}, indent=2))
+        return 3
     write_packet(packet, json_path, html_path)
     archive_html_path = EVIDENCE_DIR / f"brief-{stamp}.html"
-    archive_html_path.write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
     archive_json_path = EVIDENCE_DIR / f"brief-{stamp}.json"
-    archive_json_path.write_bytes(json_path.read_bytes())
+    try:
+        _place_private_archive(archive_html_path, html_path.read_bytes())
+        _place_private_archive(archive_json_path, json_path.read_bytes())
+    except FileExistsError as exc:
+        summary = {
+            "schema": WINDOW_RECEIPT_SCHEMA,
+            "status": "blocked",
+            "generated_at": packet.get("generated_at"),
+            "board_revision": (packet.get("board") or {}).get("revision"),
+            "producer": packet.get("producer"),
+            "trigger_proof": trigger_proof,
+            "scheduled_window": trigger_window,
+            "scheduled_for": trigger_window.get("scheduled_for"),
+            "archive_html": str(archive_html_path),
+            "archive_json": str(archive_json_path),
+            "wake": (
+                f"{exc}; do not notify, send, overwrite, or retry this scheduled window; "
+                "inspect the immutable archive pair and scheduled-window ledger"
+            ),
+        }
+        print(json.dumps(summary, indent=2), file=sys.stderr)
+        (LOG_DIR / "last-run.json").write_text(
+            json.dumps(summary, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return 3
     subject = brief_subject(packet["slot"], packet["generated_at"])
     notification = macos_notify(
         "Shadow brief ready",
@@ -6488,7 +7058,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     receipt: dict[str, Any] = {"status": "skipped", "notes": "deliver not requested"}
     if args.deliver:
         receipt = deliver_superhuman(
-            html_path,
+            archive_html_path,
             subject=subject,
             dry_run=args.dry_run,
             send_authorized_self=args.send_authorized_self,
@@ -6500,12 +7070,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         "scheduled_for": trigger_window.get("scheduled_for"),
         "generated_at": packet["generated_at"],
         "board_revision": packet.get("board", {}).get("revision"),
+        "producer": packet.get("producer"),
         "json": str(json_path),
         "html": str(html_path),
         "archive_html": str(archive_html_path),
         "archive_json": str(archive_json_path),
-        "html_sha256": hashlib.sha256(html_path.read_bytes()).hexdigest(),
-        "json_sha256": hashlib.sha256(json_path.read_bytes()).hexdigest(),
+        "html_sha256": hashlib.sha256(archive_html_path.read_bytes()).hexdigest(),
+        "json_sha256": hashlib.sha256(archive_json_path.read_bytes()).hexdigest(),
         "notification": notification,
         "paint_health": packet.get("paint_health") or {},
         "receipt": receipt,
@@ -6550,6 +7121,8 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         return 0 if (
             installed.get("bootstrap_rc") == 0
             and installed.get("host_timezone_matches_report") is True
+            and installed.get("configuration_ok") is True
+            and installed.get("launchctl_ok") is True
         ) else 1
     status = schedule_status()
     print(json.dumps(status, indent=2))
