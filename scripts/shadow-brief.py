@@ -2063,7 +2063,7 @@ def build_chief_of_staff_analysis(
     }
 
     etas: list[dict[str, str]] = []
-    now = datetime.now().astimezone()
+    now = datetime.now(REPORT_TIMEZONE)
     for entity, cp in claimed[:5]:
         claim = claim_rows.get(_claim_key_for(entity, cp), {})
         checkpoint = readable_outcome(cp.get("title"))
@@ -2171,7 +2171,7 @@ def build_chief_of_staff_analysis(
 
 
 def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
-    started = datetime.now().astimezone()
+    started = datetime.now(REPORT_TIMEZONE)
     if slot is None:
         slot = "morning" if started.hour < 14 else "evening"
     root = portfolio_root()
@@ -2246,7 +2246,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         mail=mail,
         source_health=paint_health,
     )
-    generated = datetime.now().astimezone()
+    generated = datetime.now(REPORT_TIMEZONE)
     packet = {
         "generated_at": generated.isoformat(timespec="seconds"),
         "slot": slot,
@@ -2287,7 +2287,7 @@ def human_datetime(value: Any) -> str:
     except ValueError:
         return raw
     if parsed.tzinfo is not None:
-        parsed = parsed.astimezone()
+        parsed = parsed.astimezone(REPORT_TIMEZONE)
     month_day = parsed.strftime("%b %d").replace(" 0", " ")
     hour = parsed.strftime("%I").lstrip("0") or "12"
     return f"{month_day} · {hour}:{parsed.strftime('%M')} {parsed.strftime('%p')}"
@@ -3164,7 +3164,12 @@ def macos_notify(title: str, body: str) -> dict[str, Any]:
 
 
 def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
-    current = now or datetime.now().astimezone()
+    # Verification enforces the report timezone, so the producer has to record it:
+    # a run started on a host in another timezone still stamps America/New_York.
+    current = now or datetime.now(REPORT_TIMEZONE)
+    if current.tzinfo is None or current.utcoffset() is None:
+        return {"on_schedule": False, "slot": None, "scheduled_for": None}
+    current = current.astimezone(REPORT_TIMEZONE)
     on_schedule = current.hour in SLOT_HOURS and 0 <= current.minute <= 30
     scheduled = current.replace(minute=0, second=0, microsecond=0) if on_schedule else None
     return {
@@ -4236,9 +4241,24 @@ def launch_agent_plist(program: Path) -> dict[str, Any]:
     }
 
 
+def host_timezone_matches_report(now: datetime | None = None) -> bool:
+    """launchd calendar intervals fire in host-local time.
+
+    The 08:00/20:00 slots only land on the enforced report timezone while the host
+    offset agrees with America/New_York, so a host in another timezone is drift the
+    operator has to see rather than silently missing windows.
+    """
+    current = now or datetime.now().astimezone()
+    if current.tzinfo is None or current.utcoffset() is None:
+        return False
+    return current.utcoffset() == current.astimezone(REPORT_TIMEZONE).utcoffset()
+
+
 def schedule_configuration_problems(
     installed: dict[str, Any],
     expected: dict[str, Any],
+    *,
+    now: datetime | None = None,
 ) -> list[str]:
     keys = (
         "Label",
@@ -4249,7 +4269,10 @@ def schedule_configuration_problems(
         "StandardErrorPath",
         "EnvironmentVariables",
     )
-    return [key for key in keys if installed.get(key) != expected.get(key)]
+    problems = [key for key in keys if installed.get(key) != expected.get(key)]
+    if not host_timezone_matches_report(now):
+        problems.append("HostTimezone")
+    return problems
 
 
 def schedule_install() -> dict[str, Any]:
@@ -4270,6 +4293,8 @@ def schedule_install() -> dict[str, Any]:
         "bootstrap_rc": load.returncode,
         "bootstrap_err": (load.stderr or "")[:300],
         "hours": list(SLOT_HOURS),
+        "report_timezone": str(REPORT_TIMEZONE),
+        "host_timezone_matches_report": host_timezone_matches_report(),
     }
 
 
@@ -4295,6 +4320,8 @@ def schedule_status() -> dict[str, Any]:
         "EnvironmentVariables": doc.get("EnvironmentVariables"),
         "configuration_ok": not configuration_problems,
         "configuration_problems": configuration_problems,
+        "report_timezone": str(REPORT_TIMEZONE),
+        "host_timezone_matches_report": host_timezone_matches_report(),
         "launchctl_rc": print_out.returncode,
         "launchctl_ok": print_out.returncode == 0,
     }
@@ -4438,11 +4465,17 @@ def cmd_run(args: argparse.Namespace) -> int:
             for row in _read_jsonl(WINDOW_LOG)
         )
         if not trigger_window.get("on_schedule") or existing_window:
-            reason = (
-                "scheduled trigger is outside the 08:00/20:00 freshness window"
-                if not trigger_window.get("on_schedule")
-                else "this scheduled window already has a durable receipt"
-            )
+            if trigger_window.get("on_schedule"):
+                reason = "this scheduled window already has a durable receipt"
+            elif not host_timezone_matches_report():
+                reason = (
+                    "the host timezone does not match "
+                    f"{REPORT_TIMEZONE}, so the launchd 08:00/20:00 calendar does not "
+                    "land on the report windows; run schedule --install after setting "
+                    "the host timezone"
+                )
+            else:
+                reason = "scheduled trigger is outside the 08:00/20:00 freshness window"
             summary = {
                 "schema": WINDOW_RECEIPT_SCHEMA,
                 "status": "blocked",
@@ -4461,7 +4494,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 3
     json_path = EVIDENCE_DIR / "latest.json"
     html_path = EVIDENCE_DIR / "latest.html"
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
     write_packet(packet, json_path, html_path)
     archive_html_path = EVIDENCE_DIR / f"brief-{stamp}.html"
     archive_html_path.write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
@@ -4514,7 +4547,7 @@ def cmd_deliver(args: argparse.Namespace) -> int:
         return 2
     packet_path = EVIDENCE_DIR / "latest.json"
     slot = "brief"
-    when = datetime.now().astimezone().isoformat(timespec="seconds")
+    when = datetime.now(REPORT_TIMEZONE).isoformat(timespec="seconds")
     if packet_path.is_file():
         packet = json.loads(packet_path.read_text(encoding="utf-8"))
         slot = packet.get("slot") or slot

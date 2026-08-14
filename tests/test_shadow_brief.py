@@ -800,6 +800,72 @@ class AuthorityScopeTests(unittest.TestCase):
             mailbox_result["problems"],
         )
 
+    def test_producer_records_report_timezone_from_any_host_timezone(self):
+        window = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T05:10:00-07:00")
+        )
+
+        self.assertTrue(window["on_schedule"])
+        self.assertEqual(window["slot"], "morning")
+        self.assertEqual(window["scheduled_for"], "2026-08-12T08:00:00-04:00")
+        self.assertIsNotNone(
+            brief._scheduled_window_instant({"scheduled_for": window["scheduled_for"]})
+        )
+
+        winter = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-11-02T17:00:00-08:00")
+        )
+        self.assertTrue(winter["on_schedule"])
+        self.assertEqual(winter["slot"], "evening")
+        self.assertEqual(winter["scheduled_for"], "2026-11-02T20:00:00-05:00")
+
+        off_slot = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T08:00:00-07:00")
+        )
+        self.assertFalse(off_slot["on_schedule"])
+        self.assertIsNone(off_slot["scheduled_for"])
+
+        naive = brief.scheduled_window(
+            brief.datetime.fromisoformat("2026-08-12T08:00:00")
+        )
+        self.assertFalse(naive["on_schedule"])
+        self.assertIsNone(naive["scheduled_for"])
+
+    def test_schedule_reports_host_timezone_drift_from_report_timezone(self):
+        expected = brief.launch_agent_plist(Path("/opt/shadow/scripts/shadow-brief.py"))
+
+        self.assertEqual(
+            brief.schedule_configuration_problems(
+                expected,
+                expected,
+                now=brief.datetime.fromisoformat("2026-08-12T08:00:00-04:00"),
+            ),
+            [],
+        )
+        self.assertEqual(
+            brief.schedule_configuration_problems(
+                expected,
+                expected,
+                now=brief.datetime.fromisoformat("2026-08-12T08:00:00-07:00"),
+            ),
+            ["HostTimezone"],
+        )
+        self.assertTrue(
+            brief.host_timezone_matches_report(
+                brief.datetime.fromisoformat("2026-11-02T20:00:00-05:00")
+            )
+        )
+        self.assertFalse(
+            brief.host_timezone_matches_report(
+                brief.datetime.fromisoformat("2026-11-02T20:00:00-04:00")
+            )
+        )
+        self.assertFalse(
+            brief.host_timezone_matches_report(
+                brief.datetime.fromisoformat("2026-11-02T20:00:00")
+            )
+        )
+
     def test_verify_windows_reads_mixed_slot_mailbox_pair(self):
         evening = "2026-08-13T20:00:00-04:00"
         morning = "2026-08-14T08:00:00-04:00"
