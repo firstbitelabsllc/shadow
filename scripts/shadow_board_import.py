@@ -551,6 +551,19 @@ def reconcile_portfolio(
                 f"shadow: {source_path} quarantined from board import: {exc}",
                 file=sys.stderr,
             )
+            seeds.append(
+                {
+                    "identity": identity,
+                    "plan": str(source_path),
+                    "project": source_path.parent.name,
+                    "priority": "3",
+                    "candidates": [],
+                    "rows": [],
+                    "expected_size": None,
+                    "expected_sha256": None,
+                    "witnesses": [],
+                }
+            )
             continue
         plan = amp._parse(text)
         if not plan["brief"].get("Project") or not plan["brief"].get("Mode"):

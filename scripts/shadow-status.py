@@ -454,17 +454,19 @@ def board_records(payload: dict) -> list[dict]:
         record["entity"] = entity["id"]
         record["board_resume"] = entity["resume"]
         record["priority"] = str(priorities[project])
-        budget = _board.hot_plan_budget(text.encode("utf-8"))
-        if budget["exceeded"]:
-            # A quarantined over-budget plan renders, but never as healthy:
-            # the row is broken and the resume line carries the working remedy.
+        unclean = _amp.unclean_note(parsed) if parsed is not None else None
+        if unclean:
+            # A quarantined unclean plan renders, but never as healthy: the
+            # row is broken and the resume line carries the reason. Budget
+            # breaches additionally name the remedy that actually works.
             record["broken"] = True
-            record["resume"] = (
-                "UNHEALTHY — hot plan budget exceeded ("
-                + ", ".join(budget["exceeded"])
-                + "); "
-                + _board.hot_plan_budget_remedy(text.encode("utf-8"))
+            budget = _board.hot_plan_budget(text.encode("utf-8"))
+            remedy = (
+                "; " + _board.hot_plan_budget_remedy(text.encode("utf-8"))
+                if budget["exceeded"]
+                else ""
             )
+            record["resume"] = "UNHEALTHY — " + unclean + remedy
         candidates = _amp._candidate_ids(parsed) if parsed is not None else []
         rows = {
             row["id"]: row

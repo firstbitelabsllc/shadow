@@ -460,10 +460,10 @@ def hot_plan_budget_remedy(content: bytes) -> str:
     try:
         text = content.decode("utf-8")
     except UnicodeError:
-        return "no archive-eligible milestone; run `shadow plan migrate`"
+        return "no archive-eligible milestone; trim or relocate plan text (migration is lossless and does not shrink it)"
     if _has_archive_eligible_milestone(text):
         return "archive one proven milestone with shadow lifecycle"
-    return "no archive-eligible milestone; run `shadow plan migrate`"
+    return "no archive-eligible milestone; trim or relocate plan text (migration is lossless and does not shrink it)"
 
 
 def assert_hot_plan_budget(content: bytes) -> dict:
@@ -1636,7 +1636,9 @@ def reconcile(
                 # unhealthy and every claim and plan-write path still
                 # enforces the budget at its own gate.
                 print(
-                    f"shadow: {seed['plan']} enters the board over budget: {exc}",
+                    "shadow: local plan "
+                    + Path(seed["plan"]).name
+                    + " enters the board over its hot-plan budget; run shadow lint",
                     file=sys.stderr,
                 )
             if seed["expected_size"] is not None and (

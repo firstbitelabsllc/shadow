@@ -176,10 +176,10 @@ class OverBudgetRemedyNamesMigrateWhenNothingArchives(unittest.TestCase):
         self.assertEqual(len(oversized.encode("utf-8")), HOT_PLAN_LIMIT + 1)
         findings = [item for item in lint.lint_plan(oversized) if item["check"] == "HOT-PLAN-BYTES"]
         self.assertTrue(findings)
-        self.assertIn("shadow plan migrate", findings[0]["detail"])
+        self.assertIn("trim or relocate plan text", findings[0]["detail"])
         with self.assertRaises(board.BoardError) as ctx:
             board.assert_hot_plan_budget(oversized.encode("utf-8"))
-        self.assertIn("shadow plan migrate", str(ctx.exception))
+        self.assertIn("trim or relocate plan text", str(ctx.exception))
         self.assertNotIn("shadow lifecycle", str(ctx.exception))
 
     def test_lint_keeps_lifecycle_when_a_milestone_is_archive_eligible(self) -> None:
@@ -192,7 +192,7 @@ class OverBudgetRemedyNamesMigrateWhenNothingArchives(unittest.TestCase):
         ]
         self.assertTrue(findings)
         self.assertIn("shadow lifecycle", findings[0]["detail"])
-        self.assertNotIn("shadow plan migrate", findings[0]["detail"])
+        self.assertNotIn("trim or relocate plan text", findings[0]["detail"])
 
 
 if __name__ == "__main__":
