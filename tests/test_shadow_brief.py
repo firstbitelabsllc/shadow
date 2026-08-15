@@ -3408,6 +3408,125 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(opportunity["mail"]["age_hours"], 1.0)
         self.assertEqual(opportunity["shopify"]["age_hours"], 0.5)
 
+    def test_customer_thread_evidence_requires_exact_customer_context(self):
+        self.assertTrue(
+            brief._snowcubes_customer_subject_candidate(
+                "[Snowcubes] Order TSC01615 placed by Alice"
+            )
+        )
+        self.assertFalse(
+            brief._snowcubes_customer_subject_candidate(
+                "MOO | Order 0030030497 | Confirmed"
+            )
+        )
+        evidence = brief._snowcubes_customer_thread_evidence(
+            subject="New customer message about Snowcubes order TSC01615",
+            messages=[
+                {
+                    "from": "store+58006470774@t.shopifyemail.com",
+                    "to": ["contact@trysnowcubes.com"],
+                    "body": "New customer message about TSC01615",
+                },
+                {
+                    "from": "contact@trysnowcubes.com",
+                    "to": ["alice@example.com"],
+                    "body": "Thanks for your first Snowcubes order.",
+                },
+            ],
+            owned_identities={
+                brief.SNOWCUBES_BUSINESS_MAIL,
+                "contact@trysnowcubes.com",
+            },
+        )
+
+        self.assertTrue(evidence["customer_candidate"])
+        self.assertEqual(evidence["shopify_order_name"], "TSC01615")
+        self.assertEqual(evidence["customer_email"], "alice@example.com")
+        self.assertTrue(evidence["customer_email_verified"])
+        self.assertEqual(
+            brief._snowcubes_customer_thread_evidence(
+                subject="MOO | Order 0030030497 | Confirmed",
+                messages=[
+                    {
+                        "from": "orders@moo.com",
+                        "to": [brief.SNOWCUBES_BUSINESS_MAIL],
+                        "body": "Your packaging order is confirmed.",
+                    }
+                ],
+                owned_identities={brief.SNOWCUBES_BUSINESS_MAIL},
+            ),
+            {"customer_candidate": False},
+        )
+
+    def test_customer_opportunity_excludes_unrelated_mail_from_exact_join(self):
+        customer_signal = {
+            "thread_id": "thread-customer",
+            "last_message_id": "message-customer",
+            "stable_provider_identity": True,
+            "source_identities": [brief.SNOWCUBES_BUSINESS_MAIL],
+            "thread_body_read": True,
+            "semantic_status": "PROPOSAL",
+            "confidence": "MEDIUM",
+            "verified_message_at": "2026-08-15T12:00:00Z",
+            "subject": "New customer message about TSC01615",
+            "action_tags": ["reply", "proactive"],
+            "waiting_direction": (
+                "latest visible message is inbound; Leo is not waiting on them"
+            ),
+            "customer_candidate": True,
+            "customer_email": "alice@example.com",
+            "customer_email_verified": True,
+        }
+        unrelated_signal = {
+            "thread_id": "thread-packaging-vendor",
+            "last_message_id": "message-packaging-vendor",
+            "stable_provider_identity": True,
+            "source_identities": [brief.SNOWCUBES_BUSINESS_MAIL],
+            "thread_body_read": True,
+            "semantic_status": "PROPOSAL",
+            "confidence": "MEDIUM",
+            "verified_message_at": "2026-08-15T12:05:00Z",
+            "subject": "MOO packaging order confirmed",
+            "action_tags": ["order_return"],
+        }
+        result = brief.build_snowcubes_customer_opportunities(
+            mail={
+                "available": True,
+                "complete": True,
+                "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                "signals": [unrelated_signal, customer_signal],
+            },
+            shopify={
+                "available": True,
+                "complete": True,
+                "store": brief.SNOWCUBES_SHOPIFY_STORE,
+                "observed_at": "2026-08-15T12:30:00Z",
+                "orders": [
+                    {
+                        "order_id": "gid://shopify/Order/1615",
+                        "order_name": "TSC01615",
+                        "customer_id": "gid://shopify/Customer/alice",
+                        "customer_email": "alice@example.com",
+                        "customer_email_verified": True,
+                        "customer_order_count": 1,
+                        "observed_at": "2026-08-15T12:30:00Z",
+                    }
+                ],
+            },
+            observed_at="2026-08-15T13:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "COMPLETE")
+        self.assertEqual(len(result["opportunities"]), 1)
+        self.assertEqual(result["opportunities"][0]["join_state"], "MATCHED")
+        self.assertEqual(
+            result["opportunities"][0]["match_basis"], "exact_verified_email"
+        )
+        self.assertNotIn(
+            "thread-packaging-vendor",
+            json.dumps(result["opportunities"]),
+        )
+
     def test_customer_opportunity_missing_shopify_fails_closed(self):
         mail = {
             "available": True,
@@ -3424,6 +3543,7 @@ class PrivateStoreTests(unittest.TestCase):
                     "last_message_at": "2026-08-15T12:00:00Z",
                     "subject": "Your order was delivered",
                     "action_tags": ["reply", "order_return"],
+                    "customer_candidate": True,
                 }
             ],
         }
@@ -3442,6 +3562,58 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(opportunity["signals"]["recovery"]["state"], "NOT_OBSERVED")
         self.assertEqual(opportunity["permission_to_contact"], "UNKNOWN")
         self.assertIn("Shopify order and fulfillment facts are unavailable", result["problems"])
+
+    def test_customer_opportunity_missing_acting_mail_account_fails_closed(self):
+        result = brief.build_snowcubes_customer_opportunities(
+            mail={"available": True, "complete": True, "signals": []},
+            shopify={
+                "available": True,
+                "complete": True,
+                "store": brief.SNOWCUBES_SHOPIFY_STORE,
+                "orders": [],
+            },
+            observed_at="2026-08-15T13:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertEqual(result["source_status"]["superhuman"], "UNAVAILABLE")
+        self.assertIn(
+            "mail source is not the Snowcubes business account", result["problems"]
+        )
+
+    def test_customer_opportunity_future_provider_times_fail_closed(self):
+        result = brief.build_snowcubes_customer_opportunities(
+            mail={
+                "available": True,
+                "complete": True,
+                "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                "signals": [
+                    {
+                        "thread_id": "thread-future",
+                        "stable_provider_identity": True,
+                        "source_identities": [brief.SNOWCUBES_BUSINESS_MAIL],
+                        "last_message_at": "2026-08-16T13:00:00Z",
+                    }
+                ],
+            },
+            shopify={
+                "available": True,
+                "complete": True,
+                "store": brief.SNOWCUBES_SHOPIFY_STORE,
+                "orders": [
+                    {
+                        "order_id": "order-future",
+                        "observed_at": "2026-08-16T13:00:00Z",
+                    }
+                ],
+            },
+            observed_at="2026-08-15T13:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertTrue(
+            any("future-dated" in problem for problem in result["problems"])
+        )
 
     def test_customer_opportunity_missing_mail_never_grants_contact_permission(self):
         shopify = {

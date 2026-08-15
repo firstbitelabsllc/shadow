@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/firstbitelabsllc/shadow/schemas/snowcubes-customer-opportunity-letter.v1.json",
+  "title": "Snowcubes private customer-opportunity brief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "ranked_opportunities",
+    "exact_wake"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "shadow.snowcubes-customer-opportunity-letter.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["READY", "CLEAR", "UNKNOWN"]
+    },
+    "ranked_opportunities": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/opportunity"
+      }
+    },
+    "exact_wake": {
+      "type": ["string", "null"],
+      "maxLength": 600
+    }
+  },
+  "$defs": {
+    "citedText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "source_refs"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1, "maxLength": 420},
+        "source_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1, "maxLength": 220}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_ref", "provider", "provider_id"],
+      "properties": {
+        "source_ref": {"type": "string", "minLength": 1, "maxLength": 220},
+        "provider": {
+          "type": "string",
+          "enum": ["shopify_customer", "shopify_order", "superhuman_thread"]
+        },
+        "provider_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "opportunity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "why_now",
+        "customer_order_thread_provenance",
+        "recommended_next_step",
+        "draft_ready_factual_context"
+      ],
+      "properties": {
+        "why_now": {"$ref": "#/$defs/citedText"},
+        "customer_order_thread_provenance": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/provenance"}
+        },
+        "recommended_next_step": {"$ref": "#/$defs/citedText"},
+        "draft_ready_factual_context": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/citedText"}
+        }
+      }
+    }
+  }
+}

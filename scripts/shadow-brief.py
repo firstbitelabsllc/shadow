@@ -1219,6 +1219,9 @@ def build_superhuman_context(
             "message_age_hours": source_age(row.get("last_message_at")),
             "proposal": proposal_for_tags(tags),
             "proposal_only": True,
+            "customer_candidate": _snowcubes_customer_subject_candidate(
+                row.get("subject")
+            ),
         }
         if not stable_provider_identity:
             result["semantic_status"] = "UNKNOWN"
@@ -1544,6 +1547,10 @@ def build_superhuman_context(
         "verified_message_at",
         "unread",
         "proposal",
+        "customer_candidate",
+        "shopify_order_name",
+        "customer_email",
+        "customer_email_verified",
     )
 
     def account_snapshot(signal: dict[str, Any], acting_email: str) -> dict[str, Any]:
@@ -2251,6 +2258,13 @@ def build_superhuman_context(
                 problems.extend(f"{thread_id}: {problem}" for problem in dict.fromkeys(detail_problems))
             else:
                 signal["thread_body_read"] = True
+                signal.update(
+                    _snowcubes_customer_thread_evidence(
+                        subject=signal.get("subject"),
+                        messages=visible_messages,
+                        owned_identities=owned_sender_identities,
+                    )
+                )
                 if signal.get("fail_closed_reasons"):
                     signal["semantic_status"] = "UNKNOWN"
                     signal["confidence"] = "LOW"
@@ -2699,6 +2713,10 @@ def superhuman_account_context(context: dict[str, Any], acting_email: str) -> di
                 "verified_message_at",
                 "unread",
                 "proposal",
+                "customer_candidate",
+                "shopify_order_name",
+                "customer_email",
+                "customer_email_verified",
             ):
                 value = snapshot.get(key)
                 account_signal[key] = list(value) if isinstance(value, list) else value
@@ -3010,6 +3028,109 @@ def _customer_email(value: Any) -> str | None:
     return normalized
 
 
+def _snowcubes_customer_subject_candidate(value: Any) -> bool:
+    text = " ".join(str(value or "").split()).casefold()
+    return bool(re.search(r"\btsc\d{5,}\b", text)) or any(
+        marker in text
+        for marker in (
+            "[snowcubes] order",
+            "snowcubes order",
+            "your snowcubes",
+            "new customer message",
+        )
+    )
+
+
+def _snowcubes_customer_thread_evidence(
+    *,
+    subject: Any,
+    messages: list[dict[str, Any]],
+    owned_identities: set[str],
+) -> dict[str, Any]:
+    """Extract only exact customer-join hints from a complete thread read.
+
+    The hints merely make a thread eligible for a later exact Shopify join.
+    They do not prove customer identity, delivery, permission to contact, or a
+    recommended action on their own.
+    """
+
+    def addresses(value: Any) -> set[str]:
+        if isinstance(value, dict):
+            result: set[str] = set()
+            for key in ("email", "email_address", "address", "value"):
+                result.update(addresses(value.get(key)))
+            return result
+        if isinstance(value, (list, tuple, set)):
+            result: set[str] = set()
+            for item in value:
+                result.update(addresses(item))
+            return result
+        return {
+            match.casefold()
+            for match in re.findall(
+                r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}",
+                str(value or ""),
+                flags=re.IGNORECASE,
+            )
+        }
+
+    exact_text = " ".join(
+        [str(subject or "")]
+        + [
+            " ".join(
+                str(message.get(key) or "")
+                for key in ("subject", "snippet", "body", "raw_html")
+            )
+            for message in messages
+            if isinstance(message, dict)
+        ]
+    )
+    order_names = sorted(
+        {
+            match.upper()
+            for match in re.findall(r"\bTSC\d{5,}\b", exact_text, re.IGNORECASE)
+        }
+    )
+    lowered = exact_text.casefold()
+    customer_candidate = _snowcubes_customer_subject_candidate(subject) or any(
+        marker in lowered
+        for marker in (
+            "[snowcubes] order",
+            "snowcubes order",
+            "your snowcubes",
+            "new customer message",
+        )
+    )
+    if not customer_candidate:
+        return {"customer_candidate": False}
+
+    owned = {str(value).strip().casefold() for value in owned_identities if value}
+    owned.update({SNOWCUBES_BUSINESS_MAIL, "contact@trysnowcubes.com"})
+    external: set[str] = set()
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        for key in ("from", "sender", "to", "cc", "bcc", "recipients"):
+            external.update(addresses(message.get(key)))
+    external = {
+        email
+        for email in external
+        if email not in owned
+        and not email.endswith("@trysnowcubes.com")
+        and not email.partition("@")[2].endswith("shopify.com")
+        and not email.partition("@")[2].endswith("shopifyemail.com")
+        and "noreply" not in email
+        and "no-reply" not in email
+    }
+    result: dict[str, Any] = {"customer_candidate": True}
+    if len(order_names) == 1:
+        result["shopify_order_name"] = order_names[0]
+    if len(external) == 1:
+        result["customer_email"] = next(iter(external))
+        result["customer_email_verified"] = True
+    return result
+
+
 def build_snowcubes_customer_opportunities(
     *,
     mail: dict[str, Any] | None,
@@ -3033,7 +3154,7 @@ def build_snowcubes_customer_opportunities(
     problems: list[str] = []
     mail_available = mail.get("available") is True
     mail_complete = mail_available and mail.get("complete") is True
-    mail_account = str(mail.get("acting_email") or SNOWCUBES_BUSINESS_MAIL).casefold()
+    mail_account = str(mail.get("acting_email") or "").casefold()
     if mail_account != SNOWCUBES_BUSINESS_MAIL:
         problems.append("mail source is not the Snowcubes business account")
         mail_available = False
@@ -3069,16 +3190,33 @@ def build_snowcubes_customer_opportunities(
                 continue
             thread_key = f"superhuman:{mail_account}:{thread_id}"
             source_time = raw.get("verified_message_at") or raw.get("last_message_at")
+            source_age_hours = _customer_source_age_hours(source_time, now)
+            if source_age_hours is None:
+                problems.append("mail signal source time is missing, invalid, or future-dated")
             tags = list(
                 dict.fromkeys(str(value) for value in (raw.get("action_tags") or []))
             )
+            has_exact_customer_hint = any(
+                (
+                    str(raw.get("shopify_order_id") or "").strip(),
+                    str(raw.get("shopify_order_name") or "").strip(),
+                    str(raw.get("shopify_customer_id") or "").strip(),
+                    (
+                        _customer_email(raw.get("customer_email"))
+                        if raw.get("customer_email_verified") is True
+                        else None
+                    ),
+                )
+            )
+            if raw.get("customer_candidate") is not True and not has_exact_customer_hint:
+                continue
             candidate = {
                 "provider_key": thread_key,
                 "thread_id": thread_id,
                 "last_message_id": message_id or None,
                 "subject": str(raw.get("subject") or "")[:160],
                 "observed_at": str(source_time or "") or None,
-                "age_hours": _customer_source_age_hours(source_time, now),
+                "age_hours": source_age_hours,
                 "confidence": (
                     str(raw.get("confidence") or "UNKNOWN").upper()
                     if raw.get("thread_body_read") is True
@@ -3092,6 +3230,10 @@ def build_snowcubes_customer_opportunities(
                 "action_tags": tags,
                 "shopify_order_id": str(raw.get("shopify_order_id") or "").strip()
                 or None,
+                "shopify_order_name": str(
+                    raw.get("shopify_order_name") or ""
+                ).strip()
+                or None,
                 "shopify_customer_id": str(
                     raw.get("shopify_customer_id") or ""
                 ).strip()
@@ -3102,6 +3244,7 @@ def build_snowcubes_customer_opportunities(
                     else None
                 ),
                 "collision": False,
+                "customer_candidate": raw.get("customer_candidate") is True,
             }
             prior = mail_by_key.get(thread_key)
             if prior is None:
@@ -3123,9 +3266,11 @@ def build_snowcubes_customer_opportunities(
                     "waiting_direction": None,
                     "action_tags": [],
                     "shopify_order_id": None,
+                    "shopify_order_name": None,
                     "shopify_customer_id": None,
                     "customer_email": None,
                     "collision": True,
+                    "customer_candidate": True,
                 }
     mail_rows = list(mail_by_key.values())
 
@@ -3141,6 +3286,9 @@ def build_snowcubes_customer_opportunities(
                 continue
             order_key = f"shopify:{shopify_store}:{order_id}"
             source_time = raw.get("observed_at") or shopify.get("observed_at")
+            source_age_hours = _customer_source_age_hours(source_time, now)
+            if source_age_hours is None:
+                problems.append("Shopify order source time is missing, invalid, or future-dated")
             candidate = {
                 "provider_key": order_key,
                 "order_id": order_id,
@@ -3155,7 +3303,7 @@ def build_snowcubes_customer_opportunities(
                 ),
                 "created_at": str(raw.get("created_at") or "") or None,
                 "observed_at": str(source_time or "") or None,
-                "age_hours": _customer_source_age_hours(source_time, now),
+                "age_hours": source_age_hours,
                 "customer_order_count": (
                     raw.get("customer_order_count")
                     if isinstance(raw.get("customer_order_count"), int)
@@ -3223,6 +3371,14 @@ def build_snowcubes_customer_opportunities(
                 if row["order_id"] == order_id and compatible(row)
             ]
             return (matches[0], "exact_order_id") if len(matches) == 1 else (None, None)
+        order_name = mail_row.get("shopify_order_name")
+        if order_name:
+            matches = [
+                row
+                for row in order_rows
+                if row.get("order_name") == order_name and compatible(row)
+            ]
+            return (matches[0], "exact_order_name") if len(matches) == 1 else (None, None)
         customer_id = mail_row.get("shopify_customer_id")
         if customer_id:
             matches = [
@@ -3301,7 +3457,7 @@ def build_snowcubes_customer_opportunities(
         ) if mail_row else "UNKNOWN"
         confidence = (
             "HIGH"
-            if match_basis in {"exact_order_id", "exact_customer_id"}
+            if match_basis in {"exact_order_id", "exact_order_name", "exact_customer_id"}
             else "MEDIUM" if match_basis == "exact_verified_email" else "LOW"
         )
         identity_known = bool(
@@ -5885,6 +6041,8 @@ def write_packet(packet: dict[str, Any], out_json: Path, out_html: Path) -> None
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
     out_html.write_text(render_html(packet), encoding="utf-8")
+    out_json.chmod(0o600)
+    out_html.chmod(0o600)
 
 
 def macos_notify(title: str, body: str) -> dict[str, Any]:
@@ -8512,9 +8670,11 @@ def cmd_collect(args: argparse.Namespace) -> int:
     if args.dry_run:
         # Still write — proof needs the artifact; dry-run skips remote side effects only
         out.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
+        out.chmod(0o600)
         print(str(out))
         return 0
     out.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
+    out.chmod(0o600)
     print(str(out))
     return 0
 
@@ -8525,6 +8685,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     packet = json.loads(src.read_text(encoding="utf-8"))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render_html(packet), encoding="utf-8")
+    out.chmod(0o600)
     print(str(out))
     return 0
 

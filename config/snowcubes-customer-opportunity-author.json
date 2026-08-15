@@ -1,0 +1,15 @@
+{
+  "schema": "shadow.snowcubes-customer-opportunity-author-profile.v1",
+  "author_host_env": "SHADOW_SNOWCUBES_OPPORTUNITY_AUTHOR_HOST",
+  "allowed_hosts": [
+    "codex",
+    "claude-code"
+  ],
+  "default_host": null,
+  "timeout_seconds": 240,
+  "expected_mail_account": "trysnowcubes@gmail.com",
+  "expected_shopify_store": "939cf1-24",
+  "opportunity_cap": 5,
+  "max_source_age_hours": 24,
+  "reader_max_characters": 6000
+}
