@@ -2353,6 +2353,84 @@ def discard_unclaimed_source_alias(
         return json.loads(json.dumps(payload))
 
 
+def discard_missing_unclaimed_aliases(*, home: Path | None = None) -> int:
+    """Remove only a provably stale source locator from the private board.
+
+    A migration can leave an old source ``PLAN.md`` locator after the plan has
+    moved under the board's private ``plans/`` root, and a later cleanup can
+    delete the source checkout entirely. Once the file is gone, the repair
+    paths that resolve a locator's Git identity from disk cannot name it at
+    all, so the phantom entity outlives every reconcile. This repair is
+    deliberately narrower than identity reconciliation: it never reads,
+    rekeys, claims, or releases the surviving entity, and it takes identity
+    only from the board's own records rather than from the absent path.
+
+    An alias is discarded only when its source file is absent, it owns no
+    claim, and exactly one private entity has the same project and the same
+    resume row still present in its plan. Existing or divergent source plans
+    are never candidates: they need an explicit migration decision rather than
+    a status-time guess.
+    """
+    # Discovery calls this opportunistically before it has decided that this
+    # computer needs a board. Do not turn a read-only first import into a
+    # durable board directory merely to discover that there is nothing to
+    # repair.
+    if snapshot(home=home) is None:
+        return 0
+    with _transaction(home) as (root, path, payload):
+        resolved_private_root = (root / "plans").resolve()
+        repairs: list[dict] = []
+        for source in payload["entities"]:
+            source_path = Path(source["plan"])
+            if source_path.exists() or source_path.is_symlink():
+                continue
+            resume = source["resume"]
+            if resume is None:
+                continue
+            if any(claim["entity"] == source["id"] for claim in payload["claims"]):
+                continue
+            candidates = []
+            for destination in payload["entities"]:
+                if destination is source or destination["project"] != source["project"]:
+                    continue
+                if destination["resume"] != resume:
+                    continue
+                destination_path = Path(destination["plan"])
+                try:
+                    destination_path.resolve().relative_to(resolved_private_root)
+                except (OSError, ValueError):
+                    continue
+                if not regular_plan(destination_path):
+                    continue
+                try:
+                    rows = set(_grammar.HASH_RE.findall(
+                        read_plan_bytes(destination_path).decode("utf-8")
+                    ))
+                except (BoardError, UnicodeError):
+                    continue
+                if resume in rows:
+                    candidates.append(destination)
+            if len(candidates) == 1:
+                repairs.append(source)
+        if not repairs:
+            return 0
+        stale_ids = {entity["id"] for entity in repairs}
+        payload["entities"] = [
+            entity for entity in payload["entities"] if entity["id"] not in stale_ids
+        ]
+        used_projects = {entity["project"] for entity in payload["entities"]}
+        payload["projects"] = [
+            project for project in payload["projects"] if project["id"] in used_projects
+        ]
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, "shadow board: discard missing unclaimed alias")
+        return len(repairs)
+
+
 def claimed_rows(plan: Path, *, home: Path | None = None) -> set[str]:
     state = entity_state(plan, home=home)
     return (

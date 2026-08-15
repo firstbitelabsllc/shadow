@@ -304,6 +304,14 @@ def reconcile_portfolio(
         operator_brief=operator_brief,
         browser_error=BrowserError,
     )
+    # A deleted source checkout is migration debris that the loop below cannot
+    # even name: every repair there resolves a locator's identity by reading
+    # the path, and the path is gone. Discard those aliases first, from the
+    # board's own records, then re-read so discovery sees one authority. The
+    # recursion terminates because a non-zero count means entities were
+    # committed away.
+    if board.discard_missing_unclaimed_aliases(home=home):
+        return reconcile_portfolio(root, amp, home=home)
     # A source-path alias for a coordination repository is a migration error,
     # not an alternate source of truth. When the private copy is the same
     # bytes, re-key atomically before the normal discovery pass so live claims
