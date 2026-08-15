@@ -23,7 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_plan_store as plan_store  # noqa: E402
 
-SPEC = importlib.util.spec_from_file_location("shadow_brief", ROOT / "scripts" / "shadow-brief.py")
+SPEC = importlib.util.spec_from_file_location(
+    "shadow_brief", ROOT / "scripts" / "shadow-brief.py"
+)
 assert SPEC and SPEC.loader
 brief = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = brief
@@ -84,20 +86,62 @@ def _m5_mail_fixture(*, include_action: bool = True) -> dict[str, object]:
         "last_message_id": "message-action-1",
         "stable_provider_identity": True,
         "thread_body_read": True,
+        "last_message_at": "2026-08-15T11:00:00Z",
+        "message_age_hours": 1.0,
         "action_tags": ["reply", "urgent"],
         "semantic_status": "PROPOSAL",
         "subject": "Reply requested before Friday",
         "proposal": "Proposal only: review the exact reply before any send.",
         "proposal_only": True,
         "source_identities": ["leojkwan@gmail.com"],
+        "source_threads": [
+            {
+                "acting_email": "leojkwan@gmail.com",
+                "thread_id": "thread-action-1",
+                "last_message_id": "message-action-1",
+            }
+        ],
     }
     actions = [action] if include_action else []
+    action_index = (
+        [
+            {
+                "signal_id": "mail-action-1",
+                "last_message_at": "2026-08-15T11:00:00Z",
+                "message_age_hours": 1.0,
+                "action_tags": ["reply", "urgent"],
+                "source_threads": [dict(ref) for ref in action["source_threads"]],
+            }
+        ]
+        if include_action
+        else []
+    )
+    category_index = {
+        key: {
+            "total": 0,
+            "shown": 0,
+            "omitted": 0,
+            "locations_complete": False,
+            "signal_ids": [],
+        }
+        for key in brief.SUPERHUMAN_ACTION_CATEGORY_KEYS
+    }
+    if include_action:
+        category_index["urgent_replies"] = {
+            "total": 1,
+            "shown": 1,
+            "omitted": 0,
+            "locations_complete": False,
+            "signal_ids": ["mail-action-1"],
+        }
     return {
-        "schema": "shadow.superhuman-context.v2",
+        "schema": brief.SUPERHUMAN_CONTEXT_SCHEMA,
         "available": True,
         "complete": False,
         "status": "UNKNOWN",
         "all_clear_allowed": False,
+        "declared_query_complete": False,
+        "observed_at": "2026-08-15T12:00:00Z",
         "expected_identities": expected_identities,
         "account_discovery": {
             "status": "COMPLETE",
@@ -128,6 +172,8 @@ def _m5_mail_fixture(*, include_action: bool = True) -> dict[str, object]:
         "order_return_follow_up": [],
         "proactive_candidates": [],
         "calendar_proposals": [],
+        "action_index": action_index,
+        "category_index": category_index,
     }
 
 
@@ -294,12 +340,8 @@ def _write_m5_window_fixture(
         "sent_at": sent_at,
     }
     with attempts.open("a", encoding="utf-8") as handle:
-        handle.write(
-            json.dumps(intent, sort_keys=True) + "\n"
-        )
-        handle.write(
-            json.dumps(outcome, sort_keys=True) + "\n"
-        )
+        handle.write(json.dumps(intent, sort_keys=True) + "\n")
+        handle.write(json.dumps(outcome, sort_keys=True) + "\n")
     attempts.chmod(0o600)
     row.update(
         {
@@ -388,9 +430,7 @@ def _scheduled_packet_fixture(
         "generated_at": generated_at,
         "slot": "morning",
         "board": {"revision": 41, "entities": [], "claims": []},
-        "authority": {
-            "board_snapshot": {"consistent": consistent, "revision": 41}
-        },
+        "authority": {"board_snapshot": {"consistent": consistent, "revision": 41}},
         "paint_health": {},
         "producer": producer if producer is not None else _m5_producer_fixture(),
         "superhuman_context": _m5_mail_fixture(),
@@ -440,9 +480,7 @@ class PrivateStoreTests(unittest.TestCase):
 
             def observe_fsync(descriptor):
                 mode = os.fstat(descriptor).st_mode
-                synced_kinds.append(
-                    "directory" if stat.S_ISDIR(mode) else "file"
-                )
+                synced_kinds.append("directory" if stat.S_ISDIR(mode) else "file")
                 return real_fsync(descriptor)
 
             with mock.patch.object(
@@ -467,7 +505,10 @@ class PrivateStoreTests(unittest.TestCase):
 
     def test_private_jsonl_rejects_symlink_and_hardlink_targets(self):
         for link_kind in ("symlink", "hardlink"):
-            with self.subTest(link_kind=link_kind), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(link_kind=link_kind),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 root = Path(tmp)
                 ledger = root / "ledger"
                 ledger.mkdir()
@@ -498,11 +539,14 @@ class PrivateStoreTests(unittest.TestCase):
                 self.assertTrue(flags & os.O_NONBLOCK)
                 return real_open(candidate, flags, mode)
 
-            with mock.patch.object(
-                brief.os,
-                "open",
-                side_effect=require_nonblocking,
-            ), self.assertRaises(OSError):
+            with (
+                mock.patch.object(
+                    brief.os,
+                    "open",
+                    side_effect=require_nonblocking,
+                ),
+                self.assertRaises(OSError),
+            ):
                 brief._append_private_jsonl(path, {"must": "not block"})
 
     def test_private_jsonl_reader_accepts_only_safe_complete_object_ledgers(self):
@@ -572,7 +616,9 @@ class PrivateStoreTests(unittest.TestCase):
                 except UnicodeError as exc:
                     self.fail(f"Unicode error was not structured for {path}: {exc}")
                 except RecursionError as exc:
-                    self.fail(f"recursive JSON error was not structured for {path}: {exc}")
+                    self.fail(
+                        f"recursive JSON error was not structured for {path}: {exc}"
+                    )
                 else:
                     self.fail(f"unsafe or corrupt ledger was accepted: {case}")
 
@@ -582,11 +628,14 @@ class PrivateStoreTests(unittest.TestCase):
             path.write_text('{"deeply": "nested"}\n', encoding="utf-8")
             path.chmod(0o600)
 
-            with mock.patch.object(
-                brief.json,
-                "loads",
-                side_effect=RecursionError("maximum nesting exceeded"),
-            ), self.assertRaises(brief.PrivateJSONLError) as raised:
+            with (
+                mock.patch.object(
+                    brief.json,
+                    "loads",
+                    side_effect=RecursionError("maximum nesting exceeded"),
+                ),
+                self.assertRaises(brief.PrivateJSONLError) as raised,
+            ):
                 brief._read_jsonl(path)
 
             self.assertIn("invalid JSON on line 1", str(raised.exception))
@@ -624,15 +673,19 @@ class PrivateStoreTests(unittest.TestCase):
                 attempt_log.chmod(0o600)
                 append = mock.Mock()
 
-                with mock.patch.object(
-                    brief,
-                    "SEND_ATTEMPT_LOG",
-                    attempt_log,
-                ), mock.patch.object(
-                    brief,
-                    "_append_private_jsonl",
-                    append,
-                ), self.assertRaises(brief.PrivateJSONLError):
+                with (
+                    mock.patch.object(
+                        brief,
+                        "SEND_ATTEMPT_LOG",
+                        attempt_log,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "_append_private_jsonl",
+                        append,
+                    ),
+                    self.assertRaises(brief.PrivateJSONLError),
+                ):
                     brief.record_send_attempt(
                         html_path,
                         subject="Shadow morning brief",
@@ -663,8 +716,9 @@ class PrivateStoreTests(unittest.TestCase):
             html = root / "brief.html"
             html.write_text("<p>brief</p>", encoding="utf-8")
             evidence = root / "evidence"
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "deliver_superhuman_http", return_value=None
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "deliver_superhuman_http", return_value=None),
             ):
                 receipt = brief.deliver_superhuman(
                     html,
@@ -689,7 +743,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(plist["ProgramArguments"][1], str(program))
         self.assertEqual(plist["ProgramArguments"][-1], "--scheduled-trigger")
 
-    def test_mail_coverage_discovers_linked_accounts_and_keeps_missing_expected_identity_unknown(self):
+    def test_mail_coverage_discovers_linked_accounts_and_keeps_missing_expected_identity_unknown(
+        self,
+    ):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         list_thread_identities = []
 
@@ -718,7 +774,10 @@ class PrivateStoreTests(unittest.TestCase):
                 list_thread_identities.append(arguments["acting_email"])
                 return {"threads": [], "total_estimate": 0}
             if name == "query_email_and_calendar":
-                return {"answer": "No calendar conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No calendar conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
@@ -752,7 +811,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertFalse(context["all_clear_allowed"])
         self.assertEqual(context["status"], "UNKNOWN")
 
-    def test_forgotten_horizon_clears_only_after_each_expected_active_inbox_exhausts(self):
+    def test_forgotten_horizon_clears_only_after_each_expected_active_inbox_exhausts(
+        self,
+    ):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         identities = (
             "leojkwan@gmail.com",
@@ -782,12 +843,8 @@ class PrivateStoreTests(unittest.TestCase):
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
         self.assertEqual(len(horizon_calls), len(identities))
-        self.assertTrue(
-            all(call["sort"] == "oldest" for call in horizon_calls)
-        )
-        self.assertTrue(
-            all(call["labels"] == ["INBOX"] for call in horizon_calls)
-        )
+        self.assertTrue(all(call["sort"] == "oldest" for call in horizon_calls))
+        self.assertTrue(all(call["labels"] == ["INBOX"] for call in horizon_calls))
         self.assertEqual(context["forgotten_horizon"]["status"], "COMPLETE")
         self.assertTrue(context["complete"])
         self.assertTrue(context["all_clear_allowed"])
@@ -829,7 +886,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("not proven exhaustive", " ".join(context["problems"]))
         self.assertIn("no action was performed", context["forgotten_horizon"]["wake"])
 
-    def test_mail_coverage_exhausts_pages_and_deduplicates_actions_across_accounts(self):
+    def test_mail_coverage_exhausts_pages_and_deduplicates_actions_across_accounts(
+        self,
+    ):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         linked = ("leojkwan@gmail.com", "trysnowcubes@gmail.com")
 
@@ -876,7 +935,11 @@ class PrivateStoreTests(unittest.TestCase):
                 account = arguments["acting_email"]
                 cursor = arguments.get("cursor")
                 if account == "leojkwan@gmail.com" and cursor is None:
-                    return {"threads": [shared_personal], "next_cursor": "personal-page-2", "total_estimate": 2}
+                    return {
+                        "threads": [shared_personal],
+                        "next_cursor": "personal-page-2",
+                        "total_estimate": 2,
+                    }
                 if account == "leojkwan@gmail.com" and cursor == "personal-page-2":
                     return {"threads": [license_notice], "total_estimate": 2}
                 return {"threads": [shared_snowcubes], "total_estimate": 1}
@@ -909,7 +972,13 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "query_email_and_calendar":
                 return {
                     "answer": "Proposal: keep the next fourteen days conflict-free.",
-                    "sources": [{"id": "calendar-source", "title": "Calendar", "type": "calendar"}],
+                    "sources": [
+                        {
+                            "id": "calendar-source",
+                            "title": "Calendar",
+                            "type": "calendar",
+                        }
+                    ],
                 }
             raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
 
@@ -921,16 +990,26 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertFalse(coverage["leojkwan@gmail.com"]["pagination"]["truncated"])
         self.assertEqual(context["threads_returned_raw"], 6)
         self.assertEqual(context["threads_unique"], 2)
-        shared = next(row for row in context["signals"] if row["signal_id"] == "72144f1611ce5544224f9272")
+        shared = next(
+            row
+            for row in context["signals"]
+            if row["signal_id"] == "72144f1611ce5544224f9272"
+        )
         self.assertEqual(shared["source_identities"], list(linked))
         self.assertEqual(len(context["order_return_follow_up"]), 1)
         self.assertTrue(context["order_return_follow_up"][0]["proposal_only"])
         self.assertEqual(len(context["forgotten_obligations"]), 1)
-        self.assertEqual(context["forgotten_obligations"][0]["signal_id"], "9bb6bee7a1fdca5fc63581d1")
+        self.assertEqual(
+            context["forgotten_obligations"][0]["signal_id"], "9bb6bee7a1fdca5fc63581d1"
+        )
         self.assertEqual(coverage["leojkwan@gmail.com"]["source_age_hours"], 0.0)
-        self.assertEqual(coverage["leojkwan@gmail.com"]["newest_message_age_hours"], 2.0)
+        self.assertEqual(
+            coverage["leojkwan@gmail.com"]["newest_message_age_hours"], 2.0
+        )
         self.assertEqual(len(context["calendar_proposals"]), 1)
-        self.assertTrue(all(row["proposal_only"] for row in context["calendar_proposals"]))
+        self.assertTrue(
+            all(row["proposal_only"] for row in context["calendar_proposals"])
+        )
 
     def test_mail_identity_is_stable_across_order_and_fails_closed_on_collisions(self):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
@@ -1041,7 +1120,8 @@ class PrivateStoreTests(unittest.TestCase):
                         "message_count": 1,
                         "messages": [
                             {
-                                "message_id": selected.get("last_message_id") or "detail-message",
+                                "message_id": selected.get("last_message_id")
+                                or "detail-message",
                                 "thread_id": selected["thread_id"],
                                 "sent_at": selected["last_message_at"],
                                 "labels": list(selected["labels"]),
@@ -1078,24 +1158,46 @@ class PrivateStoreTests(unittest.TestCase):
             list(identities),
         )
         self.assertEqual(
-            len([row for row in forward["signals"] if row["subject"] == "Identical metadata"]),
+            len(
+                [
+                    row
+                    for row in forward["signals"]
+                    if row["subject"] == "Identical metadata"
+                ]
+            ),
             2,
         )
-        id_less = [row for row in forward["signals"] if row["subject"] == "ID-less metadata"]
+        id_less = [
+            row for row in forward["signals"] if row["subject"] == "ID-less metadata"
+        ]
         self.assertEqual(len(id_less), 2)
         self.assertEqual(len({row["signal_id"] for row in id_less}), 2)
         self.assertTrue(all(row["semantic_status"] == "UNKNOWN" for row in id_less))
-        self.assertTrue(all("stable provider identity" in row["wake"] for row in id_less))
-        thread_only = [row for row in forward["signals"] if row["subject"] == "Thread-only metadata"]
+        self.assertTrue(
+            all("stable provider identity" in row["wake"] for row in id_less)
+        )
+        thread_only = [
+            row
+            for row in forward["signals"]
+            if row["subject"] == "Thread-only metadata"
+        ]
         self.assertEqual(len(thread_only), 2)
         self.assertEqual(len({row["signal_id"] for row in thread_only}), 2)
-        collisions = [row for row in forward["signals"] if "subject" in row["subject"].lower()]
+        collisions = [
+            row for row in forward["signals"] if "subject" in row["subject"].lower()
+        ]
         provider_collisions = [
-            row for row in collisions if row.get("last_message_id") == "provider-collision"
+            row
+            for row in collisions
+            if row.get("last_message_id") == "provider-collision"
         ]
         self.assertEqual(len(provider_collisions), 2)
-        self.assertTrue(all(row["semantic_status"] == "UNKNOWN" for row in provider_collisions))
-        self.assertTrue(all("provider-ID collision" in row["wake"] for row in provider_collisions))
+        self.assertTrue(
+            all(row["semantic_status"] == "UNKNOWN" for row in provider_collisions)
+        )
+        self.assertTrue(
+            all("provider-ID collision" in row["wake"] for row in provider_collisions)
+        )
 
     def test_mail_coverage_marks_cursor_cycles_and_thread_truncation_unknown(self):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
@@ -1120,7 +1222,11 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        {
+                            "accountEmail": email,
+                            "addedAt": "2026-01-01T00:00:00Z",
+                            "isPrimary": index == 0,
+                        }
                         for index, email in enumerate(identities)
                     ]
                 }
@@ -1139,12 +1245,19 @@ class PrivateStoreTests(unittest.TestCase):
                     "messages": [],
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
-        personal = next(row for row in context["coverage"] if row["acting_email"] == "leojkwan@gmail.com")
+        personal = next(
+            row
+            for row in context["coverage"]
+            if row["acting_email"] == "leojkwan@gmail.com"
+        )
         self.assertEqual(personal["status"], "UNKNOWN")
         self.assertFalse(personal["pagination"]["exhausted"])
         self.assertTrue(personal["pagination"]["truncated"])
@@ -1176,8 +1289,7 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "aliases": []}
-                        for email in identities
+                        {"accountEmail": email, "aliases": []} for email in identities
                     ]
                 }
             if name == "list_threads":
@@ -1209,19 +1321,26 @@ class PrivateStoreTests(unittest.TestCase):
                     ],
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
-        personal = next(row for row in context["coverage"] if row["acting_email"] == identities[0])
+        personal = next(
+            row for row in context["coverage"] if row["acting_email"] == identities[0]
+        )
         self.assertEqual(personal["status"], "UNKNOWN")
         self.assertTrue(personal["pagination"]["exhausted"])
         self.assertTrue(personal["pagination"]["truncated"])
         self.assertIn("total estimate 2 exceeds 1", " ".join(personal["problems"]))
         self.assertIn("page result truncated", " ".join(personal["problems"]))
         self.assertIn("thread body truncated", " ".join(personal["problems"]))
-        signal = next(row for row in context["signals"] if row["thread_id"] == "silent-truncation")
+        signal = next(
+            row for row in context["signals"] if row["thread_id"] == "silent-truncation"
+        )
         self.assertEqual(signal["semantic_status"], "UNKNOWN")
         self.assertIn("silent-truncation", signal["wake"])
 
@@ -1237,7 +1356,11 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        {
+                            "accountEmail": email,
+                            "addedAt": "2026-01-01T00:00:00Z",
+                            "isPrimary": index == 0,
+                        }
                         for index, email in enumerate(identities)
                     ]
                 }
@@ -1246,32 +1369,58 @@ class PrivateStoreTests(unittest.TestCase):
                     raise RuntimeError("personal mailbox timeout")
                 return {"threads": [], "total_estimate": 0}
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
-        partial = brief.build_superhuman_context(partially_failing_call, observed_at=observed_at)
+        partial = brief.build_superhuman_context(
+            partially_failing_call, observed_at=observed_at
+        )
         partial_coverage = {row["acting_email"]: row for row in partial["coverage"]}
         self.assertEqual(partial_coverage["leojkwan@gmail.com"]["status"], "UNKNOWN")
-        self.assertEqual(partial_coverage["trysnowcubes@gmail.com"]["status"], "COMPLETE")
-        self.assertEqual(partial_coverage["firstbitelabs@gmail.com"]["status"], "COMPLETE")
-        self.assertIn("personal mailbox timeout", " ".join(partial_coverage["leojkwan@gmail.com"]["problems"]))
+        self.assertEqual(
+            partial_coverage["trysnowcubes@gmail.com"]["status"], "COMPLETE"
+        )
+        self.assertEqual(
+            partial_coverage["firstbitelabs@gmail.com"]["status"], "COMPLETE"
+        )
+        self.assertIn(
+            "personal mailbox timeout",
+            " ".join(partial_coverage["leojkwan@gmail.com"]["problems"]),
+        )
         self.assertTrue(partial["available"])
         self.assertFalse(partial["all_clear_allowed"])
 
         def unavailable_accounts(name, _arguments):
             if name == "list_accounts":
                 raise RuntimeError("account discovery unavailable")
-            raise AssertionError(f"account discovery failure must stop reads, got {name}")
+            raise AssertionError(
+                f"account discovery failure must stop reads, got {name}"
+            )
 
-        unavailable = brief.build_superhuman_context(unavailable_accounts, observed_at=observed_at)
+        unavailable = brief.build_superhuman_context(
+            unavailable_accounts, observed_at=observed_at
+        )
         self.assertFalse(unavailable["available"])
         self.assertEqual(unavailable["status"], "UNKNOWN")
         self.assertEqual(
             {row["acting_email"] for row in unavailable["coverage"]},
             set(identities),
         )
-        self.assertTrue(all(row["status"] == "UNKNOWN" for row in unavailable["coverage"]))
+        self.assertTrue(
+            all(row["status"] == "UNKNOWN" for row in unavailable["coverage"])
+        )
         self.assertIn("account discovery unavailable", unavailable["error"])
+        packet = _scheduled_packet_fixture()
+        packet["superhuman_context"] = unavailable
+        rendered = brief.render_html(packet)
+        self.assertIn("<td>UNKNOWN</td><td>UNKNOWN</td><td>UNKNOWN</td>", rendered)
+        self.assertNotIn(
+            "All provider locations are retained in the private evidence packet.",
+            rendered,
+        )
 
     def test_mail_coverage_treats_error_payloads_and_parse_exceptions_as_unknown(self):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
@@ -1303,13 +1452,21 @@ class PrivateStoreTests(unittest.TestCase):
                     raise TypeError("unexpected provider row type")
                 return {"threads": [], "total_estimate": 0}
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
-        partial = brief.build_superhuman_context(account_parse_failure, observed_at=observed_at)
+        partial = brief.build_superhuman_context(
+            account_parse_failure, observed_at=observed_at
+        )
         by_identity = {row["acting_email"]: row for row in partial["coverage"]}
         self.assertEqual(by_identity[identities[0]]["status"], "UNKNOWN")
-        self.assertIn("unexpected provider row type", " ".join(by_identity[identities[0]]["problems"]))
+        self.assertIn(
+            "unexpected provider row type",
+            " ".join(by_identity[identities[0]]["problems"]),
+        )
         self.assertEqual(by_identity[identities[1]]["status"], "COMPLETE")
         self.assertEqual(by_identity[identities[2]]["status"], "COMPLETE")
         self.assertTrue(partial["available"])
@@ -1328,7 +1485,8 @@ class PrivateStoreTests(unittest.TestCase):
                 return {
                     "accounts": [
                         {"accountEmail": email, "aliases": []} for email in identities
-                    ] + ["opaque-account-row"]
+                    ]
+                    + ["opaque-account-row"]
                 }
             if name == "list_threads":
                 if arguments["acting_email"] == identities[0]:
@@ -1355,7 +1513,10 @@ class PrivateStoreTests(unittest.TestCase):
                     }
                 return {"threads": []}
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             if name == "get_thread":
                 sent_at = (
                     "2026-08-14T10:00:00"
@@ -1389,13 +1550,17 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(context["account_discovery"]["status"], "UNKNOWN")
         self.assertEqual(context["account_discovery"]["malformed_rows"], 1)
         self.assertIn("unusable account row", context["account_discovery"]["wake"])
-        personal = next(row for row in context["coverage"] if row["acting_email"] == identities[0])
+        personal = next(
+            row for row in context["coverage"] if row["acting_email"] == identities[0]
+        )
         self.assertEqual(personal["status"], "UNKNOWN")
         self.assertIn("1 unusable thread row", " ".join(personal["problems"]))
         self.assertIn("unusable source timestamp", " ".join(personal["problems"]))
         self.assertEqual(personal["threads_returned"], 2)
         timestamp_signal = next(
-            row for row in context["signals"] if row["thread_id"] == "naive-timestamp-thread"
+            row
+            for row in context["signals"]
+            if row["thread_id"] == "naive-timestamp-thread"
         )
         self.assertEqual(timestamp_signal["semantic_status"], "UNKNOWN")
         self.assertIn("source timestamp", timestamp_signal["wake"])
@@ -1453,18 +1618,24 @@ class PrivateStoreTests(unittest.TestCase):
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
-        proposals = {row["source_identities"][0]: row for row in context["calendar_proposals"]}
+        proposals = {
+            row["source_identities"][0]: row for row in context["calendar_proposals"]
+        }
         self.assertEqual(proposals[identities[0]]["status"], "UNKNOWN")
         self.assertEqual(proposals[identities[0]]["confidence"], "LOW")
         self.assertIn("source-labelled evidence", proposals[identities[0]]["wake"])
         self.assertEqual(proposals[identities[1]]["status"], "UNKNOWN")
-        self.assertIn("Which lesson date is intended?", proposals[identities[1]]["wake"])
+        self.assertIn(
+            "Which lesson date is intended?", proposals[identities[1]]["wake"]
+        )
         self.assertEqual(proposals[identities[2]]["status"], "PROPOSAL")
         self.assertEqual(proposals[identities[2]]["confidence"], "MEDIUM")
         self.assertIn("1200-character", proposals[extra_identities[0]]["wake"])
         self.assertIn("20-source", proposals[extra_identities[1]]["wake"])
 
-    def test_mail_query_contract_is_ninety_days_fifty_rows_and_page_cap_fails_closed(self):
+    def test_mail_query_contract_is_ninety_days_fifty_rows_and_page_cap_fails_closed(
+        self,
+    ):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         identities = (
             "leojkwan@gmail.com",
@@ -1479,7 +1650,11 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "addedAt": "2026-01-01T00:00:00Z", "isPrimary": index == 0}
+                        {
+                            "accountEmail": email,
+                            "addedAt": "2026-01-01T00:00:00Z",
+                            "isPrimary": index == 0,
+                        }
                         for index, email in enumerate(identities)
                     ]
                 }
@@ -1494,16 +1669,26 @@ class PrivateStoreTests(unittest.TestCase):
                     "total_estimate": 5000,
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
-        personal = next(row for row in context["coverage"] if row["acting_email"] == "leojkwan@gmail.com")
+        personal = next(
+            row
+            for row in context["coverage"]
+            if row["acting_email"] == "leojkwan@gmail.com"
+        )
         self.assertEqual(personal["pagination"]["pages"], 2)
         self.assertFalse(personal["pagination"]["exhausted"])
         self.assertTrue(personal["pagination"]["truncated"])
-        self.assertIn("exceeds the 2000-row pagination safety bound", " ".join(personal["problems"]))
+        self.assertIn(
+            "exceeds the 2000-row pagination safety bound",
+            " ".join(personal["problems"]),
+        )
         self.assertTrue(seen_queries)
         declared_queries = [query for query in seen_queries if "start_date" in query]
         horizon_queries = [query for query in seen_queries if "start_date" not in query]
@@ -1560,8 +1745,7 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "aliases": []}
-                        for email in identities
+                        {"accountEmail": email, "aliases": []} for email in identities
                     ]
                 }
             if name == "list_threads":
@@ -1589,7 +1773,10 @@ class PrivateStoreTests(unittest.TestCase):
                     ],
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
 
         capped = brief.build_superhuman_context(call_tool, observed_at=observed_at)
@@ -1604,7 +1791,11 @@ class PrivateStoreTests(unittest.TestCase):
         ]
         self.assertEqual(len(unverified), 2)
         self.assertTrue(all(row["semantic_status"] == "UNKNOWN" for row in unverified))
-        self.assertEqual(len(capped["forgotten_obligations"]), 42)
+        self.assertEqual(
+            len(capped["forgotten_obligations"]),
+            brief.SUPERHUMAN_CATEGORY_EXCERPT_LIMIT,
+        )
+        self.assertEqual(capped["category_index"]["forgotten_obligations"]["total"], 42)
 
         deadline_calls = []
         ticks = iter((0.0, 0.0, 421.0, 421.0, 421.0, 421.0))
@@ -1616,7 +1807,10 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_threads":
                 return {"threads": [], "total_estimate": 0}
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         deadline = brief.build_superhuman_context(
@@ -1631,10 +1825,13 @@ class PrivateStoreTests(unittest.TestCase):
             1,
         )
         self.assertTrue(
-            any("read budget" in str(row.get("wake") or "") for row in deadline["coverage"])
+            any(
+                "read budget" in str(row.get("wake") or "")
+                for row in deadline["coverage"]
+            )
         )
 
-    def test_mail_signal_retention_cap_makes_overall_status_unknown_with_wake(self):
+    def test_mail_signal_retention_is_a_presentation_sample_not_source_failure(self):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         identities = (
             "leojkwan@gmail.com",
@@ -1664,15 +1861,18 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "aliases": []}
-                        for email in identities
+                        {"accountEmail": email, "aliases": []} for email in identities
                     ]
                 }
             if name == "list_threads":
-                account_rows = rows if arguments["acting_email"] == identities[0] else []
+                account_rows = (
+                    rows if arguments["acting_email"] == identities[0] else []
+                )
                 return {"threads": account_rows, "total_estimate": len(account_rows)}
             if name == "get_thread":
-                selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                selected = next(
+                    row for row in rows if row["thread_id"] == arguments["thread_id"]
+                )
                 return {
                     **selected,
                     "user_is_participant": True,
@@ -1690,31 +1890,37 @@ class PrivateStoreTests(unittest.TestCase):
                     ],
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
         self.assertEqual(context["signals_retained"], 50)
         self.assertEqual(context["signals_omitted"], 1)
-        self.assertFalse(context["complete"])
-        self.assertEqual(context["status"], "UNKNOWN")
-        self.assertFalse(context["all_clear_allowed"])
-        self.assertIn("1 signal omitted", " ".join(context["problems"]))
-        self.assertIn("retention cap", context["wake"])
+        self.assertNotIn("retention cap", " ".join(context["problems"]))
+        self.assertNotIn("retention cap", context["wake"])
         self.assertEqual(
             [row["thread_id"] for row in context["forgotten_obligations"]],
             ["thread-50"],
         )
 
-    def test_obligations_beyond_the_retention_cap_are_still_classified_and_counted(self):
+    def test_obligations_beyond_the_retention_cap_are_still_classified_and_counted(
+        self,
+    ):
         # The retention cap bounds the generic `signals` sample. It must not run
         # BEFORE classification, or a real obligation past the cap is dropped
         # without ever being read as an obligation. Production hit exactly this:
         # 2,291 unique signals, 50 retained, and every retained row was
         # action-tagged -- so action-tagged rows past 50 were discarded silently.
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
-        identities = ("leojkwan@gmail.com", "trysnowcubes@gmail.com", "firstbitelabs@gmail.com")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
         obligation_count = 60
         rows = [
             {
@@ -1730,12 +1936,20 @@ class PrivateStoreTests(unittest.TestCase):
 
         def call_tool(name, arguments):
             if name == "list_accounts":
-                return {"accounts": [{"accountEmail": email, "aliases": []} for email in identities]}
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []} for email in identities
+                    ]
+                }
             if name == "list_threads":
-                account_rows = rows if arguments["acting_email"] == identities[0] else []
+                account_rows = (
+                    rows if arguments["acting_email"] == identities[0] else []
+                )
                 return {"threads": account_rows, "total_estimate": len(account_rows)}
             if name == "get_thread":
-                selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                selected = next(
+                    row for row in rows if row["thread_id"] == arguments["thread_id"]
+                )
                 return {
                     **selected,
                     "user_is_participant": True,
@@ -1753,30 +1967,43 @@ class PrivateStoreTests(unittest.TestCase):
                     ],
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
         # Every obligation is classified from the full collision-safe set, not
         # from the already-truncated retention sample.
-        self.assertEqual(len(context["forgotten_obligations"]), obligation_count)
         self.assertEqual(
-            {row["thread_id"] for row in context["forgotten_obligations"]},
-            {f"obligation-{index}" for index in range(obligation_count)},
+            len(context["forgotten_obligations"]),
+            brief.SUPERHUMAN_CATEGORY_EXCERPT_LIMIT,
         )
-        # Truncating the generic sample stays honest, never an all-clear.
-        self.assertFalse(context["all_clear_allowed"])
-        self.assertEqual(context["status"], "UNKNOWN")
+        self.assertEqual(
+            context["category_index"]["forgotten_obligations"]["total"],
+            obligation_count,
+        )
+        self.assertEqual(
+            len(context["category_index"]["forgotten_obligations"]["signal_ids"]),
+            obligation_count,
+        )
+        self.assertEqual(len(context["action_index"]), obligation_count)
+        self.assertNotIn("retention cap", " ".join(context["problems"]))
 
-    def test_category_cap_drops_the_newest_rows_and_keeps_the_longest_neglected(self):
+    def test_category_excerpt_keeps_oldest_rows_and_indexes_full_population(self):
         # `unique_signals` is newest-first, so slicing it directly would discard
         # the OLDEST obligations -- precisely the ones a "forgotten obligation"
         # section exists to surface. action_candidate_sort_key is the intended
         # order: obligation-class first, then ascending timestamp.
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
-        identities = ("leojkwan@gmail.com", "trysnowcubes@gmail.com", "firstbitelabs@gmail.com")
-        overflow = brief.SUPERHUMAN_CATEGORY_LIMIT + 10
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        overflow = brief.SUPERHUMAN_CATEGORY_EXCERPT_LIMIT + 10
         base = brief.datetime.fromisoformat("2026-05-17T00:00:00+00:00")
         rows = [
             {
@@ -1795,12 +2022,20 @@ class PrivateStoreTests(unittest.TestCase):
 
         def call_tool(name, arguments):
             if name == "list_accounts":
-                return {"accounts": [{"accountEmail": email, "aliases": []} for email in identities]}
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []} for email in identities
+                    ]
+                }
             if name == "list_threads":
-                account_rows = rows if arguments["acting_email"] == identities[0] else []
+                account_rows = (
+                    rows if arguments["acting_email"] == identities[0] else []
+                )
                 return {"threads": account_rows, "total_estimate": len(account_rows)}
             if name == "get_thread":
-                selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                selected = next(
+                    row for row in rows if row["thread_id"] == arguments["thread_id"]
+                )
                 return {
                     **selected,
                     "user_is_participant": True,
@@ -1818,24 +2053,68 @@ class PrivateStoreTests(unittest.TestCase):
                     ],
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"unexpected Superhuman tool: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
         retained = {row["thread_id"] for row in context["forgotten_obligations"]}
-        self.assertEqual(len(retained), brief.SUPERHUMAN_CATEGORY_LIMIT)
+        self.assertEqual(len(retained), brief.SUPERHUMAN_CATEGORY_EXCERPT_LIMIT)
         # The ten NEWEST are the ones dropped; every oldest row survives.
         self.assertEqual(
             retained,
-            {f"obligation-{index:04d}" for index in range(brief.SUPERHUMAN_CATEGORY_LIMIT)},
+            {
+                f"obligation-{index:04d}"
+                for index in range(brief.SUPERHUMAN_CATEGORY_EXCERPT_LIMIT)
+            },
         )
         self.assertIn("obligation-0000", retained)
         self.assertNotIn(f"obligation-{overflow - 1:04d}", retained)
-        # Truncation is named, never silent.
-        self.assertIn("10 forgotten obligations row omitted", " ".join(context["problems"]))
+        # Presentation truncation is named in the receipt, never promoted to a
+        # source failure when every private provider location remains indexed.
+        self.assertNotIn("category cap", " ".join(context["problems"]))
+        receipt = context["category_index"]["forgotten_obligations"]
+        self.assertEqual(receipt["total"], overflow)
+        self.assertEqual(receipt["shown"], brief.SUPERHUMAN_CATEGORY_EXCERPT_LIMIT)
+        self.assertEqual(receipt["omitted"], 10)
+        self.assertTrue(receipt["locations_complete"])
+        self.assertEqual(len(receipt["signal_ids"]), overflow)
+        self.assertEqual(
+            set(receipt["signal_ids"]),
+            {
+                hashlib.sha256(
+                    f"message:obligation-message-{index:04d}".encode()
+                ).hexdigest()[:24]
+                for index in range(overflow)
+            },
+        )
+        self.assertEqual(len(context["action_index"]), overflow)
+        self.assertTrue(
+            all(
+                row["source_threads"][0]["acting_email"] == "leojkwan@gmail.com"
+                and row["source_threads"][0]["thread_id"].startswith("obligation-")
+                for row in context["action_index"]
+            )
+        )
+        packet = _scheduled_packet_fixture()
+        packet["superhuman_context"] = context
+        html = brief.render_html(packet)
+        self.assertIn("Complete obligation population", html)
+        self.assertIn(
+            f"<td>{overflow}</td><td>{brief.SUPERHUMAN_CATEGORY_EXCERPT_LIMIT}</td><td>10</td>",
+            html,
+        )
+        self.assertIn(
+            "All provider locations are retained in the private evidence packet.",
+            html,
+        )
 
-    def test_mail_action_candidates_include_old_waiting_urgent_and_snowcubes_but_unread_content_is_unknown(self):
+    def test_mail_action_candidates_include_old_waiting_urgent_and_snowcubes_but_unread_content_is_unknown(
+        self,
+    ):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         identities = (
             "leojkwan@gmail.com",
@@ -1954,7 +2233,9 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "query_email_and_calendar":
                 return {
                     "answer": "Proposal only: review the next fourteen days for conflicts.",
-                    "sources": [{"id": "cal-1", "title": "Calendar", "type": "calendar"}],
+                    "sources": [
+                        {"id": "cal-1", "title": "Calendar", "type": "calendar"}
+                    ],
                 }
             raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
 
@@ -1973,11 +2254,17 @@ class PrivateStoreTests(unittest.TestCase):
             context["proactive_candidates"][0]["source_identities"],
             ["trysnowcubes@gmail.com"],
         )
-        unread = next(row for row in context["signals"] if row["thread_id"] == "return-attachment")
+        unread = next(
+            row for row in context["signals"] if row["thread_id"] == "return-attachment"
+        )
         self.assertEqual(unread["semantic_status"], "UNKNOWN")
         self.assertIn("return-attachment", unread["wake"])
         self.assertIn("return-label.pdf", unread["wake"])
-        personal = next(row for row in context["coverage"] if row["acting_email"] == "leojkwan@gmail.com")
+        personal = next(
+            row
+            for row in context["coverage"]
+            if row["acting_email"] == "leojkwan@gmail.com"
+        )
         self.assertEqual(personal["status"], "UNKNOWN")
         self.assertEqual(personal["source_age_hours"], 0.0)
         self.assertEqual(personal["newest_message_age_hours"], 1.0)
@@ -2092,16 +2379,22 @@ class PrivateStoreTests(unittest.TestCase):
                     "accounts": [
                         {
                             "accountEmail": email,
-                            "aliases": ["leo.alias@gmail.com"] if email == identities[0] else [],
+                            "aliases": ["leo.alias@gmail.com"]
+                            if email == identities[0]
+                            else [],
                         }
                         for email in identities
                     ]
                 }
             if name == "list_threads":
-                account_rows = rows if arguments["acting_email"] == identities[0] else []
+                account_rows = (
+                    rows if arguments["acting_email"] == identities[0] else []
+                )
                 return {"threads": account_rows, "total_estimate": len(account_rows)}
             if name == "get_thread":
-                selected = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                selected = next(
+                    row for row in rows if row["thread_id"] == arguments["thread_id"]
+                )
                 if selected["thread_id"] == "empty-exact-thread":
                     return {**selected, "user_is_participant": True, "messages": []}
                 if selected["thread_id"] == "detail-error-thread":
@@ -2165,7 +2458,8 @@ class PrivateStoreTests(unittest.TestCase):
                         ),
                         "to": (
                             [selected["participants"][0]]
-                            if selected["thread_id"] in {"outbound-thank-you", "alias-outbound-waiting"}
+                            if selected["thread_id"]
+                            in {"outbound-thank-you", "alias-outbound-waiting"}
                             else [identities[0]]
                         ),
                     }
@@ -2189,7 +2483,10 @@ class PrivateStoreTests(unittest.TestCase):
                     "messages": messages,
                 }
             if name == "query_email_and_calendar":
-                return {"answer": "No conflict surfaced.", "sources": [{"id": "calendar-source"}]}
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
             raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
 
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
@@ -2202,19 +2499,28 @@ class PrivateStoreTests(unittest.TestCase):
             "mixed-sent-inbox",
             [row["thread_id"] for row in context["waiting_replies"]],
         )
-        mixed = next(row for row in context["signals"] if row["thread_id"] == "mixed-sent-inbox")
+        mixed = next(
+            row for row in context["signals"] if row["thread_id"] == "mixed-sent-inbox"
+        )
         self.assertEqual(mixed["semantic_status"], "PROPOSAL")
         self.assertTrue(mixed["thread_body_read"])
-        empty = next(row for row in context["signals"] if row["thread_id"] == "empty-exact-thread")
+        empty = next(
+            row
+            for row in context["signals"]
+            if row["thread_id"] == "empty-exact-thread"
+        )
         self.assertEqual(empty["semantic_status"], "UNKNOWN")
         self.assertIn("empty-exact-thread", empty["wake"])
-        self.assertIn("no non-draft visible message", " ".join(
-            next(
-                row["problems"]
-                for row in context["coverage"]
-                if row["acting_email"] == identities[0]
-            )
-        ))
+        self.assertIn(
+            "no non-draft visible message",
+            " ".join(
+                next(
+                    row["problems"]
+                    for row in context["coverage"]
+                    if row["acting_email"] == identities[0]
+                )
+            ),
+        )
         elevated = {
             row["thread_id"]
             for category in (
@@ -2236,21 +2542,28 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("missing-listed-latest", elevated)
         self.assertNotIn("equal-time-direction", elevated)
         missing_latest = next(
-            row for row in context["signals"] if row["thread_id"] == "missing-listed-latest"
+            row
+            for row in context["signals"]
+            if row["thread_id"] == "missing-listed-latest"
         )
         self.assertEqual(missing_latest["semantic_status"], "UNKNOWN")
         self.assertIn("missing-listed-latest", missing_latest["wake"])
         detail_error = next(
-            row for row in context["signals"] if row["thread_id"] == "detail-error-thread"
+            row
+            for row in context["signals"]
+            if row["thread_id"] == "detail-error-thread"
         )
         self.assertEqual(detail_error["semantic_status"], "UNKNOWN")
-        self.assertIn("exact detail payload rejected", " ".join(
-            next(
-                row["problems"]
-                for row in context["coverage"]
-                if row["acting_email"] == identities[0]
-            )
-        ))
+        self.assertIn(
+            "exact detail payload rejected",
+            " ".join(
+                next(
+                    row["problems"]
+                    for row in context["coverage"]
+                    if row["acting_email"] == identities[0]
+                )
+            ),
+        )
         self.assertEqual(
             set(tool_names),
             {"list_accounts", "list_threads", "get_thread", "query_email_and_calendar"},
@@ -2281,8 +2594,7 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "aliases": []}
-                        for email in identities
+                        {"accountEmail": email, "aliases": []} for email in identities
                     ]
                 }
             if name == "list_threads":
@@ -2321,7 +2633,8 @@ class PrivateStoreTests(unittest.TestCase):
         context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
         signal = next(
-            row for row in context["signals"]
+            row
+            for row in context["signals"]
             if row["last_message_id"] == "shared-self-message"
         )
         self.assertEqual(signal["source_identities"], [personal, business])
@@ -2332,15 +2645,17 @@ class PrivateStoreTests(unittest.TestCase):
             "waiting_replies",
             "proactive_candidates",
         ):
-            self.assertNotIn(signal["signal_id"], {
-                row["signal_id"] for row in context[category]
-            })
+            self.assertNotIn(
+                signal["signal_id"], {row["signal_id"] for row in context[category]}
+            )
         self.assertEqual(
             set(tool_names),
             {"list_accounts", "list_threads", "get_thread", "query_email_and_calendar"},
         )
 
-    def test_exact_thread_schema_proves_participation_membership_drafts_and_recipients(self):
+    def test_exact_thread_schema_proves_participation_membership_drafts_and_recipients(
+        self,
+    ):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         personal = "leojkwan@gmail.com"
         identities = (
@@ -2400,8 +2715,7 @@ class PrivateStoreTests(unittest.TestCase):
             if name == "list_accounts":
                 return {
                     "accounts": [
-                        {"accountEmail": email, "aliases": []}
-                        for email in identities
+                        {"accountEmail": email, "aliases": []} for email in identities
                     ]
                 }
             if name == "list_threads":
@@ -2412,7 +2726,9 @@ class PrivateStoreTests(unittest.TestCase):
                 return {"threads": lane_rows, "total_estimate": len(lane_rows)}
             if name == "get_thread":
                 get_thread_arguments.append(dict(arguments))
-                row = next(row for row in rows if row["thread_id"] == arguments["thread_id"])
+                row = next(
+                    row for row in rows if row["thread_id"] == arguments["thread_id"]
+                )
                 if row["thread_id"] == "draft-labelled-thread":
                     messages = [
                         exact_message(row),
@@ -2461,8 +2777,12 @@ class PrivateStoreTests(unittest.TestCase):
         by_thread = {row["thread_id"]: row for row in context["signals"]}
 
         self.assertTrue(get_thread_arguments)
-        self.assertTrue(all(call["include_drafts"] is False for call in get_thread_arguments))
-        self.assertEqual(by_thread["draft-labelled-thread"]["semantic_status"], "PROPOSAL")
+        self.assertTrue(
+            all(call["include_drafts"] is False for call in get_thread_arguments)
+        )
+        self.assertEqual(
+            by_thread["draft-labelled-thread"]["semantic_status"], "PROPOSAL"
+        )
         self.assertIn("reply", by_thread["draft-labelled-thread"]["action_tags"])
         for thread_id in (
             "nonparticipant-thread",
@@ -2508,8 +2828,7 @@ class PrivateStoreTests(unittest.TestCase):
                 if name == "list_accounts":
                     return {
                         "accounts": [
-                            {"accountEmail": email, "aliases": []}
-                            for email in order
+                            {"accountEmail": email, "aliases": []} for email in order
                         ]
                     }
                 if name == "list_threads":
@@ -2550,7 +2869,9 @@ class PrivateStoreTests(unittest.TestCase):
                         "answer": "No conflict surfaced.",
                         "sources": [{"id": "calendar-source"}],
                     }
-                raise AssertionError(f"write or unexpected Superhuman tool invoked: {name}")
+                raise AssertionError(
+                    f"write or unexpected Superhuman tool invoked: {name}"
+                )
 
             return brief.build_superhuman_context(call_tool, observed_at=observed_at)
 
@@ -2558,15 +2879,18 @@ class PrivateStoreTests(unittest.TestCase):
         reverse = collect((third, business, personal))
         business_first = collect((business, personal, third))
         forward_signal = next(
-            row for row in forward["signals"]
+            row
+            for row in forward["signals"]
             if row["last_message_id"] == "shared-external-message"
         )
         reverse_signal = next(
-            row for row in reverse["signals"]
+            row
+            for row in reverse["signals"]
             if row["last_message_id"] == "shared-external-message"
         )
         business_first_signal = next(
-            row for row in business_first["signals"]
+            row
+            for row in business_first["signals"]
             if row["last_message_id"] == "shared-external-message"
         )
         comparisons = (
@@ -2619,7 +2943,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("thread_id", reply)
         self.assertNotIn("native_link", reply)
 
-    def test_packet_and_render_have_one_reader_first_mail_section_from_one_read_only_collection(self):
+    def test_packet_and_render_have_one_reader_first_mail_section_from_one_read_only_collection(
+        self,
+    ):
         def signal(signal_id, subject, *, status="PROPOSAL", wake=None):
             return {
                 "signal_id": signal_id,
@@ -2716,21 +3042,37 @@ class PrivateStoreTests(unittest.TestCase):
         }
         board = {"revision": 23, "entities": [], "claims": []}
         companion = {"observed_at": "2026-08-14T12:00:00Z", "surfaces": []}
-        with mock.patch.object(brief, "portfolio_root", return_value=Path("/tmp/portfolio")), \
-            mock.patch.object(brief, "collect_repos", return_value=[]), \
-            mock.patch.object(brief, "collect_github", return_value=[]), \
-            mock.patch.object(brief, "collect_vercel", return_value={"available": False}), \
-            mock.patch.object(brief, "collect_supabase", return_value={"available": False}), \
-            mock.patch.object(brief, "collect_superhuman_context", return_value=mail) as collect_mail, \
-            mock.patch.object(brief, "collect_growth_source_status", return_value={}), \
-            mock.patch.object(brief, "build_local_git_health", return_value={"available": True}), \
-            mock.patch.object(brief, "build_paint_health", return_value={}), \
-            mock.patch.object(brief, "collect_shadow_status_excerpt", return_value="status"), \
-            mock.patch.object(brief, "collect_board", return_value=board), \
-            mock.patch.object(brief, "_read_board_revision", return_value=23), \
-            mock.patch.object(brief, "collect_snowcubes_context", return_value=companion), \
-            mock.patch.object(brief, "build_recommendations", return_value=[]), \
-            mock.patch.object(brief, "build_chief_of_staff_analysis", return_value={}):
+        with (
+            mock.patch.object(
+                brief, "portfolio_root", return_value=Path("/tmp/portfolio")
+            ),
+            mock.patch.object(brief, "collect_repos", return_value=[]),
+            mock.patch.object(brief, "collect_github", return_value=[]),
+            mock.patch.object(
+                brief, "collect_vercel", return_value={"available": False}
+            ),
+            mock.patch.object(
+                brief, "collect_supabase", return_value={"available": False}
+            ),
+            mock.patch.object(
+                brief, "collect_superhuman_context", return_value=mail
+            ) as collect_mail,
+            mock.patch.object(brief, "collect_growth_source_status", return_value={}),
+            mock.patch.object(
+                brief, "build_local_git_health", return_value={"available": True}
+            ),
+            mock.patch.object(brief, "build_paint_health", return_value={}),
+            mock.patch.object(
+                brief, "collect_shadow_status_excerpt", return_value="status"
+            ),
+            mock.patch.object(brief, "collect_board", return_value=board),
+            mock.patch.object(brief, "_read_board_revision", return_value=23),
+            mock.patch.object(
+                brief, "collect_snowcubes_context", return_value=companion
+            ),
+            mock.patch.object(brief, "build_recommendations", return_value=[]),
+            mock.patch.object(brief, "build_chief_of_staff_analysis", return_value={}),
+        ):
             packet = brief.collect_packet(slot="morning")
 
         self.assertIs(packet["superhuman_context"], mail)
@@ -2834,12 +3176,14 @@ class PrivateStoreTests(unittest.TestCase):
             context, brief.SNOWCUBES_BUSINESS_MAIL
         )
         self.assertNotIn("native_link", business_mail["signals"][0])
-        with mock.patch.object(brief, "collect_board", return_value={"revision": 9}), \
+        with (
+            mock.patch.object(brief, "collect_board", return_value={"revision": 9}),
             mock.patch.object(
                 brief,
                 "_snowcubes_m12_surface",
                 return_value={"name": "M12 cafe-doctor", "state": "unavailable"},
-            ):
+            ),
+        ):
             companion = brief.collect_snowcubes_context(
                 vercel={"available": False},
                 board={"revision": 9},
@@ -2866,7 +3210,14 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("no inbox state is inferred", reply["now"])
         self.assertIn(brief.SNOWCUBES_BUSINESS_MAIL, reply["wake"])
         by_name = {item["name"]: item for item in context["surfaces"]}
-        for name in ("Commerce", "Funnel", "Search", "Local profile", "Lifecycle email", "SEO"):
+        for name in (
+            "Commerce",
+            "Funnel",
+            "Search",
+            "Local profile",
+            "Lifecycle email",
+            "SEO",
+        ):
             self.assertEqual(by_name[name]["state"], "unavailable")
             self.assertTrue(by_name[name].get("native_link"))
             self.assertTrue(by_name[name].get("wake"))
@@ -2885,12 +3236,18 @@ class PrivateStoreTests(unittest.TestCase):
             "semantic_status": "PROPOSAL",
             "thread_body_read": True,
         }
-        with mock.patch.object(
-            brief,
-            "collect_superhuman_context",
-            return_value={"available": True, "complete": True, "signals": [signal]},
-        ), mock.patch.object(brief, "collect_board", return_value={"revision": 9}), mock.patch.object(
-            brief, "_snowcubes_m12_surface", return_value={"name": "M12 cafe-doctor", "state": "unavailable"}
+        with (
+            mock.patch.object(
+                brief,
+                "collect_superhuman_context",
+                return_value={"available": True, "complete": True, "signals": [signal]},
+            ),
+            mock.patch.object(brief, "collect_board", return_value={"revision": 9}),
+            mock.patch.object(
+                brief,
+                "_snowcubes_m12_surface",
+                return_value={"name": "M12 cafe-doctor", "state": "unavailable"},
+            ),
         ):
             context = brief.collect_snowcubes_context(vercel={"available": False})
         reply = context["surfaces"][0]
@@ -2900,7 +3257,11 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("native_link", reply)
         self.assertIn("Proposal only", reply["proposal"])
         self.assertIn("no draft or send was created", reply["proposal"])
-        nurture = next(item for item in context["surfaces"] if item["name"] == "Relationships to nurture")
+        nurture = next(
+            item
+            for item in context["surfaces"]
+            if item["name"] == "Relationships to nurture"
+        )
         self.assertIn("Proposal only", nurture["proposal"])
 
     def test_linkless_business_signal_is_unknown_not_a_reply_prompt(self):
@@ -2910,17 +3271,27 @@ class PrivateStoreTests(unittest.TestCase):
             "kind": "human_or_other",
             "thread_id": "opaque-thread-id",
         }
-        with mock.patch.object(
-            brief,
-            "collect_superhuman_context",
-            return_value={"available": True, "signals": [signal]},
-        ), mock.patch.object(brief, "collect_board", return_value={"revision": 9}), mock.patch.object(
-            brief, "_snowcubes_m12_surface", return_value={"name": "M12 cafe-doctor", "state": "unavailable"}
+        with (
+            mock.patch.object(
+                brief,
+                "collect_superhuman_context",
+                return_value={"available": True, "signals": [signal]},
+            ),
+            mock.patch.object(brief, "collect_board", return_value={"revision": 9}),
+            mock.patch.object(
+                brief,
+                "_snowcubes_m12_surface",
+                return_value={"name": "M12 cafe-doctor", "state": "unavailable"},
+            ),
         ):
             context = brief.collect_snowcubes_context(vercel={"available": False})
 
         reply = context["surfaces"][0]
-        nurture = next(item for item in context["surfaces"] if item["name"] == "Relationships to nurture")
+        nurture = next(
+            item
+            for item in context["surfaces"]
+            if item["name"] == "Relationships to nurture"
+        )
         self.assertEqual(reply["state"], "unknown")
         self.assertIn("not ranked as a reply", reply["now"])
         self.assertIn("do not infer an action", reply["wake"])
@@ -2958,20 +3329,22 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("Superhuman business inbox", html)
 
     def test_evidence_keeps_background_work_out_of_the_reader_story(self):
-        html = brief.render_html({
-            "slot": "morning",
-            "generated_at": "2026-08-12T08:00:00-04:00",
-            "board": {"revision": 9, "entities": [], "claims": []},
-            "repos": [{"name": "shadow", "dirty": True}],
-            "github_open_prs": [],
-            "recommendations": [],
-            "analysis": {},
-            "snowcubes_context": {"surfaces": []},
-            "paint_health": {"local_git": {"scanned_roots": 1}},
-            "vercel": {"deployments": []},
-            "supabase": {"projects": []},
-            "superhuman_context": {"available": False},
-        })
+        html = brief.render_html(
+            {
+                "slot": "morning",
+                "generated_at": "2026-08-12T08:00:00-04:00",
+                "board": {"revision": 9, "entities": [], "claims": []},
+                "repos": [{"name": "shadow", "dirty": True}],
+                "github_open_prs": [],
+                "recommendations": [],
+                "analysis": {},
+                "snowcubes_context": {"surfaces": []},
+                "paint_health": {"local_git": {"scanned_roots": 1}},
+                "vercel": {"deployments": []},
+                "supabase": {"projects": []},
+                "superhuman_context": {"available": False},
+            }
+        )
 
         self.assertIn("Background work", html)
         self.assertIn("background work", html.lower())
@@ -3053,7 +3426,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("8 Snowcubes sources were unavailable", html)
         self.assertIn("Proposal only: Leo approves before any send.", html)
         self.assertIn("Open native source", html)
-        self.assertLess(html.index("What materially changed"), html.index("Decided for you"))
+        self.assertLess(
+            html.index("What materially changed"), html.index("Decided for you")
+        )
         self.assertNotIn("Snowcubes chief-of-staff brief", html)
         self.assertNotIn("How this note thinks", html)
         self.assertNotIn("What building looks like now", html)
@@ -3082,7 +3457,9 @@ class PrivateStoreTests(unittest.TestCase):
 
         change = analysis["material_changes"][0]
         self.assertEqual(change["project"], "Shadow")
-        self.assertIn("brief", (change["headline"] + change["fact"] + change["meaning"]).lower())
+        self.assertIn(
+            "brief", (change["headline"] + change["fact"] + change["meaning"]).lower()
+        )
         prose = json.dumps(change)
         self.assertNotIn("#468", prose)
         self.assertNotIn("root cas", prose.lower())
@@ -3116,11 +3493,13 @@ class PrivateStoreTests(unittest.TestCase):
                     recent_commits=["feat(brief): keep the full plan readable"],
                 )
             ],
-            github=[{
-                "title": "Review the reader-first brief copy",
-                "url": "https://example.test/review/1",
-                "repository": {"nameWithOwner": "leokwan/shadow"},
-            }],
+            github=[
+                {
+                    "title": "Review the reader-first brief copy",
+                    "url": "https://example.test/review/1",
+                    "repository": {"nameWithOwner": "leokwan/shadow"},
+                }
+            ],
             vercel={"available": True, "deployments": []},
         )
 
@@ -3140,11 +3519,13 @@ class PrivateStoreTests(unittest.TestCase):
                     recent_commits=["feat(brief): keep the full plan readable"],
                 )
             ],
-            github=[{
-                "title": "Review the reader-first brief copy",
-                "url": "https://example.test/review/1",
-                "repository": {"nameWithOwner": "leokwan/shadow"},
-            }],
+            github=[
+                {
+                    "title": "Review the reader-first brief copy",
+                    "url": "https://example.test/review/1",
+                    "repository": {"nameWithOwner": "leokwan/shadow"},
+                }
+            ],
             vercel={"available": True, "deployments": [{"state": "READY"}]},
             supabase={"available": True, "projects": [{"status": "HEALTHY"}]},
             mail={"available": False},
@@ -3172,7 +3553,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertNotIn("historical_context", reasoning)
         self.assertNotIn("nia", json.dumps(analysis).lower())
 
-    def test_architecture_decision_translates_maily_calendar_retirement_for_readers(self):
+    def test_architecture_decision_translates_maily_calendar_retirement_for_readers(
+        self,
+    ):
         raw_decision = (
             "shared Cally retention vs Leo's explicit instruction to retire Cally and use Maily "
             "| winner: M5 `~m5sk` retires both shared Cally and private Cally Leo only after "
@@ -3182,11 +3565,13 @@ class PrivateStoreTests(unittest.TestCase):
         )
         analysis = brief.build_chief_of_staff_analysis(
             board={
-                "entities": [{
-                    "project": "ai-leo",
-                    "priority": 1,
-                    "decisions": [raw_decision],
-                }],
+                "entities": [
+                    {
+                        "project": "ai-leo",
+                        "priority": 1,
+                        "decisions": [raw_decision],
+                    }
+                ],
                 "claims": [],
             },
             repos=[],
@@ -3218,11 +3603,13 @@ class PrivateStoreTests(unittest.TestCase):
         )
         analysis = brief.build_chief_of_staff_analysis(
             board={
-                "entities": [{
-                    "project": "resplit-ios",
-                    "priority": 1,
-                    "decisions": [raw_decision],
-                }],
+                "entities": [
+                    {
+                        "project": "resplit-ios",
+                        "priority": 1,
+                        "decisions": [raw_decision],
+                    }
+                ],
                 "claims": [],
             },
             repos=[],
@@ -3269,7 +3656,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertIn("older transaction", changes[0]["fact"].lower())
         self.assertNotIn("Snowcubes", json.dumps(changes[0]))
 
-    def test_m12_card_uses_the_source_packet_timestamp_without_claiming_current_money(self):
+    def test_m12_card_uses_the_source_packet_timestamp_without_claiming_current_money(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             portfolio = Path(tmp)
             repo = portfolio / "trysnowcubes-web"
@@ -3281,19 +3670,28 @@ class PrivateStoreTests(unittest.TestCase):
             fixture.write_text("{}", encoding="utf-8")
             result = {
                 "ok": True,
-                "checks": [{
-                    "name": "fresh-native",
-                    "ok": True,
-                    "state": "HEALTHY",
-                    "detail": "three falsifiers passed",
-                    "observed_at": "2026-08-12T02:00:00Z",
-                    "action": "suppressed",
-                    "wake": "collect a fresh read-only Calendar, Superhuman, and Shopify packet before any money action",
-                }],
+                "checks": [
+                    {
+                        "name": "fresh-native",
+                        "ok": True,
+                        "state": "HEALTHY",
+                        "detail": "three falsifiers passed",
+                        "observed_at": "2026-08-12T02:00:00Z",
+                        "action": "suppressed",
+                        "wake": "collect a fresh read-only Calendar, Superhuman, and Shopify packet before any money action",
+                    }
+                ],
             }
-            with mock.patch.object(brief, "portfolio_root", return_value=portfolio), mock.patch.object(
-                brief, "_run", return_value=subprocess.CompletedProcess([], 0, json.dumps(result), "")
-            ) as run:
+            with (
+                mock.patch.object(brief, "portfolio_root", return_value=portfolio),
+                mock.patch.object(
+                    brief,
+                    "_run",
+                    return_value=subprocess.CompletedProcess(
+                        [], 0, json.dumps(result), ""
+                    ),
+                ) as run,
+            ):
                 card = brief._snowcubes_m12_surface("2026-08-12T08:00:00Z")
 
         self.assertEqual(card["state"], "unavailable")
@@ -3306,7 +3704,9 @@ class PrivateStoreTests(unittest.TestCase):
             [sys.executable, str(script), "--json", "--fresh-native", str(fixture)],
         )
 
-    def test_m12_card_paints_a_discrepancy_and_missing_packet_without_connector_claims(self):
+    def test_m12_card_paints_a_discrepancy_and_missing_packet_without_connector_claims(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             portfolio = Path(tmp)
             repo = portfolio / "trysnowcubes-web"
@@ -3318,24 +3718,45 @@ class PrivateStoreTests(unittest.TestCase):
             fixture.write_text("{}", encoding="utf-8")
             discrepancy = {
                 "ok": False,
-                "checks": [{
-                    "name": "fresh-native", "ok": False, "state": "DISCREPANCY",
-                    "detail": "provider state disagrees", "observed_at": "2026-08-12T02:00:00Z",
-                    "wake": "reconcile the stable provider ID before any action",
-                }],
+                "checks": [
+                    {
+                        "name": "fresh-native",
+                        "ok": False,
+                        "state": "DISCREPANCY",
+                        "detail": "provider state disagrees",
+                        "observed_at": "2026-08-12T02:00:00Z",
+                        "wake": "reconcile the stable provider ID before any action",
+                    }
+                ],
             }
-            with mock.patch.object(brief, "portfolio_root", return_value=portfolio), mock.patch.object(
-                brief, "_run", return_value=subprocess.CompletedProcess([], 1, json.dumps(discrepancy), "")
+            with (
+                mock.patch.object(brief, "portfolio_root", return_value=portfolio),
+                mock.patch.object(
+                    brief,
+                    "_run",
+                    return_value=subprocess.CompletedProcess(
+                        [], 1, json.dumps(discrepancy), ""
+                    ),
+                ),
             ):
                 card = brief._snowcubes_m12_surface("2026-08-12T08:00:00Z")
-            with mock.patch.object(brief, "portfolio_root", return_value=portfolio), mock.patch.object(
-                brief, "_run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"ok": True, "checks": []}), "")
+            with (
+                mock.patch.object(brief, "portfolio_root", return_value=portfolio),
+                mock.patch.object(
+                    brief,
+                    "_run",
+                    return_value=subprocess.CompletedProcess(
+                        [], 0, json.dumps({"ok": True, "checks": []}), ""
+                    ),
+                ),
             ):
                 missing = brief._snowcubes_m12_surface("2026-08-12T08:00:00Z")
 
         self.assertEqual(card["state"], "attention")
         self.assertEqual(card["observed_at"], "2026-08-12T02:00:00Z")
-        self.assertEqual(card["wake"], "reconcile the stable provider ID before any action")
+        self.assertEqual(
+            card["wake"], "reconcile the stable provider ID before any action"
+        )
         self.assertEqual(missing["state"], "unavailable")
         self.assertIn("fresh-native packet is unavailable", missing["now"])
 
@@ -3400,7 +3821,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(opportunity["signals"]["first_order"]["state"], "CONFIRMED")
         self.assertEqual(opportunity["signals"]["delivery"]["state"], "CONFIRMED")
         self.assertEqual(opportunity["signals"]["relationship"]["state"], "PROPOSAL")
-        self.assertEqual(opportunity["signals"]["waiting_reply"]["state"], "NOT_OBSERVED")
+        self.assertEqual(
+            opportunity["signals"]["waiting_reply"]["state"], "NOT_OBSERVED"
+        )
         self.assertEqual(opportunity["signals"]["recovery"]["state"], "NOT_OBSERVED")
         self.assertEqual(opportunity["permission_to_contact"], "UNKNOWN")
         self.assertEqual(opportunity["inventory_state"], "UNKNOWN")
@@ -3561,7 +3984,9 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(opportunity["signals"]["first_order"]["state"], "UNKNOWN")
         self.assertEqual(opportunity["signals"]["recovery"]["state"], "NOT_OBSERVED")
         self.assertEqual(opportunity["permission_to_contact"], "UNKNOWN")
-        self.assertIn("Shopify order and fulfillment facts are unavailable", result["problems"])
+        self.assertIn(
+            "Shopify order and fulfillment facts are unavailable", result["problems"]
+        )
 
     def test_customer_opportunity_missing_acting_mail_account_fails_closed(self):
         result = brief.build_snowcubes_customer_opportunities(
@@ -3728,7 +4153,9 @@ class PrivateStoreTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "UNKNOWN")
         self.assertEqual(len(result["opportunities"]), 3)
-        self.assertTrue(all(row["join_state"] == "UNKNOWN" for row in result["opportunities"]))
+        self.assertTrue(
+            all(row["join_state"] == "UNKNOWN" for row in result["opportunities"])
+        )
 
     def test_customer_opportunity_rejects_wrong_accounts_and_future_source_age(self):
         result = brief.build_snowcubes_customer_opportunities(
@@ -3761,7 +4188,9 @@ class PrivateStoreTests(unittest.TestCase):
             result["opportunities"][0]["signals"]["delivery"]["state"],
             "UNKNOWN",
         )
-        self.assertIn("mail source is not the Snowcubes business account", result["problems"])
+        self.assertIn(
+            "mail source is not the Snowcubes business account", result["problems"]
+        )
 
     def test_customer_opportunity_conflicting_order_identity_fails_closed(self):
         mail_signal = {
@@ -3800,13 +4229,17 @@ class PrivateStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "UNKNOWN")
-        self.assertTrue(all(row["join_state"] == "UNKNOWN" for row in result["opportunities"]))
+        self.assertTrue(
+            all(row["join_state"] == "UNKNOWN" for row in result["opportunities"])
+        )
         self.assertIn(
             "conflicting duplicate Shopify order identity: order-collision",
             result["problems"],
         )
 
-    def test_customer_opportunity_conflicting_thread_revision_is_order_independent(self):
+    def test_customer_opportunity_conflicting_thread_revision_is_order_independent(
+        self,
+    ):
         base = {
             "thread_id": "thread-revision",
             "stable_provider_identity": True,
@@ -3848,13 +4281,17 @@ class PrivateStoreTests(unittest.TestCase):
         reverse = build(list(reversed(versions)))
         self.assertEqual(forward, reverse)
         self.assertEqual(forward["status"], "UNKNOWN")
-        self.assertTrue(all(row["join_state"] == "UNKNOWN" for row in forward["opportunities"]))
+        self.assertTrue(
+            all(row["join_state"] == "UNKNOWN" for row in forward["opportunities"])
+        )
         self.assertIn(
             "conflicting duplicate Superhuman thread identity: thread-revision",
             forward["problems"],
         )
 
-    def test_customer_opportunity_customer_conflict_and_direction_tags_fail_closed(self):
+    def test_customer_opportunity_customer_conflict_and_direction_tags_fail_closed(
+        self,
+    ):
         result = brief.build_snowcubes_customer_opportunities(
             mail={
                 "available": True,
@@ -3889,7 +4326,9 @@ class PrivateStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "UNKNOWN")
-        mail_only = next(row for row in result["opportunities"] if row["mail"].get("thread_id"))
+        mail_only = next(
+            row for row in result["opportunities"] if row["mail"].get("thread_id")
+        )
         self.assertEqual(mail_only["join_state"], "UNKNOWN")
         self.assertEqual(mail_only["signals"]["waiting_reply"]["state"], "NOT_OBSERVED")
         self.assertEqual(mail_only["signals"]["relationship"]["state"], "NOT_OBSERVED")
@@ -3960,7 +4399,9 @@ class AuthorityScopeTests(unittest.TestCase):
             build = plan_store.build_tree(logical)
             plan.write_bytes(build.root_bytes)
             for digest, content in build.objects.items():
-                object_path = plan.parent / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+                object_path = (
+                    plan.parent / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+                )
                 object_path.parent.mkdir(parents=True, exist_ok=True)
                 object_path.write_bytes(content)
 
@@ -3993,7 +4434,13 @@ class AuthorityScopeTests(unittest.TestCase):
                     {
                         "revision": 4,
                         "projects": [{"id": "snowcubes", "priority": 3}],
-                        "entities": [{"id": "entity-snow", "project": "snowcubes", "plan": str(plan)}],
+                        "entities": [
+                            {
+                                "id": "entity-snow",
+                                "project": "snowcubes",
+                                "plan": str(plan),
+                            }
+                        ],
                         "claims": [],
                     }
                 ),
@@ -4010,8 +4457,12 @@ class AuthorityScopeTests(unittest.TestCase):
             unreadable = root / "unreadable" / "PLAN.md"
             readable.parent.mkdir()
             unreadable.parent.mkdir()
-            readable.write_text("- Project: readable\n- Priority: 4\n", encoding="utf-8")
-            unreadable.write_text("- Project: unreadable\n- Priority: 5\n", encoding="utf-8")
+            readable.write_text(
+                "- Project: readable\n- Priority: 4\n", encoding="utf-8"
+            )
+            unreadable.write_text(
+                "- Project: unreadable\n- Priority: 5\n", encoding="utf-8"
+            )
             board = root / "board.json"
             board.write_text(
                 json.dumps(
@@ -4022,8 +4473,16 @@ class AuthorityScopeTests(unittest.TestCase):
                             {"id": "unreadable", "priority": 2},
                         ],
                         "entities": [
-                            {"id": "entity-readable", "project": "readable", "plan": str(readable)},
-                            {"id": "entity-unreadable", "project": "unreadable", "plan": str(unreadable)},
+                            {
+                                "id": "entity-readable",
+                                "project": "readable",
+                                "plan": str(readable),
+                            },
+                            {
+                                "id": "entity-unreadable",
+                                "project": "unreadable",
+                                "plan": str(unreadable),
+                            },
                         ],
                         "claims": [],
                     }
@@ -4037,8 +4496,9 @@ class AuthorityScopeTests(unittest.TestCase):
                     raise OSError(11, "Resource deadlock avoided")
                 return original_parse_plan(path)
 
-            with mock.patch.object(brief, "BOARD_PATH", board), mock.patch.object(
-                brief, "parse_plan", side_effect=parse_with_deadlock
+            with (
+                mock.patch.object(brief, "BOARD_PATH", board),
+                mock.patch.object(brief, "parse_plan", side_effect=parse_with_deadlock),
             ):
                 result = brief.collect_board()
 
@@ -4058,10 +4518,13 @@ class AuthorityScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             board_path = Path(tmp) / "board.json"
             board_path.write_text('{"revision": 1}\n', encoding="utf-8")
-            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
-                brief.json,
-                "loads",
-                side_effect=ValueError("integer string conversion limit exceeded"),
+            with (
+                mock.patch.object(brief, "BOARD_PATH", board_path),
+                mock.patch.object(
+                    brief.json,
+                    "loads",
+                    side_effect=ValueError("integer string conversion limit exceeded"),
+                ),
             ):
                 result = brief.collect_board()
 
@@ -4075,10 +4538,13 @@ class AuthorityScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             board_path = Path(tmp) / "board.json"
             board_path.write_text('{"revision": 1}\n', encoding="utf-8")
-            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
-                brief.json,
-                "loads",
-                side_effect=RecursionError("maximum recursion depth exceeded"),
+            with (
+                mock.patch.object(brief, "BOARD_PATH", board_path),
+                mock.patch.object(
+                    brief.json,
+                    "loads",
+                    side_effect=RecursionError("maximum recursion depth exceeded"),
+                ),
             ):
                 result = brief.collect_board()
 
@@ -4119,9 +4585,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "entity-plan",
                 {
                     **base,
-                    "entities": [
-                        {"id": "entity", "project": "project", "plan": []}
-                    ],
+                    "entities": [{"id": "entity", "project": "project", "plan": []}],
                 },
             ),
         )
@@ -4155,16 +4619,25 @@ class AuthorityScopeTests(unittest.TestCase):
                 }
             ],
         }
-        with mock.patch.object(
-            brief,
-            "collect_superhuman_context",
-            return_value={"available": False, "error": "account not linked"},
-        ), mock.patch.object(
-            brief, "_snowcubes_m12_surface", return_value={"name": "M12 cafe-doctor", "state": "unavailable"}
+        with (
+            mock.patch.object(
+                brief,
+                "collect_superhuman_context",
+                return_value={"available": False, "error": "account not linked"},
+            ),
+            mock.patch.object(
+                brief,
+                "_snowcubes_m12_surface",
+                return_value={"name": "M12 cafe-doctor", "state": "unavailable"},
+            ),
         ):
-            context = brief.collect_snowcubes_context(vercel={"available": False}, board=board)
+            context = brief.collect_snowcubes_context(
+                vercel={"available": False}, board=board
+            )
 
-        shadow_card = next(item for item in context["surfaces"] if item["name"] == "Shadow work")
+        shadow_card = next(
+            item for item in context["surfaces"] if item["name"] == "Shadow work"
+        )
         self.assertEqual(shadow_card["state"], "unavailable")
         self.assertIn("1 plan source(s)", shadow_card["now"])
         self.assertIn("no execution state is inferred", shadow_card["now"])
@@ -4187,7 +4660,9 @@ class AuthorityScopeTests(unittest.TestCase):
                     "priority": 2,
                     "availability": "available",
                     "resume": "rd1",
-                    "open_checkpoints": [{"id": "rd1", "title": "Ship the readable result"}],
+                    "open_checkpoints": [
+                        {"id": "rd1", "title": "Ship the readable result"}
+                    ],
                     "blocked": [],
                     "forgotten": [],
                 },
@@ -4224,20 +4699,24 @@ class AuthorityScopeTests(unittest.TestCase):
             [item["title"] for item in analysis["decided_for_you"]],
         )
         # An unreadable plan may still hold a request for Leo, so no all-clear is claimed.
-        self.assertNotEqual(analysis["needs_leo"]["title"], "No decision needs you right now")
+        self.assertNotEqual(
+            analysis["needs_leo"]["title"], "No decision needs you right now"
+        )
         self.assertIn("not a portfolio-wide all-clear", analysis["needs_leo"]["prose"])
 
-        html = brief.render_html({
-            "slot": "evening",
-            "generated_at": "2026-08-13T20:00:00-04:00",
-            "board": board,
-            "repos": [],
-            "github_open_prs": [],
-            "recommendations": [item.__dict__ for item in recommendations],
-            "analysis": analysis,
-            "paint_health": source_health,
-            "snowcubes_context": {"surfaces": []},
-        })
+        html = brief.render_html(
+            {
+                "slot": "evening",
+                "generated_at": "2026-08-13T20:00:00-04:00",
+                "board": board,
+                "repos": [],
+                "github_open_prs": [],
+                "recommendations": [item.__dict__ for item in recommendations],
+                "analysis": analysis,
+                "paint_health": source_health,
+                "snowcubes_context": {"surfaces": []},
+            }
+        )
         self.assertIn("Part of the portfolio is unreadable", html)
         self.assertIn("open-work totals are UNKNOWN", html)
         self.assertNotIn("Nothing needs forcing right now", html)
@@ -4263,30 +4742,46 @@ class AuthorityScopeTests(unittest.TestCase):
         }
         companion = {"observed_at": "2026-08-13T15:00:00Z", "surfaces": []}
 
-        with mock.patch.object(brief, "portfolio_root", return_value=Path("/tmp/portfolio")), \
-            mock.patch.object(brief, "collect_repos", return_value=[]), \
-            mock.patch.object(brief, "collect_github", return_value=[]), \
-            mock.patch.object(brief, "collect_vercel", return_value={"available": False}), \
-            mock.patch.object(brief, "collect_supabase", return_value={"available": False}), \
-            mock.patch.object(brief.shutil, "which", side_effect=AssertionError("the brief must not query Nia")), \
+        with (
+            mock.patch.object(
+                brief, "portfolio_root", return_value=Path("/tmp/portfolio")
+            ),
+            mock.patch.object(brief, "collect_repos", return_value=[]),
+            mock.patch.object(brief, "collect_github", return_value=[]),
+            mock.patch.object(
+                brief, "collect_vercel", return_value={"available": False}
+            ),
+            mock.patch.object(
+                brief, "collect_supabase", return_value={"available": False}
+            ),
+            mock.patch.object(
+                brief.shutil,
+                "which",
+                side_effect=AssertionError("the brief must not query Nia"),
+            ),
             mock.patch.object(
                 brief,
                 "collect_superhuman_context",
                 return_value=mail,
-            ) as collect_mail, \
-            mock.patch.object(brief, "collect_growth_source_status", return_value={}), \
-            mock.patch.object(brief, "build_local_git_health", return_value={"available": True}), \
-            mock.patch.object(brief, "build_paint_health", return_value={}), \
+            ) as collect_mail,
+            mock.patch.object(brief, "collect_growth_source_status", return_value={}),
+            mock.patch.object(
+                brief, "build_local_git_health", return_value={"available": True}
+            ),
+            mock.patch.object(brief, "build_paint_health", return_value={}),
             mock.patch.object(
                 brief,
                 "_run",
                 return_value=subprocess.CompletedProcess([], 0, "status", ""),
-            ), \
-            mock.patch.object(brief, "collect_board", return_value=board), \
-            mock.patch.object(brief, "_read_board_revision", return_value=23), \
-            mock.patch.object(brief, "collect_snowcubes_context", return_value=companion) as collect_companion, \
-            mock.patch.object(brief, "build_recommendations", return_value=[]), \
-            mock.patch.object(brief, "build_chief_of_staff_analysis", return_value={}):
+            ),
+            mock.patch.object(brief, "collect_board", return_value=board),
+            mock.patch.object(brief, "_read_board_revision", return_value=23),
+            mock.patch.object(
+                brief, "collect_snowcubes_context", return_value=companion
+            ) as collect_companion,
+            mock.patch.object(brief, "build_recommendations", return_value=[]),
+            mock.patch.object(brief, "build_chief_of_staff_analysis", return_value={}),
+        ):
             packet = brief.collect_packet(slot="morning")
 
         self.assertIs(packet["board"], board)
@@ -4323,9 +4818,13 @@ class AuthorityScopeTests(unittest.TestCase):
                     "scheduled_for": scheduled_for,
                 },
             }
-            with mock.patch.object(brief, "WINDOW_LOG", log), mock.patch.object(
-                brief, "LOG_DIR", root
-            ), mock.patch.object(brief, "scheduled_trigger_is_authorized", return_value=True):
+            with (
+                mock.patch.object(brief, "WINDOW_LOG", log),
+                mock.patch.object(brief, "LOG_DIR", root),
+                mock.patch.object(
+                    brief, "scheduled_trigger_is_authorized", return_value=True
+                ),
+            ):
                 brief.append_scheduled_window(
                     summary,
                     scheduled_trigger=True,
@@ -4353,7 +4852,9 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIsNone(provenance["source_commit"])
         self.assertFalse(provenance["source_matches_commit"])
 
-    def test_producer_provenance_turns_every_git_probe_failure_into_invalid_receipt(self):
+    def test_producer_provenance_turns_every_git_probe_failure_into_invalid_receipt(
+        self,
+    ):
         def successful(argv):
             if argv[-2:] == ["rev-parse", "--show-toplevel"]:
                 return subprocess.CompletedProcess(argv, 0, f"{ROOT}\n", "")
@@ -4391,7 +4892,9 @@ class AuthorityScopeTests(unittest.TestCase):
                     self.assertFalse(provenance["source_matches_commit"])
                     self.assertEqual(len(provenance["script_sha256"]), 64)
 
-    def test_launch_trigger_requires_exact_xpc_service_and_current_launchctl_job_pid(self):
+    def test_launch_trigger_requires_exact_xpc_service_and_current_launchctl_job_pid(
+        self,
+    ):
         commands = []
         expected_arguments = brief.launch_agent_plist(Path(brief.__file__).resolve())[
             "ProgramArguments"
@@ -4411,9 +4914,7 @@ class AuthorityScopeTests(unittest.TestCase):
                     f"gui/{uid}/com.leokwan.shadow-bidaily-brief = {{\n"
                     f"\tprogram = {expected_arguments[0]}\n"
                     "\targuments = {\n"
-                    + "".join(
-                        f"\t\t{argument}\n" for argument in expected_arguments
-                    )
+                    + "".join(f"\t\t{argument}\n" for argument in expected_arguments)
                     + "\t}\n"
                     f"\tpath = {expected_plist}\n"
                     "\tpid = 4242\n"
@@ -4422,17 +4923,19 @@ class AuthorityScopeTests(unittest.TestCase):
                 )
             raise AssertionError(argv)
 
-        with mock.patch.dict(
-            os.environ,
-            {
-                "XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief",
-                "HOME": str(home),
-            },
-            clear=True,
-        ), mock.patch.object(brief.os, "getpid", return_value=4242), mock.patch.object(
-            brief.os, "getppid", return_value=1
-        ), mock.patch.object(brief.os, "getuid", return_value=uid), mock.patch.object(
-            brief, "_run", side_effect=run
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    "XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief",
+                    "HOME": str(home),
+                },
+                clear=True,
+            ),
+            mock.patch.object(brief.os, "getpid", return_value=4242),
+            mock.patch.object(brief.os, "getppid", return_value=1),
+            mock.patch.object(brief.os, "getuid", return_value=uid),
+            mock.patch.object(brief, "_run", side_effect=run),
         ):
             proof = brief.launch_trigger_proof()
 
@@ -4476,9 +4979,7 @@ class AuthorityScopeTests(unittest.TestCase):
         )
         for field, malformed in boolean_pid_cases:
             with self.subTest(boolean_pid=field):
-                self.assertFalse(
-                    brief.scheduled_trigger_is_authorized(True, malformed)
-                )
+                self.assertFalse(brief.scheduled_trigger_is_authorized(True, malformed))
         self.assertFalse(
             brief.scheduled_trigger_is_authorized(
                 True,
@@ -4505,14 +5006,16 @@ class AuthorityScopeTests(unittest.TestCase):
                 "",
             )
 
-        with mock.patch.dict(
-            os.environ,
-            {"XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief"},
-            clear=True,
-        ), mock.patch.object(brief.os, "getpid", return_value=4242), mock.patch.object(
-            brief.os, "getppid", return_value=1
-        ), mock.patch.object(brief.os, "getuid", return_value=501), mock.patch.object(
-            brief, "_run", side_effect=run
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"XPC_SERVICE_NAME": "com.leokwan.shadow-bidaily-brief"},
+                clear=True,
+            ),
+            mock.patch.object(brief.os, "getpid", return_value=4242),
+            mock.patch.object(brief.os, "getppid", return_value=1),
+            mock.patch.object(brief.os, "getuid", return_value=501),
+            mock.patch.object(brief, "_run", side_effect=run),
         ):
             proof = brief.launch_trigger_proof()
 
@@ -4544,6 +5047,7 @@ class AuthorityScopeTests(unittest.TestCase):
         )
         for name, failing_program, failure, expected_probe in cases:
             with self.subTest(name=name):
+
                 def run(argv, **_kwargs):
                     if argv[0] == failing_program:
                         raise failure
@@ -4559,23 +5063,23 @@ class AuthorityScopeTests(unittest.TestCase):
                         "",
                     )
 
-                with mock.patch.dict(
-                    os.environ,
-                    {"XPC_SERVICE_NAME": brief.LABEL},
-                    clear=True,
-                ), mock.patch.object(
-                    brief.os, "getpid", return_value=4242
-                ), mock.patch.object(
-                    brief.os, "getppid", return_value=1
-                ), mock.patch.object(
-                    brief.os, "getuid", return_value=501
-                ), mock.patch.object(
-                    brief, "_run", side_effect=run
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {"XPC_SERVICE_NAME": brief.LABEL},
+                        clear=True,
+                    ),
+                    mock.patch.object(brief.os, "getpid", return_value=4242),
+                    mock.patch.object(brief.os, "getppid", return_value=1),
+                    mock.patch.object(brief.os, "getuid", return_value=501),
+                    mock.patch.object(brief, "_run", side_effect=run),
                 ):
                     try:
                         proof = brief.launch_trigger_proof()
                     except (OSError, subprocess.TimeoutExpired) as exc:
-                        self.fail(f"launch trigger proof leaked {type(exc).__name__}: {exc}")
+                        self.fail(
+                            f"launch trigger proof leaked {type(exc).__name__}: {exc}"
+                        )
 
                 self.assertFalse(proof["exact_job"])
                 self.assertFalse(proof["is_launchd"])
@@ -4596,17 +5100,22 @@ class AuthorityScopeTests(unittest.TestCase):
                 "",
             )
 
-        with mock.patch.dict(
-            os.environ,
-            {"XPC_SERVICE_NAME": brief.LABEL},
-            clear=True,
-        ), mock.patch.object(brief.os, "getpid", return_value=4242), mock.patch.object(
-            brief.os, "getppid", return_value=1
-        ), mock.patch.object(brief.os, "getuid", return_value=501), mock.patch.object(
-            brief,
-            "launch_agent_plist",
-            side_effect=RuntimeError("Could not determine home directory."),
-        ), mock.patch.object(brief, "_run", side_effect=run):
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"XPC_SERVICE_NAME": brief.LABEL},
+                clear=True,
+            ),
+            mock.patch.object(brief.os, "getpid", return_value=4242),
+            mock.patch.object(brief.os, "getppid", return_value=1),
+            mock.patch.object(brief.os, "getuid", return_value=501),
+            mock.patch.object(
+                brief,
+                "launch_agent_plist",
+                side_effect=RuntimeError("Could not determine home directory."),
+            ),
+            mock.patch.object(brief, "_run", side_effect=run),
+        ):
             try:
                 proof = brief.launch_trigger_proof()
             except RuntimeError as exc:
@@ -4653,11 +5162,15 @@ class AuthorityScopeTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 1, "", "not loaded")
 
         stderr = io.StringIO()
-        with mock.patch.dict(
-            os.environ,
-            {"XPC_SERVICE_NAME": brief.LABEL},
-            clear=True,
-        ), mock.patch.object(brief, "_run", side_effect=run), contextlib.redirect_stderr(stderr):
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"XPC_SERVICE_NAME": brief.LABEL},
+                clear=True,
+            ),
+            mock.patch.object(brief, "_run", side_effect=run),
+            contextlib.redirect_stderr(stderr),
+        ):
             try:
                 exit_code = brief.cmd_run(mock.Mock(scheduled_trigger=True))
             except OSError as exc:
@@ -4685,13 +5198,15 @@ class AuthorityScopeTests(unittest.TestCase):
             proof = _scheduled_proof_fixture()
             args = mock.Mock(scheduled_trigger=True)
             try:
-                with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
-                    brief, "EVIDENCE_DIR", root / "evidence"
-                ), mock.patch.object(
-                    brief, "launch_trigger_proof", return_value=proof
-                ), mock.patch.object(
-                    brief, "collect_packet", collect
-                ), contextlib.redirect_stderr(io.StringIO()):
+                with (
+                    mock.patch.object(brief, "LOG_DIR", root),
+                    mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"),
+                    mock.patch.object(
+                        brief, "launch_trigger_proof", return_value=proof
+                    ),
+                    mock.patch.object(brief, "collect_packet", collect),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
                     exit_code = brief.cmd_run(args)
             finally:
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
@@ -4716,13 +5231,13 @@ class AuthorityScopeTests(unittest.TestCase):
                 }
             )
             proof = _scheduled_proof_fixture()
-            with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
-                brief, "EVIDENCE_DIR", root / "evidence"
-            ), mock.patch.object(
-                brief, "launch_trigger_proof", return_value=proof
-            ), mock.patch.object(
-                brief, "collect_packet", collect
-            ), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "LOG_DIR", root),
+                mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"),
+                mock.patch.object(brief, "launch_trigger_proof", return_value=proof),
+                mock.patch.object(brief, "collect_packet", collect),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 exit_code = brief.cmd_run(mock.Mock(scheduled_trigger=True))
             resulting_mode = stat.S_IMODE(target.stat().st_mode)
             resulting_content = target.read_text(encoding="utf-8")
@@ -4761,19 +5276,18 @@ class AuthorityScopeTests(unittest.TestCase):
                     lock_path.write_text("replacement", encoding="utf-8")
                     swapped = True
 
-            with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
-                brief, "WINDOW_LOG", root / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "EVIDENCE_DIR", root / "evidence"
-            ), mock.patch.object(
-                brief, "launch_trigger_proof", return_value=proof
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=window
-            ), mock.patch.object(
-                brief, "collect_packet", collect
-            ), mock.patch.object(
-                brief.fcntl, "flock", side_effect=swap_name_after_lock
-            ), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "LOG_DIR", root),
+                mock.patch.object(brief, "WINDOW_LOG", root / "windows.jsonl"),
+                mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"),
+                mock.patch.object(brief, "launch_trigger_proof", return_value=proof),
+                mock.patch.object(brief, "scheduled_window", return_value=window),
+                mock.patch.object(brief, "collect_packet", collect),
+                mock.patch.object(
+                    brief.fcntl, "flock", side_effect=swap_name_after_lock
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 exit_code = brief.cmd_run(mock.Mock(scheduled_trigger=True))
 
             replacement = os.open(lock_path, os.O_RDWR)
@@ -4827,16 +5341,16 @@ class AuthorityScopeTests(unittest.TestCase):
                         raise OSError("original flock setup failure")
                     return real_flock(descriptor, operation)
 
-                with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
-                    brief.os, "open", side_effect=record_open
-                ), mock.patch.object(
-                    brief.os, "fstat", side_effect=fail_fstat
-                ), mock.patch.object(
-                    brief.os, "fchmod", side_effect=fail_fchmod
-                ), mock.patch.object(
-                    brief.fcntl, "flock", side_effect=fail_flock
+                with (
+                    mock.patch.object(brief, "LOG_DIR", root),
+                    mock.patch.object(brief.os, "open", side_effect=record_open),
+                    mock.patch.object(brief.os, "fstat", side_effect=fail_fstat),
+                    mock.patch.object(brief.os, "fchmod", side_effect=fail_fchmod),
+                    mock.patch.object(brief.fcntl, "flock", side_effect=fail_flock),
                 ):
-                    with self.assertRaisesRegex(OSError, f"original {stage} setup failure"):
+                    with self.assertRaisesRegex(
+                        OSError, f"original {stage} setup failure"
+                    ):
                         brief._acquire_scheduled_run_lock()
 
                 self.assertEqual(len(opened), 1)
@@ -4865,12 +5379,13 @@ class AuthorityScopeTests(unittest.TestCase):
                     raise OSError("cleanup unlock failure")
                 return real_flock(descriptor, operation)
 
-            with mock.patch.object(brief, "LOG_DIR", root), mock.patch.object(
-                brief.os, "open", side_effect=record_open
-            ), mock.patch.object(
-                brief.os, "fstat", side_effect=fail_post_lock_fstat
-            ), mock.patch.object(
-                brief.fcntl, "flock", side_effect=fail_cleanup_unlock
+            with (
+                mock.patch.object(brief, "LOG_DIR", root),
+                mock.patch.object(brief.os, "open", side_effect=record_open),
+                mock.patch.object(brief.os, "fstat", side_effect=fail_post_lock_fstat),
+                mock.patch.object(
+                    brief.fcntl, "flock", side_effect=fail_cleanup_unlock
+                ),
             ):
                 with self.assertRaisesRegex(
                     OSError,
@@ -4906,16 +5421,17 @@ class AuthorityScopeTests(unittest.TestCase):
                     self.assertEqual(operation, fcntl.LOCK_UN)
                     raise OSError("scheduled lock cleanup unavailable")
 
-                with mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"), mock.patch.object(
-                    brief, "LOG_DIR", root / "ledger"
-                ), mock.patch.object(
-                    brief, "launch_trigger_proof", return_value=proof
-                ), mock.patch.object(
-                    brief, "_acquire_scheduled_run_lock", return_value=handle
-                ), mock.patch.object(
-                    brief, "_cmd_run_locked", run
-                ), mock.patch.object(
-                    brief.fcntl, "flock", side_effect=fail_unlock
+                with (
+                    mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"),
+                    mock.patch.object(brief, "LOG_DIR", root / "ledger"),
+                    mock.patch.object(
+                        brief, "launch_trigger_proof", return_value=proof
+                    ),
+                    mock.patch.object(
+                        brief, "_acquire_scheduled_run_lock", return_value=handle
+                    ),
+                    mock.patch.object(brief, "_cmd_run_locked", run),
+                    mock.patch.object(brief.fcntl, "flock", side_effect=fail_unlock),
                 ):
                     if outcome == "result":
                         try:
@@ -4995,25 +5511,24 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "datetime", FrozenDateTime
-            ), mock.patch.object(
-                brief, "launch_trigger_proof", return_value=proof
-            ), mock.patch.object(
-                brief, "collect_packet", collect
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=trigger_window
-            ), mock.patch.object(
-                brief, "macos_notify", notify
-            ), mock.patch.object(
-                brief, "deliver_superhuman", deliver
-            ), mock.patch.object(
-                brief, "append_scheduled_window", side_effect=append_while_locked
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(brief, "datetime", FrozenDateTime),
+                mock.patch.object(brief, "launch_trigger_proof", return_value=proof),
+                mock.patch.object(brief, "collect_packet", collect),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=trigger_window
+                ),
+                mock.patch.object(brief, "macos_notify", notify),
+                mock.patch.object(brief, "deliver_superhuman", deliver),
+                mock.patch.object(
+                    brief, "append_scheduled_window", side_effect=append_while_locked
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 first_exit = brief.cmd_run(args)
                 archive = next(evidence.glob("brief-*.html"))
                 first_bytes = archive.read_bytes()
@@ -5076,25 +5591,25 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", return_value=packet
-            ), mock.patch.object(
-                brief, "write_packet", side_effect=overwrite_latest
-            ), mock.patch.object(
-                brief, "macos_notify", return_value={"status": "ok"}
-            ), mock.patch.object(
-                brief, "deliver_superhuman", delivered
-            ), mock.patch.object(
-                brief,
-                "append_scheduled_window",
-                side_effect=lambda summary, **_kwargs: appended.append(summary),
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(brief, "collect_packet", return_value=packet),
+                mock.patch.object(brief, "write_packet", side_effect=overwrite_latest),
+                mock.patch.object(brief, "macos_notify", return_value={"status": "ok"}),
+                mock.patch.object(brief, "deliver_superhuman", delivered),
+                mock.patch.object(
+                    brief,
+                    "append_scheduled_window",
+                    side_effect=lambda summary, **_kwargs: appended.append(summary),
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
 
             archive_json = evidence / "brief-20260812-080000.json"
@@ -5138,34 +5653,40 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", return_value=_scheduled_packet_fixture()
-            ), mock.patch.object(
-                brief, "macos_notify", return_value={"status": "ok"}
-            ), mock.patch.object(
-                brief,
-                "deliver_superhuman",
-                return_value={
-                    "status": "ok",
-                    "delivery_status": "sent",
-                    "message_id": "sent-before-last-run-failure",
-                },
-            ), mock.patch.object(
-                brief,
-                "append_scheduled_window",
-                side_effect=lambda summary, **_kwargs: appended.append(summary),
-            ), mock.patch.object(
-                brief.Path,
-                "write_text",
-                autospec=True,
-                side_effect=fail_last_run,
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(brief, "macos_notify", return_value={"status": "ok"}),
+                mock.patch.object(
+                    brief,
+                    "deliver_superhuman",
+                    return_value={
+                        "status": "ok",
+                        "delivery_status": "sent",
+                        "message_id": "sent-before-last-run-failure",
+                    },
+                ),
+                mock.patch.object(
+                    brief,
+                    "append_scheduled_window",
+                    side_effect=lambda summary, **_kwargs: appended.append(summary),
+                ),
+                mock.patch.object(
+                    brief.Path,
+                    "write_text",
+                    autospec=True,
+                    side_effect=fail_last_run,
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 try:
                     exit_code = brief._cmd_run_locked(
                         args,
@@ -5204,28 +5725,31 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", collect
-            ), mock.patch.object(
-                brief, "macos_notify", return_value={"status": "ok"}
-            ), mock.patch.object(
-                brief, "deliver_superhuman", deliver
-            ), mock.patch.object(
-                brief, "append_scheduled_window", append
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(brief, "collect_packet", collect),
+                mock.patch.object(brief, "macos_notify", return_value={"status": "ok"}),
+                mock.patch.object(brief, "deliver_superhuman", deliver),
+                mock.patch.object(brief, "append_scheduled_window", append),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 try:
                     first_exit = brief._cmd_run_locked(args, _scheduled_proof_fixture())
-                    second_exit = brief._cmd_run_locked(args, _scheduled_proof_fixture())
+                    second_exit = brief._cmd_run_locked(
+                        args, _scheduled_proof_fixture()
+                    )
                 except OSError as exc:
                     self.fail(f"post-send append failure escaped: {exc}")
 
-            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            last_run = json.loads(
+                (ledger / "last-run.json").read_text(encoding="utf-8")
+            )
 
         self.assertEqual(first_exit, 3)
         self.assertEqual(second_exit, 3)
@@ -5274,25 +5798,29 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "SEND_ATTEMPT_LOG", send_attempt_log
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", return_value=_scheduled_packet_fixture()
-            ), mock.patch.object(
-                brief, "macos_notify", return_value={"status": "ok"}
-            ), mock.patch.object(
-                brief, "deliver_superhuman", side_effect=fail_after_possible_send
-            ), mock.patch.object(
-                brief,
-                "append_scheduled_window",
-                side_effect=lambda summary, **_kwargs: appended.append(summary),
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(brief, "SEND_ATTEMPT_LOG", send_attempt_log),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(brief, "macos_notify", return_value={"status": "ok"}),
+                mock.patch.object(
+                    brief, "deliver_superhuman", side_effect=fail_after_possible_send
+                ),
+                mock.patch.object(
+                    brief,
+                    "append_scheduled_window",
+                    side_effect=lambda summary, **_kwargs: appended.append(summary),
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 try:
                     exit_code = brief._cmd_run_locked(
                         args,
@@ -5310,7 +5838,9 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertEqual(receipt["attempt_id"], "b" * 24)
         self.assertIn("never retry", receipt["wake"])
 
-    def test_delivery_exception_with_non_utf8_attempt_log_still_appends_unknown_receipt(self):
+    def test_delivery_exception_with_non_utf8_attempt_log_still_appends_unknown_receipt(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             evidence = root / "evidence"
@@ -5331,25 +5861,31 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "SEND_ATTEMPT_LOG", send_attempt_log
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", return_value=_scheduled_packet_fixture()
-            ), mock.patch.object(
-                brief, "macos_notify", return_value={"status": "ok"}
-            ), mock.patch.object(
-                brief, "deliver_superhuman", side_effect=fail_with_corrupt_attempt_log
-            ), mock.patch.object(
-                brief,
-                "append_scheduled_window",
-                side_effect=lambda summary, **_kwargs: appended.append(summary),
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(brief, "SEND_ATTEMPT_LOG", send_attempt_log),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(brief, "macos_notify", return_value={"status": "ok"}),
+                mock.patch.object(
+                    brief,
+                    "deliver_superhuman",
+                    side_effect=fail_with_corrupt_attempt_log,
+                ),
+                mock.patch.object(
+                    brief,
+                    "append_scheduled_window",
+                    side_effect=lambda summary, **_kwargs: appended.append(summary),
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 try:
                     exit_code = brief._cmd_run_locked(
                         args,
@@ -5401,26 +5937,28 @@ class AuthorityScopeTests(unittest.TestCase):
                     dry_run=False,
                     send_authorized_self=True,
                 )
-                with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                    brief, "LOG_DIR", ledger
-                ), mock.patch.object(
-                    brief, "WINDOW_LOG", ledger / "windows.jsonl"
-                ), mock.patch.object(
-                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
-                ), mock.patch.object(
-                    brief, "collect_packet", return_value=packet
-                ), mock.patch.object(
-                    brief, "macos_notify", notify
-                ), mock.patch.object(
-                    brief, "deliver_superhuman", deliver
-                ), mock.patch.object(
-                    brief, "append_scheduled_window", append
-                ), mock.patch.object(
-                    brief.Path,
-                    "write_text",
-                    autospec=True,
-                    side_effect=fail_last_run,
-                ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with (
+                    mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                    mock.patch.object(brief, "LOG_DIR", ledger),
+                    mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                    mock.patch.object(
+                        brief,
+                        "scheduled_window",
+                        return_value=_scheduled_window_fixture(),
+                    ),
+                    mock.patch.object(brief, "collect_packet", return_value=packet),
+                    mock.patch.object(brief, "macos_notify", notify),
+                    mock.patch.object(brief, "deliver_superhuman", deliver),
+                    mock.patch.object(brief, "append_scheduled_window", append),
+                    mock.patch.object(
+                        brief.Path,
+                        "write_text",
+                        autospec=True,
+                        side_effect=fail_last_run,
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
                     try:
                         exit_code = brief._cmd_run_locked(
                             args,
@@ -5446,7 +5984,9 @@ class AuthorityScopeTests(unittest.TestCase):
                 "script_sha256": "c" * 64,
                 "source_matches_commit": False,
             }
-            collect = mock.Mock(return_value=_scheduled_packet_fixture(producer=invalid))
+            collect = mock.Mock(
+                return_value=_scheduled_packet_fixture(producer=invalid)
+            )
             notify = mock.Mock(return_value={"status": "ok"})
             deliver = mock.Mock(
                 return_value={
@@ -5463,24 +6003,25 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", collect
-            ), mock.patch.object(
-                brief, "macos_notify", notify
-            ), mock.patch.object(
-                brief, "deliver_superhuman", deliver
-            ), mock.patch.object(
-                brief, "append_scheduled_window", append
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(brief, "collect_packet", collect),
+                mock.patch.object(brief, "macos_notify", notify),
+                mock.patch.object(brief, "deliver_superhuman", deliver),
+                mock.patch.object(brief, "append_scheduled_window", append),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
 
-            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            last_run = json.loads(
+                (ledger / "last-run.json").read_text(encoding="utf-8")
+            )
             barrier = ledger / "scheduled-attempt-20260812-080000.json"
             barrier_exists = barrier.is_file()
 
@@ -5496,7 +6037,10 @@ class AuthorityScopeTests(unittest.TestCase):
 
     def test_unsafe_window_ledger_blocks_scheduled_run_before_collection(self):
         for corruption in ("symlink", "invalid-json"):
-            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(corruption=corruption),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 root = Path(tmp)
                 evidence = root / "evidence"
                 ledger = root / "ledger"
@@ -5527,39 +6071,50 @@ class AuthorityScopeTests(unittest.TestCase):
                     dry_run=False,
                     send_authorized_self=True,
                 )
-                with mock.patch.object(
-                    brief,
-                    "EVIDENCE_DIR",
-                    evidence,
-                ), mock.patch.object(
-                    brief,
-                    "LOG_DIR",
-                    ledger,
-                ), mock.patch.object(
-                    brief,
-                    "WINDOW_LOG",
-                    window_log,
-                ), mock.patch.object(
-                    brief,
-                    "scheduled_window",
-                    return_value=_scheduled_window_fixture(),
-                ), mock.patch.object(
-                    brief,
-                    "collect_packet",
-                    collect,
-                ), mock.patch.object(
-                    brief,
-                    "macos_notify",
-                    notify,
-                ), mock.patch.object(
-                    brief,
-                    "deliver_superhuman",
-                    deliver,
-                ), mock.patch.object(
-                    brief,
-                    "append_scheduled_window",
-                    append,
-                ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with (
+                    mock.patch.object(
+                        brief,
+                        "EVIDENCE_DIR",
+                        evidence,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "LOG_DIR",
+                        ledger,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "WINDOW_LOG",
+                        window_log,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "scheduled_window",
+                        return_value=_scheduled_window_fixture(),
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "collect_packet",
+                        collect,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "macos_notify",
+                        notify,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "deliver_superhuman",
+                        deliver,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "append_scheduled_window",
+                        append,
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
                     try:
                         exit_code = brief._cmd_run_locked(
                             args,
@@ -5612,43 +6167,55 @@ class AuthorityScopeTests(unittest.TestCase):
                     dry_run=False,
                     send_authorized_self=True,
                 )
-                with mock.patch.object(
-                    brief,
-                    "EVIDENCE_DIR",
-                    evidence,
-                ), mock.patch.object(
-                    brief,
-                    "LOG_DIR",
-                    ledger,
-                ), mock.patch.object(
-                    brief,
-                    "WINDOW_LOG",
-                    ledger / "windows.jsonl",
-                ), mock.patch.object(
-                    brief,
-                    "SEND_ATTEMPT_LOG",
-                    attempt_log,
-                ), mock.patch.object(
-                    brief,
-                    "scheduled_window",
-                    return_value=_scheduled_window_fixture(),
-                ), mock.patch.object(
-                    brief,
-                    "collect_packet",
-                    collect,
-                ), mock.patch.object(
-                    brief,
-                    "macos_notify",
-                    notify,
-                ), mock.patch.object(
-                    brief,
-                    "deliver_superhuman",
-                    deliver,
-                ), mock.patch.object(
-                    brief,
-                    "append_scheduled_window",
-                    append,
-                ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with (
+                    mock.patch.object(
+                        brief,
+                        "EVIDENCE_DIR",
+                        evidence,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "LOG_DIR",
+                        ledger,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "WINDOW_LOG",
+                        ledger / "windows.jsonl",
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "SEND_ATTEMPT_LOG",
+                        attempt_log,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "scheduled_window",
+                        return_value=_scheduled_window_fixture(),
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "collect_packet",
+                        collect,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "macos_notify",
+                        notify,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "deliver_superhuman",
+                        deliver,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "append_scheduled_window",
+                        append,
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
                     exit_code = brief._cmd_run_locked(
                         args,
                         _scheduled_proof_fixture(),
@@ -5702,39 +6269,50 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(
-                brief,
-                "EVIDENCE_DIR",
-                evidence,
-            ), mock.patch.object(
-                brief,
-                "LOG_DIR",
-                ledger,
-            ), mock.patch.object(
-                brief,
-                "WINDOW_LOG",
-                window_log,
-            ), mock.patch.object(
-                brief,
-                "scheduled_window",
-                return_value=_scheduled_window_fixture(),
-            ), mock.patch.object(
-                brief,
-                "collect_packet",
-                collect,
-            ), mock.patch.object(
-                brief,
-                "macos_notify",
-                notify,
-            ), mock.patch.object(
-                brief,
-                "deliver_superhuman",
-                deliver,
-            ), mock.patch.object(
-                brief,
-                "append_scheduled_window",
-                append,
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(
+                    brief,
+                    "EVIDENCE_DIR",
+                    evidence,
+                ),
+                mock.patch.object(
+                    brief,
+                    "LOG_DIR",
+                    ledger,
+                ),
+                mock.patch.object(
+                    brief,
+                    "WINDOW_LOG",
+                    window_log,
+                ),
+                mock.patch.object(
+                    brief,
+                    "scheduled_window",
+                    return_value=_scheduled_window_fixture(),
+                ),
+                mock.patch.object(
+                    brief,
+                    "collect_packet",
+                    collect,
+                ),
+                mock.patch.object(
+                    brief,
+                    "macos_notify",
+                    notify,
+                ),
+                mock.patch.object(
+                    brief,
+                    "deliver_superhuman",
+                    deliver,
+                ),
+                mock.patch.object(
+                    brief,
+                    "append_scheduled_window",
+                    append,
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 try:
                     exit_code = brief._cmd_run_locked(
                         args,
@@ -5770,10 +6348,13 @@ class AuthorityScopeTests(unittest.TestCase):
                 ValueError(f"{collector_name} JSON decoder limit exceeded"),
                 RecursionError(f"{collector_name} JSON nesting limit exceeded"),
             ):
-                with self.subTest(
-                    collector=collector_name,
-                    exception=type(exception).__name__,
-                ), tempfile.TemporaryDirectory() as tmp:
+                with (
+                    self.subTest(
+                        collector=collector_name,
+                        exception=type(exception).__name__,
+                    ),
+                    tempfile.TemporaryDirectory() as tmp,
+                ):
                     root = Path(tmp)
                     evidence = root / "evidence"
                     ledger = root / "ledger"
@@ -5807,7 +6388,9 @@ class AuthorityScopeTests(unittest.TestCase):
                             )
                         )
                         stack.enter_context(
-                            mock.patch.object(brief, "portfolio_root", return_value=root)
+                            mock.patch.object(
+                                brief, "portfolio_root", return_value=root
+                            )
                         )
                         stack.enter_context(
                             mock.patch.object(brief, "collect_repos", return_value=[])
@@ -5821,7 +6404,9 @@ class AuthorityScopeTests(unittest.TestCase):
                                         exception if name == collector_name else None
                                     ),
                                     return_value=(
-                                        default if name != collector_name else mock.DEFAULT
+                                        default
+                                        if name != collector_name
+                                        else mock.DEFAULT
                                     ),
                                 )
                             )
@@ -5852,9 +6437,7 @@ class AuthorityScopeTests(unittest.TestCase):
                             )
 
                     barrier = ledger / "scheduled-attempt-20260812-080000.json"
-                    barrier_payload = json.loads(
-                        barrier.read_text(encoding="utf-8")
-                    )
+                    barrier_payload = json.loads(barrier.read_text(encoding="utf-8"))
                     last_run = json.loads(
                         (ledger / "last-run.json").read_text(encoding="utf-8")
                     )
@@ -5871,7 +6454,9 @@ class AuthorityScopeTests(unittest.TestCase):
                         last_run["collection_error"]["type"],
                         type(exception).__name__,
                     )
-                    self.assertIn(collector_name, last_run["collection_error"]["message"])
+                    self.assertIn(
+                        collector_name, last_run["collection_error"]["message"]
+                    )
                     self.assertIn("do not notify or send", last_run["wake"])
                     self.assertEqual(notify.call_count, 0)
                     self.assertEqual(deliver.call_count, 0)
@@ -5892,9 +6477,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "generated_at": "2026-08-12T08:05:00-04:00",
                 "slot": "morning",
                 "board": {"revision": 41, "entities": [], "claims": []},
-                "authority": {
-                    "board_snapshot": {"consistent": True, "revision": 41}
-                },
+                "authority": {"board_snapshot": {"consistent": True, "revision": 41}},
                 "paint_health": {},
                 "producer": _m5_producer_fixture(),
                 "superhuman_context": _m5_mail_fixture(),
@@ -5929,27 +6512,22 @@ class AuthorityScopeTests(unittest.TestCase):
                 return real_place(path, content)
 
             stderr = io.StringIO()
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "datetime", FrozenDateTime
-            ), mock.patch.object(
-                brief, "launch_trigger_proof", return_value=proof
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=window
-            ), mock.patch.object(
-                brief, "collect_packet", collect
-            ), mock.patch.object(
-                brief, "_place_private_archive", side_effect=fail_json_publication
-            ), mock.patch.object(
-                brief, "macos_notify", notify
-            ), mock.patch.object(
-                brief, "deliver_superhuman", deliver
-            ), mock.patch.object(
-                brief, "append_scheduled_window", append
-            ), contextlib.redirect_stderr(stderr):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(brief, "datetime", FrozenDateTime),
+                mock.patch.object(brief, "launch_trigger_proof", return_value=proof),
+                mock.patch.object(brief, "scheduled_window", return_value=window),
+                mock.patch.object(brief, "collect_packet", collect),
+                mock.patch.object(
+                    brief, "_place_private_archive", side_effect=fail_json_publication
+                ),
+                mock.patch.object(brief, "macos_notify", notify),
+                mock.patch.object(brief, "deliver_superhuman", deliver),
+                mock.patch.object(brief, "append_scheduled_window", append),
+                contextlib.redirect_stderr(stderr),
+            ):
                 try:
                     first_exit = brief.cmd_run(args)
                     second_exit = brief.cmd_run(args)
@@ -5959,7 +6537,9 @@ class AuthorityScopeTests(unittest.TestCase):
             archive_html = evidence / "brief-20260812-080000.html"
             archive_json = evidence / "brief-20260812-080000.json"
             attempt_barrier = ledger / "scheduled-attempt-20260812-080000.json"
-            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            last_run = json.loads(
+                (ledger / "last-run.json").read_text(encoding="utf-8")
+            )
             archive_html_exists = archive_html.is_file()
             archive_json_exists = archive_json.exists()
             archive_html_mode = stat.S_IMODE(archive_html.stat().st_mode)
@@ -6002,9 +6582,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "generated_at": "2026-08-12T08:05:00-04:00",
                 "slot": "morning",
                 "board": {"revision": 41, "entities": [], "claims": []},
-                "authority": {
-                    "board_snapshot": {"consistent": True, "revision": 41}
-                },
+                "authority": {"board_snapshot": {"consistent": True, "revision": 41}},
                 "paint_health": {},
                 "producer": _m5_producer_fixture(),
                 "superhuman_context": _m5_mail_fixture(),
@@ -6039,27 +6617,22 @@ class AuthorityScopeTests(unittest.TestCase):
                 return real_place(path, content)
 
             stderr = io.StringIO()
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "datetime", FrozenDateTime
-            ), mock.patch.object(
-                brief, "launch_trigger_proof", return_value=proof
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=window
-            ), mock.patch.object(
-                brief, "collect_packet", collect
-            ), mock.patch.object(
-                brief, "_place_private_archive", side_effect=fail_html_publication
-            ), mock.patch.object(
-                brief, "macos_notify", notify
-            ), mock.patch.object(
-                brief, "deliver_superhuman", deliver
-            ), mock.patch.object(
-                brief, "append_scheduled_window", append
-            ), contextlib.redirect_stderr(stderr):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(brief, "datetime", FrozenDateTime),
+                mock.patch.object(brief, "launch_trigger_proof", return_value=proof),
+                mock.patch.object(brief, "scheduled_window", return_value=window),
+                mock.patch.object(brief, "collect_packet", collect),
+                mock.patch.object(
+                    brief, "_place_private_archive", side_effect=fail_html_publication
+                ),
+                mock.patch.object(brief, "macos_notify", notify),
+                mock.patch.object(brief, "deliver_superhuman", deliver),
+                mock.patch.object(brief, "append_scheduled_window", append),
+                contextlib.redirect_stderr(stderr),
+            ):
                 try:
                     first_exit = brief.cmd_run(args)
                     second_exit = brief.cmd_run(args)
@@ -6067,7 +6640,9 @@ class AuthorityScopeTests(unittest.TestCase):
                     self.fail(f"first archive publication error escaped cmd_run: {exc}")
 
             attempt_barrier = ledger / "scheduled-attempt-20260812-080000.json"
-            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            last_run = json.loads(
+                (ledger / "last-run.json").read_text(encoding="utf-8")
+            )
             barrier_exists = attempt_barrier.is_file()
             archived_files = sorted(path.name for path in evidence.glob("brief-*"))
 
@@ -6124,7 +6699,10 @@ class AuthorityScopeTests(unittest.TestCase):
         real_write_text = Path.write_text
 
         for failure_stage, expected_collects in (("barrier", 0), ("archive", 1)):
-            with self.subTest(failure_stage=failure_stage), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(failure_stage=failure_stage),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 root = Path(tmp)
                 evidence = root / "evidence"
                 ledger = root / "ledger"
@@ -6150,30 +6728,27 @@ class AuthorityScopeTests(unittest.TestCase):
                     return real_write_text(path, *args, **kwargs)
 
                 stderr = io.StringIO()
-                with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                    brief, "LOG_DIR", ledger
-                ), mock.patch.object(
-                    brief, "WINDOW_LOG", ledger / "windows.jsonl"
-                ), mock.patch.object(
-                    brief, "datetime", FrozenDateTime
-                ), mock.patch.object(
-                    brief, "scheduled_window", return_value=window
-                ), mock.patch.object(
-                    brief, "collect_packet", collect
-                ), mock.patch.object(
-                    brief, "_place_private_archive", side_effect=fail_publication
-                ), mock.patch.object(
-                    brief, "macos_notify", notify
-                ), mock.patch.object(
-                    brief, "deliver_superhuman", deliver
-                ), mock.patch.object(
-                    brief, "append_scheduled_window", append
-                ), mock.patch.object(
-                    brief.Path,
-                    "write_text",
-                    autospec=True,
-                    side_effect=fail_last_run,
-                ), contextlib.redirect_stderr(stderr):
+                with (
+                    mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                    mock.patch.object(brief, "LOG_DIR", ledger),
+                    mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                    mock.patch.object(brief, "datetime", FrozenDateTime),
+                    mock.patch.object(brief, "scheduled_window", return_value=window),
+                    mock.patch.object(brief, "collect_packet", collect),
+                    mock.patch.object(
+                        brief, "_place_private_archive", side_effect=fail_publication
+                    ),
+                    mock.patch.object(brief, "macos_notify", notify),
+                    mock.patch.object(brief, "deliver_superhuman", deliver),
+                    mock.patch.object(brief, "append_scheduled_window", append),
+                    mock.patch.object(
+                        brief.Path,
+                        "write_text",
+                        autospec=True,
+                        side_effect=fail_last_run,
+                    ),
+                    contextlib.redirect_stderr(stderr),
+                ):
                     try:
                         exit_code = brief._cmd_run_locked(args, proof)
                     except OSError as exc:
@@ -6209,9 +6784,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 "generated_at": "2026-08-12T08:00:00-04:00",
                 "slot": "morning",
                 "board": {"revision": 41, "entities": [], "claims": []},
-                "authority": {
-                    "board_snapshot": {"consistent": True, "revision": 41}
-                },
+                "authority": {"board_snapshot": {"consistent": True, "revision": 41}},
                 "paint_health": {},
                 "producer": _m5_producer_fixture(),
                 "superhuman_context": _m5_mail_fixture(),
@@ -6230,24 +6803,26 @@ class AuthorityScopeTests(unittest.TestCase):
             )
             notify = mock.Mock(return_value={"status": "ok"})
             append = mock.Mock()
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "datetime", FrozenDateTime
-            ), mock.patch.object(
-                brief, "collect_packet", return_value=packet
-            ), mock.patch.object(
-                brief, "macos_notify", notify
-            ), mock.patch.object(
-                brief, "append_scheduled_window", append
-            ), mock.patch.object(
-                brief.time, "time_ns", return_value=101
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "datetime", FrozenDateTime),
+                mock.patch.object(brief, "collect_packet", return_value=packet),
+                mock.patch.object(brief, "macos_notify", notify),
+                mock.patch.object(brief, "append_scheduled_window", append),
+                mock.patch.object(brief.time, "time_ns", return_value=101),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 first_exit = brief.cmd_run(args)
                 second_exit = brief.cmd_run(args)
 
-            html_names = sorted(path.name for path in evidence.glob("manual-brief-*.html"))
-            json_names = sorted(path.name for path in evidence.glob("manual-brief-*.json"))
+            html_names = sorted(
+                path.name for path in evidence.glob("manual-brief-*.html")
+            )
+            json_names = sorted(
+                path.name for path in evidence.glob("manual-brief-*.json")
+            )
             scheduled_collision = (evidence / "brief-20260812-080000.html").exists()
 
         self.assertEqual(first_exit, 0)
@@ -6259,7 +6834,10 @@ class AuthorityScopeTests(unittest.TestCase):
             {name.removesuffix(".json") for name in json_names},
         )
         self.assertTrue(
-            all(name.startswith("manual-brief-20260812-080000-000000-") for name in html_names)
+            all(
+                name.startswith("manual-brief-20260812-080000-000000-")
+                for name in html_names
+            )
         )
         self.assertFalse(scheduled_collision)
         self.assertEqual(notify.call_count, 2)
@@ -6299,7 +6877,149 @@ class AuthorityScopeTests(unittest.TestCase):
                     problems,
                 )
 
-    def test_superhuman_verifier_requires_exact_discovered_linked_account_coverage(self):
+    def test_superhuman_verifier_rejects_category_count_and_location_lies(self):
+        bad_count = _m5_mail_fixture()
+        bad_count["category_index"]["urgent_replies"]["total"] = 2
+
+        bad_location = _m5_mail_fixture()
+        bad_location["action_index"][0]["source_threads"] = []
+
+        count_problems = brief._superhuman_receipt_problems(bad_count)
+        location_problems = brief._superhuman_receipt_problems(bad_location)
+
+        self.assertIn(
+            "Superhuman urgent_replies category count does not match its excerpt",
+            count_problems,
+        )
+        self.assertIn(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
+            location_problems,
+        )
+
+    def test_superhuman_population_rejects_inflation_excerpt_forgery_and_hidden_category(
+        self,
+    ):
+        inflated = _m5_mail_fixture()
+        duplicate = json.loads(json.dumps(inflated["action_index"][0]))
+        duplicate["signal_id"] = "mail-action-forged"
+        inflated["action_index"].append(duplicate)
+        forged_excerpt = json.loads(json.dumps(inflated["urgent_replies"][0]))
+        forged_excerpt["signal_id"] = "mail-action-forged"
+        inflated["urgent_replies"].append(forged_excerpt)
+        inflated["category_index"]["urgent_replies"].update(
+            {
+                "total": 2,
+                "shown": 2,
+                "omitted": 0,
+                "signal_ids": ["mail-action-1", "mail-action-forged"],
+            }
+        )
+
+        mismatched_excerpt = _m5_mail_fixture()
+        mismatched_excerpt["urgent_replies"][0]["source_threads"][0]["thread_id"] = (
+            "different-thread"
+        )
+
+        hidden_category = _m5_mail_fixture()
+        hidden_category["category_index"]["new_hidden_queue"] = {
+            "total": 0,
+            "shown": 0,
+            "omitted": 0,
+            "locations_complete": True,
+            "signal_ids": [],
+        }
+
+        membership_forgery = _m5_mail_fixture()
+        membership_forgery["waiting_replies"] = list(
+            membership_forgery["urgent_replies"]
+        )
+        membership_forgery["category_index"]["waiting_replies"] = {
+            "total": 1,
+            "shown": 1,
+            "omitted": 0,
+            "locations_complete": True,
+            "signal_ids": ["mail-action-1"],
+        }
+
+        unknown_tag = _m5_mail_fixture()
+        unknown_tag["action_index"][0]["action_tags"].append("invented_queue")
+        unknown_tag["signals"][0]["action_tags"].append("invented_queue")
+
+        synchronized_forgery = json.loads(json.dumps(_m5_mail_fixture()))
+        forged_waiting = synchronized_forgery["urgent_replies"][0]
+        forged_waiting["action_tags"] = ["waiting_reply"]
+        synchronized_forgery["urgent_replies"] = []
+        synchronized_forgery["waiting_replies"] = [forged_waiting]
+        synchronized_forgery["action_index"][0]["action_tags"] = ["waiting_reply"]
+        synchronized_forgery["category_index"]["urgent_replies"] = {
+            "total": 0,
+            "shown": 0,
+            "omitted": 0,
+            "locations_complete": True,
+            "signal_ids": [],
+        }
+        synchronized_forgery["category_index"]["waiting_replies"] = {
+            "total": 1,
+            "shown": 1,
+            "omitted": 0,
+            "locations_complete": True,
+            "signal_ids": ["mail-action-1"],
+        }
+
+        non_string_provider_id = _m5_mail_fixture()
+        non_string_provider_id["action_index"][0]["source_threads"][0]["thread_id"] = (
+            True
+        )
+        non_string_provider_id["urgent_replies"][0]["source_threads"][0][
+            "thread_id"
+        ] = True
+
+        self.assertIn(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
+            brief._superhuman_receipt_problems(inflated),
+        )
+        self.assertIn(
+            "Superhuman urgent_replies excerpt does not match action_index",
+            brief._superhuman_receipt_problems(mismatched_excerpt),
+        )
+        self.assertIn(
+            "Superhuman category_index key universe mismatch",
+            brief._superhuman_receipt_problems(hidden_category),
+        )
+        self.assertIn(
+            "Superhuman waiting_replies membership does not match action_index",
+            brief._superhuman_receipt_problems(membership_forgery),
+        )
+        self.assertIn(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
+            brief._superhuman_receipt_problems(unknown_tag),
+        )
+        self.assertIn(
+            "no real mail obligation or action proposal",
+            brief._superhuman_receipt_problems(synchronized_forgery),
+        )
+        self.assertIn(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
+            brief._superhuman_receipt_problems(non_string_provider_id),
+        )
+
+    def test_renderer_never_promotes_excerpt_length_when_population_receipt_is_missing(
+        self,
+    ):
+        packet = _scheduled_packet_fixture()
+        mail = _m5_mail_fixture()
+        mail.pop("category_index")
+        packet["superhuman_context"] = mail
+
+        rendered = brief.render_html(packet)
+
+        self.assertIn("Complete obligation population", rendered)
+        self.assertIn("<td>UNKNOWN</td><td>UNKNOWN</td><td>UNKNOWN</td>", rendered)
+        self.assertIn("The reader excerpt is not promoted to a full count.", rendered)
+
+    def test_superhuman_verifier_requires_exact_discovered_linked_account_coverage(
+        self,
+    ):
         linked = {
             "acting_email": "newly-linked@example.com",
             "is_primary": False,
@@ -6359,7 +7079,9 @@ class AuthorityScopeTests(unittest.TestCase):
             wrong_expected_problems,
         )
 
-    def test_superhuman_verifier_validates_account_discovery_and_linked_account_shapes(self):
+    def test_superhuman_verifier_validates_account_discovery_and_linked_account_shapes(
+        self,
+    ):
         cases = (
             (
                 "account-container",
@@ -6606,7 +7328,9 @@ class AuthorityScopeTests(unittest.TestCase):
                     result["problems"],
                 )
 
-    def test_window_verifier_requires_v2_expected_identity_coverage_with_honest_unknowns(self):
+    def test_window_verifier_requires_v2_expected_identity_coverage_with_honest_unknowns(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp)
             rows = _write_m5_pair(evidence)
@@ -6703,11 +7427,7 @@ class AuthorityScopeTests(unittest.TestCase):
 
         def tool_result(payload):
             return {
-                "result": {
-                    "content": [
-                        {"type": "text", "text": json.dumps(payload)}
-                    ]
-                }
+                "result": {"content": [{"type": "text", "text": json.dumps(payload)}]}
             }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -6795,26 +7515,32 @@ class AuthorityScopeTests(unittest.TestCase):
                     ),
                 ]
 
-            with mock.patch.object(
-                brief,
-                "_mcp_remote_token",
-                return_value="test-token",
-            ), mock.patch(
-                "urllib.request.urlopen",
-                side_effect=mailbox_responses(raw_html),
+            with (
+                mock.patch.object(
+                    brief,
+                    "_mcp_remote_token",
+                    return_value="test-token",
+                ),
+                mock.patch(
+                    "urllib.request.urlopen",
+                    side_effect=mailbox_responses(raw_html),
+                ),
             ):
                 mailbox_result = brief.fetch_superhuman_mailbox_readback(window)
             stale_html = raw_html.replace(
                 "Morning note · twice-daily · Aug 12 · 8:05 AM",
                 "Morning note · twice-daily · Aug 11 · 8:05 AM",
             )
-            with mock.patch.object(
-                brief,
-                "_mcp_remote_token",
-                return_value="test-token",
-            ), mock.patch(
-                "urllib.request.urlopen",
-                side_effect=mailbox_responses(stale_html),
+            with (
+                mock.patch.object(
+                    brief,
+                    "_mcp_remote_token",
+                    return_value="test-token",
+                ),
+                mock.patch(
+                    "urllib.request.urlopen",
+                    side_effect=mailbox_responses(stale_html),
+                ),
             ):
                 stale_mailbox_result = brief.fetch_superhuman_mailbox_readback(window)
             mailbox_verification = brief.verify_mailbox_readbacks(
@@ -6834,7 +7560,10 @@ class AuthorityScopeTests(unittest.TestCase):
             stale_mailbox_result["problems"],
         )
         self.assertEqual(mailbox_result["subject"], subject)
-        self.assertEqual(mailbox_result["raw_html_sha256"], hashlib.sha256(raw_html.encode("utf-8")).hexdigest())
+        self.assertEqual(
+            mailbox_result["raw_html_sha256"],
+            hashlib.sha256(raw_html.encode("utf-8")).hexdigest(),
+        )
 
     def test_live_mailbox_readback_blocks_malformed_provider_identity_shapes(self):
         class FakeResponse:
@@ -6853,11 +7582,7 @@ class AuthorityScopeTests(unittest.TestCase):
 
         def tool_result(payload):
             return {
-                "result": {
-                    "content": [
-                        {"type": "text", "text": json.dumps(payload)}
-                    ]
-                }
+                "result": {"content": [{"type": "text", "text": json.dumps(payload)}]}
             }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -6943,13 +7668,16 @@ class AuthorityScopeTests(unittest.TestCase):
                             )
                         ),
                     ]
-                    with mock.patch.object(
-                        brief,
-                        "_mcp_remote_token",
-                        return_value="test-token",
-                    ), mock.patch(
-                        "urllib.request.urlopen",
-                        side_effect=responses,
+                    with (
+                        mock.patch.object(
+                            brief,
+                            "_mcp_remote_token",
+                            return_value="test-token",
+                        ),
+                        mock.patch(
+                            "urllib.request.urlopen",
+                            side_effect=responses,
+                        ),
                     ):
                         try:
                             result = brief.fetch_superhuman_mailbox_readback(window)
@@ -6992,13 +7720,16 @@ class AuthorityScopeTests(unittest.TestCase):
                 FakeResponse({}),
                 FakeResponse({"result": [{"not": "an object envelope"}]}),
             ]
-            with mock.patch.object(
-                brief,
-                "_mcp_remote_token",
-                return_value="test-token",
-            ), mock.patch(
-                "urllib.request.urlopen",
-                side_effect=responses,
+            with (
+                mock.patch.object(
+                    brief,
+                    "_mcp_remote_token",
+                    return_value="test-token",
+                ),
+                mock.patch(
+                    "urllib.request.urlopen",
+                    side_effect=responses,
+                ),
             ):
                 try:
                     result = brief.fetch_superhuman_mailbox_readback(window)
@@ -7057,7 +7788,10 @@ class AuthorityScopeTests(unittest.TestCase):
 
     def test_window_verifier_rejects_intermediate_length_git_object_ids(self):
         for oid_length in (41, 63):
-            with self.subTest(oid_length=oid_length), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(oid_length=oid_length),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 evidence = Path(tmp)
                 rows = _write_m5_pair(evidence)
                 invalid = {
@@ -7157,15 +7891,16 @@ class AuthorityScopeTests(unittest.TestCase):
             window_log.write_text(json.dumps(row) + "\n", encoding="utf-8")
             window_log.chmod(0o600)
             output = io.StringIO()
-            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
-                brief, "MAILBOX_READBACK_LOG", mailbox_log
-            ), mock.patch.object(
-                brief, "EVIDENCE_DIR", root / "evidence"
-            ), mock.patch.object(
-                brief, "LOG_DIR", root / "ledger"
-            ), mock.patch.object(
-                brief, "SEND_ATTEMPT_LOG", root / "ledger" / "send-attempts.jsonl"
-            ), contextlib.redirect_stdout(output):
+            with (
+                mock.patch.object(brief, "WINDOW_LOG", window_log),
+                mock.patch.object(brief, "MAILBOX_READBACK_LOG", mailbox_log),
+                mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"),
+                mock.patch.object(brief, "LOG_DIR", root / "ledger"),
+                mock.patch.object(
+                    brief, "SEND_ATTEMPT_LOG", root / "ledger" / "send-attempts.jsonl"
+                ),
+                contextlib.redirect_stdout(output),
+            ):
                 exit_code = brief.cmd_verify_windows(mock.Mock())
 
         payload = json.loads(output.getvalue())
@@ -7187,14 +7922,15 @@ class AuthorityScopeTests(unittest.TestCase):
             mailbox_log = root / "mailbox.jsonl"
             window_log.write_text(json.dumps(row) + "\n", encoding="utf-8")
             window_log.chmod(0o600)
-            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
-                brief, "MAILBOX_READBACK_LOG", mailbox_log
-            ), mock.patch.object(
-                brief, "fetch_superhuman_mailbox_readback"
-            ) as provider, contextlib.redirect_stderr(io.StringIO()):
-                exit_code = brief.cmd_readback_window(
-                    mock.Mock(scheduled_for=None)
-                )
+            with (
+                mock.patch.object(brief, "WINDOW_LOG", window_log),
+                mock.patch.object(brief, "MAILBOX_READBACK_LOG", mailbox_log),
+                mock.patch.object(
+                    brief, "fetch_superhuman_mailbox_readback"
+                ) as provider,
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief.cmd_readback_window(mock.Mock(scheduled_for=None))
 
         self.assertEqual(exit_code, 2)
         provider.assert_not_called()
@@ -7232,9 +7968,16 @@ class AuthorityScopeTests(unittest.TestCase):
         result = brief.verify_window_receipts([morning, evening])
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["windows"], [morning["scheduled_for"], evening["scheduled_for"]])
-        self.assertNotIn("need two distinct current-schema natural windows; found 1", result["problems"])
-        self.assertNotIn("latest natural windows are not consecutive", result["problems"])
+        self.assertEqual(
+            result["windows"], [morning["scheduled_for"], evening["scheduled_for"]]
+        )
+        self.assertNotIn(
+            "need two distinct current-schema natural windows; found 1",
+            result["problems"],
+        )
+        self.assertNotIn(
+            "latest natural windows are not consecutive", result["problems"]
+        )
         self.assertTrue(
             brief.natural_windows_are_consecutive(
                 brief.datetime.fromisoformat("2026-08-12T08:00:00-04:00"),
@@ -7379,21 +8122,17 @@ class AuthorityScopeTests(unittest.TestCase):
             ),
             ["HostTimezone"],
         )
-        self.assertTrue(
-            brief.host_timezone_matches_report("America/New_York")
-        )
-        self.assertFalse(
-            brief.host_timezone_matches_report("America/Bogota")
-        )
-        self.assertFalse(
-            brief.host_timezone_matches_report("Etc/UTC")
-        )
+        self.assertTrue(brief.host_timezone_matches_report("America/New_York"))
+        self.assertFalse(brief.host_timezone_matches_report("America/Bogota"))
+        self.assertFalse(brief.host_timezone_matches_report("Etc/UTC"))
         self.assertIn(
             "set the macOS system timezone to America/New_York",
             brief.schedule_configuration_recovery(["HostTimezone"]),
         )
 
-    def test_schedule_status_rejects_an_alternate_program_and_other_scheduled_producers(self):
+    def test_schedule_status_rejects_an_alternate_program_and_other_scheduled_producers(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as home_dir:
             home = Path(home_dir)
             agents = home / "Library" / "LaunchAgents"
@@ -7403,7 +8142,9 @@ class AuthorityScopeTests(unittest.TestCase):
             alternate.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
             canonical = agents / f"{brief.LABEL}.plist"
             canonical.write_bytes(
-                plistlib.dumps(brief.launch_agent_plist(alternate), fmt=plistlib.FMT_XML)
+                plistlib.dumps(
+                    brief.launch_agent_plist(alternate), fmt=plistlib.FMT_XML
+                )
             )
             duplicate = agents / "com.example.shadow-copy.plist"
             duplicate_doc = brief.launch_agent_plist(Path(brief.__file__).resolve())
@@ -7435,12 +8176,16 @@ class AuthorityScopeTests(unittest.TestCase):
                     fmt=plistlib.FMT_XML,
                 )
             )
-            with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
-                brief, "_host_timezone_name", return_value="America/New_York"
-            ), mock.patch.object(
-                brief,
-                "_run",
-                return_value=subprocess.CompletedProcess([], 0, "loaded", ""),
+            with (
+                mock.patch.object(brief.Path, "home", return_value=home),
+                mock.patch.object(
+                    brief, "_host_timezone_name", return_value="America/New_York"
+                ),
+                mock.patch.object(
+                    brief,
+                    "_run",
+                    return_value=subprocess.CompletedProcess([], 0, "loaded", ""),
+                ),
             ):
                 status = brief.schedule_status()
 
@@ -7459,7 +8204,9 @@ class AuthorityScopeTests(unittest.TestCase):
             status["configuration_problems"],
         )
 
-    def test_schedule_status_reports_other_producer_even_when_canonical_plist_is_missing(self):
+    def test_schedule_status_reports_other_producer_even_when_canonical_plist_is_missing(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as home_dir:
             home = Path(home_dir)
             agents = home / "Library" / "LaunchAgents"
@@ -7469,8 +8216,11 @@ class AuthorityScopeTests(unittest.TestCase):
             duplicate_doc["Label"] = "com.example.shadow-copy"
             duplicate.write_bytes(plistlib.dumps(duplicate_doc, fmt=plistlib.FMT_XML))
 
-            with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
-                brief, "_host_timezone_name", return_value="America/New_York"
+            with (
+                mock.patch.object(brief.Path, "home", return_value=home),
+                mock.patch.object(
+                    brief, "_host_timezone_name", return_value="America/New_York"
+                ),
             ):
                 status = brief.schedule_status()
 
@@ -7480,16 +8230,16 @@ class AuthorityScopeTests(unittest.TestCase):
             status["configuration_problems"],
         )
 
-    def test_schedule_status_detects_shell_wrapped_producer_without_echo_false_positive(self):
+    def test_schedule_status_detects_shell_wrapped_producer_without_echo_false_positive(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as home_dir:
             home = Path(home_dir)
             agents = home / "Library" / "LaunchAgents"
             agents.mkdir(parents=True)
             canonical = agents / f"{brief.LABEL}.plist"
             with mock.patch.object(brief.Path, "home", return_value=home):
-                canonical_doc = brief.launch_agent_plist(
-                    Path(brief.__file__).resolve()
-                )
+                canonical_doc = brief.launch_agent_plist(Path(brief.__file__).resolve())
             canonical.write_bytes(
                 plistlib.dumps(
                     canonical_doc,
@@ -7636,12 +8386,16 @@ class AuthorityScopeTests(unittest.TestCase):
                 )
             )
 
-            with mock.patch.object(brief.Path, "home", return_value=home), mock.patch.object(
-                brief, "_host_timezone_name", return_value="America/New_York"
-            ), mock.patch.object(
-                brief,
-                "_run",
-                return_value=subprocess.CompletedProcess([], 0, "loaded", ""),
+            with (
+                mock.patch.object(brief.Path, "home", return_value=home),
+                mock.patch.object(
+                    brief, "_host_timezone_name", return_value="America/New_York"
+                ),
+                mock.patch.object(
+                    brief,
+                    "_run",
+                    return_value=subprocess.CompletedProcess([], 0, "loaded", ""),
+                ),
             ):
                 status = brief.schedule_status()
 
@@ -7683,67 +8437,86 @@ class AuthorityScopeTests(unittest.TestCase):
         )
 
     def test_schedule_install_command_requires_post_install_configuration_proof(self):
-        with mock.patch.object(
-            brief,
-            "schedule_install",
-            return_value={
-                "bootstrap_rc": 0,
-                "host_timezone_matches_report": True,
-                "configuration_ok": False,
-                "launchctl_ok": True,
-            },
-        ), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            mock.patch.object(
+                brief,
+                "schedule_install",
+                return_value={
+                    "bootstrap_rc": 0,
+                    "host_timezone_matches_report": True,
+                    "configuration_ok": False,
+                    "launchctl_ok": True,
+                },
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(brief.cmd_schedule(mock.Mock(install=True)), 1)
 
     def test_schedule_command_fails_closed_on_install_or_status_drift(self):
-        with mock.patch.object(
-            brief,
-            "schedule_install",
-            return_value={
-                "bootstrap_rc": 1,
-                "host_timezone_matches_report": True,
-            },
-        ), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            mock.patch.object(
+                brief,
+                "schedule_install",
+                return_value={
+                    "bootstrap_rc": 1,
+                    "host_timezone_matches_report": True,
+                },
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(brief.cmd_schedule(mock.Mock(install=True)), 1)
 
-        with mock.patch.object(
-            brief,
-            "schedule_status",
-            return_value={
-                "installed": True,
-                "configuration_ok": False,
-                "launchctl_ok": True,
-            },
-        ), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            mock.patch.object(
+                brief,
+                "schedule_status",
+                return_value={
+                    "installed": True,
+                    "configuration_ok": False,
+                    "launchctl_ok": True,
+                },
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(brief.cmd_schedule(mock.Mock(install=False)), 1)
 
     def test_doctor_keeps_timezone_recovery_when_schedule_is_also_unarmed(self):
-        with tempfile.TemporaryDirectory() as home_dir, mock.patch.object(
-            brief.Path,
-            "home",
-            return_value=Path(home_dir),
-        ), mock.patch.object(
-            brief,
-            "_host_timezone_name",
-            return_value="America/Bogota",
+        with (
+            tempfile.TemporaryDirectory() as home_dir,
+            mock.patch.object(
+                brief.Path,
+                "home",
+                return_value=Path(home_dir),
+            ),
+            mock.patch.object(
+                brief,
+                "_host_timezone_name",
+                return_value="America/Bogota",
+            ),
         ):
             schedule = brief.schedule_status()
 
         self.assertFalse(schedule["installed"])
         self.assertEqual(schedule.get("configuration_problems"), ["HostTimezone"])
-        with tempfile.TemporaryDirectory() as evidence_dir, mock.patch.object(
-            brief,
-            "EVIDENCE_DIR",
-            Path(evidence_dir),
-        ), mock.patch.object(
-            brief,
-            "schedule_status",
-            return_value=schedule,
-        ), mock.patch.object(
-            brief,
-            "_mcp_remote_token",
-            return_value="available",
-        ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+        with (
+            tempfile.TemporaryDirectory() as evidence_dir,
+            mock.patch.object(
+                brief,
+                "EVIDENCE_DIR",
+                Path(evidence_dir),
+            ),
+            mock.patch.object(
+                brief,
+                "schedule_status",
+                return_value=schedule,
+            ),
+            mock.patch.object(
+                brief,
+                "_mcp_remote_token",
+                return_value="available",
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
             self.assertEqual(brief.doctor(), 1)
 
         payload = json.loads(stdout.getvalue())
@@ -7839,17 +8612,19 @@ class AuthorityScopeTests(unittest.TestCase):
             )
             mailbox_log.chmod(0o600)
             output = io.StringIO()
-            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
-                brief, "MAILBOX_READBACK_LOG", mailbox_log
-            ), mock.patch.object(
-                brief, "EVIDENCE_DIR", evidence
-            ), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "SEND_ATTEMPT_LOG", ledger / "send-attempts.jsonl"
-            ), mock.patch.object(
-                brief, "verify_window_receipts", return_value=verification_template
-            ) as verify, contextlib.redirect_stdout(output):
+            with (
+                mock.patch.object(brief, "WINDOW_LOG", window_log),
+                mock.patch.object(brief, "MAILBOX_READBACK_LOG", mailbox_log),
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(
+                    brief, "SEND_ATTEMPT_LOG", ledger / "send-attempts.jsonl"
+                ),
+                mock.patch.object(
+                    brief, "verify_window_receipts", return_value=verification_template
+                ) as verify,
+                contextlib.redirect_stdout(output),
+            ):
                 exit_code = brief.cmd_verify_windows(mock.Mock())
 
         self.assertEqual(exit_code, 0)
@@ -7929,11 +8704,14 @@ class AuthorityScopeTests(unittest.TestCase):
                 "schema": brief.MAILBOX_READBACK_SCHEMA,
                 "status": "EXACT_SENT_CONFIRMED",
             }
-            with mock.patch.object(brief, "WINDOW_LOG", window_log), mock.patch.object(
-                brief, "MAILBOX_READBACK_LOG", mailbox_log
-            ), mock.patch.object(
-                brief, "fetch_superhuman_mailbox_readback", return_value=readback
-            ) as fetch, contextlib.redirect_stdout(io.StringIO()):
+            with (
+                mock.patch.object(brief, "WINDOW_LOG", window_log),
+                mock.patch.object(brief, "MAILBOX_READBACK_LOG", mailbox_log),
+                mock.patch.object(
+                    brief, "fetch_superhuman_mailbox_readback", return_value=readback
+                ) as fetch,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
                 exit_code = brief.cmd_readback_window(mock.Mock(scheduled_for=None))
 
         self.assertEqual(exit_code, 0)
@@ -7967,10 +8745,13 @@ class AuthorityScopeTests(unittest.TestCase):
         ]
         for ledger_name in ("window", "mailbox"):
             for corruption in ("symlink", "invalid-json"):
-                with self.subTest(
-                    ledger=ledger_name,
-                    corruption=corruption,
-                ), tempfile.TemporaryDirectory() as tmp:
+                with (
+                    self.subTest(
+                        ledger=ledger_name,
+                        corruption=corruption,
+                    ),
+                    tempfile.TemporaryDirectory() as tmp,
+                ):
                     root = Path(tmp)
                     window_log = root / "windows.jsonl"
                     mailbox_log = root / "mailbox.jsonl"
@@ -8003,19 +8784,24 @@ class AuthorityScopeTests(unittest.TestCase):
                         ),
                     }
                     verify = mock.Mock(return_value=verification)
-                    with mock.patch.object(
-                        brief,
-                        "WINDOW_LOG",
-                        window_log,
-                    ), mock.patch.object(
-                        brief,
-                        "MAILBOX_READBACK_LOG",
-                        mailbox_log,
-                    ), mock.patch.object(
-                        brief,
-                        "verify_window_receipts",
-                        verify,
-                    ), contextlib.redirect_stdout(stdout):
+                    with (
+                        mock.patch.object(
+                            brief,
+                            "WINDOW_LOG",
+                            window_log,
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "MAILBOX_READBACK_LOG",
+                            mailbox_log,
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "verify_window_receipts",
+                            verify,
+                        ),
+                        contextlib.redirect_stdout(stdout),
+                    ):
                         try:
                             exit_code = brief.cmd_verify_windows(mock.Mock())
                         except (OSError, UnicodeError, KeyError, TypeError) as exc:
@@ -8026,8 +8812,7 @@ class AuthorityScopeTests(unittest.TestCase):
                     self.assertFalse(payload["ok"])
                     self.assertTrue(
                         any(
-                            ledger_name in problem
-                            and "unsafe or corrupt" in problem
+                            ledger_name in problem and "unsafe or corrupt" in problem
                             for problem in payload["problems"]
                         ),
                         payload,
@@ -8037,7 +8822,10 @@ class AuthorityScopeTests(unittest.TestCase):
 
     def test_readback_window_blocks_unsafe_ledger_before_provider_or_append(self):
         for corruption in ("symlink", "invalid-json"):
-            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(corruption=corruption),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 root = Path(tmp)
                 window_log = root / "windows.jsonl"
                 if corruption == "symlink":
@@ -8052,23 +8840,29 @@ class AuthorityScopeTests(unittest.TestCase):
                 fetch = mock.Mock()
                 append = mock.Mock()
                 stdout = io.StringIO()
-                with mock.patch.object(
-                    brief,
-                    "WINDOW_LOG",
-                    window_log,
-                ), mock.patch.object(
-                    brief,
-                    "MAILBOX_READBACK_LOG",
-                    mailbox_log,
-                ), mock.patch.object(
-                    brief,
-                    "fetch_superhuman_mailbox_readback",
-                    fetch,
-                ), mock.patch.object(
-                    brief,
-                    "_append_private_jsonl",
-                    append,
-                ), contextlib.redirect_stdout(stdout):
+                with (
+                    mock.patch.object(
+                        brief,
+                        "WINDOW_LOG",
+                        window_log,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "MAILBOX_READBACK_LOG",
+                        mailbox_log,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "fetch_superhuman_mailbox_readback",
+                        fetch,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "_append_private_jsonl",
+                        append,
+                    ),
+                    contextlib.redirect_stdout(stdout),
+                ):
                     try:
                         exit_code = brief.cmd_readback_window(
                             mock.Mock(scheduled_for=None)
@@ -8095,7 +8889,10 @@ class AuthorityScopeTests(unittest.TestCase):
             "scheduled_for": "2026-08-12T08:00:00-04:00",
         }
         for corruption in ("symlink", "invalid-json"):
-            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(corruption=corruption),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 root = Path(tmp)
                 window_log = root / "windows.jsonl"
                 window_log.write_text(
@@ -8115,26 +8912,30 @@ class AuthorityScopeTests(unittest.TestCase):
                 fetch = mock.Mock(return_value={"status": "blocked"})
                 append = mock.Mock()
                 stdout = io.StringIO()
-                with mock.patch.object(
-                    brief,
-                    "WINDOW_LOG",
-                    window_log,
-                ), mock.patch.object(
-                    brief,
-                    "MAILBOX_READBACK_LOG",
-                    mailbox_log,
-                ), mock.patch.object(
-                    brief,
-                    "fetch_superhuman_mailbox_readback",
-                    fetch,
-                ), mock.patch.object(
-                    brief,
-                    "_append_private_jsonl",
-                    append,
-                ), contextlib.redirect_stdout(stdout):
-                    exit_code = brief.cmd_readback_window(
-                        mock.Mock(scheduled_for=None)
-                    )
+                with (
+                    mock.patch.object(
+                        brief,
+                        "WINDOW_LOG",
+                        window_log,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "MAILBOX_READBACK_LOG",
+                        mailbox_log,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "fetch_superhuman_mailbox_readback",
+                        fetch,
+                    ),
+                    mock.patch.object(
+                        brief,
+                        "_append_private_jsonl",
+                        append,
+                    ),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    exit_code = brief.cmd_readback_window(mock.Mock(scheduled_for=None))
 
                 payload = json.loads(stdout.getvalue())
                 self.assertEqual(exit_code, 1)
@@ -8365,8 +9166,9 @@ class AuthorityScopeTests(unittest.TestCase):
             ValueError("integer string conversion limit exceeded"),
             RecursionError("maximum recursion depth exceeded"),
         ):
-            with self.subTest(exception=type(exc).__name__), mock.patch.object(
-                brief.json, "loads", side_effect=exc
+            with (
+                self.subTest(exception=type(exc).__name__),
+                mock.patch.object(brief.json, "loads", side_effect=exc),
             ):
                 plain = brief._parse_mcp_sse('{"result": {}}')
                 streamed = brief._parse_mcp_sse('data: {"result": {}}')
@@ -8435,11 +9237,18 @@ class AuthorityScopeTests(unittest.TestCase):
         window_cases = (
             ("message_id", ["message-in-list"], "sent-message receipt missing"),
             ("message_id", True, "sent-message receipt missing"),
-            ("attempt_id", {"id": "attempt-in-object"}, "durable pre-send attempt receipt missing"),
+            (
+                "attempt_id",
+                {"id": "attempt-in-object"},
+                "durable pre-send attempt receipt missing",
+            ),
             ("attempt_id", True, "durable pre-send attempt receipt missing"),
         )
         for field, value, expected_problem in window_cases:
-            with self.subTest(window_field=field, value=value), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(window_field=field, value=value),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 rows = _write_m5_pair(Path(tmp))
                 rows[0]["receipt"][field] = value
                 try:
@@ -8454,12 +9263,19 @@ class AuthorityScopeTests(unittest.TestCase):
         mailbox_cases = (
             ("message_id", ["message-in-list"], "stable mailbox identity missing"),
             ("message_id", True, "stable mailbox identity missing"),
-            ("thread_id", {"id": "thread-in-object"}, "stable mailbox identity missing"),
+            (
+                "thread_id",
+                {"id": "thread-in-object"},
+                "stable mailbox identity missing",
+            ),
             ("labels", True, "mailbox labels must be a string list"),
             ("labels", ["SENT", 7], "mailbox labels must be a string list"),
         )
         for field, value, expected_problem in mailbox_cases:
-            with self.subTest(mailbox_field=field, value=value), tempfile.TemporaryDirectory() as tmp:
+            with (
+                self.subTest(mailbox_field=field, value=value),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
                 window = _write_m5_pair(Path(tmp))[0]
                 readback = {
                     "schema": brief.MAILBOX_READBACK_SCHEMA,
@@ -8538,10 +9354,13 @@ class AuthorityScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             board_path = Path(tmp) / "board.json"
             board_path.write_text('{"revision": 1}\n', encoding="utf-8")
-            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
-                brief.json,
-                "loads",
-                side_effect=ValueError("integer string conversion limit exceeded"),
+            with (
+                mock.patch.object(brief, "BOARD_PATH", board_path),
+                mock.patch.object(
+                    brief.json,
+                    "loads",
+                    side_effect=ValueError("integer string conversion limit exceeded"),
+                ),
             ):
                 revision = brief._read_board_revision()
 
@@ -8551,10 +9370,13 @@ class AuthorityScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             board_path = Path(tmp) / "board.json"
             board_path.write_text('{"revision": 1}\n', encoding="utf-8")
-            with mock.patch.object(brief, "BOARD_PATH", board_path), mock.patch.object(
-                brief.json,
-                "loads",
-                side_effect=RecursionError("maximum recursion depth exceeded"),
+            with (
+                mock.patch.object(brief, "BOARD_PATH", board_path),
+                mock.patch.object(
+                    brief.json,
+                    "loads",
+                    side_effect=RecursionError("maximum recursion depth exceeded"),
+                ),
             ):
                 revision = brief._read_board_revision()
 
@@ -8571,40 +9393,42 @@ class AuthorityScopeTests(unittest.TestCase):
 
     def test_packet_authority_does_not_stabilize_on_boolean_board_revision(self):
         board = {"revision": True, "entities": [], "claims": []}
-        with mock.patch.object(
-            brief, "portfolio_root", return_value=Path("/tmp/portfolio")
-        ), mock.patch.object(
-            brief, "collect_repos", return_value=[]
-        ), mock.patch.object(
-            brief, "collect_github", return_value=[]
-        ), mock.patch.object(
-            brief, "collect_vercel", return_value={"available": False}
-        ), mock.patch.object(
-            brief, "collect_supabase", return_value={"available": False}
-        ), mock.patch.object(
-            brief, "collect_superhuman_context", return_value=_m5_mail_fixture()
-        ), mock.patch.object(
-            brief, "collect_growth_source_status", return_value={}
-        ), mock.patch.object(
-            brief, "build_local_git_health", return_value={"available": True}
-        ), mock.patch.object(
-            brief, "build_paint_health", return_value={}
-        ), mock.patch.object(
-            brief, "collect_shadow_status_excerpt", return_value="status"
-        ), mock.patch.object(
-            brief, "collect_board", return_value=board
-        ), mock.patch.object(
-            brief, "_read_board_revision", return_value=1
-        ), mock.patch.object(
-            brief, "build_shadow_board_health", return_value={"available": False}
-        ), mock.patch.object(
-            brief, "collect_snowcubes_context", return_value={"surfaces": []}
-        ), mock.patch.object(
-            brief, "build_recommendations", return_value=[]
-        ), mock.patch.object(
-            brief, "build_chief_of_staff_analysis", return_value={}
-        ), mock.patch.object(
-            brief, "producer_provenance", return_value=_m5_producer_fixture()
+        with (
+            mock.patch.object(
+                brief, "portfolio_root", return_value=Path("/tmp/portfolio")
+            ),
+            mock.patch.object(brief, "collect_repos", return_value=[]),
+            mock.patch.object(brief, "collect_github", return_value=[]),
+            mock.patch.object(
+                brief, "collect_vercel", return_value={"available": False}
+            ),
+            mock.patch.object(
+                brief, "collect_supabase", return_value={"available": False}
+            ),
+            mock.patch.object(
+                brief, "collect_superhuman_context", return_value=_m5_mail_fixture()
+            ),
+            mock.patch.object(brief, "collect_growth_source_status", return_value={}),
+            mock.patch.object(
+                brief, "build_local_git_health", return_value={"available": True}
+            ),
+            mock.patch.object(brief, "build_paint_health", return_value={}),
+            mock.patch.object(
+                brief, "collect_shadow_status_excerpt", return_value="status"
+            ),
+            mock.patch.object(brief, "collect_board", return_value=board),
+            mock.patch.object(brief, "_read_board_revision", return_value=1),
+            mock.patch.object(
+                brief, "build_shadow_board_health", return_value={"available": False}
+            ),
+            mock.patch.object(
+                brief, "collect_snowcubes_context", return_value={"surfaces": []}
+            ),
+            mock.patch.object(brief, "build_recommendations", return_value=[]),
+            mock.patch.object(brief, "build_chief_of_staff_analysis", return_value={}),
+            mock.patch.object(
+                brief, "producer_provenance", return_value=_m5_producer_fixture()
+            ),
         ):
             packet = brief.collect_packet(slot="morning")
 
@@ -8619,9 +9443,7 @@ class AuthorityScopeTests(unittest.TestCase):
                 rows[0],
                 lambda packet: (
                     packet["board"].update({"revision": True}),
-                    packet["authority"]["board_snapshot"].update(
-                        {"revision": True}
-                    ),
+                    packet["authority"]["board_snapshot"].update({"revision": True}),
                 ),
             )
 
@@ -8817,9 +9639,7 @@ class AuthorityScopeTests(unittest.TestCase):
                             result["problems"],
                         )
                 except RecursionError as exc:
-                    self.fail(
-                        f"{boundary} authoritative JSON recursion escaped: {exc}"
-                    )
+                    self.fail(f"{boundary} authoritative JSON recursion escaped: {exc}")
 
     def test_authoritative_json_proof_parsers_fail_closed_on_integer_limit(self):
         oversized = "9" * 5_000
@@ -8870,9 +9690,7 @@ class AuthorityScopeTests(unittest.TestCase):
                             result["problems"],
                         )
                 except ValueError as exc:
-                    self.fail(
-                        f"{boundary} integer-limit JSON error escaped: {exc}"
-                    )
+                    self.fail(f"{boundary} integer-limit JSON error escaped: {exc}")
 
     def test_send_attempt_log_requires_intent_before_outcome(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -8958,7 +9776,11 @@ class AuthorityScopeTests(unittest.TestCase):
         )
 
     def test_send_attempt_stable_identities_require_exact_json_types(self):
-        for mutation in ("numeric-message", "intent-thread-list", "outcome-thread-object"):
+        for mutation in (
+            "numeric-message",
+            "intent-thread-list",
+            "outcome-thread-object",
+        ):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 evidence = root / "evidence"
@@ -8987,9 +9809,7 @@ class AuthorityScopeTests(unittest.TestCase):
                     rows[0]["receipt"]["attempt_id"] = attempt_id
                 else:
                     outcome["thread_id"] = {"id": "thread-in-an-object"}
-                    rows[0]["receipt"]["thread_id"] = {
-                        "id": "thread-in-an-object"
-                    }
+                    rows[0]["receipt"]["thread_id"] = {"id": "thread-in-an-object"}
                 attempts.write_text(
                     "\n".join(json.dumps(row) for row in attempt_rows) + "\n",
                     encoding="utf-8",
@@ -9064,14 +9884,19 @@ class AuthorityScopeTests(unittest.TestCase):
                     ("missing-arguments", "program = /usr/bin/python3\n", False),
                 )
                 for name, output, expected_ok in cases:
-                    with self.subTest(name=name), mock.patch.object(
-                        brief.Path, "home", return_value=home
-                    ), mock.patch.object(
-                    brief, "_host_timezone_name", return_value="America/New_York"
-                    ), mock.patch.object(
-                        brief,
-                        "_run",
-                        return_value=subprocess.CompletedProcess([], 0, output, ""),
+                    with (
+                        self.subTest(name=name),
+                        mock.patch.object(brief.Path, "home", return_value=home),
+                        mock.patch.object(
+                            brief,
+                            "_host_timezone_name",
+                            return_value="America/New_York",
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "_run",
+                            return_value=subprocess.CompletedProcess([], 0, output, ""),
+                        ),
                     ):
                         status = brief.schedule_status()
                     self.assertEqual(status["launchctl_ok"], expected_ok)
@@ -9081,7 +9906,11 @@ class AuthorityScopeTests(unittest.TestCase):
 
     def test_env_split_string_wrappers_detect_only_executed_brief_commands(self):
         positives = (
-            ["/usr/bin/env", "-S", "/usr/local/bin/shadow brief run --scheduled-trigger"],
+            [
+                "/usr/bin/env",
+                "-S",
+                "/usr/local/bin/shadow brief run --scheduled-trigger",
+            ],
             [
                 "/usr/bin/env",
                 "--split-string",
@@ -9094,8 +9923,15 @@ class AuthorityScopeTests(unittest.TestCase):
             ["/usr/bin/env", "-S/usr/local/bin/shadow brief run --scheduled-trigger"],
         )
         negatives = (
-            ["/usr/bin/env", "-S", "printf '%s' 'shadow brief run --scheduled-trigger'"],
-            ["/usr/bin/env", "--split-string=echo shadow brief run --scheduled-trigger"],
+            [
+                "/usr/bin/env",
+                "-S",
+                "printf '%s' 'shadow brief run --scheduled-trigger'",
+            ],
+            [
+                "/usr/bin/env",
+                "--split-string=echo shadow brief run --scheduled-trigger",
+            ],
         )
         for values in positives:
             with self.subTest(values=values):
@@ -9150,31 +9986,36 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", evidence), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", return_value=_scheduled_packet_fixture()
-            ), mock.patch.object(
-                brief,
-                "macos_notify",
-                return_value={
-                    "status": "blocked",
-                    "title": "Shadow brief ready",
-                    "body": "morning · board rev 41",
-                    "error": "osascript unavailable",
-                },
-            ), mock.patch.object(
-                brief, "deliver_superhuman", deliver
-            ), mock.patch.object(
-                brief, "append_scheduled_window", append
-            ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(
+                    brief,
+                    "macos_notify",
+                    return_value={
+                        "status": "blocked",
+                        "title": "Shadow brief ready",
+                        "body": "morning · board rev 41",
+                        "error": "osascript unavailable",
+                    },
+                ),
+                mock.patch.object(brief, "deliver_superhuman", deliver),
+                mock.patch.object(brief, "append_scheduled_window", append),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
 
-            last_run = json.loads((ledger / "last-run.json").read_text(encoding="utf-8"))
+            last_run = json.loads(
+                (ledger / "last-run.json").read_text(encoding="utf-8")
+            )
 
         self.assertEqual(exit_code, 3)
         deliver.assert_not_called()
@@ -9195,37 +10036,45 @@ class AuthorityScopeTests(unittest.TestCase):
                 dry_run=False,
                 send_authorized_self=True,
             )
-            with mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"), mock.patch.object(
-                brief, "LOG_DIR", ledger
-            ), mock.patch.object(
-                brief, "WINDOW_LOG", ledger / "windows.jsonl"
-            ), mock.patch.object(
-                brief, "scheduled_window", return_value=_scheduled_window_fixture()
-            ), mock.patch.object(
-                brief, "collect_packet", return_value=_scheduled_packet_fixture()
-            ), mock.patch.object(
-                brief,
-                "macos_notify",
-                return_value={
-                    "status": "ok",
-                    "title": "Shadow brief ready",
-                    "body": "morning · board rev 41",
-                },
-            ), mock.patch.object(
-                brief,
-                "deliver_superhuman",
-                return_value={
-                    "status": "ok",
-                    "delivery_status": "sent",
-                    "message_id": "sent-before-broken-pipe",
-                },
-            ), mock.patch.object(
-                brief, "append_scheduled_window", append
-            ), mock.patch("builtins.print", side_effect=BrokenPipeError("stdout closed")):
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", root / "evidence"),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief, "scheduled_window", return_value=_scheduled_window_fixture()
+                ),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(
+                    brief,
+                    "macos_notify",
+                    return_value={
+                        "status": "ok",
+                        "title": "Shadow brief ready",
+                        "body": "morning · board rev 41",
+                    },
+                ),
+                mock.patch.object(
+                    brief,
+                    "deliver_superhuman",
+                    return_value={
+                        "status": "ok",
+                        "delivery_status": "sent",
+                        "message_id": "sent-before-broken-pipe",
+                    },
+                ),
+                mock.patch.object(brief, "append_scheduled_window", append),
+                mock.patch(
+                    "builtins.print", side_effect=BrokenPipeError("stdout closed")
+                ),
+            ):
                 try:
                     exit_code = brief._cmd_run_locked(args, _scheduled_proof_fixture())
                 except BrokenPipeError as exc:
-                    self.fail(f"success summary stdout failure escaped before append: {exc}")
+                    self.fail(
+                        f"success summary stdout failure escaped before append: {exc}"
+                    )
 
         self.assertEqual(exit_code, 0)
         append.assert_called_once()

@@ -332,6 +332,88 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
         )
         self.assertNotIn("x" * 1201, encoded)
 
+    def test_mail_projection_reports_all_populations_without_provider_ids(self) -> None:
+        source = packet()
+        mail = source["superhuman_context"]
+        private_thread_id = "thread-private-7"
+        private_message_id = "message-private-8"
+        mail["problems"] = [f"Re-open exact thread {private_thread_id}."]
+        mail["wake"] = f"Inspect message {private_message_id}."
+        mail["coverage"][0]["wake"] = f"Verify {private_thread_id} before an all-clear."
+        mail["category_index"] = {
+            category: {
+                "total": index + 10,
+                "shown": 1,
+                "omitted": index + 9,
+                "locations_complete": True,
+                "signal_ids": [f"signal-{index}"],
+            }
+            for index, category in enumerate(author.MAIL_ACTION_CATEGORIES)
+        }
+        for index, category in enumerate(author.MAIL_ACTION_CATEGORIES):
+            mail[category] = [
+                {
+                    "subject": f"Candidate {index}",
+                    "last_message_at": "2026-08-15T11:00:00Z",
+                    "thread_id": private_thread_id,
+                    "last_message_id": private_message_id,
+                    "source_threads": [
+                        {
+                            "acting_email": "trysnowcubes@gmail.com",
+                            "thread_id": private_thread_id,
+                            "last_message_id": private_message_id,
+                        }
+                    ],
+                    "source_identities": ["trysnowcubes@gmail.com"],
+                    "action_tags": ["proactive"],
+                    "semantic_status": "PROPOSAL",
+                    "confidence": "HIGH",
+                    "message_age_hours": 4.0,
+                    "proposal": "Consider a personal follow-up.",
+                    "wake": f"Open {private_message_id} in the exact account.",
+                }
+            ]
+
+        evidence = author.build_evidence_projection(source, self.profile)
+        populations = [
+            row for row in evidence["facts"] if row["kind"] == "mail_population"
+        ]
+        self.assertEqual(
+            {row["fact"]["category"] for row in populations},
+            set(author.MAIL_ACTION_CATEGORIES),
+        )
+        self.assertEqual(len(populations), 5)
+        self.assertTrue(
+            all(
+                set(row["fact"])
+                == {"category", "total", "shown", "omitted", "locations_complete"}
+                for row in populations
+            )
+        )
+        candidates = [
+            row for row in evidence["facts"] if row["kind"] == "mail_candidate"
+        ]
+        self.assertEqual(len(candidates), 5)
+        self.assertTrue(
+            all(
+                not {"thread_id", "last_message_id", "source_threads"}
+                & set(row["fact"])
+                for row in candidates
+            )
+        )
+        encoded = json.dumps(evidence, sort_keys=True)
+        self.assertNotIn(private_thread_id, encoded)
+        self.assertNotIn(private_message_id, encoded)
+        self.assertIn("[private mail item]", encoded)
+
+        cited_population = "packet.superhuman.category_index.urgent_replies"
+        rendered = author.render_letter_html(
+            artifact(evidence, letter(cited_population)),
+            self.profile,
+        )
+        self.assertNotIn(private_thread_id, rendered)
+        self.assertNotIn(private_message_id, rendered)
+
     def test_owner_scheduler_kill_is_pinned_even_when_newer_progress_would_drop_it(
         self,
     ) -> None:

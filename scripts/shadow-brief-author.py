@@ -52,6 +52,13 @@ SECTION_NAMES = (
     "next_owned_moves",
     "coverage_gaps",
 )
+MAIL_ACTION_CATEGORIES = (
+    "urgent_replies",
+    "waiting_replies",
+    "forgotten_obligations",
+    "order_return_follow_up",
+    "proactive_candidates",
+)
 
 
 class AuthoringError(ValueError):
@@ -211,6 +218,43 @@ def _sanitize_fact(value: Any, *, depth: int = 0) -> Any:
     return _sanitize_fact(str(value), depth=depth + 1)
 
 
+def _mail_opaque_provider_ids(mail: Any) -> set[str]:
+    """Collect private provider identities before projecting reader prose."""
+    opaque: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        for key, item in value.items():
+            if key in {"thread_id", "last_message_id", "signal_id", "provider_key"}:
+                if isinstance(item, str) and item.strip():
+                    opaque.add(item.strip())
+            visit(item)
+
+    visit(mail)
+    return opaque
+
+
+def _redact_mail_provider_ids(value: Any, opaque_ids: set[str]) -> Any:
+    if isinstance(value, str):
+        redacted = value
+        for opaque_id in sorted(opaque_ids, key=len, reverse=True):
+            redacted = redacted.replace(opaque_id, "[private mail item]")
+        return redacted
+    if isinstance(value, list):
+        return [_redact_mail_provider_ids(item, opaque_ids) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _redact_mail_provider_ids(item, opaque_ids)
+            for key, item in value.items()
+        }
+    return value
+
+
 def build_evidence_projection(
     packet: dict[str, Any],
     profile: dict[str, Any],
@@ -286,22 +330,29 @@ def build_evidence_projection(
         if isinstance(packet.get("superhuman_context"), dict)
         else {}
     )
+    mail_opaque_ids = _mail_opaque_provider_ids(mail)
+
+    def safe_mail_fact(value: Any) -> Any:
+        return _redact_mail_provider_ids(value, mail_opaque_ids)
+
     add(
         "packet.superhuman.summary",
         "mail_coverage",
-        _bounded_dict(
-            mail,
-            (
-                "status",
-                "available",
-                "complete",
-                "all_clear_allowed",
-                "observed_at",
-                "query_range",
-                "expected_identities",
-                "problems",
-                "wake",
-                "threads_unique",
+        safe_mail_fact(
+            _bounded_dict(
+                mail,
+                (
+                    "status",
+                    "available",
+                    "complete",
+                    "all_clear_allowed",
+                    "observed_at",
+                    "query_range",
+                    "expected_identities",
+                    "problems",
+                    "wake",
+                    "threads_unique",
+                ),
             ),
         ),
     )
@@ -316,16 +367,18 @@ def build_evidence_projection(
         add(
             f"packet.superhuman.coverage.{index}",
             "mail_identity_coverage",
-            _bounded_dict(
-                row,
-                (
-                    "expected_email",
-                    "acting_email",
-                    "linked",
-                    "status",
-                    "observed_at",
-                    "problem",
-                    "wake",
+            safe_mail_fact(
+                _bounded_dict(
+                    row,
+                    (
+                        "expected_email",
+                        "acting_email",
+                        "linked",
+                        "status",
+                        "observed_at",
+                        "problem",
+                        "wake",
+                    ),
                 ),
             ),
         )
@@ -345,25 +398,57 @@ def build_evidence_projection(
                 ),
             },
         )
-    for category in ("urgent_replies", "forgotten_obligations", "waiting_replies"):
+    category_index = (
+        mail.get("category_index")
+        if isinstance(mail.get("category_index"), dict)
+        else {}
+    )
+    for category in MAIL_ACTION_CATEGORIES:
+        receipt = (
+            category_index.get(category)
+            if isinstance(category_index.get(category), dict)
+            else {}
+        )
+
+        def count_or_unknown(key: str) -> int | None:
+            value = receipt.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                return value
+            return None
+
+        add(
+            f"packet.superhuman.category_index.{category}",
+            "mail_population",
+            {
+                "category": category,
+                "total": count_or_unknown("total"),
+                "shown": count_or_unknown("shown"),
+                "omitted": count_or_unknown("omitted"),
+                "locations_complete": receipt.get("locations_complete") is True,
+            },
+        )
+
         rows = mail.get(category) if isinstance(mail.get(category), list) else []
         for index, row in enumerate(rows[: caps["mail_candidates_per_kind"]]):
             add(
                 f"packet.superhuman.{category}.{index}",
                 "mail_candidate",
-                _bounded_dict(
-                    row,
-                    (
-                        "subject",
-                        "last_message_at",
-                        "thread_id",
-                        "source_identities",
-                        "semantic_status",
-                        "confidence",
-                        "source_observed_at",
-                        "message_age_hours",
-                        "waiting_direction",
-                        "wake",
+                safe_mail_fact(
+                    _bounded_dict(
+                        row,
+                        (
+                            "subject",
+                            "last_message_at",
+                            "source_identities",
+                            "action_tags",
+                            "semantic_status",
+                            "confidence",
+                            "source_observed_at",
+                            "message_age_hours",
+                            "waiting_direction",
+                            "proposal",
+                            "wake",
+                        ),
                     ),
                 ),
             )

@@ -15,6 +15,7 @@ import fcntl
 import hashlib
 import html
 import json
+import math
 import os
 import plistlib
 import re
@@ -55,7 +56,7 @@ EXPECTED_SUPERHUMAN_IDENTITIES = (
     SNOWCUBES_BUSINESS_MAIL,
     "firstbitelabs@gmail.com",
 )
-SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v2"
+SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v3"
 PRODUCER_PROVENANCE_SCHEMA = "shadow.brief-producer.v1"
 SCHEDULED_ATTEMPT_SCHEMA = "shadow.bidaily-attempt.v1"
 SEND_ATTEMPT_SCHEMA = "shadow.superhuman-send-attempt.v1"
@@ -68,9 +69,27 @@ SUPERHUMAN_GLOBAL_ACTION_LIMIT = 40
 SUPERHUMAN_READ_BUDGET_SECONDS = 420
 SUPERHUMAN_SIGNAL_LIMIT = 50
 # Each reader-first action category is classified from the full collision-safe
-# set and bounded separately. Classifying from the retention sample instead
-# drops a real obligation before anything ever reads it as one.
-SUPERHUMAN_CATEGORY_LIMIT = 200
+# set. The model and human reader get a small excerpt; the private packet keeps
+# every category member and its exact provider location in one action manifest.
+SUPERHUMAN_CATEGORY_EXCERPT_LIMIT = 8
+SUPERHUMAN_ACTION_CATEGORY_KEYS = (
+    "urgent_replies",
+    "waiting_replies",
+    "forgotten_obligations",
+    "order_return_follow_up",
+    "proactive_candidates",
+)
+SUPERHUMAN_ACTION_TAGS = frozenset(
+    {
+        "waiting_reply",
+        "order_return",
+        "obligation",
+        "calendar",
+        "reply",
+        "urgent",
+        "proactive",
+    }
+)
 SUPERHUMAN_LIST_LANES = (
     ("active_inbox", ("INBOX",)),
     ("sent_follow_up", ("SENT",)),
@@ -189,7 +208,9 @@ def _claim_key(entity_id: Any, row_id: Any) -> tuple[str, str]:
     return (str(entity_id or ""), _row_id(row_id))
 
 
-def _claim_key_for(entity: dict[str, Any], checkpoint: dict[str, Any]) -> tuple[str, str]:
+def _claim_key_for(
+    entity: dict[str, Any], checkpoint: dict[str, Any]
+) -> tuple[str, str]:
     return _claim_key(_entity_id(entity), checkpoint.get("id"))
 
 
@@ -294,7 +315,11 @@ def collect_shadow_status_excerpt() -> str:
     try:
         status = _run(["shadow", "status", "--by", "leo"], timeout=8)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        reason = "timed out" if isinstance(exc, subprocess.TimeoutExpired) else "was unavailable"
+        reason = (
+            "timed out"
+            if isinstance(exc, subprocess.TimeoutExpired)
+            else "was unavailable"
+        )
         return (
             f"Optional seat-status summary {reason}; the report continued from the "
             "separately read, revision-checked Shadow board."
@@ -360,7 +385,15 @@ def parse_plan(path: Path) -> EntityBrief:
         for cp in open_cps + blocked
         if any(
             token in cp.title.lower()
-            for token in ("forgotten", "stale", "cruft", "slop", "open-ended", "park", "orphan")
+            for token in (
+                "forgotten",
+                "stale",
+                "cruft",
+                "slop",
+                "open-ended",
+                "park",
+                "orphan",
+            )
         )
     ]
     decisions: list[str] = []
@@ -371,8 +404,10 @@ def parse_plan(path: Path) -> EntityBrief:
             section_name = line[3:].strip().lower()
             continue
         clean = line.strip()
-        if section_name == "contradictions" and clean.startswith("- ") and (
-            "| winner:" in clean or "| provisional winner:" in clean
+        if (
+            section_name == "contradictions"
+            and clean.startswith("- ")
+            and ("| winner:" in clean or "| provisional winner:" in clean)
         ):
             decisions.append(clean[2:].replace("| provisional winner:", "| winner:"))
         elif section_name == "progress" and clean.startswith("- "):
@@ -442,10 +477,13 @@ def build_shadow_board_health(board: dict[str, Any]) -> dict[str, Any]:
             f"{entity.get('project') or 'unknown'}: {entity.get('error') or 'plan unreadable'}"
             for entity in unavailable
         ]
-        wakes = [str(entity.get("wake")) for entity in unavailable if entity.get("wake")]
+        wakes = [
+            str(entity.get("wake")) for entity in unavailable if entity.get("wake")
+        ]
         return {
             "available": False,
-            "error": f"{len(unavailable)} board-owned plan read(s) unavailable: " + "; ".join(labels),
+            "error": f"{len(unavailable)} board-owned plan read(s) unavailable: "
+            + "; ".join(labels),
             "wake": "; ".join(dict.fromkeys(wakes)),
         }
     return {"available": True, "revision": board.get("revision")}
@@ -605,8 +643,12 @@ def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
         ):
             continue
         try:
-            branch = _run(["git", "-C", str(child), "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
-            dirty = bool(_run(["git", "-C", str(child), "status", "--porcelain"]).stdout.strip())
+            branch = _run(
+                ["git", "-C", str(child), "rev-parse", "--abbrev-ref", "HEAD"]
+            ).stdout.strip()
+            dirty = bool(
+                _run(["git", "-C", str(child), "status", "--porcelain"]).stdout.strip()
+            )
             log = _run(
                 ["git", "-C", str(child), "log", "-1", "--format=%ct\t%s"]
             ).stdout.strip()
@@ -617,7 +659,15 @@ def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
                 age_h = (now - int(ts_s)) / 3600.0
             ahead = behind = 0
             ab = _run(
-                ["git", "-C", str(child), "rev-list", "--left-right", "--count", "@{upstream}...HEAD"]
+                [
+                    "git",
+                    "-C",
+                    str(child),
+                    "rev-list",
+                    "--left-right",
+                    "--count",
+                    "@{upstream}...HEAD",
+                ]
             )
             if ab.returncode == 0 and ab.stdout.strip():
                 parts = ab.stdout.strip().split()
@@ -635,11 +685,15 @@ def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
                     "--format=%s",
                 ]
             )
-            recent_commits = [
-                line.strip()
-                for line in recent_log.stdout.splitlines()
-                if line.strip()
-            ] if recent_log.returncode == 0 else []
+            recent_commits = (
+                [
+                    line.strip()
+                    for line in recent_log.stdout.splitlines()
+                    if line.strip()
+                ]
+                if recent_log.returncode == 0
+                else []
+            )
             paints.append(
                 RepoPaint(
                     name=child.name,
@@ -715,7 +769,9 @@ def collect_vercel() -> dict[str, Any]:
             "created": row.get("created") or row.get("createdAt"),
         }
         prev = best.get(name)
-        if prev is None or rank.get(state, 5) < rank.get(str(prev.get("state") or ""), 5):
+        if prev is None or rank.get(state, 5) < rank.get(
+            str(prev.get("state") or ""), 5
+        ):
             best[name] = cand
     slim = list(best.values())[:6]
     return {
@@ -733,7 +789,9 @@ def collect_supabase() -> dict[str, Any]:
     if proc.returncode != 0:
         return {
             "available": False,
-            "error": (proc.stderr or proc.stdout or "supabase project read failed")[:300],
+            "error": (proc.stderr or proc.stdout or "supabase project read failed")[
+                :300
+            ],
         }
     try:
         rows = json.loads(proc.stdout or "[]")
@@ -923,6 +981,7 @@ def build_superhuman_context(
             "complete": False,
             "status": "UNKNOWN",
             "all_clear_allowed": False,
+            "declared_query_complete": False,
             "error": problem,
             "observed_at": end_date,
             "query_range": query_range,
@@ -938,6 +997,17 @@ def build_superhuman_context(
             "proactive_candidates": [],
             "order_return_follow_up": [],
             "calendar_proposals": [],
+            "action_index": [],
+            "category_index": {
+                key: {
+                    "total": 0,
+                    "shown": 0,
+                    "omitted": 0,
+                    "locations_complete": False,
+                    "signal_ids": [],
+                }
+                for key in SUPERHUMAN_ACTION_CATEGORY_KEYS
+            },
             "account_discovery": {
                 "status": "UNKNOWN",
                 "malformed_rows": 0,
@@ -964,7 +1034,9 @@ def build_superhuman_context(
         if not isinstance(row, dict):
             malformed_account_rows += 1
             continue
-        email = identity(row.get("accountEmail") or row.get("account_email") or row.get("email"))
+        email = identity(
+            row.get("accountEmail") or row.get("account_email") or row.get("email")
+        )
         if not email:
             malformed_account_rows += 1
             continue
@@ -1073,7 +1145,11 @@ def build_superhuman_context(
                 "shopifyemail.com",
             )
         )
-        kind = "github" if "github" in combined else ("automated" if automated else "human_or_other")
+        kind = (
+            "github"
+            if "github" in combined
+            else ("automated" if automated else "human_or_other")
+        )
         labels_value = row.get("labels")
         labels = (
             {str(label).lower() for label in labels_value}
@@ -1082,7 +1158,9 @@ def build_superhuman_context(
         )
         source_lane = str(row.get("_shadow_source_lane") or "active_inbox")
         tags: list[str] = []
-        if labels.intersection({"archived", "archive", "done", "trash", "spam", "draft"}):
+        if labels.intersection(
+            {"archived", "archive", "done", "trash", "spam", "draft"}
+        ):
             # Subject keywords survive after work is handled. An explicit
             # inactive lifecycle label outranks those keywords.
             return kind, tags
@@ -1147,9 +1225,15 @@ def build_superhuman_context(
         # thread read below verifies direction.
         if kind == "human_or_other" and "sent" in labels:
             tags.append("waiting_reply")
-        if any(token in combined for token in ("urgent", "today", "immediately", "asap")):
+        if any(
+            token in combined for token in ("urgent", "today", "immediately", "asap")
+        ):
             tags.append("urgent")
-        if acting_email == SNOWCUBES_BUSINESS_MAIL and kind == "human_or_other" and "inbox" in labels:
+        if (
+            acting_email == SNOWCUBES_BUSINESS_MAIL
+            and kind == "human_or_other"
+            and "inbox" in labels
+        ):
             tags.append("proactive")
         return kind, list(dict.fromkeys(tags))
 
@@ -1202,13 +1286,14 @@ def build_superhuman_context(
                 normalized_subject(row.get("subject")),
                 normalized_message_time(row.get("last_message_at")),
             ),
-            "unread": "unread" in {str(label).lower() for label in (row.get("labels") or [])},
+            "unread": "unread"
+            in {str(label).lower() for label in (row.get("labels") or [])},
             "source_identities": [acting_email],
             "source_threads": [
                 {
                     "acting_email": acting_email,
-                    "thread_id": thread_id or None,
-                    "last_message_id": message_id or None,
+                    "thread_id": thread_id,
+                    "last_message_id": message_id,
                 }
             ],
             "semantic_status": "OBSERVED" if not tags else "UNKNOWN",
@@ -1255,7 +1340,11 @@ def build_superhuman_context(
         for ref in incoming.get("source_threads") or []:
             if not isinstance(ref, dict):
                 continue
-            key = (ref.get("acting_email"), ref.get("thread_id"), ref.get("last_message_id"))
+            key = (
+                ref.get("acting_email"),
+                ref.get("thread_id"),
+                ref.get("last_message_id"),
+            )
             if key not in seen_refs:
                 existing.setdefault("source_threads", []).append(ref)
                 seen_refs.add(key)
@@ -1312,9 +1401,7 @@ def build_superhuman_context(
                 str(snapshot.get("semantic_status") or "UNKNOWN")
                 for snapshot in existing["account_snapshots"]
             }
-            known_statuses = snapshot_statuses.intersection(
-                {"OBSERVED", "PROPOSAL"}
-            )
+            known_statuses = snapshot_statuses.intersection({"OBSERVED", "PROPOSAL"})
             classification_conflict = known_statuses == {
                 "OBSERVED",
                 "PROPOSAL",
@@ -1322,10 +1409,7 @@ def build_superhuman_context(
             has_unknown = (
                 bool(missing_snapshot_identities)
                 or "UNKNOWN" in snapshot_statuses
-                or bool(
-                    snapshot_statuses
-                    - {"UNKNOWN", "OBSERVED", "PROPOSAL"}
-                )
+                or bool(snapshot_statuses - {"UNKNOWN", "OBSERVED", "PROPOSAL"})
             )
             if has_unknown or classification_conflict or not snapshot_statuses:
                 existing["semantic_status"] = "UNKNOWN"
@@ -1337,7 +1421,10 @@ def build_superhuman_context(
                 str(snapshot.get("confidence") or "LOW")
                 for snapshot in existing["account_snapshots"]
             }
-            if existing["semantic_status"] == "UNKNOWN" or "LOW" in snapshot_confidences:
+            if (
+                existing["semantic_status"] == "UNKNOWN"
+                or "LOW" in snapshot_confidences
+            ):
                 existing["confidence"] = "LOW"
             elif "MEDIUM" in snapshot_confidences:
                 existing["confidence"] = "MEDIUM"
@@ -1405,7 +1492,10 @@ def build_superhuman_context(
                 existing_status,
                 incoming_status,
             } == {"OBSERVED", "PROPOSAL"}
-            if "UNKNOWN" in {existing_status, incoming_status} or classification_conflict:
+            if (
+                "UNKNOWN" in {existing_status, incoming_status}
+                or classification_conflict
+            ):
                 existing["semantic_status"] = "UNKNOWN"
             elif existing_status == incoming_status:
                 existing["semantic_status"] = existing_status
@@ -1624,7 +1714,9 @@ def build_superhuman_context(
             for provider_row in page_rows:
                 if not isinstance(provider_row, dict):
                     truncated = True
-                    problems.append("pre-window active inbox returned an unusable thread row")
+                    problems.append(
+                        "pre-window active inbox returned an unusable thread row"
+                    )
                     continue
                 row = dict(provider_row)
                 row["_shadow_source_lane"] = "prewindow_active_inbox"
@@ -1652,15 +1744,19 @@ def build_superhuman_context(
                 seen_provider_rows.add(provider_key)
                 rows.append(row)
             estimate = page.get("total_estimate")
-            if isinstance(estimate, int) and not isinstance(estimate, bool) and estimate >= 0:
+            if (
+                isinstance(estimate, int)
+                and not isinstance(estimate, bool)
+                and estimate >= 0
+            ):
                 total_estimate = max(total_estimate or 0, estimate)
             if bool(page.get("truncated")) or any(
-                bool(row.get("truncated"))
-                for row in page_rows
-                if isinstance(row, dict)
+                bool(row.get("truncated")) for row in page_rows if isinstance(row, dict)
             ):
                 truncated = True
-                problems.append("pre-window active inbox returned truncated provider data")
+                problems.append(
+                    "pre-window active inbox returned truncated provider data"
+                )
             maximum_rows = SUPERHUMAN_PAGE_LIMIT * SUPERHUMAN_PREWINDOW_MAX_PAGES
             if total_estimate is not None and total_estimate > maximum_rows:
                 truncated = True
@@ -1685,7 +1781,11 @@ def build_superhuman_context(
             problems.append(
                 f"pre-window active inbox stopped at the {SUPERHUMAN_PREWINDOW_MAX_PAGES}-page safety cap"
             )
-        if exhausted and total_estimate is not None and total_estimate > len(seen_provider_rows):
+        if (
+            exhausted
+            and total_estimate is not None
+            and total_estimate > len(seen_provider_rows)
+        ):
             truncated = True
             problems.append(
                 f"pre-window active inbox estimate {total_estimate} exceeds {len(seen_provider_rows)} exhausted unique rows"
@@ -1697,16 +1797,20 @@ def build_superhuman_context(
                 f"Re-read {acting_email} active INBOX through {prewindow_end_date}, exhaust every cursor, "
                 "and verify each older obligation candidate before relying on an all-clear."
             )
-        return rows, {
-            "status": "COMPLETE" if complete else "UNKNOWN",
-            "end_date": prewindow_end_date,
-            "pages": pages,
-            "exhausted": exhausted,
-            "truncated": truncated or not exhausted,
-            "total_estimate": total_estimate,
-            "unique_threads": len(seen_provider_rows),
-            "wake": wake,
-        }, problems
+        return (
+            rows,
+            {
+                "status": "COMPLETE" if complete else "UNKNOWN",
+                "end_date": prewindow_end_date,
+                "pages": pages,
+                "exhausted": exhausted,
+                "truncated": truncated or not exhausted,
+                "total_estimate": total_estimate,
+                "unique_threads": len(seen_provider_rows),
+                "wake": wake,
+            },
+            problems,
+        )
 
     for account in linked_accounts:
         acting_email = account["acting_email"]
@@ -1750,14 +1854,18 @@ def build_superhuman_context(
                 try:
                     page = call_tool("list_threads", arguments)
                     if not isinstance(page, dict):
-                        raise RuntimeError("list_threads returned no structured payload")
+                        raise RuntimeError(
+                            "list_threads returned no structured payload"
+                        )
                     if page.get("error"):
                         raise RuntimeError(str(page.get("error")))
                     if "threads" not in page:
                         raise RuntimeError("list_threads omitted the thread list")
                     rows = page.get("threads")
                     if not isinstance(rows, list):
-                        raise RuntimeError("list_threads returned a malformed thread list")
+                        raise RuntimeError(
+                            "list_threads returned a malformed thread list"
+                        )
                 except Exception as exc:
                     preserve_assertion(exc)
                     problems.append(f"{lane_name} mail read failed: {exc}")
@@ -1822,9 +1930,7 @@ def build_superhuman_context(
                 if isinstance(estimate, int) and estimate >= 0:
                     lane_estimate = max(lane_estimate or 0, estimate)
                 if any(
-                    bool(row.get("truncated"))
-                    for row in rows
-                    if isinstance(row, dict)
+                    bool(row.get("truncated")) for row in rows if isinstance(row, dict)
                 ):
                     lane_truncated = True
                     problems.append(f"{lane_name}: thread result truncated")
@@ -1891,7 +1997,10 @@ def build_superhuman_context(
 
         newest_source = max(
             (
-                (parsed_time(row.get("last_message_at")), str(row.get("last_message_at") or ""))
+                (
+                    parsed_time(row.get("last_message_at")),
+                    str(row.get("last_message_at") or ""),
+                )
                 for row in declared_rows
                 if parsed_time(row.get("last_message_at")) is not None
             ),
@@ -1951,7 +2060,9 @@ def build_superhuman_context(
                 metrics["unread_threads"] += 1
             if not row.get("_shadow_prewindow") and signal["kind"] == "github":
                 metrics["github_notification_threads"] += 1
-            elif not row.get("_shadow_prewindow") and signal["kind"] == "human_or_other":
+            elif (
+                not row.get("_shadow_prewindow") and signal["kind"] == "human_or_other"
+            ):
                 metrics["human_or_other_threads"] += 1
             combined = f"{row.get('subject', '')} {row.get('snippet', '')}".lower()
             if not row.get("_shadow_prewindow") and (
@@ -1960,18 +2071,16 @@ def build_superhuman_context(
                 metrics["cursor_limit_threads"] += 1
             account_signal_rows.append(signal)
 
-        account_signals, account_collision_problems = dedupe_signal_rows(account_signal_rows)
+        account_signals, account_collision_problems = dedupe_signal_rows(
+            account_signal_rows
+        )
         problems.extend(account_collision_problems)
         for signal in account_signals:
             if not signal.get("stable_provider_identity"):
                 problems.append("source row has no stable provider identity")
 
         action_candidates = sorted(
-            (
-                signal
-                for signal in account_signals
-                if signal.get("action_tags")
-            ),
+            (signal for signal in account_signals if signal.get("action_tags")),
             key=action_candidate_sort_key,
         )
         for signal in action_candidates:
@@ -1979,10 +2088,13 @@ def build_superhuman_context(
                 global_action_limit_hit = True
                 signal["semantic_status"] = "UNKNOWN"
                 signal["confidence"] = "LOW"
-                append_signal_wake(signal, (
-                    f"Open Superhuman as {acting_email} and read exact thread {signal.get('thread_id') or 'UNKNOWN'}; "
-                    f"the global {SUPERHUMAN_GLOBAL_ACTION_LIMIT}-thread exact thread read cap was reached and no action was performed."
-                ))
+                append_signal_wake(
+                    signal,
+                    (
+                        f"Open Superhuman as {acting_email} and read exact thread {signal.get('thread_id') or 'UNKNOWN'}; "
+                        f"the global {SUPERHUMAN_GLOBAL_ACTION_LIMIT}-thread exact thread read cap was reached and no action was performed."
+                    ),
+                )
                 problems.append(
                     f"global exact thread read cap of {SUPERHUMAN_GLOBAL_ACTION_LIMIT} left action candidates unverified"
                 )
@@ -1991,10 +2103,13 @@ def build_superhuman_context(
                 read_budget_hit = True
                 signal["semantic_status"] = "UNKNOWN"
                 signal["confidence"] = "LOW"
-                append_signal_wake(signal, (
-                    f"Open Superhuman as {acting_email} and read exact thread {signal.get('thread_id') or 'UNKNOWN'}; "
-                    f"the {SUPERHUMAN_READ_BUDGET_SECONDS}-second read budget expired and no action was performed."
-                ))
+                append_signal_wake(
+                    signal,
+                    (
+                        f"Open Superhuman as {acting_email} and read exact thread {signal.get('thread_id') or 'UNKNOWN'}; "
+                        f"the {SUPERHUMAN_READ_BUDGET_SECONDS}-second read budget expired and no action was performed."
+                    ),
+                )
                 problems.append(
                     f"global read budget exceeded the {SUPERHUMAN_READ_BUDGET_SECONDS}-second safety window"
                 )
@@ -2043,12 +2158,18 @@ def build_superhuman_context(
                     isinstance(message_count, int) and message_count > len(messages)
                 ):
                     detail_problems.append("thread body truncated")
-                if isinstance(message_count, int) and message_count > 0 and not messages:
+                if (
+                    isinstance(message_count, int)
+                    and message_count > 0
+                    and not messages
+                ):
                     detail_problems.append("thread body unavailable")
                 visible_messages: list[dict[str, Any]] = []
                 for message in messages:
                     if not isinstance(message, dict):
-                        detail_problems.append("thread contains an unusable message row")
+                        detail_problems.append(
+                            "thread contains an unusable message row"
+                        )
                         continue
                     message_labels = message.get("labels")
                     if not isinstance(message_labels, list):
@@ -2072,7 +2193,9 @@ def build_superhuman_context(
                         if str(value or "").strip()
                     ]
                     attachment_names.extend(attachments)
-                    if not str(message.get("body") or message.get("raw_html") or "").strip():
+                    if not str(
+                        message.get("body") or message.get("raw_html") or ""
+                    ).strip():
                         detail_problems.append("thread body unavailable")
                 if not visible_messages:
                     detail_problems.append("no non-draft visible message")
@@ -2097,7 +2220,9 @@ def build_superhuman_context(
                         )
                         if listed_time is not None and any(
                             (
-                                parsed_time(message.get("sent_at") or message.get("timestamp"))
+                                parsed_time(
+                                    message.get("sent_at") or message.get("timestamp")
+                                )
                                 or datetime.min.replace(tzinfo=timezone.utc)
                             )
                             > listed_time
@@ -2110,7 +2235,9 @@ def build_superhuman_context(
                 elif visible_messages:
                     timestamped = [
                         (
-                            parsed_time(message.get("sent_at") or message.get("timestamp")),
+                            parsed_time(
+                                message.get("sent_at") or message.get("timestamp")
+                            ),
                             index,
                             message,
                         )
@@ -2165,16 +2292,16 @@ def build_superhuman_context(
                         last_message.get("from") or last_message.get("sender")
                     )
                     if not sender_email:
-                        detail_problems.append("latest message sender identity is unavailable")
+                        detail_problems.append(
+                            "latest message sender identity is unavailable"
+                        )
                     elif signal.get("kind") == "human_or_other":
                         tags = list(signal.get("action_tags") or [])
                         active_labels = set(signal.get("source_labels") or [])
                         recipients = message_recipients(last_message)
                         if sender_email in owned_sender_identities:
                             tags = [
-                                tag
-                                for tag in tags
-                                if tag not in {"reply", "proactive"}
+                                tag for tag in tags if tag not in {"reply", "proactive"}
                             ]
                             outbound_text = " ".join(
                                 str(last_message.get(key) or "")
@@ -2195,9 +2322,9 @@ def build_superhuman_context(
                                     "what is the status",
                                 )
                             )
-                            internal_delivery = bool(recipients) and recipients.issubset(
-                                owned_sender_identities
-                            )
+                            internal_delivery = bool(
+                                recipients
+                            ) and recipients.issubset(owned_sender_identities)
                             if not recipients:
                                 tags = [tag for tag in tags if tag != "waiting_reply"]
                                 detail_problems.append(
@@ -2248,14 +2375,20 @@ def build_superhuman_context(
                 )
                 signal["semantic_status"] = "UNKNOWN"
                 signal["confidence"] = "LOW"
-                append_signal_wake(signal, (
-                    f"Open Superhuman as {acting_email}, read exact thread {thread_id}{attachment_note} and every "
-                    "action-bearing attachment, then return a proposal; no draft, send, calendar write, order, or return was performed."
-                ))
+                append_signal_wake(
+                    signal,
+                    (
+                        f"Open Superhuman as {acting_email}, read exact thread {thread_id}{attachment_note} and every "
+                        "action-bearing attachment, then return a proposal; no draft, send, calendar write, order, or return was performed."
+                    ),
+                )
                 signal.setdefault("fail_closed_reasons", []).extend(
                     str(problem) for problem in dict.fromkeys(detail_problems)
                 )
-                problems.extend(f"{thread_id}: {problem}" for problem in dict.fromkeys(detail_problems))
+                problems.extend(
+                    f"{thread_id}: {problem}"
+                    for problem in dict.fromkeys(detail_problems)
+                )
             else:
                 signal["thread_body_read"] = True
                 signal.update(
@@ -2303,7 +2436,9 @@ def build_superhuman_context(
             if not str(calendar_payload.get("answer") or "").strip():
                 raise RuntimeError("calendar query returned no answer")
             calendar_answer = str(calendar_payload.get("answer") or "")
-            clarification = str(calendar_payload.get("clarification_needed") or "").strip()
+            clarification = str(
+                calendar_payload.get("clarification_needed") or ""
+            ).strip()
             raw_sources = calendar_payload.get("sources")
             if not isinstance(raw_sources, list):
                 raw_sources = []
@@ -2314,7 +2449,9 @@ def build_superhuman_context(
             ]
             calendar_problem = ""
             if clarification:
-                calendar_problem = f"calendar query needs clarification: {clarification}"
+                calendar_problem = (
+                    f"calendar query needs clarification: {clarification}"
+                )
             elif not source_ids:
                 calendar_problem = "calendar query returned no source-labelled evidence"
             elif len(source_ids) != len(raw_sources):
@@ -2358,7 +2495,9 @@ def build_superhuman_context(
                 "status": calendar.get("status"),
                 "source_ids": calendar.get("source_ids") or [],
                 "source_identities": [acting_email],
-                "confidence": "MEDIUM" if calendar.get("status") == "PROPOSAL" else "LOW",
+                "confidence": "MEDIUM"
+                if calendar.get("status") == "PROPOSAL"
+                else "LOW",
                 "source_observed_at": end_date,
                 "source_age_hours": 0.0,
                 "wake": calendar.get("wake"),
@@ -2366,7 +2505,11 @@ def build_superhuman_context(
             }
         )
 
-        status = "COMPLETE" if exhausted and not pagination_truncated and not problems else "UNKNOWN"
+        status = (
+            "COMPLETE"
+            if exhausted and not pagination_truncated and not problems
+            else "UNKNOWN"
+        )
         coverage_row = {
             **account,
             "expected": acting_email in EXPECTED_SUPERHUMAN_IDENTITIES,
@@ -2448,7 +2591,9 @@ def build_superhuman_context(
         (signal for signal in unique_signals if signal.get("action_tags")),
         key=action_candidate_sort_key,
     )
-    neutral_signals = [signal for signal in unique_signals if not signal.get("action_tags")]
+    neutral_signals = [
+        signal for signal in unique_signals if not signal.get("action_tags")
+    ]
     # Preserve old obligations ahead of newer neutral mail. The packet stays
     # bounded, while each reader-first action category below is derived from
     # the full collision-safe set and carries its own cap/wake.
@@ -2494,23 +2639,97 @@ def build_superhuman_context(
             identity_sort_key(value) for value in row.get("source_identities") or []
         ),
     )
-    category_omissions: dict[str, int] = {}
+    category_index: dict[str, dict[str, Any]] = {}
+    category_location_gaps: dict[str, int] = {}
+
+    def normalized_source_threads(signal: dict[str, Any]) -> list[dict[str, Any]]:
+        refs = []
+        for raw_ref in signal.get("source_threads") or []:
+            if not isinstance(raw_ref, dict):
+                continue
+            acting_email = identity(raw_ref.get("acting_email"))
+            thread_id = str(raw_ref.get("thread_id") or "").strip()
+            message_id = str(raw_ref.get("last_message_id") or "").strip()
+            if not acting_email or not (thread_id or message_id):
+                continue
+            refs.append(
+                {
+                    "acting_email": acting_email,
+                    "thread_id": thread_id,
+                    "last_message_id": message_id,
+                }
+            )
+        refs = sorted(
+            {
+                (
+                    ref["acting_email"],
+                    ref["thread_id"],
+                    ref["last_message_id"],
+                ): ref
+                for ref in refs
+            }.values(),
+            key=lambda ref: (
+                identity_sort_key(ref["acting_email"]),
+                str(ref.get("thread_id") or ""),
+                str(ref.get("last_message_id") or ""),
+            ),
+        )
+        return refs
+
+    action_index = [
+        {
+            "signal_id": str(signal.get("signal_id") or ""),
+            "last_message_at": signal.get("last_message_at"),
+            "message_age_hours": signal.get("message_age_hours"),
+            "action_tags": sorted(
+                {
+                    str(tag).strip()
+                    for tag in (signal.get("action_tags") or [])
+                    if str(tag).strip()
+                }
+            ),
+            "source_threads": normalized_source_threads(signal),
+        }
+        for signal in action_signals
+    ]
+    action_index_by_id = {
+        str(row.get("signal_id") or ""): row
+        for row in action_index
+        if str(row.get("signal_id") or "")
+    }
 
     def categorize(name: str, predicate: Any) -> list[dict[str, Any]]:
         # Classify from the FULL collision-safe set, never from the retention
         # sample: the sample is ordered action-first, so once action-tagged
         # signals exceed SUPERHUMAN_SIGNAL_LIMIT the tail is real obligations.
         # Order by action-candidate priority (obligation class first, then
-        # ascending timestamp) before capping: unique_signals is
-        # reverse-chronological, so a raw slice would drop the
+        # ascending timestamp) before excerpting: unique_signals is
+        # reverse-chronological, so a raw slice would hide the
         # longest-neglected rows this section exists to surface.
         matched = sorted(
             (signal for signal in unique_signals if predicate(signal)),
             key=action_candidate_sort_key,
         )
-        if len(matched) > SUPERHUMAN_CATEGORY_LIMIT:
-            category_omissions[name] = len(matched) - SUPERHUMAN_CATEGORY_LIMIT
-        return matched[:SUPERHUMAN_CATEGORY_LIMIT]
+        shown = matched[:SUPERHUMAN_CATEGORY_EXCERPT_LIMIT]
+        omitted = max(0, len(matched) - len(shown))
+        signal_ids = [str(signal.get("signal_id") or "") for signal in matched]
+        missing_locations = sum(
+            1
+            for signal_id in signal_ids
+            if not signal_id
+            or signal_id not in action_index_by_id
+            or not action_index_by_id[signal_id].get("source_threads")
+        )
+        if missing_locations:
+            category_location_gaps[name] = missing_locations
+        category_index[name] = {
+            "total": len(matched),
+            "shown": len(shown),
+            "omitted": omitted,
+            "locations_complete": missing_locations == 0,
+            "signal_ids": signal_ids,
+        }
+        return shown
 
     def tagged(signal: dict[str, Any], *tags: str) -> bool:
         return any(tag in (signal.get("action_tags") or []) for tag in tags)
@@ -2518,7 +2737,9 @@ def build_superhuman_context(
     forgotten = categorize(
         "forgotten_obligations",
         lambda signal: (source_age(signal.get("last_message_at")) or 0) > 24
-        and tagged(signal, "obligation", "order_return", "waiting_reply", "reply", "calendar"),
+        and tagged(
+            signal, "obligation", "order_return", "waiting_reply", "reply", "calendar"
+        ),
     )
     order_returns = categorize(
         "order_return_follow_up", lambda signal: tagged(signal, "order_return")
@@ -2528,9 +2749,12 @@ def build_superhuman_context(
     )
     urgent_replies = categorize(
         "urgent_replies",
-        lambda signal: tagged(signal, "urgent") and tagged(signal, "reply", "waiting_reply"),
+        lambda signal: tagged(signal, "urgent")
+        and tagged(signal, "reply", "waiting_reply"),
     )
-    proactive = categorize("proactive_candidates", lambda signal: tagged(signal, "proactive"))
+    proactive = categorize(
+        "proactive_candidates", lambda signal: tagged(signal, "proactive")
+    )
     metrics = {
         key: sum(int((row.get("metrics") or {}).get(key) or 0) for row in coverage)
         for key in (
@@ -2543,6 +2767,29 @@ def build_superhuman_context(
     declared_query_complete = bool(coverage) and all(
         row.get("status") == "COMPLETE" for row in coverage
     )
+    if not declared_query_complete:
+        for receipt in category_index.values():
+            receipt["locations_complete"] = False
+    _, population_manifest_problems = _superhuman_population_receipts(
+        {
+            "observed_at": end_date,
+            "declared_query_complete": declared_query_complete,
+            "linked_accounts": linked_accounts,
+            "action_index": action_index,
+            "category_index": category_index,
+            "urgent_replies": urgent_replies,
+            "waiting_replies": waiting_replies,
+            "forgotten_obligations": forgotten,
+            "order_return_follow_up": order_returns,
+            "proactive_candidates": proactive,
+        }
+    )
+    if population_manifest_problems:
+        context_problems.extend(population_manifest_problems)
+        context_wakes.append(
+            "Rebuild the private Superhuman action manifest from exact linked-account thread/message IDs; "
+            "no excerpt or all-clear is trusted while its population receipt is inconsistent."
+        )
     if global_action_limit_hit:
         context_problems.append(
             f"global exact thread read cap of {SUPERHUMAN_GLOBAL_ACTION_LIMIT} left candidates unverified"
@@ -2558,21 +2805,13 @@ def build_superhuman_context(
             f"Rerun the read-only collector with enough time to finish before the next verifier; the {SUPERHUMAN_READ_BUDGET_SECONDS}-second read budget stopped this pass."
         )
     signals_omitted = max(0, len(unique_signals) - len(retained_signals))
-    if signals_omitted:
+    for category, missing in sorted(category_location_gaps.items()):
         context_problems.append(
-            f"{signals_omitted} signal omitted by the {SUPERHUMAN_SIGNAL_LIMIT}-signal retention cap"
+            f"{missing} {category.replace('_', ' ')} row lacks an exact provider location"
         )
         context_wakes.append(
-            f"Re-open the private packet and narrow the source read below the {SUPERHUMAN_SIGNAL_LIMIT}-signal retention cap before relying on an all-clear."
-        )
-    for category, omitted in sorted(category_omissions.items()):
-        context_problems.append(
-            f"{omitted} {category.replace('_', ' ')} row omitted by the "
-            f"{SUPERHUMAN_CATEGORY_LIMIT}-row category cap"
-        )
-        context_wakes.append(
-            f"Read the remaining {omitted} {category.replace('_', ' ')} row directly in "
-            f"Superhuman; the {SUPERHUMAN_CATEGORY_LIMIT}-row category cap truncated this section."
+            f"Recover the acting account plus thread or message ID for every {category.replace('_', ' ')} row; "
+            "the complete count is preserved, but no unlocated row may disappear behind the reader excerpt."
         )
     horizon_complete = bool(coverage) and all(
         (row.get("forgotten_horizon") or {}).get("status") == "COMPLETE"
@@ -2623,8 +2862,12 @@ def build_superhuman_context(
         "account_discovery": account_discovery,
         "linked_accounts": linked_accounts,
         "coverage": coverage,
-        "threads_returned_raw": sum(int(row.get("threads_returned_raw") or 0) for row in coverage),
-        "threads_returned": sum(int(row.get("threads_returned") or 0) for row in coverage),
+        "threads_returned_raw": sum(
+            int(row.get("threads_returned_raw") or 0) for row in coverage
+        ),
+        "threads_returned": sum(
+            int(row.get("threads_returned") or 0) for row in coverage
+        ),
         "threads_unique": len(unique_signals),
         "signals_retained": len(retained_signals),
         "signals_omitted": signals_omitted,
@@ -2635,13 +2878,17 @@ def build_superhuman_context(
         "proactive_candidates": proactive,
         "order_return_follow_up": order_returns,
         "calendar_proposals": calendar_proposals,
+        "action_index": action_index,
+        "category_index": category_index,
         "forgotten_horizon": forgotten_horizon,
         "window_hours": SUPERHUMAN_LOOKBACK_DAYS * 24,
         **metrics,
     }
 
 
-def superhuman_account_context(context: dict[str, Any], acting_email: str) -> dict[str, Any]:
+def superhuman_account_context(
+    context: dict[str, Any], acting_email: str
+) -> dict[str, Any]:
     """Project one account from the all-account read without another provider call."""
     normalized = str(acting_email or "").strip().lower()
     if context.get("acting_email") == normalized and "coverage" not in context:
@@ -2666,7 +2913,9 @@ def superhuman_account_context(context: dict[str, Any], acting_email: str) -> di
         }
     signals: list[dict[str, Any]] = []
     for signal in context.get("signals") or []:
-        if not isinstance(signal, dict) or normalized not in (signal.get("source_identities") or []):
+        if not isinstance(signal, dict) or normalized not in (
+            signal.get("source_identities") or []
+        ):
             continue
         account_signal = dict(signal)
         source_ref = next(
@@ -2720,8 +2969,12 @@ def superhuman_account_context(context: dict[str, Any], acting_email: str) -> di
             ):
                 value = snapshot.get(key)
                 account_signal[key] = list(value) if isinstance(value, list) else value
-        account_signal["thread_id"] = source_ref.get("thread_id") or account_signal.get("thread_id")
-        account_signal["last_message_id"] = source_ref.get("last_message_id") or account_signal.get("last_message_id")
+        account_signal["thread_id"] = source_ref.get("thread_id") or account_signal.get(
+            "thread_id"
+        )
+        account_signal["last_message_id"] = source_ref.get(
+            "last_message_id"
+        ) or account_signal.get("last_message_id")
         account_signal["source_identities"] = [normalized]
         account_signal["source_threads"] = [source_ref] if source_ref else []
         account_signal.pop("native_link", None)
@@ -2745,7 +2998,10 @@ def superhuman_account_context(context: dict[str, Any], acting_email: str) -> di
         "signals": signals,
     }
     if not available or coverage.get("status") != "COMPLETE":
-        result["error"] = "; ".join(str(value) for value in (coverage.get("problems") or [])) or "coverage unknown"
+        result["error"] = (
+            "; ".join(str(value) for value in (coverage.get("problems") or []))
+            or "coverage unknown"
+        )
         result["wake"] = coverage.get("wake")
     return result
 
@@ -2757,14 +3013,21 @@ def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, 
 
     token = _mcp_remote_token()
     if not token:
+
         def unavailable(_name: str, _arguments: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError("Superhuman OAuth is unavailable")
 
         context = build_superhuman_context(unavailable)
-        return superhuman_account_context(context, acting_email) if acting_email else context
+        return (
+            superhuman_account_context(context, acting_email)
+            if acting_email
+            else context
+        )
     url = SUPERHUMAN_MCP_RESOURCE
 
-    def post(payload: dict[str, Any], sid: str | None = None) -> tuple[str | None, dict[str, Any]]:
+    def post(
+        payload: dict[str, Any], sid: str | None = None
+    ) -> tuple[str | None, dict[str, Any]]:
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json, text/event-stream",
@@ -2780,26 +3043,37 @@ def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, 
         )
         with urllib.request.urlopen(request, timeout=45) as response:
             next_sid = response.headers.get("mcp-session-id") or sid
-            return next_sid, _parse_mcp_sse(response.read().decode("utf-8", errors="replace"))
+            return next_sid, _parse_mcp_sse(
+                response.read().decode("utf-8", errors="replace")
+            )
 
     try:
-        sid, _ = post({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "shadow-brief-context", "version": "1.0"},
-            },
-        })
-        post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, sid)
+        sid, _ = post(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "shadow-brief-context", "version": "1.0"},
+                },
+            }
+        )
+        post(
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, sid
+        )
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+
         def failed(_name: str, _arguments: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError(f"Superhuman session initialization failed: {exc}")
 
         context = build_superhuman_context(failed)
-        return superhuman_account_context(context, acting_email) if acting_email else context
+        return (
+            superhuman_account_context(context, acting_email)
+            if acting_email
+            else context
+        )
 
     request_id = 2
 
@@ -2826,7 +3100,9 @@ def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, 
         return payload
 
     context = build_superhuman_context(call_tool)
-    return superhuman_account_context(context, acting_email) if acting_email else context
+    return (
+        superhuman_account_context(context, acting_email) if acting_email else context
+    )
 
 
 def _snowcubes_surface(
@@ -2859,12 +3135,13 @@ def _snowcubes_surface(
     return card
 
 
-def _snowcubes_vercel_surface(vercel: dict[str, Any], observed_at: str) -> dict[str, Any]:
+def _snowcubes_vercel_surface(
+    vercel: dict[str, Any], observed_at: str
+) -> dict[str, Any]:
     rows = [
         row
         for row in (vercel.get("deployments") or [])
-        if isinstance(row, dict)
-        and "snowcube" in str(row.get("name") or "").lower()
+        if isinstance(row, dict) and "snowcube" in str(row.get("name") or "").lower()
     ]
     if not vercel.get("available"):
         return _snowcubes_surface(
@@ -2889,8 +3166,7 @@ def _snowcubes_vercel_surface(vercel: dict[str, Any], observed_at: str) -> dict[
             native_link=SNOWCUBES_NATIVE_LINKS["deploy"],
         )
     states = ", ".join(
-        f"{row.get('name')}: {row.get('state') or 'unknown'}"
-        for row in rows[:3]
+        f"{row.get('name')}: {row.get('state') or 'unknown'}" for row in rows[:3]
     )
     link = next(
         (
@@ -2927,7 +3203,11 @@ def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
             native_link=SNOWCUBES_NATIVE_LINKS["m12"],
         )
     try:
-        proc = _run([sys.executable, str(script), "--json", "--fresh-native", str(fixture)], cwd=repo, timeout=45)
+        proc = _run(
+            [sys.executable, str(script), "--json", "--fresh-native", str(fixture)],
+            cwd=repo,
+            timeout=45,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return _snowcubes_surface(
             name="M12 cafe-doctor",
@@ -2945,7 +3225,11 @@ def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
         result = {}
     checks = result.get("checks") if isinstance(result, dict) else []
     fresh = next(
-        (check for check in checks if isinstance(check, dict) and check.get("name") == "fresh-native"),
+        (
+            check
+            for check in checks
+            if isinstance(check, dict) and check.get("name") == "fresh-native"
+        ),
         None,
     )
     if not isinstance(result, dict) or fresh is None:
@@ -2972,7 +3256,11 @@ def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
             wake="Regenerate the bounded fresh-native packet with its canonical source timestamp.",
             native_link=SNOWCUBES_NATIVE_LINKS["m12"],
         )
-    wake = fresh.get("wake") if isinstance(fresh.get("wake"), str) else "Collect fresh read-only source observations before any money action."
+    wake = (
+        fresh.get("wake")
+        if isinstance(fresh.get("wake"), str)
+        else "Collect fresh read-only source observations before any money action."
+    )
     if not fresh.get("ok"):
         return _snowcubes_surface(
             name="M12 cafe-doctor",
@@ -2996,9 +3284,7 @@ def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
     )
 
 
-SNOWCUBES_CUSTOMER_OPPORTUNITY_SCHEMA = (
-    "shadow.snowcubes-customer-opportunities.v1"
-)
+SNOWCUBES_CUSTOMER_OPPORTUNITY_SCHEMA = "shadow.snowcubes-customer-opportunities.v1"
 
 
 def _customer_source_time(value: Any) -> datetime | None:
@@ -3023,7 +3309,11 @@ def _customer_source_age_hours(value: Any, observed_at: datetime) -> float | Non
 
 def _customer_email(value: Any) -> str | None:
     normalized = str(value or "").strip().casefold()
-    if not normalized or "@" not in normalized or any(char.isspace() for char in normalized):
+    if (
+        not normalized
+        or "@" not in normalized
+        or any(char.isspace() for char in normalized)
+    ):
         return None
     return normalized
 
@@ -3186,13 +3476,17 @@ def build_snowcubes_customer_opportunities(
                 or raw.get("stable_provider_identity") is not True
                 or mail_account not in source_identities
             ):
-                problems.append("mail signal lacks a stable Snowcubes provider identity")
+                problems.append(
+                    "mail signal lacks a stable Snowcubes provider identity"
+                )
                 continue
             thread_key = f"superhuman:{mail_account}:{thread_id}"
             source_time = raw.get("verified_message_at") or raw.get("last_message_at")
             source_age_hours = _customer_source_age_hours(source_time, now)
             if source_age_hours is None:
-                problems.append("mail signal source time is missing, invalid, or future-dated")
+                problems.append(
+                    "mail signal source time is missing, invalid, or future-dated"
+                )
             tags = list(
                 dict.fromkeys(str(value) for value in (raw.get("action_tags") or []))
             )
@@ -3208,7 +3502,10 @@ def build_snowcubes_customer_opportunities(
                     ),
                 )
             )
-            if raw.get("customer_candidate") is not True and not has_exact_customer_hint:
+            if (
+                raw.get("customer_candidate") is not True
+                and not has_exact_customer_hint
+            ):
                 continue
             candidate = {
                 "provider_key": thread_key,
@@ -3222,21 +3519,15 @@ def build_snowcubes_customer_opportunities(
                     if raw.get("thread_body_read") is True
                     else "LOW"
                 ),
-                "semantic_status": str(
-                    raw.get("semantic_status") or "UNKNOWN"
-                ).upper(),
+                "semantic_status": str(raw.get("semantic_status") or "UNKNOWN").upper(),
                 "thread_body_read": raw.get("thread_body_read") is True,
                 "waiting_direction": str(raw.get("waiting_direction") or "") or None,
                 "action_tags": tags,
                 "shopify_order_id": str(raw.get("shopify_order_id") or "").strip()
                 or None,
-                "shopify_order_name": str(
-                    raw.get("shopify_order_name") or ""
-                ).strip()
+                "shopify_order_name": str(raw.get("shopify_order_name") or "").strip()
                 or None,
-                "shopify_customer_id": str(
-                    raw.get("shopify_customer_id") or ""
-                ).strip()
+                "shopify_customer_id": str(raw.get("shopify_customer_id") or "").strip()
                 or None,
                 "customer_email": (
                     _customer_email(raw.get("customer_email"))
@@ -3288,7 +3579,9 @@ def build_snowcubes_customer_opportunities(
             source_time = raw.get("observed_at") or shopify.get("observed_at")
             source_age_hours = _customer_source_age_hours(source_time, now)
             if source_age_hours is None:
-                problems.append("Shopify order source time is missing, invalid, or future-dated")
+                problems.append(
+                    "Shopify order source time is missing, invalid, or future-dated"
+                )
             candidate = {
                 "provider_key": order_key,
                 "order_id": order_id,
@@ -3311,8 +3604,7 @@ def build_snowcubes_customer_opportunities(
                     and raw.get("customer_order_count") >= 1
                     else None
                 ),
-                "fulfillment_status": str(raw.get("fulfillment_status") or "")
-                or None,
+                "fulfillment_status": str(raw.get("fulfillment_status") or "") or None,
                 "delivery_status": str(raw.get("delivery_status") or "").casefold()
                 or None,
                 "delivered_at": str(raw.get("delivered_at") or "") or None,
@@ -3344,7 +3636,9 @@ def build_snowcubes_customer_opportunities(
 
     unmatched_orders = {row["provider_key"]: row for row in order_rows}
 
-    def order_match(mail_row: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    def order_match(
+        mail_row: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, str | None]:
         if mail_row.get("collision"):
             return None, None
 
@@ -3355,7 +3649,11 @@ def build_snowcubes_customer_opportunities(
             order_customer_id = order_row.get("shopify_customer_id")
             mail_email = mail_row.get("customer_email")
             order_email = order_row.get("customer_email")
-            if mail_customer_id and order_customer_id and mail_customer_id != order_customer_id:
+            if (
+                mail_customer_id
+                and order_customer_id
+                and mail_customer_id != order_customer_id
+            ):
                 problems.append("mail and Shopify customer IDs conflict")
                 return False
             if mail_email and order_email and mail_email != order_email:
@@ -3378,7 +3676,9 @@ def build_snowcubes_customer_opportunities(
                 for row in order_rows
                 if row.get("order_name") == order_name and compatible(row)
             ]
-            return (matches[0], "exact_order_name") if len(matches) == 1 else (None, None)
+            return (
+                (matches[0], "exact_order_name") if len(matches) == 1 else (None, None)
+            )
         customer_id = mail_row.get("shopify_customer_id")
         if customer_id:
             matches = [
@@ -3386,7 +3686,9 @@ def build_snowcubes_customer_opportunities(
                 for row in order_rows
                 if row.get("shopify_customer_id") == customer_id and compatible(row)
             ]
-            return (matches[0], "exact_customer_id") if len(matches) == 1 else (None, None)
+            return (
+                (matches[0], "exact_customer_id") if len(matches) == 1 else (None, None)
+            )
         email = mail_row.get("customer_email")
         if email and shopify_complete:
             matches = [
@@ -3394,7 +3696,11 @@ def build_snowcubes_customer_opportunities(
                 for row in order_rows
                 if row.get("customer_email") == email and compatible(row)
             ]
-            return (matches[0], "exact_verified_email") if len(matches) == 1 else (None, None)
+            return (
+                (matches[0], "exact_verified_email")
+                if len(matches) == 1
+                else (None, None)
+            )
         return None, None
 
     def signal(state: str, *, source: str, confidence: str) -> dict[str, str]:
@@ -3405,13 +3711,17 @@ def build_snowcubes_customer_opportunities(
         order_row: dict[str, Any] | None,
         match_basis: str | None,
     ) -> dict[str, Any]:
-        matched = mail_row is not None and order_row is not None and match_basis is not None
+        matched = (
+            mail_row is not None and order_row is not None and match_basis is not None
+        )
         keys = [
             value["provider_key"]
             for value in (mail_row, order_row)
             if isinstance(value, dict)
         ]
-        opportunity_id = hashlib.sha256("|".join(sorted(keys)).encode("utf-8")).hexdigest()[:24]
+        opportunity_id = hashlib.sha256(
+            "|".join(sorted(keys)).encode("utf-8")
+        ).hexdigest()[:24]
         tags = set(mail_row.get("action_tags") or []) if mail_row else set()
         mail_proven = bool(
             mail_row
@@ -3436,34 +3746,44 @@ def build_snowcubes_customer_opportunities(
             elif delivery_status in {"in_transit", "out_for_delivery", "attempted"}:
                 delivery_state = delivery_status.upper()
         waiting_state = (
-            "PROPOSAL"
-            if mail_proven
-            and "waiting_reply" in tags
-            and mail_row.get("waiting_direction")
-            == "last visible message sent by Leo with an explicit response expectation"
-            else "NOT_OBSERVED"
-        ) if mail_row else "UNKNOWN"
+            (
+                "PROPOSAL"
+                if mail_proven
+                and "waiting_reply" in tags
+                and mail_row.get("waiting_direction")
+                == "last visible message sent by Leo with an explicit response expectation"
+                else "NOT_OBSERVED"
+            )
+            if mail_row
+            else "UNKNOWN"
+        )
         recovery_state = (
-            "PROPOSAL"
-            if mail_proven and "recovery" in tags
-            else "NOT_OBSERVED"
-        ) if mail_row else "UNKNOWN"
+            ("PROPOSAL" if mail_proven and "recovery" in tags else "NOT_OBSERVED")
+            if mail_row
+            else "UNKNOWN"
+        )
         relationship_state = (
-            "PROPOSAL"
-            if mail_proven and tags.intersection({"proactive", "reply"})
-            and mail_row.get("waiting_direction")
-            == "latest visible message is inbound; Leo is not waiting on them"
-            else "NOT_OBSERVED"
-        ) if mail_row else "UNKNOWN"
+            (
+                "PROPOSAL"
+                if mail_proven
+                and tags.intersection({"proactive", "reply"})
+                and mail_row.get("waiting_direction")
+                == "latest visible message is inbound; Leo is not waiting on them"
+                else "NOT_OBSERVED"
+            )
+            if mail_row
+            else "UNKNOWN"
+        )
         confidence = (
             "HIGH"
-            if match_basis in {"exact_order_id", "exact_order_name", "exact_customer_id"}
-            else "MEDIUM" if match_basis == "exact_verified_email" else "LOW"
+            if match_basis
+            in {"exact_order_id", "exact_order_name", "exact_customer_id"}
+            else "MEDIUM"
+            if match_basis == "exact_verified_email"
+            else "LOW"
         )
         identity_known = bool(
-            matched
-            and order_row
-            and order_row.get("shopify_customer_id")
+            matched and order_row and order_row.get("shopify_customer_id")
         )
         return {
             "opportunity_id": opportunity_id,
@@ -3495,17 +3815,23 @@ def build_snowcubes_customer_opportunities(
                 "waiting_reply": signal(
                     waiting_state,
                     source="superhuman" if mail_row else "missing_mail",
-                    confidence=str(mail_row.get("confidence") or "LOW") if mail_row else "LOW",
+                    confidence=str(mail_row.get("confidence") or "LOW")
+                    if mail_row
+                    else "LOW",
                 ),
                 "recovery": signal(
                     recovery_state,
                     source="superhuman" if mail_row else "missing_mail",
-                    confidence=str(mail_row.get("confidence") or "LOW") if mail_row else "LOW",
+                    confidence=str(mail_row.get("confidence") or "LOW")
+                    if mail_row
+                    else "LOW",
                 ),
                 "relationship": signal(
                     relationship_state,
                     source="superhuman" if mail_row else "missing_mail",
-                    confidence=str(mail_row.get("confidence") or "LOW") if mail_row else "LOW",
+                    confidence=str(mail_row.get("confidence") or "LOW")
+                    if mail_row
+                    else "LOW",
                 ),
             },
             "permission_to_contact": "UNKNOWN",
@@ -3524,12 +3850,12 @@ def build_snowcubes_customer_opportunities(
     opportunities.sort(key=lambda row: row["opportunity_id"])
 
     source_status = {
-        "superhuman": "COMPLETE" if mail_complete else (
-            "UNKNOWN" if mail_available else "UNAVAILABLE"
-        ),
-        "shopify": "COMPLETE" if shopify_complete else (
-            "UNKNOWN" if shopify_available else "UNAVAILABLE"
-        ),
+        "superhuman": "COMPLETE"
+        if mail_complete
+        else ("UNKNOWN" if mail_available else "UNAVAILABLE"),
+        "shopify": "COMPLETE"
+        if shopify_complete
+        else ("UNKNOWN" if shopify_available else "UNAVAILABLE"),
     }
     if not mail_available:
         problems.append("Snowcubes business mail is unavailable")
@@ -3540,7 +3866,9 @@ def build_snowcubes_customer_opportunities(
     elif not shopify_complete:
         problems.append("Shopify order and fulfillment coverage is incomplete")
     if any(row["join_state"] == "UNKNOWN" for row in opportunities):
-        problems.append("one or more customer opportunities lack an exact two-source join")
+        problems.append(
+            "one or more customer opportunities lack an exact two-source join"
+        )
 
     return {
         "schema": SNOWCUBES_CUSTOMER_OPPORTUNITY_SCHEMA,
@@ -3597,8 +3925,7 @@ def collect_snowcubes_context(
             row
             for row in human
             if any(
-                tag in (row.get("action_tags") or [])
-                for tag in ("reply", "proactive")
+                tag in (row.get("action_tags") or []) for tag in ("reply", "proactive")
             )
             and row.get("semantic_status") == "PROPOSAL"
             and row.get("thread_body_read") is True
@@ -3618,13 +3945,20 @@ def collect_snowcubes_context(
                 f"Proposal only: open Superhuman as {mail.get('acting_email') or SNOWCUBES_BUSINESS_MAIL}, "
                 f"find {subject}, and prepare a reply for Leo to approve; no draft or send was created."
             )
-        elif human and all(
-            row.get("semantic_status") == "OBSERVED"
-            and not row.get("action_tags")
-            for row in human
-        ) and mail.get("complete") is True:
-            reply = "No active Snowcubes reply candidate was proven in the declared read."
-            relationship = "No relationship follow-up is proposed from these neutral observations."
+        elif (
+            human
+            and all(
+                row.get("semantic_status") == "OBSERVED" and not row.get("action_tags")
+                for row in human
+            )
+            and mail.get("complete") is True
+        ):
+            reply = (
+                "No active Snowcubes reply candidate was proven in the declared read."
+            )
+            relationship = (
+                "No relationship follow-up is proposed from these neutral observations."
+            )
             mail_state = "available"
             mail_wake = None
             proposal = None
@@ -3650,7 +3984,9 @@ def collect_snowcubes_context(
             proposal = None
         else:
             reply = "No human correspondence was surfaced in the declared 90-day read."
-            relationship = "No relationship follow-up is inferred from the bounded read."
+            relationship = (
+                "No relationship follow-up is inferred from the bounded read."
+            )
             mail_state = "available" if mail.get("complete") is True else "unknown"
             mail_wake = (
                 None
@@ -3660,7 +3996,9 @@ def collect_snowcubes_context(
             proposal = None
     else:
         reply = "Reply priority is unavailable; no inbox state is inferred."
-        relationship = "Relationship follow-up is unavailable; no customer action is invented."
+        relationship = (
+            "Relationship follow-up is unavailable; no customer action is invented."
+        )
         mail_state = "unavailable"
         mail_wake = "Link trysnowcubes@gmail.com in Superhuman, then run the declared read-only 90-day thread query."
         proposal = None
@@ -3749,7 +4087,13 @@ def collect_snowcubes_context(
                 wake=wake,
                 native_link=SNOWCUBES_NATIVE_LINKS[link_key],
             )
-            for name, (reason, next_action, source, wake, link_key) in unavailable.items()
+            for name, (
+                reason,
+                next_action,
+                source,
+                wake,
+                link_key,
+            ) in unavailable.items()
         ],
     ]
     # Shadow is the implementation authority for this companion; exposing its
@@ -3776,7 +4120,11 @@ def collect_snowcubes_context(
         plan_names = ", ".join(
             str(entity.get("project") or "unknown") for entity in unavailable_plans[:3]
         )
-        wakes = [str(entity.get("wake")) for entity in unavailable_plans if entity.get("wake")]
+        wakes = [
+            str(entity.get("wake"))
+            for entity in unavailable_plans
+            if entity.get("wake")
+        ]
         surfaces.append(
             _snowcubes_surface(
                 name="Shadow work",
@@ -3824,7 +4172,11 @@ def build_paint_health(
         vercel_installed = shutil.which("vercel") is not None
 
     github_error = next(
-        (str(row.get("error")) for row in github if isinstance(row, dict) and row.get("error")),
+        (
+            str(row.get("error"))
+            for row in github
+            if isinstance(row, dict) and row.get("error")
+        ),
         None,
     )
     if not gh_installed:
@@ -3871,9 +4223,13 @@ def build_local_git_health(root: Path, repos: list[RepoPaint]) -> dict[str, Any]
     }
 
 
-def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list[Recommendation]:
+def build_recommendations(
+    board: dict[str, Any], repos: list[RepoPaint]
+) -> list[Recommendation]:
     recs: list[Recommendation] = []
-    all_entities = [row for row in (board.get("entities") or []) if isinstance(row, dict)]
+    all_entities = [
+        row for row in (board.get("entities") or []) if isinstance(row, dict)
+    ]
     unavailable_entities = [
         row for row in all_entities if row.get("availability") == "unavailable"
     ]
@@ -3898,7 +4254,11 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
     claim_keys = _claim_index([c for c in claims if isinstance(c, dict)])
     ranked = sorted(
         entities,
-        key=lambda e: (e.get("priority") is None, e.get("priority") or 99, e.get("project") or ""),
+        key=lambda e: (
+            e.get("priority") is None,
+            e.get("priority") or 99,
+            e.get("project") or "",
+        ),
     )
     focus_ent = None
     focus_cp = None
@@ -3915,7 +4275,9 @@ def build_recommendations(board: dict[str, Any], repos: list[RepoPaint]) -> list
             opens = ent.get("open_checkpoints") or []
             if opens and ent.get("resume"):
                 resume = str(ent.get("resume") or "").lstrip("~")
-                focus_cp = next((c for c in opens if str(c.get("id")) == resume), opens[0])
+                focus_cp = next(
+                    (c for c in opens if str(c.get("id")) == resume), opens[0]
+                )
                 focus_ent = ent
                 break
     if focus_ent and focus_cp:
@@ -4044,18 +4406,35 @@ def human_project_label(value: Any) -> str:
         if any(needle in lowered for needle in needles):
             return label
     words = text.replace("-", " ").split()
-    return " ".join("iOS" if word.lower() == "ios" else word.capitalize() for word in words)
+    return " ".join(
+        "iOS" if word.lower() == "ios" else word.capitalize() for word in words
+    )
 
 
 def clean_change_subject(value: Any) -> str:
     """Turn a source-history subject into evidence prose without branch/row plumbing."""
     text = " ".join(str(value or "").replace("`", "").split())
     text = re.sub(r"^\d{4}-\d{2}-\d{2}T\S+\s+", "", text)
-    text = re.sub(r"^(?:feat|fix|docs|test|refactor|perf|chore|build|ci)(?:\([^)]*\))?[!:]?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"^(?:STRUCT|PROOF|DECISION|SUCCESSOR|CHECKPOINT)\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"^(?:feat|fix|docs|test|refactor|perf|chore|build|ci)(?:\([^)]*\))?[!:]?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"^(?:STRUCT|PROOF|DECISION|SUCCESSOR|CHECKPOINT)\s+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
     text = re.sub(r"~[a-z0-9]{4}\b", "", text)
     text = re.sub(r"\s*\(#\d+\)\s*$", "", text)
-    text = re.sub(r"\b(?:origin/main|plan-scale-live|HEAD)\b", "the current source", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b(?:origin/main|plan-scale-live|HEAD)\b",
+        "the current source",
+        text,
+        flags=re.IGNORECASE,
+    )
     replacements = {
         "root cas": "version guard",
         "root CAS": "version guard",
@@ -4089,12 +4468,16 @@ def _change_theme(project: str, subjects: list[str]) -> tuple[str, str]:
             "The twice-daily brief is being rebuilt around judgment, not activity",
             "This is a trust repair. The useful outcome is not a prettier engineering inventory; it is a note that can explain what changed, what remains unproven, and where Leo’s attention changes the result.",
         )
-    if project == "Expenses Web" and any(token in raw for token in ("switchboard", "weekly", "forecast", "backup")):
+    if project == "Expenses Web" and any(
+        token in raw for token in ("switchboard", "weekly", "forecast", "backup")
+    ):
         return (
             "Expenses Web repaired the operating surface behind weekly planning",
             "The product consequence is a planning view that is less likely to omit money, lose older history, or collapse on a narrow screen. A fresh production read is still needed before that reliability can be called live.",
         )
-    if project == "Resplit" and any(token in raw for token in ("defer", "wake", "admission", "cross-platform proof")):
+    if project == "Resplit" and any(
+        token in raw for token in ("defer", "wake", "admission", "cross-platform proof")
+    ):
         return (
             "Resplit’s Group Link work is waiting on real-device proof",
             "This is an honest stall at verification, not a new traveler-facing improvement. The lane needs a usable device and browser environment before the cross-platform promise can be closed.",
@@ -4104,12 +4487,17 @@ def _change_theme(project: str, subjects: list[str]) -> tuple[str, str]:
             "Takeoff verified the Resplit web train at scale",
             "The run is strong evidence that the shared source train is internally coherent. It is not evidence that a traveler received or successfully used the resulting experience.",
         )
-    if project == "AI toolchain" and any(token in raw for token in ("python 3.9", "xcb", "import")):
+    if project == "AI toolchain" and any(
+        token in raw for token in ("python 3.9", "xcb", "import")
+    ):
         return (
             "The local AI toolchain fixed a Python compatibility break",
             "This removes one failure mode from unattended local work. It matters operationally, but it should stay below customer-facing product changes unless it was blocking a named outcome.",
         )
-    if project == "Shadow" and any(token in raw for token in ("configured upstream", "shared trunk", "local-only claim")):
+    if project == "Shadow" and any(
+        token in raw
+        for token in ("configured upstream", "shared trunk", "local-only claim")
+    ):
         return (
             "Shadow is making multi-computer ownership safer",
             "The proposal gives a second computer a discoverable claim without pretending a local-only receipt is globally durable. Review and a real protected-trunk exercise still separate the design from proven coordination.",
@@ -4144,7 +4532,9 @@ def _change_theme(project: str, subjects: list[str]) -> tuple[str, str]:
             "Resplit is moving sensitive lifecycle rules to the server",
             "That reduces the chance that different clients silently disagree about deletion, expiry, or retention. It is risk reduction first; production behavior still needs its own readback.",
         )
-    if any(token in raw for token in ("testflight", "app store", "release", "screenshot")):
+    if any(
+        token in raw for token in ("testflight", "app store", "release", "screenshot")
+    ):
         return (
             f"{project} tightened the path from source change to release evidence",
             "The improvement is a clearer proof boundary: source, review, deployment, and customer availability are reported separately instead of collapsing into ‘shipped.’",
@@ -4185,12 +4575,16 @@ def _material_change_fact(project: str, subjects: list[str], reviews: list[str])
             "The brief now keeps the full picture intact when a project is complex, and both editions "
             "follow the same clear, decision-focused standard."
         )
-    if project == "Expenses Web" and any(token in raw for token in ("switchboard", "weekly", "forecast", "backup")):
+    if project == "Expenses Web" and any(
+        token in raw for token in ("switchboard", "weekly", "forecast", "backup")
+    ):
         return (
             "The weekly planning view was restored and protected against a narrow-screen regression. "
             "Scheduled backups now include the older transaction store and continue through long result sets instead of silently stopping at the first page."
         )
-    if project == "Resplit" and any(token in raw for token in ("defer", "wake", "admission", "cross-platform proof")):
+    if project == "Resplit" and any(
+        token in raw for token in ("defer", "wake", "admission", "cross-platform proof")
+    ):
         return (
             "No new traveler-facing behavior was established in this window. The team recorded that cross-platform Group Link proof "
             "and Android admission checks still cannot run on the current host."
@@ -4200,7 +4594,10 @@ def _material_change_fact(project: str, subjects: list[str], reviews: list[str])
             "The Snowcubes operating Switchboard was rechecked in production and its boundaries were clarified. "
             "The next kit workflow remains deliberately paused at Leo’s physical-batch decision."
         )
-    if project == "Shadow" and any(token in raw for token in ("configured upstream", "shared trunk", "local-only claim")):
+    if project == "Shadow" and any(
+        token in raw
+        for token in ("configured upstream", "shared trunk", "local-only claim")
+    ):
         return (
             "Two related proposals define how ownership should remain discoverable when work begins from a second computer, "
             "including an explicit degraded mode when the shared trunk cannot safely hold the receipt."
@@ -4213,7 +4610,9 @@ def _material_change_fact(project: str, subjects: list[str], reviews: list[str])
                 f"{int(match.group(2))} parity checks, and {int(match.group(3))} smoke checks."
             )
         return "Takeoff recorded a broad Resplit web verification run across unit, parity, and smoke coverage."
-    if project == "AI toolchain" and any(token in raw for token in ("python 3.9", "xcb", "import")):
+    if project == "AI toolchain" and any(
+        token in raw for token in ("python 3.9", "xcb", "import")
+    ):
         return "The local display-lock helper can now load under the system Python 3.9 runtime instead of failing at import time."
     if subjects and reviews:
         return (
@@ -4221,12 +4620,8 @@ def _material_change_fact(project: str, subjects: list[str], reviews: list[str])
             "one product-level outcome."
         )
     if subjects:
-        return (
-            "Related source work is visible, but its titles do not yet establish one product-level outcome."
-        )
-    return (
-        "A related proposal is under review, but its title does not yet establish one product-level outcome."
-    )
+        return "Related source work is visible, but its titles do not yet establish one product-level outcome."
+    return "A related proposal is under review, but its title does not yet establish one product-level outcome."
 
 
 def _material_change_weight(subjects: list[str], reviews: list[str]) -> int:
@@ -4236,11 +4631,19 @@ def _material_change_weight(subjects: list[str], reviews: list[str]) -> int:
         lowered = subject.lower()
         if any(token in lowered for token in ("brief", "report", "digest")):
             weight += 8
-        if re.match(r"^(?:feat|fix|perf|refactor|backup|gate|test)(?:\([^)]*\))?[!:]", lowered):
+        if re.match(
+            r"^(?:feat|fix|perf|refactor|backup|gate|test)(?:\([^)]*\))?[!:]", lowered
+        ):
             weight += 4
-        elif any(token in lowered for token in ("allergen", "cache", "account deletion", "retention")):
+        elif any(
+            token in lowered
+            for token in ("allergen", "cache", "account deletion", "retention")
+        ):
             weight += 3
-        elif re.match(r"^(?:docs|shadow|adoption|proof|record|defer|checkpoint)(?:\([^)]*\))?[!:]", lowered):
+        elif re.match(
+            r"^(?:docs|shadow|adoption|proof|record|defer|checkpoint)(?:\([^)]*\))?[!:]",
+            lowered,
+        ):
             weight += 0
         else:
             weight += 1
@@ -4275,7 +4678,11 @@ def build_material_changes(
         if not isinstance(row, dict) or row.get("error") or not row.get("title"):
             continue
         repository = row.get("repository") or {}
-        repo_name = repository.get("nameWithOwner") if isinstance(repository, dict) else repository
+        repo_name = (
+            repository.get("nameWithOwner")
+            if isinstance(repository, dict)
+            else repository
+        )
         label = repo_project_label(repo_name or "Code review")
         bucket = group(label)
         bucket["reviews"].append(str(row.get("title")))
@@ -4293,10 +4700,10 @@ def build_material_changes(
         for entity in (board.get("entities") or [])
         if isinstance(entity, dict)
     }
-    for claim in (board.get("claims") or []):
+    for claim in board.get("claims") or []:
         if isinstance(claim, dict) and claim.get("entity") in entity_projects:
             claimed_projects.add(entity_projects[str(claim.get("entity"))])
-    for entity in (board.get("entities") or []):
+    for entity in board.get("entities") or []:
         if not isinstance(entity, dict):
             continue
         label = human_project_label(entity.get("project"))
@@ -4329,7 +4736,9 @@ def build_material_changes(
         headline, meaning = _change_theme(project, evidence_subjects)
         fact = _material_change_fact(project, subjects, reviews)
         if subjects:
-            status = "local work in progress" if facts["ahead"] else "verified in source"
+            status = (
+                "local work in progress" if facts["ahead"] else "verified in source"
+            )
         else:
             status = "awaiting review"
         if project in ready_products:
@@ -4339,15 +4748,17 @@ def build_material_changes(
             evidence.append("Current plan")
         if reviews and subjects:
             evidence.append("Review in progress")
-        changes.append({
-            "project": project,
-            "status": status,
-            "headline": headline,
-            "fact": fact,
-            "meaning": meaning,
-            "evidence": evidence,
-            "links": facts["links"][:2],
-        })
+        changes.append(
+            {
+                "project": project,
+                "status": status,
+                "headline": headline,
+                "fact": fact,
+                "meaning": meaning,
+                "evidence": evidence,
+                "links": facts["links"][:2],
+            }
+        )
     return changes
 
 
@@ -4362,6 +4773,7 @@ def build_chief_of_staff_analysis(
     source_health: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Turn source facts into bounded judgments without inventing dates or authority."""
+
     def readable_outcome(value: Any) -> str:
         text = " ".join(str(value or "the next proof").split())
         text = re.sub(r"~[a-z0-9]{4}\b", "", text)
@@ -4391,13 +4803,19 @@ def build_chief_of_staff_analysis(
         if "outside project completes" in lowered and "uncoached" in lowered:
             return "prove a new project can move from intent to verified completion without coaching"
         if "multi-person navigation latency" in lowered:
-            return "prove shared-trip navigation is fast enough against a clear benchmark"
+            return (
+                "prove shared-trip navigation is fast enough against a clear benchmark"
+            )
         if "differently shaped real snowcubes input" in lowered:
             return "prove a second kind of customer request enters the right Snowcubes workflow"
         if "intake-and-routing contract" in lowered:
             return "turn messy Snowcubes notes into clear, correctly routed work"
-        if "shadow throw" in lowered and ("requires a pull request" in lowered or "protected trunk" in lowered):
-            return "prove Shadow can begin work safely when changes must be reviewed first"
+        if "shadow throw" in lowered and (
+            "requires a pull request" in lowered or "protected trunk" in lowered
+        ):
+            return (
+                "prove Shadow can begin work safely when changes must be reviewed first"
+            )
         if "exact calendar target" in lowered and "first case" in lowered:
             return "choose where the first Snowcubes commitment should live before changing anything"
         if ":" in text:
@@ -4408,7 +4826,9 @@ def build_chief_of_staff_analysis(
             text = text[:117].rstrip() + "…"
         return text
 
-    all_entities = [row for row in (board.get("entities") or []) if isinstance(row, dict)]
+    all_entities = [
+        row for row in (board.get("entities") or []) if isinstance(row, dict)
+    ]
     unavailable_entities = [
         row for row in all_entities if row.get("availability") == "unavailable"
     ]
@@ -4417,7 +4837,11 @@ def build_chief_of_staff_analysis(
     claim_rows = _claim_index(claims)
     ranked = sorted(
         entities,
-        key=lambda row: (row.get("priority") is None, row.get("priority") or 99, row.get("project") or ""),
+        key=lambda row: (
+            row.get("priority") is None,
+            row.get("priority") or 99,
+            row.get("project") or "",
+        ),
     )
     open_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     blocked_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
@@ -4429,12 +4853,18 @@ def build_chief_of_staff_analysis(
     dirty = [repo for repo in repos if repo.dirty]
     stale = [repo for repo in repos if repo.stale]
     healthy_vercel = sum(
-        1 for row in (vercel.get("deployments") or []) if str(row.get("state") or "").upper() == "READY"
+        1
+        for row in (vercel.get("deployments") or [])
+        if str(row.get("state") or "").upper() == "READY"
     )
     healthy_db = sum(
-        1 for row in (supabase.get("projects") or []) if "HEALTHY" in str(row.get("status") or "").upper()
+        1
+        for row in (supabase.get("projects") or [])
+        if "HEALTHY" in str(row.get("status") or "").upper()
     )
-    source_gaps = [name for name, health in source_health.items() if not health.get("available")]
+    source_gaps = [
+        name for name, health in source_health.items() if not health.get("available")
+    ]
     decision_source_gaps = source_gaps
     material_changes = build_material_changes(
         board=board,
@@ -4448,7 +4878,9 @@ def build_chief_of_staff_analysis(
         readable_count = len(entities)
         if claimed:
             first_entity, first_cp = claimed[0]
-            first_project = human_project_label(first_entity.get("project") or "the visible work")
+            first_project = human_project_label(
+                first_entity.get("project") or "the visible work"
+            )
             first_title = readable_outcome(first_cp.get("title"))
             visible_motion = (
                 f"Among the {readable_count} readable plan source"
@@ -4479,7 +4911,9 @@ def build_chief_of_staff_analysis(
         )
     elif claimed:
         first_entity, first_cp = claimed[0]
-        first_project = human_project_label(first_entity.get("project") or "the current priority")
+        first_project = human_project_label(
+            first_entity.get("project") or "the current priority"
+        )
         first_title = readable_outcome(first_cp.get("title"))
         opening = (
             f"The portfolio is moving, but the scarce resource is attention rather than ideas. "
@@ -4534,32 +4968,44 @@ def build_chief_of_staff_analysis(
             "ahrefs_seo": "web search visibility",
             "app_store_connect": "App Store delivery status",
         }
-        mail_read += " The note is also missing " + ", ".join(
-            missing_labels.get(name, name.replace("_", " ")) for name in decision_source_gaps[:5]
-        ) + "; those absences lower confidence rather than being treated as zero activity."
+        mail_read += (
+            " The note is also missing "
+            + ", ".join(
+                missing_labels.get(name, name.replace("_", " "))
+                for name in decision_source_gaps[:5]
+            )
+            + "; those absences lower confidence rather than being treated as zero activity."
+        )
 
     decided: list[dict[str, Any]] = []
     if unavailable_entities:
-        decided.append({
-            "title": "Hold portfolio ranking until every plan is readable",
-            "prose": (
-                f"{len(unavailable_entities)} plan source"
-                f"{'s are' if len(unavailable_entities) != 1 else ' is'} unavailable. "
-                "I am keeping visible owned work visible, but I am not treating a lower readable project as the portfolio priority or missing work as zero."
-            ),
-            "evidence": ["Shadow board partial-read receipt", "exact plan recovery wake"],
-            "confidence": "high",
-        })
+        decided.append(
+            {
+                "title": "Hold portfolio ranking until every plan is readable",
+                "prose": (
+                    f"{len(unavailable_entities)} plan source"
+                    f"{'s are' if len(unavailable_entities) != 1 else ' is'} unavailable. "
+                    "I am keeping visible owned work visible, but I am not treating a lower readable project as the portfolio priority or missing work as zero."
+                ),
+                "evidence": [
+                    "Shadow board partial-read receipt",
+                    "exact plan recovery wake",
+                ],
+                "confidence": "high",
+            }
+        )
     if claimed:
-        decided.append({
-            "title": "Protect the work already in motion",
-            "prose": (
-                f"I am holding the portfolio to the {len(claimed)} outcomes already in motion before widening scope. "
-                "New ideas stay as context unless they remove a blocker or materially change the value of work already promised."
-            ),
-            "evidence": ["active ownership records", "current product plans"],
-            "confidence": "high",
-        })
+        decided.append(
+            {
+                "title": "Protect the work already in motion",
+                "prose": (
+                    f"I am holding the portfolio to the {len(claimed)} outcomes already in motion before widening scope. "
+                    "New ideas stay as context unless they remove a blocker or materially change the value of work already promised."
+                ),
+                "evidence": ["active ownership records", "current product plans"],
+                "confidence": "high",
+            }
+        )
     if material_changes:
         lead = material_changes[0]
         proof_boundary = {
@@ -4567,40 +5013,59 @@ def build_chief_of_staff_analysis(
             "verified in source": "The change is recorded in source but has not yet been proved on a live surface.",
             "awaiting review": "The change is still a proposal under review.",
             "live web receipt": "A web provider reports a live release, but customer use is still a separate question.",
-        }.get(str(lead.get("status") or ""), "The strongest receipt is still upstream of customer use.")
-        decided.append({
-            "title": f"Keep {lead['project']} on the right side of the proof boundary",
-            "prose": (
-                f"{proof_boundary} I am treating “{lead['headline']}” as real progress while holding release, live use, "
-                "and customer consequence to their own receipts."
-            ),
-            "evidence": list(lead.get("evidence") or []),
-            "confidence": "high",
-        })
+        }.get(
+            str(lead.get("status") or ""),
+            "The strongest receipt is still upstream of customer use.",
+        )
+        decided.append(
+            {
+                "title": f"Keep {lead['project']} on the right side of the proof boundary",
+                "prose": (
+                    f"{proof_boundary} I am treating “{lead['headline']}” as real progress while holding release, live use, "
+                    "and customer consequence to their own receipts."
+                ),
+                "evidence": list(lead.get("evidence") or []),
+                "confidence": "high",
+            }
+        )
     if mail.get("cursor_limit_threads"):
-        decided.append({
-            "title": "Treat Cursor’s review limit as degraded capacity, not a veto",
+        decided.append(
+            {
+                "title": "Treat Cursor’s review limit as degraded capacity, not a veto",
+                "prose": (
+                    f"The mailbox contains {mail.get('cursor_limit_threads')} recent thread"
+                    f"{'s' if mail.get('cursor_limit_threads') != 1 else ''} mentioning a usage or spend limit. I am separating that missing automated opinion from product correctness: affected changes still need independent evidence, but they should not be described as failed merely because the automated reviewer skipped them."
+                ),
+                "evidence": [
+                    "Superhuman all-account 90-day declared scan",
+                    "GitHub review notifications",
+                ],
+                "confidence": "high",
+            }
+        )
+    decided.append(
+        {
+            "title": "Do not manufacture completion dates",
             "prose": (
-                f"The mailbox contains {mail.get('cursor_limit_threads')} recent thread"
-                f"{'s' if mail.get('cursor_limit_threads') != 1 else ''} mentioning a usage or spend limit. I am separating that missing automated opinion from product correctness: affected changes still need independent evidence, but they should not be described as failed merely because the automated reviewer skipped them."
+                "An owner’s next check-in is an accountability moment, not an ETA for the finished product. "
+                "Where a plan lacks a known sequence of remaining work and observed cycle time, this memo will say ‘unknown’ and name the missing evidence instead of producing calendar theater."
             ),
-            "evidence": ["Superhuman all-account 90-day declared scan", "GitHub review notifications"],
+            "evidence": [
+                "agreed next check-in dates",
+                "evidence required to call work done",
+            ],
             "confidence": "high",
-        })
-    decided.append({
-        "title": "Do not manufacture completion dates",
-        "prose": (
-            "An owner’s next check-in is an accountability moment, not an ETA for the finished product. "
-            "Where a plan lacks a known sequence of remaining work and observed cycle time, this memo will say ‘unknown’ and name the missing evidence instead of producing calendar theater."
-        ),
-        "evidence": ["agreed next check-in dates", "evidence required to call work done"],
-        "confidence": "high",
-    })
+        }
+    )
     architecture: list[dict[str, Any]] = []
     for entity in ranked:
         for raw in (entity.get("decisions") or [])[-1:]:
             left, _, rest = str(raw).partition("| winner:")
-            winner, marker, status_tail = re.split(r"\| (closed|opened)\s+", rest, maxsplit=1) if re.search(r"\| (closed|opened)\s+", rest) else (rest, "", "")
+            winner, marker, status_tail = (
+                re.split(r"\| (closed|opened)\s+", rest, maxsplit=1)
+                if re.search(r"\| (closed|opened)\s+", rest)
+                else (rest, "", "")
+            )
             if not winner:
                 continue
             decision_text = winner.strip()
@@ -4614,7 +5079,9 @@ def build_chief_of_staff_analysis(
                 tradeoff_text = "full technical detail in the email versus a report a nondeveloper can understand"
             elif "email shows products, promises, motion" in lower_decision:
                 decision_text = "Tell the portfolio story through products, promises, decisions, risks, and simple diagrams; keep implementation identifiers private."
-                tradeoff_text = "an engineering inventory versus a human portfolio story"
+                tradeoff_text = (
+                    "an engineering inventory versus a human portfolio story"
+                )
             elif "source-labelled brief is the sole dashboard" in lower_decision:
                 decision_text = "Make the new Snowcubes operating brief the one front door and retire the duplicate old view."
                 tradeoff_text = "preserving history versus forcing people to choose between two competing dashboards"
@@ -4627,7 +5094,10 @@ def build_chief_of_staff_analysis(
             elif "canonical git source and owner boundary win" in lower_decision:
                 decision_text = "Keep one canonical copy of every skill; installed copies are generated outputs and must be replaced when they drift."
                 tradeoff_text = "easy local installation versus confidence that every assistant is using the same current capability"
-            elif "keep tested specialist capability but route it internally" in lower_decision:
+            elif (
+                "keep tested specialist capability but route it internally"
+                in lower_decision
+            ):
                 decision_text = "Keep specialist capabilities behind Shadow and Switchboard instead of making people choose from a technical tool menu."
                 tradeoff_text = "direct access for expert operators versus a calmer front door for everyone else"
             elif "cally" in lower_decision and "maily" in lower_decision:
@@ -4636,14 +5106,20 @@ def build_chief_of_staff_analysis(
             else:
                 decision_text = "The current operating decision is recorded; its implementation stays in the private plan."
                 tradeoff_text = "the practical options remain documented in the current product plan"
-            status = f"{marker} {human_datetime(status_tail)}".strip() if marker else "recorded in the current plan"
-            architecture.append({
-                "project": human_project_label(entity.get("project") or "unknown"),
-                "decision": decision_text,
-                "tradeoff": tradeoff_text,
-                "status": status,
-                "evidence": "recorded in the current product plan",
-            })
+            status = (
+                f"{marker} {human_datetime(status_tail)}".strip()
+                if marker
+                else "recorded in the current plan"
+            )
+            architecture.append(
+                {
+                    "project": human_project_label(entity.get("project") or "unknown"),
+                    "decision": decision_text,
+                    "tradeoff": tradeoff_text,
+                    "status": status,
+                    "evidence": "recorded in the current product plan",
+                }
+            )
     material_order = {
         str(change.get("project")): index
         for index, change in enumerate(material_changes)
@@ -4657,41 +5133,53 @@ def build_chief_of_staff_analysis(
         )
     )
     if not architecture:
-        architecture.append({
-            "project": "portfolio",
-            "decision": "Shadow remains the priority and ownership authority; external systems are evidence sources, not replacement queues.",
-            "tradeoff": "richer source aggregation versus duplicated task truth",
-            "status": "active architecture",
-            "evidence": "Shadow board and report contract",
-        })
+        architecture.append(
+            {
+                "project": "portfolio",
+                "decision": "Shadow remains the priority and ownership authority; external systems are evidence sources, not replacement queues.",
+                "tradeoff": "richer source aggregation versus duplicated task truth",
+                "status": "active architecture",
+                "evidence": "Shadow board and report contract",
+            }
+        )
 
     questions: list[dict[str, str]] = []
     if material_changes:
         lead = material_changes[0]
-        questions.append({
-            "question": f"What would make “{lead['headline']}” visible to a customer or operator, rather than only true in source?",
-            "why": "The strongest new evidence is still upstream of live use; naming the observable consequence prevents source activity from becoming the success metric.",
-        })
+        questions.append(
+            {
+                "question": f"What would make “{lead['headline']}” visible to a customer or operator, rather than only true in source?",
+                "why": "The strongest new evidence is still upstream of live use; naming the observable consequence prevents source activity from becoming the success metric.",
+            }
+        )
     if len(claimed) > 3:
-        questions.append({
-            "question": f"Are {len(claimed)} simultaneous commitments truly independent, or are we disguising context switching as throughput?",
-            "why": "If several outcomes depend on the same person or verification step, fewer active commitments would finish sooner.",
-        })
+        questions.append(
+            {
+                "question": f"Are {len(claimed)} simultaneous commitments truly independent, or are we disguising context switching as throughput?",
+                "why": "If several outcomes depend on the same person or verification step, fewer active commitments would finish sooner.",
+            }
+        )
     if mail.get("cursor_limit_threads"):
-        questions.append({
-            "question": "Which changes genuinely require the automated code reviewer, and which inherited that gate by habit?",
-            "why": "The inbox shows repeated skipped automated reviews; a universal gate can stall safe work without increasing confidence.",
-        })
+        questions.append(
+            {
+                "question": "Which changes genuinely require the automated code reviewer, and which inherited that gate by habit?",
+                "why": "The inbox shows repeated skipped automated reviews; a universal gate can stall safe work without increasing confidence.",
+            }
+        )
     if dirty:
-        questions.append({
-            "question": f"Which of the {len(dirty)} unfinished projects could actually hurt today’s outcome?",
-            "why": "A large cleanup count feels urgent while saying little about customer or release risk.",
-        })
+        questions.append(
+            {
+                "question": f"Which of the {len(dirty)} unfinished projects could actually hurt today’s outcome?",
+                "why": "A large cleanup count feels urgent while saying little about customer or release risk.",
+            }
+        )
     if decision_source_gaps:
-        questions.append({
-            "question": "Are we willing to make growth and release calls while web search, App Store visibility, or delivery evidence is absent?",
-            "why": "Missing acquisition and store signals can make engineering motion look more valuable than it is.",
-        })
+        questions.append(
+            {
+                "question": "Are we willing to make growth and release calls while web search, App Store visibility, or delivery evidence is absent?",
+                "why": "Missing acquisition and store signals can make engineering motion look more valuable than it is.",
+            }
+        )
     questions = questions[:5]
 
     direct_asks: list[dict[str, str]] = []
@@ -4702,10 +5190,12 @@ def build_chief_of_staff_analysis(
             r"^(needs leo|leo needs to|leo authorizes|requires leo(?:'s)? (?:decision|approval))\b",
             lowered,
         ):
-            direct_asks.append({
-                "project": human_project_label(entity.get("project") or "unknown"),
-                "ask": readable_outcome(title),
-            })
+            direct_asks.append(
+                {
+                    "project": human_project_label(entity.get("project") or "unknown"),
+                    "ask": readable_outcome(title),
+                }
+            )
     needs_leo = {
         "requires_response": bool(direct_asks),
         "title": (
@@ -4753,21 +5243,25 @@ def build_chief_of_staff_analysis(
                 eta = "unknown"
                 basis = "the recorded evidence-check time is invalid"
                 confidence = "low"
-        etas.append({
-            "project": human_project_label(entity.get("project") or "unknown"),
-            "outcome": checkpoint,
-            "eta": eta,
-            "basis": basis,
-            "confidence": confidence,
-        })
+        etas.append(
+            {
+                "project": human_project_label(entity.get("project") or "unknown"),
+                "outcome": checkpoint,
+                "eta": eta,
+                "basis": basis,
+                "confidence": confidence,
+            }
+        )
     for entity, cp in unclaimed[: max(0, 5 - len(etas))]:
-        etas.append({
-            "project": human_project_label(entity.get("project") or "unknown"),
-            "outcome": readable_outcome(cp.get("title")),
-            "eta": "unknown",
-            "basis": "no active owner and no measured sequence of remaining work",
-            "confidence": "low",
-        })
+        etas.append(
+            {
+                "project": human_project_label(entity.get("project") or "unknown"),
+                "outcome": readable_outcome(cp.get("title")),
+                "eta": "unknown",
+                "basis": "no active owner and no measured sequence of remaining work",
+                "confidence": "low",
+            }
+        )
 
     stalling: list[dict[str, str]] = []
     stalled_projects: set[str] = set()
@@ -4776,40 +5270,48 @@ def build_chief_of_staff_analysis(
         if project in stalled_projects:
             continue
         stalled_projects.add(project)
-        stalling.append({
-            "project": project,
-            "signal": readable_outcome(cp.get("title") or "blocked work"),
-            "improvement": "write the one condition that restarts it, free the owner to work elsewhere, and return only when that condition changes",
-        })
+        stalling.append(
+            {
+                "project": project,
+                "signal": readable_outcome(cp.get("title") or "blocked work"),
+                "improvement": "write the one condition that restarts it, free the owner to work elsewhere, and return only when that condition changes",
+            }
+        )
     unclaimed_by_project: dict[str, int] = {}
     for entity, _ in unclaimed:
         project = human_project_label(entity.get("project") or "unknown")
         unclaimed_by_project[project] = unclaimed_by_project.get(project, 0) + 1
-    for project, count in sorted(unclaimed_by_project.items(), key=lambda item: (-item[1], item[0])):
+    for project, count in sorted(
+        unclaimed_by_project.items(), key=lambda item: (-item[1], item[0])
+    ):
         if len(stalling) >= 5:
             break
         if project in stalled_projects:
             continue
         stalled_projects.add(project)
-        stalling.append({
-            "project": project,
-            "signal": (
-                f"{count} ready checkpoints make the lane too broad to communicate a real priority"
-                if count > 5
-                else f"{count} ready checkpoint{'s' if count != 1 else ''} {'have' if count != 1 else 'has'} no owner"
-            ),
-            "improvement": (
-                "promote one outcome that can be finished and verified now; keep the rest as backlog rather than presenting all of it as active"
-                if count > 5
-                else "start the highest-value result that can be finished and verified now, or explicitly leave it for later"
-            ),
-        })
+        stalling.append(
+            {
+                "project": project,
+                "signal": (
+                    f"{count} ready checkpoints make the lane too broad to communicate a real priority"
+                    if count > 5
+                    else f"{count} ready checkpoint{'s' if count != 1 else ''} {'have' if count != 1 else 'has'} no owner"
+                ),
+                "improvement": (
+                    "promote one outcome that can be finished and verified now; keep the rest as backlog rather than presenting all of it as active"
+                    if count > 5
+                    else "start the highest-value result that can be finished and verified now, or explicitly leave it for later"
+                ),
+            }
+        )
     if stale and len(stalling) < 5:
-        stalling.append({
-            "project": "local workspaces",
-            "signal": f"{len(stale)} older workspaces still contain unfinished changes",
-            "improvement": "inspect only the ones that overlap an owned result; archive or ignore the rest instead of launching a cleanup campaign",
-        })
+        stalling.append(
+            {
+                "project": "local workspaces",
+                "signal": f"{len(stale)} older workspaces still contain unfinished changes",
+                "improvement": "inspect only the ones that overlap an owned result; archive or ignore the rest instead of launching a cleanup campaign",
+            }
+        )
 
     return {
         "executive_read": [opening, operations, mail_read],
@@ -4831,7 +5333,13 @@ def build_chief_of_staff_analysis(
         ],
         "reasoning_contract": {
             "authority": "current Shadow portfolio and active product plans",
-            "current_evidence": ["local Git", "GitHub", "Vercel", "Supabase", "Superhuman"],
+            "current_evidence": [
+                "local Git",
+                "GitHub",
+                "Vercel",
+                "Supabase",
+                "Superhuman",
+            ],
             "rule": "missing or stale sources lower confidence; they never become zero activity or override today’s active plans",
         },
         "future_of_building": (
@@ -4990,9 +5498,7 @@ def reader_safe_mail_wake(
     signals = [row] if isinstance(row, dict) else []
     if isinstance(mail, dict):
         signals.extend(
-            signal
-            for signal in (mail.get("signals") or [])
-            if isinstance(signal, dict)
+            signal for signal in (mail.get("signals") or []) if isinstance(signal, dict)
         )
     opaque_ids: set[str] = set()
     for signal in signals:
@@ -5061,11 +5567,294 @@ def _reader_generation_marker(slot: Any, generated_at: Any) -> str:
     return f"{slot.title()} note · twice-daily · {human_datetime(generated_at)}"
 
 
+def _superhuman_population_receipts(
+    mail: Any,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Validate full private action populations without trusting excerpts."""
+    problems: list[str] = []
+    valid_receipts: dict[str, dict[str, Any]] = {}
+    if not isinstance(mail, dict):
+        return valid_receipts, ["Superhuman population receipt is missing"]
+
+    category_index = mail.get("category_index")
+    if not isinstance(category_index, dict):
+        return valid_receipts, ["Superhuman category_index must be an object"]
+    expected_keys = set(SUPERHUMAN_ACTION_CATEGORY_KEYS)
+    if set(category_index) != expected_keys:
+        problems.append("Superhuman category_index key universe mismatch")
+    source_complete = mail.get("declared_query_complete") is True
+
+    linked_accounts = mail.get("linked_accounts")
+    linked_identities = {
+        str(row.get("acting_email") or "").strip().lower()
+        for row in (linked_accounts if isinstance(linked_accounts, list) else [])
+        if isinstance(row, dict) and str(row.get("acting_email") or "").strip()
+    }
+    observed_raw = mail.get("observed_at")
+    try:
+        observed_at = datetime.fromisoformat(str(observed_raw).replace("Z", "+00:00"))
+        if observed_at.tzinfo is None:
+            raise ValueError
+        observed_at = observed_at.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        observed_at = None
+        problems.append("Superhuman population observed_at is invalid")
+
+    def normalized_refs(value: Any) -> tuple[list[tuple[str, str, str]], bool]:
+        if not isinstance(value, list) or not value:
+            return [], False
+        refs: list[tuple[str, str, str]] = []
+        valid = True
+        for raw_ref in value:
+            if not isinstance(raw_ref, dict):
+                valid = False
+                continue
+            acting_email_value = raw_ref.get("acting_email")
+            thread_id_value = raw_ref.get("thread_id")
+            message_id_value = raw_ref.get("last_message_id")
+            if not all(
+                isinstance(raw, str)
+                for raw in (
+                    acting_email_value,
+                    thread_id_value,
+                    message_id_value,
+                )
+            ):
+                valid = False
+                continue
+            acting_email = acting_email_value.strip().lower()
+            thread_id = thread_id_value.strip()
+            message_id = message_id_value.strip()
+            if acting_email not in linked_identities or not (thread_id or message_id):
+                valid = False
+                continue
+            refs.append((acting_email, thread_id, message_id))
+        if len(refs) != len(set(refs)):
+            valid = False
+        return sorted(refs), valid and bool(refs)
+
+    action_index = mail.get("action_index")
+    if not isinstance(action_index, list):
+        action_index = []
+        problems.append("Superhuman action_index must be a list")
+    action_rows: list[dict[str, Any]] = []
+    action_by_id: dict[str, dict[str, Any]] = {}
+    provider_owner: dict[tuple[str, str, str], str] = {}
+    action_index_valid = True
+    for raw_row in action_index:
+        if not isinstance(raw_row, dict):
+            action_index_valid = False
+            continue
+        signal_id = str(raw_row.get("signal_id") or "").strip()
+        tags_value = raw_row.get("action_tags")
+        tags = (
+            [str(tag).strip() for tag in tags_value]
+            if isinstance(tags_value, list)
+            else []
+        )
+        tags_valid = bool(tags) and all(tags) and len(tags) == len(set(tags))
+        tags_valid = tags_valid and set(tags).issubset(SUPERHUMAN_ACTION_TAGS)
+        age = raw_row.get("message_age_hours")
+        age_valid = (
+            isinstance(age, (int, float))
+            and not isinstance(age, bool)
+            and math.isfinite(float(age))
+            and float(age) >= 0
+        )
+        try:
+            message_at = datetime.fromisoformat(
+                str(raw_row.get("last_message_at") or "").replace("Z", "+00:00")
+            )
+            if message_at.tzinfo is None:
+                raise ValueError
+            message_at = message_at.astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            message_at = None
+        time_valid = message_at is not None and observed_at is not None
+        if time_valid:
+            expected_age = round((observed_at - message_at).total_seconds() / 3600.0, 1)
+            time_valid = (
+                expected_age >= 0
+                and age_valid
+                and abs(float(age) - expected_age) <= 0.11
+            )
+        refs, refs_valid = normalized_refs(raw_row.get("source_threads"))
+        row_valid = bool(
+            signal_id
+            and signal_id not in action_by_id
+            and tags_valid
+            and age_valid
+            and time_valid
+            and refs_valid
+        )
+        if not row_valid:
+            action_index_valid = False
+            continue
+        normalized_row = {
+            "signal_id": signal_id,
+            "last_message_at": message_at.isoformat(),
+            "action_tags": sorted(tags),
+            "message_age_hours": float(age),
+            "source_threads": refs,
+        }
+        action_rows.append(normalized_row)
+        action_by_id[signal_id] = normalized_row
+        for acting_email, thread_id, message_id in refs:
+            provider_key = (
+                acting_email,
+                "thread" if thread_id else "message",
+                thread_id or message_id,
+            )
+            prior = provider_owner.get(provider_key)
+            if prior is not None and prior != signal_id:
+                action_index_valid = False
+            provider_owner[provider_key] = signal_id
+    if not action_index_valid or len(action_rows) != len(action_index):
+        problems.append(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations"
+        )
+
+    def belongs(row: dict[str, Any], key: str) -> bool:
+        tags = set(row["action_tags"])
+        if key == "urgent_replies":
+            return "urgent" in tags and bool(
+                tags.intersection({"reply", "waiting_reply"})
+            )
+        if key == "waiting_replies":
+            return "waiting_reply" in tags
+        if key == "forgotten_obligations":
+            return row["message_age_hours"] > 24 and bool(
+                tags.intersection(
+                    {"obligation", "order_return", "waiting_reply", "reply", "calendar"}
+                )
+            )
+        if key == "order_return_follow_up":
+            return "order_return" in tags
+        if key == "proactive_candidates":
+            return "proactive" in tags
+        return False
+
+    for key in SUPERHUMAN_ACTION_CATEGORY_KEYS:
+        category_problems: list[str] = []
+        receipt = category_index.get(key)
+        if not isinstance(receipt, dict):
+            category_problems.append(f"Superhuman category_index lacks {key}")
+            receipt = {}
+        signal_ids = receipt.get("signal_ids")
+        if not isinstance(signal_ids, list) or any(
+            not isinstance(value, str) or not value.strip() for value in signal_ids
+        ):
+            category_problems.append(f"Superhuman {key} signal_ids are invalid")
+            signal_ids = []
+        normalized_ids = [str(value).strip() for value in signal_ids]
+        if len(normalized_ids) != len(set(normalized_ids)):
+            category_problems.append(f"Superhuman {key} signal_ids are duplicated")
+        expected_ids = [row["signal_id"] for row in action_rows if belongs(row, key)]
+        if normalized_ids != expected_ids:
+            category_problems.append(
+                f"Superhuman {key} membership does not match action_index"
+            )
+
+        counts = [receipt.get(name) for name in ("total", "shown", "omitted")]
+        if not all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in counts
+        ):
+            category_problems.append(f"Superhuman {key} category counts are invalid")
+            total = shown = omitted = -1
+        else:
+            total, shown, omitted = counts
+        rows_value = mail.get(key)
+        rows = rows_value if isinstance(rows_value, list) else []
+        if (
+            total != len(normalized_ids)
+            or shown != len(rows)
+            or shown > SUPERHUMAN_CATEGORY_EXCERPT_LIMIT
+            or omitted != total - shown
+        ):
+            category_problems.append(
+                f"Superhuman {key} category count does not match its excerpt"
+            )
+        excerpt_ids: list[str] = []
+        for index, raw_row in enumerate(rows):
+            if not isinstance(raw_row, dict):
+                category_problems.append(f"Superhuman {key} excerpt row is invalid")
+                continue
+            signal_id = str(raw_row.get("signal_id") or "").strip()
+            excerpt_ids.append(signal_id)
+            manifest_row = action_by_id.get(signal_id)
+            refs, refs_valid = normalized_refs(raw_row.get("source_threads"))
+            excerpt_tags_value = raw_row.get("action_tags")
+            excerpt_tags = (
+                sorted(str(tag).strip() for tag in excerpt_tags_value)
+                if isinstance(excerpt_tags_value, list)
+                else []
+            )
+            excerpt_age = raw_row.get("message_age_hours")
+            excerpt_age_valid = (
+                isinstance(excerpt_age, (int, float))
+                and not isinstance(excerpt_age, bool)
+                and math.isfinite(float(excerpt_age))
+            )
+            try:
+                excerpt_time = datetime.fromisoformat(
+                    str(raw_row.get("last_message_at") or "").replace("Z", "+00:00")
+                )
+                if excerpt_time.tzinfo is None:
+                    raise ValueError
+                excerpt_time_value = excerpt_time.astimezone(timezone.utc).isoformat()
+            except (TypeError, ValueError):
+                excerpt_time_value = ""
+            if (
+                not refs_valid
+                or manifest_row is None
+                or refs != manifest_row["source_threads"]
+                or excerpt_tags != manifest_row["action_tags"]
+                or not excerpt_age_valid
+                or abs(float(excerpt_age) - manifest_row["message_age_hours"]) > 0.01
+                or excerpt_time_value != manifest_row["last_message_at"]
+                or index >= len(normalized_ids)
+                or signal_id != normalized_ids[index]
+            ):
+                category_problems.append(
+                    f"Superhuman {key} excerpt does not match action_index"
+                )
+        if excerpt_ids != normalized_ids[: len(rows)]:
+            category_problems.append(
+                f"Superhuman {key} excerpt order does not match its population"
+            )
+        if source_complete:
+            if receipt.get("locations_complete") is not True:
+                category_problems.append(
+                    f"Superhuman {key} lacks an exact provider location for every row"
+                )
+        elif receipt.get("locations_complete") is not False:
+            category_problems.append(
+                f"Superhuman {key} incomplete source claimed complete locations"
+            )
+        if not action_index_valid:
+            category_problems.append(f"Superhuman {key} action_index is invalid")
+        if category_problems:
+            problems.extend(category_problems)
+            continue
+        if not source_complete:
+            continue
+        valid_receipts[key] = {
+            "total": total,
+            "shown": shown,
+            "omitted": omitted,
+            "locations_complete": True,
+        }
+    return valid_receipts, list(dict.fromkeys(problems))
+
+
 def render_html(packet: dict[str, Any]) -> str:
     slot = packet.get("slot") or "brief"
     when = packet.get("generated_at") or ""
     board = packet.get("board") or {}
-    all_entities = [row for row in (board.get("entities") or []) if isinstance(row, dict)]
+    all_entities = [
+        row for row in (board.get("entities") or []) if isinstance(row, dict)
+    ]
     unavailable_entities = [
         row for row in all_entities if row.get("availability") == "unavailable"
     ]
@@ -5098,7 +5887,9 @@ def render_html(packet: dict[str, Any]) -> str:
         if "two consecutive natural" in lowered and "08:00/20:00" in lowered:
             return "prove the morning and evening report arrives correctly"
         if "local collector survives" in lowered and "pools current board" in lowered:
-            return "make the brief stay complete even while one project plan is changing"
+            return (
+                "make the brief stay complete even while one project plan is changing"
+            )
         if "every morning means two consecutive natural 08" in lowered:
             return "prove the Snowcubes morning signal remains reliable across two natural mornings"
         if "one ordinary workday closes only after all six loops" in lowered:
@@ -5128,11 +5919,17 @@ def render_html(packet: dict[str, Any]) -> str:
         if "outside project completes" in lowered and "uncoached" in lowered:
             return "prove a new project can move from intent to verified completion without coaching"
         if "multi-person navigation latency" in lowered:
-            return "prove shared-trip navigation is fast enough against a clear benchmark"
+            return (
+                "prove shared-trip navigation is fast enough against a clear benchmark"
+            )
         if "differently shaped real snowcubes input" in lowered:
             return "prove a second kind of customer request enters the right Snowcubes workflow"
-        if "shadow throw" in lowered and ("requires a pull request" in lowered or "protected trunk" in lowered):
-            return "prove Shadow can begin work safely when changes must be reviewed first"
+        if "shadow throw" in lowered and (
+            "requires a pull request" in lowered or "protected trunk" in lowered
+        ):
+            return (
+                "prove Shadow can begin work safely when changes must be reviewed first"
+            )
         if "exact calendar target" in lowered and "first case" in lowered:
             return "choose where the first Snowcubes commitment should live before changing anything"
         if ":" in text:
@@ -5240,9 +6037,7 @@ def render_html(packet: dict[str, Any]) -> str:
             if blocked_n
             else "Waiting state incomplete"
         )
-        waiting_copy = (
-            f"{unavailable_n} plan source{'s need' if unavailable_n != 1 else ' needs'} the named read wake before totals are trusted."
-        )
+        waiting_copy = f"{unavailable_n} plan source{'s need' if unavailable_n != 1 else ' needs'} the named read wake before totals are trusted."
     else:
         waiting_title = (
             f"{blocked_n} item{'s' if blocked_n != 1 else ''} waiting"
@@ -5281,7 +6076,9 @@ def render_html(packet: dict[str, Any]) -> str:
             state_class = "ready"
         else:
             state = "Waiting"
-            outcome = checkpoint_title((blocked[0] if blocked else {}).get("title"), ent.get("project"))
+            outcome = checkpoint_title(
+                (blocked[0] if blocked else {}).get("title"), ent.get("project")
+            )
             state_class = "waiting"
         stream_rows.append(
             "<tr>"
@@ -5324,9 +6121,7 @@ def render_html(packet: dict[str, Any]) -> str:
             if opens
             else "No ready next step."
         )
-        already_moving = any(
-            _claim_key_for(ent, cp) in claim_keys for cp in opens
-        )
+        already_moving = any(_claim_key_for(ent, cp) in claim_keys for cp in opens)
         if already_moving:
             copy = f"Already in motion. The current job is “{first.rstrip('.!?')}.”"
         elif index == 0:
@@ -5389,24 +6184,37 @@ def render_html(packet: dict[str, Any]) -> str:
             )
             label = project_label(repo_name or "Other work")
             review_counts[label] = review_counts.get(label, 0) + 1
-        shown_reviews = sorted(review_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+        shown_reviews = sorted(
+            review_counts.items(), key=lambda item: (-item[1], item[0])
+        )[:5]
         github_query = packet.get("github_query") or {}
         cap_note = (
             " More may exist beyond this sample."
             if github_query.get("may_be_truncated")
             else ""
         )
-        pr_html = "<ul>" + "".join(
-            f"<li><strong>{_esc(name)}</strong> · {_esc(count)} change{'s' if count != 1 else ''} awaiting review</li>"
-            for name, count in shown_reviews
-        ) + "</ul>" + (
-            f"<p class='meta'>{_esc(len(prs))} changes awaiting review across {_esc(len(review_counts))} products."
-            f"{cap_note}</p>"
+        pr_html = (
+            "<ul>"
+            + "".join(
+                f"<li><strong>{_esc(name)}</strong> · {_esc(count)} change{'s' if count != 1 else ''} awaiting review</li>"
+                for name, count in shown_reviews
+            )
+            + "</ul>"
+            + (
+                f"<p class='meta'>{_esc(len(prs))} changes awaiting review across {_esc(len(review_counts))} products."
+                f"{cap_note}</p>"
+            )
         )
     else:
         err = prs[0].get("error") if prs and isinstance(prs[0], dict) else None
-        github_available = bool((packet.get("paint_health") or {}).get("github", {}).get("available"))
-        empty_message = "No open code reviews." if github_available else "GitHub could not be checked."
+        github_available = bool(
+            (packet.get("paint_health") or {}).get("github", {}).get("available")
+        )
+        empty_message = (
+            "No open code reviews."
+            if github_available
+            else "GitHub could not be checked."
+        )
         pr_html = f"<p class='empty'>{_esc(err or empty_message)}</p>"
 
     local_git_health = (packet.get("paint_health") or {}).get("local_git") or {}
@@ -5422,7 +6230,9 @@ def render_html(packet: dict[str, Any]) -> str:
     )
 
     vercel = packet.get("vercel") or {}
-    vercel_available = bool((packet.get("paint_health") or {}).get("vercel", {}).get("available"))
+    vercel_available = bool(
+        (packet.get("paint_health") or {}).get("vercel", {}).get("available")
+    )
     vercel_html = (
         "<p class='empty'>No web releases were returned.</p>"
         if vercel_available
@@ -5433,17 +6243,26 @@ def render_html(packet: dict[str, Any]) -> str:
         for deployment in vercel["deployments"]:
             state = str(deployment.get("state") or "unknown").lower().replace("_", " ")
             release_states[state] = release_states.get(state, 0) + 1
-        vercel_html = "<ul>" + "".join(
-            f"<li>{_esc(count)} web product{'s' if count != 1 else ''} {_esc(state)}</li>"
-            for state, count in sorted(release_states.items())
-        ) + "</ul>" + f"<p class='meta'>{_esc(vercel.get('total_projects', len(vercel['deployments'])))} web products checked.</p>"
+        vercel_html = (
+            "<ul>"
+            + "".join(
+                f"<li>{_esc(count)} web product{'s' if count != 1 else ''} {_esc(state)}</li>"
+                for state, count in sorted(release_states.items())
+            )
+            + "</ul>"
+            + f"<p class='meta'>{_esc(vercel.get('total_projects', len(vercel['deployments'])))} web products checked.</p>"
+        )
     elif vercel.get("error"):
         vercel_html = f"<p class='empty'>{_esc(vercel.get('error'))}</p>"
 
     supabase = packet.get("supabase") or {}
     db_projects = supabase.get("projects") or []
-    healthy_data = sum(1 for row in db_projects if "HEALTHY" in str(row.get("status") or "").upper())
-    inactive_data = sum(1 for row in db_projects if "INACTIVE" in str(row.get("status") or "").upper())
+    healthy_data = sum(
+        1 for row in db_projects if "HEALTHY" in str(row.get("status") or "").upper()
+    )
+    inactive_data = sum(
+        1 for row in db_projects if "INACTIVE" in str(row.get("status") or "").upper()
+    )
     supabase_html = (
         f"<p>{_esc(healthy_data)} data service{'s' if healthy_data != 1 else ''} healthy; "
         f"{_esc(inactive_data)} inactive. Inactive is context, not automatically a defect.</p>"
@@ -5470,7 +6289,11 @@ def render_html(packet: dict[str, Any]) -> str:
             else f"newest message {message_age}h old"
         )
         age_copy = f"{source_copy} · {message_copy}"
-        lookback_days = query.get("lookback_days") or mail.get("query_range", {}).get("lookback_days") or SUPERHUMAN_LOOKBACK_DAYS
+        lookback_days = (
+            query.get("lookback_days")
+            or mail.get("query_range", {}).get("lookback_days")
+            or SUPERHUMAN_LOOKBACK_DAYS
+        )
         scan_state = (
             "complete"
             if row.get("status") == "COMPLETE"
@@ -5508,15 +6331,60 @@ def render_html(packet: dict[str, Any]) -> str:
         else "<p class='empty'>No Superhuman identity coverage was available.</p>"
     )
     action_groups = (
-        ("Urgent reply", mail.get("urgent_replies") or []),
-        ("Waiting reply", mail.get("waiting_replies") or []),
-        ("Forgotten obligation", mail.get("forgotten_obligations") or []),
-        ("Order or return", mail.get("order_return_follow_up") or []),
-        ("Proactive Snowcubes candidate", mail.get("proactive_candidates") or []),
+        ("urgent_replies", "Urgent reply", mail.get("urgent_replies") or []),
+        ("waiting_replies", "Waiting reply", mail.get("waiting_replies") or []),
+        (
+            "forgotten_obligations",
+            "Forgotten obligation",
+            mail.get("forgotten_obligations") or [],
+        ),
+        (
+            "order_return_follow_up",
+            "Order or return",
+            mail.get("order_return_follow_up") or [],
+        ),
+        (
+            "proactive_candidates",
+            "Proactive Snowcubes candidate",
+            mail.get("proactive_candidates") or [],
+        ),
     )
+    population_receipts, population_problems = _superhuman_population_receipts(mail)
+    population_rows: list[str] = []
+    for key, label, rows in action_groups:
+        receipt = population_receipts.get(key)
+        if receipt is None:
+            total = shown = omitted = "UNKNOWN"
+            location_copy = "Population receipt is UNKNOWN; use the named wake before relying on this section."
+        else:
+            total = receipt["total"]
+            shown = receipt["shown"]
+            omitted = receipt["omitted"]
+            location_copy = (
+                "All provider locations are retained in the private evidence packet."
+            )
+        population_rows.append(
+            "<tr>"
+            f"<td><strong>{_esc(label)}</strong></td>"
+            f"<td>{_esc(total)}</td>"
+            f"<td>{_esc(shown)}</td>"
+            f"<td>{_esc(omitted)}</td>"
+            f"<td>{_esc(location_copy)}</td>"
+            "</tr>"
+        )
+    population_html = (
+        "<table class='stream-table' width='100%' cellspacing='0' cellpadding='0'>"
+        "<thead><tr><th>Class</th><th>Full count</th><th>Shown</th><th>Not shown</th><th>Source location</th></tr></thead>"
+        f"<tbody>{''.join(population_rows)}</tbody></table>"
+    )
+    if population_problems:
+        population_html += (
+            "<p class='empty'>At least one complete population receipt is UNKNOWN. "
+            "The reader excerpt is not promoted to a full count.</p>"
+        )
     action_cards: list[str] = []
     seen_action_ids: set[str] = set()
-    for label, rows in action_groups:
+    for _, label, rows in action_groups:
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -5524,7 +6392,9 @@ def render_html(packet: dict[str, Any]) -> str:
             if signal_id in seen_action_ids:
                 continue
             seen_action_ids.add(signal_id)
-            source = ", ".join(str(value) for value in (row.get("source_identities") or []))
+            source = ", ".join(
+                str(value) for value in (row.get("source_identities") or [])
+            )
             action_cards.append(
                 "<article class='signal-note'>"
                 f"<h3>{_esc(label)} · {_esc(row.get('semantic_status') or 'UNKNOWN')}</h3>"
@@ -5544,18 +6414,25 @@ def render_html(packet: dict[str, Any]) -> str:
     actions_html = "".join(action_cards) or (
         "<p class='empty'>No action candidate was strong enough to elevate from the declared read.</p>"
     )
-    calendar_cards = "".join(
-        "<article class='signal-note'>"
-        f"<h3>{_esc(row.get('acting_email'))} · {_esc(row.get('status') or 'PROPOSAL')}</h3>"
-        f"<p>{_esc(row.get('summary') or 'Calendar follow-through is unavailable.')}</p>"
-        f"<p class='confidence'>{_esc(row.get('confidence') or 'LOW')} confidence · "
-        f"source observed {_esc(row.get('source_age_hours') if row.get('source_age_hours') is not None else 'UNKNOWN')}h ago</p>"
-        "<p class='meta'>Proposal only: no event, invitation, booking, or notification was created.</p>"
-        + (f"<p class='source-note'>Wake: {_esc(row.get('wake'))}</p>" if row.get("wake") else "")
-        + "</article>"
-        for row in (mail.get("calendar_proposals") or [])
-        if isinstance(row, dict)
-    ) or "<p class='empty'>No read-only calendar proposal was available.</p>"
+    calendar_cards = (
+        "".join(
+            "<article class='signal-note'>"
+            f"<h3>{_esc(row.get('acting_email'))} · {_esc(row.get('status') or 'PROPOSAL')}</h3>"
+            f"<p>{_esc(row.get('summary') or 'Calendar follow-through is unavailable.')}</p>"
+            f"<p class='confidence'>{_esc(row.get('confidence') or 'LOW')} confidence · "
+            f"source observed {_esc(row.get('source_age_hours') if row.get('source_age_hours') is not None else 'UNKNOWN')}h ago</p>"
+            "<p class='meta'>Proposal only: no event, invitation, booking, or notification was created.</p>"
+            + (
+                f"<p class='source-note'>Wake: {_esc(row.get('wake'))}</p>"
+                if row.get("wake")
+                else ""
+            )
+            + "</article>"
+            for row in (mail.get("calendar_proposals") or [])
+            if isinstance(row, dict)
+        )
+        or "<p class='empty'>No read-only calendar proposal was available.</p>"
+    )
     mail_summary = (
         f"{mail.get('threads_unique', 0)} unique threads across {len(mail.get('coverage') or [])} expected or discovered identities. "
         + (
@@ -5578,6 +6455,8 @@ def render_html(packet: dict[str, Any]) -> str:
         )
         + "</article><h3>Read-only follow-through</h3>"
         + actions_html
+        + "<h3>Complete obligation population</h3>"
+        + population_html
         + "<h3>Calendar proposals</h3>"
         + calendar_cards
         + "<h3>What was checked</h3>"
@@ -5591,22 +6470,51 @@ def render_html(packet: dict[str, Any]) -> str:
         if isinstance(health, dict) and not health.get("available")
     ]
     source_gap_copy = {
-        "github": ("Code review", "Review activity may be incomplete until the account connection is restored."),
-        "vercel": ("Web delivery", "The note cannot confirm whether the latest web versions are ready."),
-        "supabase": ("Data services", "The note cannot confirm current data-service health."),
-        "superhuman": ("Mail", "External requests and review notifications may be missing from this read."),
-        "astro_aso": ("App Store visibility", "Keyword movement, ratings, and competitive search position are absent."),
-        "ahrefs_seo": ("Web search visibility", "Organic demand, backlinks, and search-performance changes are absent."),
-        "app_store_connect": ("App Store delivery", "The note cannot confirm processing, testing, or release state from App Store Connect."),
-        "local_git": ("Local work", "The private machine inventory could not be checked."),
-        "shadow_board": ("Shadow plans", "One or more board-owned plans could not be read, so their execution state remains unknown."),
+        "github": (
+            "Code review",
+            "Review activity may be incomplete until the account connection is restored.",
+        ),
+        "vercel": (
+            "Web delivery",
+            "The note cannot confirm whether the latest web versions are ready.",
+        ),
+        "supabase": (
+            "Data services",
+            "The note cannot confirm current data-service health.",
+        ),
+        "superhuman": (
+            "Mail",
+            "External requests and review notifications may be missing from this read.",
+        ),
+        "astro_aso": (
+            "App Store visibility",
+            "Keyword movement, ratings, and competitive search position are absent.",
+        ),
+        "ahrefs_seo": (
+            "Web search visibility",
+            "Organic demand, backlinks, and search-performance changes are absent.",
+        ),
+        "app_store_connect": (
+            "App Store delivery",
+            "The note cannot confirm processing, testing, or release state from App Store Connect.",
+        ),
+        "local_git": (
+            "Local work",
+            "The private machine inventory could not be checked.",
+        ),
+        "shadow_board": (
+            "Shadow plans",
+            "One or more board-owned plans could not be read, so their execution state remains unknown.",
+        ),
     }
     recovery_html = (
-        "<ul>" + "".join(
+        "<ul>"
+        + "".join(
             f"<li><strong>{_esc(source_gap_copy.get(source, (source.replace('_', ' ').title(), 'This source is missing.'))[0])}</strong> — "
             f"{_esc(source_gap_copy.get(source, ('', 'This source is missing.'))[1])}</li>"
             for source, _health in unavailable
-        ) + "</ul><p class='meta'>Exact technical recovery instructions remain in the private machine receipt, not in this reader-facing note.</p>"
+        )
+        + "</ul><p class='meta'>Exact technical recovery instructions remain in the private machine receipt, not in this reader-facing note.</p>"
         if unavailable
         else "<p class='empty'>Every supporting source was available for this note.</p>"
     )
@@ -5614,54 +6522,74 @@ def render_html(packet: dict[str, Any]) -> str:
     snowcubes_surfaces = [
         item for item in (snowcubes.get("surfaces") or []) if isinstance(item, dict)
     ]
-    snowcubes_cards = "".join(
-        "<article class='story'>"
-        f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
-        f"<p>{_esc(item.get('now'))}</p><p class='meta'>{_esc(item.get('next'))}</p>"
-        f"<p class='meta'>Source: {_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}"
-        + (f"<br/>Proposal: {_esc(item.get('proposal'))}" if item.get("proposal") else "")
-        + (
-            f"<br/><a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
-            if item.get("native_link")
-            else ""
+    snowcubes_cards = (
+        "".join(
+            "<article class='story'>"
+            f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
+            f"<p>{_esc(item.get('now'))}</p><p class='meta'>{_esc(item.get('next'))}</p>"
+            f"<p class='meta'>Source: {_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}"
+            + (
+                f"<br/>Proposal: {_esc(item.get('proposal'))}"
+                if item.get("proposal")
+                else ""
+            )
+            + (
+                f"<br/><a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
+                if item.get("native_link")
+                else ""
+            )
+            + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
+            + "</p></article>"
+            for item in snowcubes_surfaces
         )
-        + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
-        + "</p></article>"
-        for item in snowcubes_surfaces
-    ) or "<p class='empty'>Snowcubes sources were not collected.</p>"
+        or "<p class='empty'>Snowcubes sources were not collected.</p>"
+    )
     snowcubes_html = (
         "<p class='section-intro'>One read-only morning companion. Reply and relationship signals rank first; every unavailable business source is explicit rather than guessed.</p>"
         + snowcubes_cards
     )
-    snowcubes_priorities = "".join(
-        "<article class='story'>"
-        f"<p class='meta'>Priority {rank}</p>"
-        f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
-        f"<p>{_esc(item.get('now'))}</p><p class='meta'>{_esc(item.get('next'))}</p>"
-        f"<p class='meta'>Source: {_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}"
-        + (f"<br/>Proposal: {_esc(item.get('proposal'))}" if item.get("proposal") else "")
-        + (
-            f"<br/><a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
-            if item.get("native_link")
-            else ""
+    snowcubes_priorities = (
+        "".join(
+            "<article class='story'>"
+            f"<p class='meta'>Priority {rank}</p>"
+            f"<h3>{_esc(item.get('name'))} · {_esc(str(item.get('state') or 'unknown').upper())}</h3>"
+            f"<p>{_esc(item.get('now'))}</p><p class='meta'>{_esc(item.get('next'))}</p>"
+            f"<p class='meta'>Source: {_esc(item.get('source'))} · observed {_esc(human_datetime(item.get('observed_at')))}"
+            + (
+                f"<br/>Proposal: {_esc(item.get('proposal'))}"
+                if item.get("proposal")
+                else ""
+            )
+            + (
+                f"<br/><a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
+                if item.get("native_link")
+                else ""
+            )
+            + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
+            + "</p></article>"
+            for rank, item in enumerate(snowcubes_surfaces[:3], start=1)
         )
-        + (f"<br/>Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
-        + "</p></article>"
-        for rank, item in enumerate(snowcubes_surfaces[:3], start=1)
-    ) or "<p class='empty'>Snowcubes sources were not collected. Restore the named source before acting.</p>"
-    snowcubes_coverage = "<ul class='coverage-list'>" + "".join(
-        "<li>"
-        f"<strong>{_esc(item.get('name'))}</strong> · {_esc(str(item.get('state') or 'unknown').upper())} — "
-        f"{_esc(item.get('source'))}"
-        + (
-            f" · <a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
-            if item.get("native_link")
-            else ""
+        or "<p class='empty'>Snowcubes sources were not collected. Restore the named source before acting.</p>"
+    )
+    snowcubes_coverage = (
+        "<ul class='coverage-list'>"
+        + "".join(
+            "<li>"
+            f"<strong>{_esc(item.get('name'))}</strong> · {_esc(str(item.get('state') or 'unknown').upper())} — "
+            f"{_esc(item.get('source'))}"
+            + (
+                f" · <a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a>"
+                if item.get("native_link")
+                else ""
+            )
+            + (f" · Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
+            + "</li>"
+            for item in snowcubes_surfaces
         )
-        + (f" · Wake: {_esc(item.get('wake'))}" if item.get("wake") else "")
-        + "</li>"
-        for item in snowcubes_surfaces
-    ) + "</ul>" if snowcubes_surfaces else "<p class='empty'>Snowcubes sources were not collected.</p>"
+        + "</ul>"
+        if snowcubes_surfaces
+        else "<p class='empty'>Snowcubes sources were not collected.</p>"
+    )
     snowcubes_reader_states = {"available", "attention", "discrepancy", "unknown"}
     snowcubes_reader_surfaces = [
         item
@@ -5678,7 +6606,11 @@ def render_html(packet: dict[str, Any]) -> str:
         f"<h3>{_esc(item.get('name'))}</h3>"
         f"<p>{_esc(item.get('now'))}</p>"
         f"<p class='meta'>{_esc(item.get('next'))}</p>"
-        + (f"<p><strong>Proposal:</strong> {_esc(item.get('proposal'))}</p>" if item.get("proposal") else "")
+        + (
+            f"<p><strong>Proposal:</strong> {_esc(item.get('proposal'))}</p>"
+            if item.get("proposal")
+            else ""
+        )
         + (
             f"<p class='source-note'>{_esc(item.get('source'))} · <a href='{_esc(item.get('native_link'))}' target='_blank' rel='noopener'>Open native source</a> · observed {_esc(human_datetime(item.get('observed_at')))}</p>"
             if item.get("native_link")
@@ -5688,9 +6620,7 @@ def render_html(packet: dict[str, Any]) -> str:
         for item in snowcubes_reader_surfaces
     )
     if not snowcubes_reader_cards:
-        snowcubes_reader_cards = (
-            "<p class='empty'>No current Snowcubes business signal was strong enough to elevate into the main read.</p>"
-        )
+        snowcubes_reader_cards = "<p class='empty'>No current Snowcubes business signal was strong enough to elevate into the main read.</p>"
     snowcubes_reader_html = (
         "<p class='essay'>Snowcubes is one workstream inside the portfolio brief. Only current business signals belong here; connector recovery and the full coverage inventory stay below as evidence.</p>"
         + snowcubes_reader_cards
@@ -5715,32 +6645,38 @@ def render_html(packet: dict[str, Any]) -> str:
         f"<p class='essay'>{_esc(paragraph)}</p>"
         for paragraph in (analysis.get("executive_read") or [summary])
     )
-    material_changes_html = "".join(
-        "<article class='change-note'>"
-        f"<h3>{_esc(item.get('headline'))}</h3>"
-        f"<p class='change-status'>{_esc(item.get('project'))} · {_esc(str(item.get('status') or 'evidence').upper())}</p>"
-        f"<p><strong>What changed:</strong> {_esc(item.get('fact'))}</p>"
-        f"<p class='interpretation'><strong>Why it matters:</strong> {_esc(item.get('meaning'))}</p>"
-        f"<p class='source-note'>Evidence: {_esc(' · '.join(str(value) for value in (item.get('evidence') or [])))}"
-        + "".join(
-            f" · <a href='{_esc(link.get('url'))}' target='_blank' rel='noopener'>{_esc(link.get('label') or 'Open source')}</a>"
-            for link in (item.get("links") or [])
-            if isinstance(link, dict) and link.get("url")
+    material_changes_html = (
+        "".join(
+            "<article class='change-note'>"
+            f"<h3>{_esc(item.get('headline'))}</h3>"
+            f"<p class='change-status'>{_esc(item.get('project'))} · {_esc(str(item.get('status') or 'evidence').upper())}</p>"
+            f"<p><strong>What changed:</strong> {_esc(item.get('fact'))}</p>"
+            f"<p class='interpretation'><strong>Why it matters:</strong> {_esc(item.get('meaning'))}</p>"
+            f"<p class='source-note'>Evidence: {_esc(' · '.join(str(value) for value in (item.get('evidence') or [])))}"
+            + "".join(
+                f" · <a href='{_esc(link.get('url'))}' target='_blank' rel='noopener'>{_esc(link.get('label') or 'Open source')}</a>"
+                for link in (item.get("links") or [])
+                if isinstance(link, dict) and link.get("url")
+            )
+            + "</p></article>"
+            for item in (analysis.get("material_changes") or [])
+            if isinstance(item, dict)
         )
-        + "</p></article>"
-        for item in (analysis.get("material_changes") or [])
-        if isinstance(item, dict)
-    ) or "<p class='empty'>No product-level source change could be reconstructed for this window. That is an evidence gap, not proof of inactivity.</p>"
-    decided_html = "".join(
-        "<article class='judgment'>"
-        f"<h3>{_esc(item.get('title'))}</h3>"
-        f"<p class='confidence'>{_esc(str(item.get('confidence') or 'unknown').upper())} confidence</p>"
-        f"<p>{_esc(item.get('prose'))}</p>"
-        f"<p class='source-note'>Because: {_esc(' · '.join(str(value) for value in (item.get('evidence') or [])))}</p>"
-        "</article>"
-        for item in (analysis.get("decided_for_you") or [])
-        if isinstance(item, dict)
-    ) or "<p class='empty'>No reversible operating decision was strong enough to make in this snapshot.</p>"
+        or "<p class='empty'>No product-level source change could be reconstructed for this window. That is an evidence gap, not proof of inactivity.</p>"
+    )
+    decided_html = (
+        "".join(
+            "<article class='judgment'>"
+            f"<h3>{_esc(item.get('title'))}</h3>"
+            f"<p class='confidence'>{_esc(str(item.get('confidence') or 'unknown').upper())} confidence</p>"
+            f"<p>{_esc(item.get('prose'))}</p>"
+            f"<p class='source-note'>Because: {_esc(' · '.join(str(value) for value in (item.get('evidence') or [])))}</p>"
+            "</article>"
+            for item in (analysis.get("decided_for_you") or [])
+            if isinstance(item, dict)
+        )
+        or "<p class='empty'>No reversible operating decision was strong enough to make in this snapshot.</p>"
+    )
     needs_leo = analysis.get("needs_leo") or {
         "requires_response": False,
         "title": "No decision needs you right now",
@@ -5760,24 +6696,30 @@ def render_html(packet: dict[str, Any]) -> str:
         + (f"<ul>{needs_leo_items}</ul>" if needs_leo_items else "")
         + "</article>"
     )
-    architecture_html = "".join(
-        "<article class='decision-record'>"
-        f"<h3>{_esc(item.get('decision'))}</h3>"
-        f"<p class='project-chip'>{_esc(item.get('project'))}</p>"
-        f"<p><strong>The tradeoff:</strong> {_esc(item.get('tradeoff'))}</p>"
-        f"<p class='meta'>{_esc(item.get('status'))} · {_esc(item.get('evidence'))}</p>"
-        "</article>"
-        for item in (analysis.get("architecture_decisions") or [])
-        if isinstance(item, dict)
-    ) or "<p class='empty'>No current-plan architecture decision was found.</p>"
-    questions_html = "".join(
-        "<article class='challenge'>"
-        f"<h3>{_esc(item.get('question'))}</h3>"
-        f"<p>{_esc(item.get('why'))}</p>"
-        "</article>"
-        for item in (analysis.get("questions_to_challenge") or [])
-        if isinstance(item, dict)
-    ) or "<p class='empty'>No challenge is more valuable than finishing the current work.</p>"
+    architecture_html = (
+        "".join(
+            "<article class='decision-record'>"
+            f"<h3>{_esc(item.get('decision'))}</h3>"
+            f"<p class='project-chip'>{_esc(item.get('project'))}</p>"
+            f"<p><strong>The tradeoff:</strong> {_esc(item.get('tradeoff'))}</p>"
+            f"<p class='meta'>{_esc(item.get('status'))} · {_esc(item.get('evidence'))}</p>"
+            "</article>"
+            for item in (analysis.get("architecture_decisions") or [])
+            if isinstance(item, dict)
+        )
+        or "<p class='empty'>No current-plan architecture decision was found.</p>"
+    )
+    questions_html = (
+        "".join(
+            "<article class='challenge'>"
+            f"<h3>{_esc(item.get('question'))}</h3>"
+            f"<p>{_esc(item.get('why'))}</p>"
+            "</article>"
+            for item in (analysis.get("questions_to_challenge") or [])
+            if isinstance(item, dict)
+        )
+        or "<p class='empty'>No challenge is more valuable than finishing the current work.</p>"
+    )
     eta_rows = "".join(
         "<tr>"
         f"<td><strong>{_esc(item.get('project'))}</strong><br/><span>{_esc(checkpoint_title(item.get('outcome'), item.get('project')))}</span></td>"
@@ -5795,15 +6737,18 @@ def render_html(packet: dict[str, Any]) -> str:
         if eta_rows
         else "<p class='empty'>No owned work has enough evidence for even a checkpoint estimate.</p>"
     )
-    stalling_html = "".join(
-        "<article class='stall'>"
-        f"<h3>{_esc(item.get('project'))}</h3>"
-        f"<p><strong>Signal:</strong> {_esc(item.get('signal'))}</p>"
-        f"<p><strong>Improve it:</strong> {_esc(item.get('improvement'))}</p>"
-        "</article>"
-        for item in (analysis.get("stalling_lanes") or [])
-        if isinstance(item, dict)
-    ) or "<p class='empty'>No stalled work is important enough to elevate.</p>"
+    stalling_html = (
+        "".join(
+            "<article class='stall'>"
+            f"<h3>{_esc(item.get('project'))}</h3>"
+            f"<p><strong>Signal:</strong> {_esc(item.get('signal'))}</p>"
+            f"<p><strong>Improve it:</strong> {_esc(item.get('improvement'))}</p>"
+            "</article>"
+            for item in (analysis.get("stalling_lanes") or [])
+            if isinstance(item, dict)
+        )
+        or "<p class='empty'>No stalled work is important enough to elevate.</p>"
+    )
 
     reasoning = analysis.get("reasoning_contract") or {}
     source_flow_html = f"""
@@ -6074,18 +7019,29 @@ def scheduled_window(now: datetime | None = None) -> dict[str, Any]:
         return {"on_schedule": False, "slot": None, "scheduled_for": None}
     current = current.astimezone(REPORT_TIMEZONE)
     on_schedule = current.hour in SLOT_HOURS and 0 <= current.minute <= 30
-    scheduled = current.replace(minute=0, second=0, microsecond=0) if on_schedule else None
+    scheduled = (
+        current.replace(minute=0, second=0, microsecond=0) if on_schedule else None
+    )
     return {
         "on_schedule": on_schedule,
-        "slot": "morning" if current.hour == 8 else "evening" if current.hour == 20 else None,
+        "slot": "morning"
+        if current.hour == 8
+        else "evening"
+        if current.hour == 20
+        else None,
         "scheduled_for": scheduled.isoformat(timespec="seconds") if scheduled else None,
     }
 
 
 def natural_windows_are_consecutive(first: datetime, second: datetime) -> bool:
-    if any(value != 0 for value in (first.minute, first.second, second.minute, second.second)):
+    if any(
+        value != 0
+        for value in (first.minute, first.second, second.minute, second.second)
+    ):
         return False
-    if not _is_report_timezone_timestamp(first) or not _is_report_timezone_timestamp(second):
+    if not _is_report_timezone_timestamp(first) or not _is_report_timezone_timestamp(
+        second
+    ):
         return False
     elapsed = second.astimezone(timezone.utc) - first.astimezone(timezone.utc)
     if elapsed <= timedelta(0):
@@ -6123,26 +7079,22 @@ def _is_report_timezone_timestamp(value: datetime) -> bool:
         return False
     local = value.astimezone(REPORT_TIMEZONE)
     return (
-        (
-            local.year,
-            local.month,
-            local.day,
-            local.hour,
-            local.minute,
-            local.second,
-            local.microsecond,
-        )
-        == (
-            value.year,
-            value.month,
-            value.day,
-            value.hour,
-            value.minute,
-            value.second,
-            value.microsecond,
-        )
-        and local.utcoffset() == value.utcoffset()
-    )
+        local.year,
+        local.month,
+        local.day,
+        local.hour,
+        local.minute,
+        local.second,
+        local.microsecond,
+    ) == (
+        value.year,
+        value.month,
+        value.day,
+        value.hour,
+        value.minute,
+        value.second,
+        value.microsecond,
+    ) and local.utcoffset() == value.utcoffset()
 
 
 def _scheduled_window_instant(row: dict[str, Any]) -> datetime | None:
@@ -6160,8 +7112,7 @@ def _scheduled_for_is_canonical(row: dict[str, Any]) -> bool:
         and value is not None
         and _is_report_timezone_timestamp(value)
         and value.microsecond == 0
-        and raw
-        == value.astimezone(REPORT_TIMEZONE).isoformat(timespec="seconds")
+        and raw == value.astimezone(REPORT_TIMEZONE).isoformat(timespec="seconds")
     )
 
 
@@ -6197,11 +7148,7 @@ def _parse_launchctl_loaded_job(output: str) -> dict[str, Any] | None:
     block_matches = list(
         re.finditer(r"(?m)^(?P<indent>[ \t]+)arguments = \{[ \t]*$", output)
     )
-    if (
-        len(program_matches) != 1
-        or len(path_matches) != 1
-        or len(block_matches) != 1
-    ):
+    if len(program_matches) != 1 or len(path_matches) != 1 or len(block_matches) != 1:
         return None
     block = block_matches[0]
     indent = block.group("indent")
@@ -6214,7 +7161,9 @@ def _parse_launchctl_loaded_job(output: str) -> dict[str, Any] | None:
         if line == f"{indent}}}":
             closed = True
             break
-        if not line.startswith(indent) or not line[len(indent) :].startswith((" ", "\t")):
+        if not line.startswith(indent) or not line[len(indent) :].startswith(
+            (" ", "\t")
+        ):
             return None
         argument = line.strip()
         if not argument:
@@ -6234,9 +7183,7 @@ def _expected_loaded_job() -> dict[str, Any]:
     return {
         "program": arguments[0],
         "arguments": arguments,
-        "path": str(
-            Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
-        ),
+        "path": str(Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"),
     }
 
 
@@ -6301,9 +7248,7 @@ def launch_trigger_proof() -> dict[str, Any]:
         and loaded_command_matches
     )
     return {
-        "is_launchd": bool(
-            exact_job
-        ),
+        "is_launchd": bool(exact_job),
         "parent_pid": parent_pid,
         "parent_command": parent_command or None,
         "label": LABEL,
@@ -6355,8 +7300,7 @@ def scheduled_trigger_is_authorized(
 
 def _is_full_git_object_id(value: Any) -> bool:
     return bool(
-        isinstance(value, str)
-        and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value)
+        isinstance(value, str) and re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value)
     )
 
 
@@ -6401,14 +7345,8 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         problems.append(
             "Superhuman account_discovery malformed_rows must be a nonnegative integer"
         )
-    if (
-        discovery_status == "COMPLETE"
-        and malformed_count_valid
-        and malformed_rows != 0
-    ):
-        problems.append(
-            "COMPLETE Superhuman account discovery contains malformed rows"
-        )
+    if discovery_status == "COMPLETE" and malformed_count_valid and malformed_rows != 0:
+        problems.append("COMPLETE Superhuman account discovery contains malformed rows")
     discovery_unknown = bool(
         discovery_status != "COMPLETE"
         or not malformed_count_valid
@@ -6493,8 +7431,7 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             problems.append(f"Superhuman {key} row must be an object")
         buckets[key] = object_rows
     coverage_emails = [
-        str(row.get("acting_email") or "").strip().lower()
-        for row in coverage
+        str(row.get("acting_email") or "").strip().lower() for row in coverage
     ]
     linked_coverage_emails = [
         str(row.get("acting_email") or "").strip().lower()
@@ -6504,10 +7441,9 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
     coverage_identity_universe = set(EXPECTED_SUPERHUMAN_IDENTITIES) | set(
         linked_emails
     )
-    if (
-        set(coverage_emails) != coverage_identity_universe
-        or len(coverage_emails) != len(coverage_identity_universe)
-    ):
+    if set(coverage_emails) != coverage_identity_universe or len(
+        coverage_emails
+    ) != len(coverage_identity_universe):
         problems.append("Superhuman coverage identity universe mismatch")
     if (
         len(linked_emails) != len(set(linked_emails))
@@ -6522,7 +7458,9 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         if str(row.get("acting_email") or "").strip().lower()
         in EXPECTED_SUPERHUMAN_IDENTITIES
     ]
-    covered = [str(row.get("acting_email") or "").strip().lower() for row in expected_rows]
+    covered = [
+        str(row.get("acting_email") or "").strip().lower() for row in expected_rows
+    ]
     if (
         set(covered) != set(EXPECTED_SUPERHUMAN_IDENTITIES)
         or len(covered) != len(EXPECTED_SUPERHUMAN_IDENTITIES)
@@ -6559,8 +7497,7 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             and isinstance(row_problems, list)
             and bool(row_problems)
             and all(
-                isinstance(problem, str) and problem.strip()
-                for problem in row_problems
+                isinstance(problem, str) and problem.strip() for problem in row_problems
             )
             and isinstance(wake, str)
             and bool(wake.strip())
@@ -6595,8 +7532,7 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             and isinstance(row_problems, list)
             and row_problems
             and all(
-                isinstance(problem, str) and problem.strip()
-                for problem in row_problems
+                isinstance(problem, str) and problem.strip() for problem in row_problems
             )
             and isinstance(wake, str)
             and wake.strip()
@@ -6620,6 +7556,8 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
         "order_return_follow_up",
     )
     linked_source_identities = set(linked_coverage_emails)
+    _, population_problems = _superhuman_population_receipts(mail)
+    problems.extend(population_problems)
 
     def valid_obligation(signal: Any) -> bool:
         if not isinstance(signal, dict):
@@ -6645,6 +7583,8 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
             and isinstance(action_tags, list)
             and action_tags
             and all(isinstance(tag, str) and tag.strip() for tag in action_tags)
+            and len(action_tags) == len(set(action_tags))
+            and set(action_tags).issubset(SUPERHUMAN_ACTION_TAGS)
             and isinstance(source_identities, list)
             and source_identities
             and all(
@@ -6657,8 +7597,10 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
                 if isinstance(identity, str)
             }.issubset(linked_source_identities)
             and (
-                isinstance(thread_id, str) and bool(thread_id.strip())
-                or isinstance(message_id, str) and bool(message_id.strip())
+                isinstance(thread_id, str)
+                and bool(thread_id.strip())
+                or isinstance(message_id, str)
+                and bool(message_id.strip())
             )
         )
 
@@ -6668,16 +7610,19 @@ def _superhuman_receipt_problems(mail: Any) -> list[str]:
 
     def retained_by_master(signal: dict[str, Any]) -> bool:
         for master in master_signals:
-            if signal["signal_id"] == master["signal_id"]:
-                return True
-            for key in ("thread_id", "last_message_id"):
-                identity = signal.get(key)
-                if (
-                    isinstance(identity, str)
-                    and identity.strip()
-                    and identity == master.get(key)
-                ):
-                    return True
+            if signal["signal_id"] != master["signal_id"]:
+                continue
+            return all(
+                signal.get(key) == master.get(key)
+                for key in (
+                    "thread_id",
+                    "last_message_id",
+                    "last_message_at",
+                    "message_age_hours",
+                    "action_tags",
+                    "source_threads",
+                )
+            )
         return False
 
     def matches_obligation_bucket(key: str, signal: dict[str, Any]) -> bool:
@@ -6854,12 +7799,13 @@ def _send_attempt_proof_is_valid(
     if not isinstance(receipt, dict) or attempt_rows is None:
         return False
     attempt_id = receipt.get("attempt_id")
-    if not (
-        isinstance(attempt_id, str)
-        and re.fullmatch(r"[0-9a-f]{24}", attempt_id)
-    ):
+    if not (isinstance(attempt_id, str) and re.fullmatch(r"[0-9a-f]{24}", attempt_id)):
         return False
-    matching = [candidate for candidate in attempt_rows if candidate.get("attempt_id") == attempt_id]
+    matching = [
+        candidate
+        for candidate in attempt_rows
+        if candidate.get("attempt_id") == attempt_id
+    ]
     if (
         len(matching) != 2
         or matching[0].get("state") != "UNKNOWN_NO_RETRY"
@@ -7048,8 +7994,14 @@ def verify_window_receipts(
                 expected_slot = "morning" if scheduled_at.hour == 8 else "evening"
                 if row.get("slot") != expected_slot:
                     problems.append(f"{scheduled_for}: scheduled slot mismatch")
-                if not scheduled_at <= generated <= scheduled_at + timedelta(minutes=30):
-                    problems.append(f"{scheduled_for}: report generation is not fresh for slot")
+                if (
+                    not scheduled_at
+                    <= generated
+                    <= scheduled_at + timedelta(minutes=30)
+                ):
+                    problems.append(
+                        f"{scheduled_for}: report generation is not fresh for slot"
+                    )
             if not (
                 isinstance(row.get("board_revision"), int)
                 and not isinstance(row.get("board_revision"), bool)
@@ -7083,7 +8035,9 @@ def verify_window_receipts(
                 or not isinstance(attempt_id, str)
                 or re.fullmatch(r"[0-9a-f]{24}", attempt_id) is None
             ):
-                problems.append(f"{scheduled_for}: durable pre-send attempt receipt missing")
+                problems.append(
+                    f"{scheduled_for}: durable pre-send attempt receipt missing"
+                )
             if (
                 receipt.get("acting_email") != SELF_MAIL
                 or receipt.get("from") != SELF_MAIL
@@ -7101,42 +8055,50 @@ def verify_window_receipts(
                 or generated is None
                 or not generated <= sent_at <= scheduled_at + timedelta(minutes=30)
             ):
-                problems.append(f"{scheduled_for}: sent timestamp is not fresh for slot")
+                problems.append(
+                    f"{scheduled_for}: sent timestamp is not fresh for slot"
+                )
             paint_health = row.get("paint_health")
             if not isinstance(paint_health, dict):
                 problems.append(f"{row['scheduled_for']}: missing paint health")
             else:
                 for source in ("local_git", "github", "vercel"):
                     health = paint_health.get(source)
-                    if not isinstance(health, dict) or not isinstance(health.get("available"), bool):
-                        problems.append(f"{row['scheduled_for']}: missing {source} paint health")
+                    if not isinstance(health, dict) or not isinstance(
+                        health.get("available"), bool
+                    ):
+                        problems.append(
+                            f"{row['scheduled_for']}: missing {source} paint health"
+                        )
                     elif not health.get("available") and not health.get("wake"):
-                        problems.append(f"{source} paint unavailable without exact wake")
+                        problems.append(
+                            f"{source} paint unavailable without exact wake"
+                        )
         sent_message_ids = [
-            receipt.get("message_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            receipt.get("message_id")
+            if isinstance(receipt := row.get("receipt"), dict)
+            else None
             for row in latest
         ]
-        if (
-            all(
-                isinstance(value, str) and bool(value.strip())
-                for value in sent_message_ids
+        if all(
+            isinstance(value, str) and bool(value.strip()) for value in sent_message_ids
+        ) and len(set(sent_message_ids)) != len(sent_message_ids):
+            problems.append(
+                "scheduled windows do not have distinct sent-message receipts"
             )
-            and len(set(sent_message_ids)) != len(sent_message_ids)
-        ):
-            problems.append("scheduled windows do not have distinct sent-message receipts")
         attempt_ids = [
-            receipt.get("attempt_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            receipt.get("attempt_id")
+            if isinstance(receipt := row.get("receipt"), dict)
+            else None
             for row in latest
         ]
-        if (
-            all(
-                isinstance(value, str)
-                and re.fullmatch(r"[0-9a-f]{24}", value) is not None
-                for value in attempt_ids
+        if all(
+            isinstance(value, str) and re.fullmatch(r"[0-9a-f]{24}", value) is not None
+            for value in attempt_ids
+        ) and len(set(attempt_ids)) != len(attempt_ids):
+            problems.append(
+                "scheduled windows do not have distinct send-attempt receipts"
             )
-            and len(set(attempt_ids)) != len(attempt_ids)
-        ):
-            problems.append("scheduled windows do not have distinct send-attempt receipts")
         if evidence_dir is not None:
             archive_pairs: list[tuple[Path, Path]] = []
             for row in latest:
@@ -7148,7 +8110,9 @@ def verify_window_receipts(
                     suffix=".html",
                 )
                 if archive is None:
-                    problems.append(f"{scheduled_for}: declared archived HTML is invalid")
+                    problems.append(
+                        f"{scheduled_for}: declared archived HTML is invalid"
+                    )
                     continue
                 json_archive = _declared_archive_path(
                     evidence_dir,
@@ -7157,7 +8121,9 @@ def verify_window_receipts(
                     suffix=".json",
                 )
                 if json_archive is None:
-                    problems.append(f"{scheduled_for}: declared archived JSON is invalid")
+                    problems.append(
+                        f"{scheduled_for}: declared archived JSON is invalid"
+                    )
                     continue
                 archive_pairs.append((archive, json_archive))
                 try:
@@ -7166,7 +8132,9 @@ def verify_window_receipts(
                     problems.append(f"{scheduled_for}: archived HTML unreadable")
                     continue
                 if hashlib.sha256(html_bytes).hexdigest() != row.get("html_sha256"):
-                    problems.append(f"{scheduled_for}: declared archived HTML hash mismatch")
+                    problems.append(
+                        f"{scheduled_for}: declared archived HTML hash mismatch"
+                    )
                     continue
                 if send_attempt_log is not None and not _send_attempt_proof_is_valid(
                     row,
@@ -7182,7 +8150,9 @@ def verify_window_receipts(
                     problems.append(f"{scheduled_for}: archived HTML unreadable")
                     continue
                 if f"board rev {row.get('board_revision')}" not in rendered:
-                    problems.append(f"{scheduled_for}: archived HTML board revision mismatch")
+                    problems.append(
+                        f"{scheduled_for}: archived HTML board revision mismatch"
+                    )
                 generation_marker = _reader_generation_marker(
                     row.get("slot"),
                     row.get("generated_at"),
@@ -7208,7 +8178,9 @@ def verify_window_receipts(
                     "Supporting checks inform the note; they do not create another to-do list.",
                 )
                 if any(marker not in rendered for marker in required_html):
-                    problems.append(f"{scheduled_for}: archived HTML missing report structure")
+                    problems.append(
+                        f"{scheduled_for}: archived HTML missing report structure"
+                    )
                 if rendered.count("<h2>Mail and calendar coverage</h2>") != 1:
                     problems.append(
                         f"{scheduled_for}: archived HTML must contain exactly one Mail and calendar coverage section"
@@ -7219,7 +8191,9 @@ def verify_window_receipts(
                     problems.append(f"{scheduled_for}: archived JSON unreadable")
                     continue
                 if hashlib.sha256(json_bytes).hexdigest() != row.get("json_sha256"):
-                    problems.append(f"{scheduled_for}: declared archived JSON hash mismatch")
+                    problems.append(
+                        f"{scheduled_for}: declared archived JSON hash mismatch"
+                    )
                     continue
                 try:
                     packet = json.loads(json_bytes.decode("utf-8"))
@@ -7232,7 +8206,9 @@ def verify_window_receipts(
                     )
                     continue
                 if packet.get("generated_at") != row.get("generated_at"):
-                    problems.append(f"{scheduled_for}: archived JSON generation mismatch")
+                    problems.append(
+                        f"{scheduled_for}: archived JSON generation mismatch"
+                    )
                 board = packet.get("board")
                 if not isinstance(board, dict):
                     problems.append(
@@ -7260,15 +8236,22 @@ def verify_window_receipts(
                     or isinstance(board_snapshot.get("revision"), bool)
                     or board_snapshot.get("revision") != row.get("board_revision")
                 ):
-                    problems.append(f"{scheduled_for}: board snapshot consistency missing")
-                if (packet.get("paint_health") or {}) != (row.get("paint_health") or {}):
-                    problems.append(f"{scheduled_for}: archived JSON paint health mismatch")
-                packet_producer = packet.get("producer")
-                if (
-                    not _valid_producer_provenance(packet_producer)
-                    or packet_producer != row.get("producer")
+                    problems.append(
+                        f"{scheduled_for}: board snapshot consistency missing"
+                    )
+                if (packet.get("paint_health") or {}) != (
+                    row.get("paint_health") or {}
                 ):
-                    problems.append(f"{scheduled_for}: archived producer provenance mismatch")
+                    problems.append(
+                        f"{scheduled_for}: archived JSON paint health mismatch"
+                    )
+                packet_producer = packet.get("producer")
+                if not _valid_producer_provenance(
+                    packet_producer
+                ) or packet_producer != row.get("producer"):
+                    problems.append(
+                        f"{scheduled_for}: archived producer provenance mismatch"
+                    )
                 problems.extend(
                     f"{scheduled_for}: {problem}"
                     for problem in _superhuman_receipt_problems(
@@ -7277,13 +8260,17 @@ def verify_window_receipts(
                 )
             flattened = [path for pair in archive_pairs for path in pair]
             if len(flattened) != len(set(flattened)):
-                problems.append("natural windows do not have distinct immutable archives")
+                problems.append(
+                    "natural windows do not have distinct immutable archives"
+                )
     return {
         "ok": not problems,
         "problems": problems,
         "windows": [row.get("scheduled_for") for row in latest],
         "message_ids": [
-            receipt.get("message_id") if isinstance(receipt := row.get("receipt"), dict) else None
+            receipt.get("message_id")
+            if isinstance(receipt := row.get("receipt"), dict)
+            else None
             for row in latest
         ],
         "ignored_legacy_windows": ignored_legacy,
@@ -7350,8 +8337,7 @@ def verify_mailbox_readbacks(
             problems.append(f"{scheduled_for}: stable mailbox identity missing")
         labels = readback.get("labels")
         if not (
-            isinstance(labels, list)
-            and all(isinstance(label, str) for label in labels)
+            isinstance(labels, list) and all(isinstance(label, str) for label in labels)
         ):
             problems.append(f"{scheduled_for}: mailbox labels must be a string list")
         elif "SENT" not in labels:
@@ -7371,10 +8357,7 @@ def verify_mailbox_readbacks(
     message_ids = [row.get("message_id") for row in confirmed]
     if (
         len(message_ids) == len(windows)
-        and all(
-            isinstance(value, str) and bool(value.strip())
-            for value in message_ids
-        )
+        and all(isinstance(value, str) and bool(value.strip()) for value in message_ids)
         and len(set(message_ids)) != len(message_ids)
     ):
         problems.append("mailbox readbacks do not have distinct message IDs")
@@ -7392,7 +8375,9 @@ def append_scheduled_window(
     now: datetime | None = None,
     window: dict[str, Any] | None = None,
 ) -> None:
-    if not scheduled_trigger_is_authorized(scheduled_trigger, summary.get("trigger_proof")):
+    if not scheduled_trigger_is_authorized(
+        scheduled_trigger, summary.get("trigger_proof")
+    ):
         return
     # Record the window this run was admitted under, not the window it happens to
     # finish in; a send that crosses minute 30 must still leave a durable receipt.
@@ -7483,11 +8468,7 @@ def _mcp_remote_token() -> str | None:
         return None
     tok = data.get("access_token")
     expires_in = data.get("expires_in")
-    if (
-        tok
-        and data.get("refresh_token")
-        and isinstance(expires_in, (int, float))
-    ):
+    if tok and data.get("refresh_token") and isinstance(expires_in, (int, float)):
         expires_at = token_path.stat().st_mtime + float(expires_in)
         if time.time() >= expires_at - 300:
             refreshed = _refresh_mcp_remote_token(token_path, data)
@@ -7575,7 +8556,9 @@ def _append_private_jsonl(path: Path, row: dict[str, Any]) -> None:
             or (identity.st_dev, identity.st_ino)
             != (named_identity.st_dev, named_identity.st_ino)
         ):
-            raise PermissionError(f"private JSONL identity changed while appending: {path}")
+            raise PermissionError(
+                f"private JSONL identity changed while appending: {path}"
+            )
     finally:
         if descriptor is not None:
             try:
@@ -7660,8 +8643,7 @@ def _delivery_exception_receipt(subject: str, exc: Exception) -> dict[str, Any]:
     notes = f"Superhuman delivery raised after its outcome became unknown: {exc}"
     if attempt_ledger_error is not None:
         notes += (
-            "; send-attempt ledger is unsafe or corrupt: "
-            f"{attempt_ledger_error}"
+            "; send-attempt ledger is unsafe or corrupt: " f"{attempt_ledger_error}"
         )
     if attempt is not None:
         return ambiguous_send_receipt(
@@ -7927,8 +8909,7 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw_html_value, str):
         problems.append("raw HTML shape invalid")
     if not isinstance(from_value, str) or not (
-        isinstance(to_value, list)
-        and all(isinstance(value, str) for value in to_value)
+        isinstance(to_value, list) and all(isinstance(value, str) for value in to_value)
     ):
         problems.append("mailbox route shape invalid")
     if not (
@@ -7964,7 +8945,9 @@ def fetch_superhuman_mailbox_readback(window: dict[str, Any]) -> dict[str, Any]:
         f"board rev {window.get('board_revision')}",
         "Supporting checks inform the note; they do not create another to-do list.",
     )
-    if not all(required_html) or any(marker not in raw_html for marker in required_html):
+    if not all(required_html) or any(
+        marker not in raw_html for marker in required_html
+    ):
         problems.append("mailbox HTML does not match scheduled report identity")
     if problems:
         return {
@@ -8006,7 +8989,9 @@ def deliver_superhuman_http(
     body_html = html_path.read_text(encoding="utf-8")
     url = "https://mcp.mail.superhuman.com/mcp"
 
-    def post(payload: dict[str, Any], session_id: str | None = None) -> tuple[str | None, dict[str, Any]]:
+    def post(
+        payload: dict[str, Any], session_id: str | None = None
+    ) -> tuple[str | None, dict[str, Any]]:
         data = json.dumps(payload).encode("utf-8")
         headers = {
             "Authorization": f"Bearer {tok}",
@@ -8034,7 +9019,10 @@ def deliver_superhuman_http(
                 },
             }
         )
-        post({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, session_id=sid)
+        post(
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+            session_id=sid,
+        )
         _sid, result = post(
             {
                 "jsonrpc": "2.0",
@@ -8151,7 +9139,11 @@ def deliver_superhuman_http(
             notes=f"Superhuman send_draft transport result is ambiguous: {exc}",
         )
     send_payload = _mcp_text_payload(send_result)
-    if send_result.get("error") or not send_payload.get("success") or not send_payload.get("message_id"):
+    if (
+        send_result.get("error")
+        or not send_payload.get("success")
+        or not send_payload.get("message_id")
+    ):
         return ambiguous_send_receipt(
             attempt,
             subject=subject,
@@ -8217,7 +9209,9 @@ def deliver_superhuman(
         send_authorized_self=send_authorized_self,
     )
     if http_receipt is not None:
-        receipt_path.write_text(json.dumps(http_receipt, indent=2) + "\n", encoding="utf-8")
+        receipt_path.write_text(
+            json.dumps(http_receipt, indent=2) + "\n", encoding="utf-8"
+        )
         return http_receipt
 
     receipt = {
@@ -8345,8 +9339,7 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
     command = list(values)
     assignment = r"[A-Za-z_][A-Za-z0-9_]*=.*"
     while command and (
-        command[0] == "exec"
-        or re.fullmatch(assignment, command[0]) is not None
+        command[0] == "exec" or re.fullmatch(assignment, command[0]) is not None
     ):
         command.pop(0)
     if command and Path(command[0]).name == "env":
@@ -8410,8 +9403,7 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
                 return False
             break
         while command and (
-            command[0] == "exec"
-            or re.fullmatch(assignment, command[0]) is not None
+            command[0] == "exec" or re.fullmatch(assignment, command[0]) is not None
         ):
             command.pop(0)
     if "--scheduled-trigger" not in command:
@@ -8419,11 +9411,7 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
     if not command:
         return False
     program = Path(command[0]).name
-    if (
-        program == "shadow"
-        and len(command) >= 3
-        and command[1:3] == ["brief", "run"]
-    ):
+    if program == "shadow" and len(command) >= 3 and command[1:3] == ["brief", "run"]:
         return True
     if program == "shadow-brief.py":
         return True
@@ -8445,8 +9433,7 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
         else:
             index += 1
     return bool(
-        index < len(arguments)
-        and Path(arguments[index]).name == "shadow-brief.py"
+        index < len(arguments) and Path(arguments[index]).name == "shadow-brief.py"
     )
 
 
@@ -8490,9 +9477,7 @@ def _targets_scheduled_brief(doc: dict[str, Any]) -> bool:
         if value == "--":
             break
         command_option = value == "-c" or (
-            value.startswith("-")
-            and not value.startswith("--")
-            and "c" in value[1:]
+            value.startswith("-") and not value.startswith("--") and "c" in value[1:]
         )
         if command_option:
             if index + 1 < len(values):
@@ -8569,8 +9554,7 @@ def schedule_status() -> dict[str, Any]:
             "plist": str(plist_path),
             "configuration_ok": False,
             "configuration_problems": (
-                ([] if host_timezone_ok else ["HostTimezone"])
-                + duplicate_problems
+                ([] if host_timezone_ok else ["HostTimezone"]) + duplicate_problems
             ),
             "report_timezone": REPORT_TIMEZONE_NAME,
             "host_timezone": host_timezone,
@@ -8659,7 +9643,11 @@ def doctor() -> int:
                 problems.append("blocked receipt lacks wake")
         except json.JSONDecodeError:
             problems.append("receipt json invalid")
-    print(json.dumps({"ok": not problems, "problems": problems, "schedule": sched}, indent=2))
+    print(
+        json.dumps(
+            {"ok": not problems, "problems": problems, "schedule": sched}, indent=2
+        )
+    )
     return 0 if not problems else 1
 
 
@@ -8699,11 +9687,15 @@ def run_exit_code(
     if notification.get("status") != "ok":
         return 1
     if scheduled_trigger:
-        return 0 if (
-            receipt.get("status") == "ok"
-            and receipt.get("delivery_status") == "sent"
-            and receipt.get("message_id")
-        ) else 1
+        return (
+            0
+            if (
+                receipt.get("status") == "ok"
+                and receipt.get("delivery_status") == "sent"
+                and receipt.get("message_id")
+            )
+            else 1
+        )
     return 0 if receipt.get("status") in {"ok", "dry-run", "skipped"} else 1
 
 
@@ -8743,7 +9735,9 @@ def _acquire_scheduled_run_lock() -> Any | None:
             or (locked_identity.st_dev, locked_identity.st_ino)
             != (locked_named_identity.st_dev, locked_named_identity.st_ino)
         ):
-            raise PermissionError(f"unsafe scheduled run lock identity after flock: {path}")
+            raise PermissionError(
+                f"unsafe scheduled run lock identity after flock: {path}"
+            )
         handle = os.fdopen(descriptor, "r+", encoding="utf-8")
         descriptor = None
         return handle
@@ -8798,7 +9792,9 @@ def _place_private_archive(path: Path, content: bytes) -> None:
         temporary = candidate
         break
     if descriptor is None or temporary is None:
-        raise FileExistsError(f"could not reserve a private archive temporary for {path}")
+        raise FileExistsError(
+            f"could not reserve a private archive temporary for {path}"
+        )
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(content)
@@ -8939,9 +9935,7 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         )
         archive_html_path = EVIDENCE_DIR / f"brief-{scheduled_stamp}.html"
         archive_json_path = EVIDENCE_DIR / f"brief-{scheduled_stamp}.json"
-        attempt_barrier_path = (
-            LOG_DIR / f"scheduled-attempt-{scheduled_stamp}.json"
-        )
+        attempt_barrier_path = LOG_DIR / f"scheduled-attempt-{scheduled_stamp}.json"
         try:
             existing_window_rows = _read_jsonl(WINDOW_LOG)
         except PrivateJSONLError as exc:
@@ -9090,7 +10084,7 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         _write_last_run_best_effort(summary)
         _print_json_best_effort(summary, file=sys.stderr)
         return 3
-    board_snapshot = ((packet.get("authority") or {}).get("board_snapshot") or {})
+    board_snapshot = (packet.get("authority") or {}).get("board_snapshot") or {}
     if board_snapshot.get("consistent") is not True:
         summary = {
             "schema": WINDOW_RECEIPT_SCHEMA,
@@ -9291,11 +10285,7 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         "html": str(html_path),
         "archive_html": str(archive_html_path),
         "archive_json": str(archive_json_path),
-        **(
-            {"attempt_barrier": attempt_barrier}
-            if attempt_barrier is not None
-            else {}
-        ),
+        **({"attempt_barrier": attempt_barrier} if attempt_barrier is not None else {}),
         "html_sha256": hashlib.sha256(html_bytes).hexdigest(),
         "json_sha256": hashlib.sha256(json_bytes).hexdigest(),
         "notification": notification,
@@ -9337,7 +10327,9 @@ def _cmd_run_locked(args: argparse.Namespace, trigger_proof: dict[str, Any]) -> 
         _print_json_best_effort(summary, file=sys.stderr)
         return 3
     _print_json_best_effort(summary)
-    return run_exit_code(receipt, notification, scheduled_trigger=args.scheduled_trigger)
+    return run_exit_code(
+        receipt, notification, scheduled_trigger=args.scheduled_trigger
+    )
 
 
 def cmd_deliver(args: argparse.Namespace) -> int:
@@ -9367,19 +10359,27 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     if args.install:
         installed = schedule_install()
         print(json.dumps(installed, indent=2))
-        return 0 if (
-            installed.get("bootstrap_rc") == 0
-            and installed.get("host_timezone_matches_report") is True
-            and installed.get("configuration_ok") is True
-            and installed.get("launchctl_ok") is True
-        ) else 1
+        return (
+            0
+            if (
+                installed.get("bootstrap_rc") == 0
+                and installed.get("host_timezone_matches_report") is True
+                and installed.get("configuration_ok") is True
+                and installed.get("launchctl_ok") is True
+            )
+            else 1
+        )
     status = schedule_status()
     print(json.dumps(status, indent=2))
-    return 0 if (
-        status.get("installed") is True
-        and status.get("configuration_ok") is True
-        and status.get("launchctl_ok") is True
-    ) else 1
+    return (
+        0
+        if (
+            status.get("installed") is True
+            and status.get("configuration_ok") is True
+            and status.get("launchctl_ok") is True
+        )
+        else 1
+    )
 
 
 def cmd_proof(_args: argparse.Namespace) -> int:
@@ -9544,9 +10544,7 @@ def cmd_verify_windows(_args: argparse.Namespace) -> int:
         result = {
             "ok": False,
             "status": "blocked",
-            "problems": [
-                f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}"
-            ],
+            "problems": [f"window ledger is unsafe or corrupt at {WINDOW_LOG}: {exc}"],
             "windows": [],
             "message_ids": [],
             "ignored_legacy_windows": [],
