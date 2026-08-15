@@ -19,7 +19,7 @@
 #                      only thing that proves a SESSION resolves the skill, and
 #                      it costs the owner's quota, so it never runs by default.
 #
-# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor [--by SEAT] [--live] [--timeout-seconds N]
+# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor|grok [--by SEAT] [--live] [--timeout-seconds N]
 set -uo pipefail
 
 ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -50,7 +50,8 @@ case "${HOST}" in
   claude-code) MOUNT="${HOME}/.claude/skills/shadow"; DIRECTIVE="${HOME}/.claude/CLAUDE.md"; BIN="claude" ;;
   codex)       MOUNT="${HOME}/.agents/skills/shadow"; DIRECTIVE="${HOME}/.codex/AGENTS.md"; BIN="codex" ;;
   cursor)      MOUNT="${HOME}/.cursor/skills/shadow"; DIRECTIVE=""; BIN="cursor-agent" ;;
-  *) echo "verify-host: --host must be claude-code, codex, or cursor" >&2; exit 2 ;;
+  grok)        MOUNT="${HOME}/.grok/skills/shadow"; DIRECTIVE="${HOME}/.grok/AGENTS.md"; BIN="grok" ;;
+  *) echo "verify-host: --host must be claude-code, codex, cursor, or grok" >&2; exit 2 ;;
 esac
 
 [[ -z "${SEAT}" ]] && SEAT="${HOST/claude-code/claude}"
@@ -199,7 +200,7 @@ fi
 # 2. Nothing shadows it. Host loaders take the first match, so a directory of
 #    the same name in a higher-priority source wins silently and forever.
 SHADOWED=0
-for other in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills"; do
+for other in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills" "${HOME}/.grok/skills"; do
   candidate="${other}/shadow"
   [[ "${candidate}" == "${MOUNT}" ]] && continue
   if [[ -e "${candidate}" && "$(cd -P "${candidate}" 2>/dev/null && pwd)" != "${ROOT}" ]]; then
@@ -379,6 +380,11 @@ SH
           run_bounded "${LIVE_OUT}" "${LIVE_LOG}" \
           "${BIN}" --no-session-persistence --permission-mode plan \
           -p "${PROMPT}") || LIVE_STATUS=$?
+        ;;
+      grok)
+        (cd "${SCRATCH}" && PATH="${READ_ONLY_BIN}:${PATH}" \
+          run_bounded "${LIVE_OUT}" "${LIVE_LOG}" \
+          "${BIN}" --permission-mode plan -p "${PROMPT}") || LIVE_STATUS=$?
         ;;
       codex)
         (cd "${SCRATCH}" && PATH="${READ_ONLY_BIN}:${PATH}" \

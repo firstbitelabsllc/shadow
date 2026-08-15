@@ -603,7 +603,7 @@ class CursorIsNotInvented(unittest.TestCase):
         # Its user rules live in application settings, not a file. Writing
         # ~/.cursor/rules/shadow.md would invent a convention and then report
         # success for wiring that does nothing.
-        self.assertEqual(sorted(hd.HOSTS), ["claude-code", "codex"])
+        self.assertEqual(sorted(hd.HOSTS), ["claude-code", "codex", "grok"])
         self.assertNotIn("cursor", hd.HOSTS)
 
     def test_the_cli_says_so_out_loud(self) -> None:

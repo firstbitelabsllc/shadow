@@ -76,10 +76,14 @@ def run(home: Path, host: str = "claude-code", path: str | None = None,
 def wired(home: Path, host: str = "claude-code") -> None:
     """A correctly wired host: mount plus a current standing goal."""
     mount = {"claude-code": ".claude/skills", "codex": ".agents/skills",
-             "cursor": ".cursor/skills"}[host]
+             "cursor": ".cursor/skills", "grok": ".grok/skills"}[host]
     (home / mount).mkdir(parents=True, exist_ok=True)
     (home / mount / "shadow").symlink_to(ROOT, target_is_directory=True)
-    directive = {"claude-code": ".claude/CLAUDE.md", "codex": ".codex/AGENTS.md"}.get(host)
+    directive = {
+        "claude-code": ".claude/CLAUDE.md",
+        "codex": ".codex/AGENTS.md",
+        "grok": ".grok/AGENTS.md",
+    }.get(host)
     if directive:
         path = home / directive
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,6 +101,16 @@ class AWiredHostPasses(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn("wiring verified", result.stdout)
             self.assertNotIn("[FAIL]", result.stdout)
+
+    def test_a_wired_grok_host_is_green(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "grok")
+            result = run(home, host="grok")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("wiring verified", result.stdout)
+            self.assertNotIn("[FAIL]", result.stdout)
+            self.assertIn("standing goal is present and current", result.stdout)
 
     def test_the_session_check_is_skipped_not_silently_passed(self) -> None:
         # It costs the owner's quota, so it must never run by default — and it
