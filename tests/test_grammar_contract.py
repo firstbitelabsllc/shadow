@@ -82,6 +82,9 @@ class GrammarContractTests(unittest.TestCase):
             "filesystem/cache path",
             "never add a fifth line",
             "brevity must not narrow it to one task",
+            "Quantify only when a number changes a decision",
+            "proof that would fail a plausible shallow result",
+            "without mistaking activity for completion",
         ):
             self.assertIn(anchor, normalized_goal, anchor)
         self.assertNotIn("100-200 word", root_skill + goal_skill)
