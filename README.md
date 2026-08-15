@@ -24,7 +24,7 @@ The loop every seat runs: **claim → work → prove → accept → next**.
 ## Install
 
 ```bash
-git clone --branch shadow-v1.0.2 --depth 1 https://github.com/firstbitelabsllc/shadow.git
+git clone --branch shadow-v1.0.1 --depth 1 https://github.com/firstbitelabsllc/shadow.git
 cd shadow && bash install.sh && shadow doctor
 ```
 
@@ -69,6 +69,11 @@ All configuration is deliberately small, and stress-tested that way:
 It coordinates every reachable lane, keeps one writer per claim, and leaves
 proof plus a successor; it refuses unclaimed execution, missing proof, and
 ambiguous authority. Hosts keep their own auth, model, and billing.
+
+When your branch tracks a configured `origin`, `shadow throw` also takes one
+Git coordination lock under `refs/heads/shadow/claims/v1/<entity>/<row>`: it
+carries no task or proof text, never becomes authority, and leaves the tracked
+branch untouched. With no such upstream the same flow stays local-only.
 
 ## Docs
 
