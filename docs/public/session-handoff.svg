@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" width="1200" height="360" role="img" aria-label="shadow — kill any chat, the work survives. Three session lanes above a persistent board rail; the first session is cut off mid-flight and a dotted thread carries the work down to the board and back up into the next session.">
+  <title>shadow — Kill any chat. The work survives.</title>
+  <desc>Three horizontal session timelines sit above a persistent board rail. Session 01 fades out mid-flight; a dotted indigo thread drops from the cut point to the board rail, travels along it, and rises into session 02, which continues the same path and ends in a proof receipt.</desc>
+
+  <style><![CDATA[
+    .wordmark {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 56px;
+      font-weight: 600;
+      letter-spacing: -1.2px;
+      fill: #6e7781;
+    }
+    .tagline {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 18px;
+      font-weight: 400;
+      letter-spacing: 0.1px;
+      fill: #6e7781;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 15px;
+      fill: #6e7781;
+    }
+    .mono-sm {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 14px;
+      fill: #6e7781;
+    }
+
+    .lane      { stroke: #8b949e; stroke-width: 2; stroke-linecap: round; fill: none; }
+    .rail      { stroke: #8b949e; stroke-width: 2.5; stroke-linecap: round; fill: none; opacity: 0.8; }
+    .node      { fill: #8b949e; }
+    .glyph     { stroke: #8b949e; fill: none; stroke-linecap: round; }
+
+    .thread-base { stroke: #6366f1; stroke-width: 2; stroke-linecap: round; fill: none;
+                   stroke-dasharray: 2 6; opacity: 0.42; }
+
+    /* The one animated element: the thread is re-drawn along its route, 8s loop. */
+    .thread-draw { stroke: #6366f1; stroke-width: 2; stroke-linecap: round; fill: none;
+                   opacity: 0.92;
+                   stroke-dasharray: 100 100;
+                   stroke-dashoffset: 0;
+                   animation: shadow-thread 8s linear infinite; }
+
+    @keyframes shadow-thread {
+      0%   { stroke-dashoffset: 100; }
+      6%   { stroke-dashoffset: 100; }
+      46%  { stroke-dashoffset: 0; }
+      70%  { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: -100; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .thread-draw { animation: none; stroke-dashoffset: 0; }
+    }
+  ]]></style>
+
+  <defs>
+    <!-- Session 01 dies mid-flight: the stroke itself frays out to nothing. -->
+    <linearGradient id="cutoff" gradientUnits="userSpaceOnUse" x1="514" y1="0" x2="772" y2="0">
+      <stop offset="0" stop-color="#8b949e" stop-opacity="1"/>
+      <stop offset="0.72" stop-color="#8b949e" stop-opacity="1"/>
+      <stop offset="1" stop-color="#8b949e" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── wordmark ───────────────────────────────────────────── -->
+  <text class="wordmark" x="64" y="186">shadow</text>
+  <text class="tagline" x="66" y="220">Kill any chat. The work survives.</text>
+
+  <!-- ── lane labels ────────────────────────────────────────── -->
+  <text class="mono" x="480" y="109" text-anchor="end">session 01</text>
+  <text class="mono" x="480" y="173" text-anchor="end">session 02</text>
+  <text class="mono" x="480" y="237" text-anchor="end">session 03</text>
+  <text class="mono" x="480" y="301" text-anchor="end">~/.shadow</text>
+
+  <!-- ── session 01 — cut off mid-flight ────────────────────── -->
+  <line class="lane" x1="514" y1="104" x2="772" y2="104" style="stroke:url(#cutoff)"/>
+  <circle class="node" cx="514" cy="104" r="2.5"/>
+  <circle class="node" cx="580" cy="104" r="2.5"/>
+  <circle class="node" cx="645" cy="104" r="2.5"/>
+  <!-- the claim that was in flight when the chat died -->
+  <circle cx="700" cy="104" r="4.5" fill="none" stroke="#6366f1" stroke-width="1.8"/>
+  <text class="mono-sm" x="714" y="88">killed</text>
+
+  <!-- ── session 02 — the same work, continued ──────────────── -->
+  <line class="lane" x1="850" y1="168" x2="1108" y2="168"/>
+  <circle cx="850" cy="168" r="4.5" fill="#6366f1"/>
+  <circle class="node" cx="925" cy="168" r="2.5"/>
+  <circle class="node" cx="1000" cy="168" r="2.5"/>
+  <circle class="node" cx="1075" cy="168" r="2.5"/>
+  <!-- proof receipt -->
+  <path class="glyph" stroke-width="2" d="M1118 168 l5 6 l11 -14"/>
+  <text class="mono-sm" x="864" y="152">resumed</text>
+
+  <!-- ── session 03 — a concurrent lane that ran clean ──────── -->
+  <g opacity="0.5">
+    <line class="lane" x1="514" y1="232" x2="1000" y2="232"/>
+    <circle class="node" cx="514" cy="232" r="2.5"/>
+    <circle class="node" cx="620" cy="232" r="2.5"/>
+    <circle class="node" cx="730" cy="232" r="2.5"/>
+    <circle class="node" cx="840" cy="232" r="2.5"/>
+    <circle class="node" cx="1000" cy="232" r="3.2"/>
+  </g>
+
+  <!-- ── the board: one persistent rail under every session ─── -->
+  <g class="glyph" stroke-width="1.5">
+    <rect x="490" y="288" width="16" height="16" rx="3.5"/>
+  </g>
+  <g class="glyph" stroke-width="1.2" opacity="0.85">
+    <line x1="493.5" y1="292.5" x2="502.5" y2="292.5"/>
+    <line x1="493.5" y1="296.5" x2="502.5" y2="296.5"/>
+    <line x1="493.5" y1="300.5" x2="500" y2="300.5"/>
+  </g>
+  <line class="rail" x1="512" y1="296" x2="1136" y2="296"/>
+
+  <!-- ── the thread: work drops to the board and comes back ─── -->
+  <path class="thread-base"
+        d="M700 104 L700 286 Q700 296 710 296 L840 296 Q850 296 850 286 L850 168"/>
+  <path class="thread-draw" pathLength="100"
+        d="M700 104 L700 286 Q700 296 710 296 L840 296 Q850 296 850 286 L850 168"/>
+</svg>
