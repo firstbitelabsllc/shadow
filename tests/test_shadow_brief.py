@@ -3356,6 +3356,9 @@ class PrivateStoreTests(unittest.TestCase):
                     "verified_message_at": "2026-08-15T12:00:00Z",
                     "subject": "How did the first box land?",
                     "action_tags": ["reply", "proactive"],
+                    "waiting_direction": (
+                        "latest visible message is inbound; Leo is not waiting on them"
+                    ),
                     "shopify_order_id": "order-1001",
                     "shopify_customer_id": "customer-amy",
                     "customer_email": "Amy@Example.com",
@@ -3436,7 +3439,7 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(opportunity["join_state"], "UNKNOWN")
         self.assertEqual(opportunity["signals"]["delivery"]["state"], "UNKNOWN")
         self.assertEqual(opportunity["signals"]["first_order"]["state"], "UNKNOWN")
-        self.assertEqual(opportunity["signals"]["recovery"]["state"], "PROPOSAL")
+        self.assertEqual(opportunity["signals"]["recovery"]["state"], "NOT_OBSERVED")
         self.assertEqual(opportunity["permission_to_contact"], "UNKNOWN")
         self.assertIn("Shopify order and fulfillment facts are unavailable", result["problems"])
 
@@ -3482,6 +3485,9 @@ class PrivateStoreTests(unittest.TestCase):
             "confidence": "MEDIUM",
             "last_message_at": "2026-08-15T12:00:00Z",
             "action_tags": ["waiting_reply"],
+            "waiting_direction": (
+                "last visible message sent by Leo with an explicit response expectation"
+            ),
             "shopify_order_id": "order-one",
         }
         order = {
@@ -3584,6 +3590,139 @@ class PrivateStoreTests(unittest.TestCase):
             "UNKNOWN",
         )
         self.assertIn("mail source is not the Snowcubes business account", result["problems"])
+
+    def test_customer_opportunity_conflicting_order_identity_fails_closed(self):
+        mail_signal = {
+            "thread_id": "thread-collision",
+            "stable_provider_identity": True,
+            "source_identities": [brief.SNOWCUBES_BUSINESS_MAIL],
+            "thread_body_read": True,
+            "semantic_status": "PROPOSAL",
+            "confidence": "MEDIUM",
+            "shopify_order_id": "order-collision",
+            "shopify_customer_id": "customer-one",
+        }
+        orders = [
+            {
+                "order_id": "order-collision",
+                "customer_id": customer_id,
+                "customer_order_count": 1,
+            }
+            for customer_id in ("customer-one", "customer-two")
+        ]
+
+        result = brief.build_snowcubes_customer_opportunities(
+            mail={
+                "available": True,
+                "complete": True,
+                "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                "signals": [mail_signal],
+            },
+            shopify={
+                "available": True,
+                "complete": True,
+                "store": brief.SNOWCUBES_SHOPIFY_STORE,
+                "orders": orders,
+            },
+            observed_at="2026-08-15T13:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertTrue(all(row["join_state"] == "UNKNOWN" for row in result["opportunities"]))
+        self.assertIn(
+            "conflicting duplicate Shopify order identity: order-collision",
+            result["problems"],
+        )
+
+    def test_customer_opportunity_conflicting_thread_revision_is_order_independent(self):
+        base = {
+            "thread_id": "thread-revision",
+            "stable_provider_identity": True,
+            "source_identities": [brief.SNOWCUBES_BUSINESS_MAIL],
+            "thread_body_read": True,
+            "semantic_status": "PROPOSAL",
+            "confidence": "MEDIUM",
+            "shopify_order_id": "order-revision",
+        }
+        versions = [
+            {**base, "last_message_id": "message-one"},
+            {**base, "last_message_id": "message-two"},
+        ]
+        shopify = {
+            "available": True,
+            "complete": True,
+            "store": brief.SNOWCUBES_SHOPIFY_STORE,
+            "orders": [
+                {
+                    "order_id": "order-revision",
+                    "customer_id": "customer-revision",
+                }
+            ],
+        }
+
+        def build(rows):
+            return brief.build_snowcubes_customer_opportunities(
+                mail={
+                    "available": True,
+                    "complete": True,
+                    "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                    "signals": rows,
+                },
+                shopify=shopify,
+                observed_at="2026-08-15T13:00:00Z",
+            )
+
+        forward = build(versions)
+        reverse = build(list(reversed(versions)))
+        self.assertEqual(forward, reverse)
+        self.assertEqual(forward["status"], "UNKNOWN")
+        self.assertTrue(all(row["join_state"] == "UNKNOWN" for row in forward["opportunities"]))
+        self.assertIn(
+            "conflicting duplicate Superhuman thread identity: thread-revision",
+            forward["problems"],
+        )
+
+    def test_customer_opportunity_customer_conflict_and_direction_tags_fail_closed(self):
+        result = brief.build_snowcubes_customer_opportunities(
+            mail={
+                "available": True,
+                "complete": True,
+                "acting_email": brief.SNOWCUBES_BUSINESS_MAIL,
+                "signals": [
+                    {
+                        "thread_id": "thread-mismatch",
+                        "stable_provider_identity": True,
+                        "source_identities": [brief.SNOWCUBES_BUSINESS_MAIL],
+                        "thread_body_read": True,
+                        "semantic_status": "PROPOSAL",
+                        "confidence": "MEDIUM",
+                        "action_tags": ["waiting_reply", "reply", "order_return"],
+                        "shopify_order_id": "order-mismatch",
+                        "shopify_customer_id": "mail-customer",
+                    }
+                ],
+            },
+            shopify={
+                "available": True,
+                "complete": True,
+                "store": brief.SNOWCUBES_SHOPIFY_STORE,
+                "orders": [
+                    {
+                        "order_id": "order-mismatch",
+                        "customer_id": "shopify-customer",
+                    }
+                ],
+            },
+            observed_at="2026-08-15T13:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "UNKNOWN")
+        mail_only = next(row for row in result["opportunities"] if row["mail"].get("thread_id"))
+        self.assertEqual(mail_only["join_state"], "UNKNOWN")
+        self.assertEqual(mail_only["signals"]["waiting_reply"]["state"], "NOT_OBSERVED")
+        self.assertEqual(mail_only["signals"]["relationship"]["state"], "NOT_OBSERVED")
+        self.assertEqual(mail_only["signals"]["recovery"]["state"], "NOT_OBSERVED")
+        self.assertIn("mail and Shopify customer IDs conflict", result["problems"])
 
 
 class SourceBoundaryTests(unittest.TestCase):
