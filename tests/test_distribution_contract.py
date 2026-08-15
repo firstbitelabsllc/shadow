@@ -65,13 +65,16 @@ class DistributionContractTests(unittest.TestCase):
         skill = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
             encoding="utf-8"
         )
+        normalized = " ".join(skill.split())
         for phrase in (
             "What are we trying to change for a person?",
             "What is already moving, including work happening in parallel?",
             "technical evidence on demand",
             "Distinguish the next evidence checkpoint from product",
+            "not progress unless the number changes a human decision",
+            "confidence never exceeds observed evidence",
         ):
-            self.assertIn(phrase, skill)
+            self.assertIn(phrase, normalized)
 
 
 if __name__ == "__main__":
