@@ -4775,6 +4775,50 @@ class PrivateStoreTests(unittest.TestCase):
             {"customer_candidate": False},
         )
 
+    def test_customer_thread_evidence_requires_shopify_domain_boundaries(self):
+        for address in (
+            "alice@evilshopify.com",
+            "alice@notshopifyemail.com",
+            "alice@shopify.com.example",
+            "alice@shopifyemail.com.example",
+        ):
+            with self.subTest(address=address):
+                evidence = brief._snowcubes_customer_thread_evidence(
+                    subject="New customer message about Snowcubes order TSC01615",
+                    messages=[
+                        {
+                            "from": address,
+                            "to": [brief.SNOWCUBES_BUSINESS_MAIL],
+                            "body": "Question about TSC01615",
+                        }
+                    ],
+                    owned_identities={brief.SNOWCUBES_BUSINESS_MAIL},
+                )
+                self.assertEqual(evidence["customer_email"], address)
+                self.assertTrue(evidence["customer_email_verified"])
+
+        for address in (
+            "store@shopify.com",
+            "store@alerts.shopify.com",
+            "store@shopifyemail.com",
+            "store@t.shopifyemail.com",
+        ):
+            with self.subTest(address=address):
+                evidence = brief._snowcubes_customer_thread_evidence(
+                    subject="New customer message about Snowcubes order TSC01615",
+                    messages=[
+                        {
+                            "from": address,
+                            "to": [brief.SNOWCUBES_BUSINESS_MAIL],
+                            "body": "Notification for TSC01615",
+                        }
+                    ],
+                    owned_identities={brief.SNOWCUBES_BUSINESS_MAIL},
+                )
+                self.assertNotIn("customer_email", evidence)
+
+        self.assertTrue(brief._is_shopify_mail_address("STORE@ALERTS.SHOPIFY.COM"))
+
     def test_customer_opportunity_excludes_unrelated_mail_from_exact_join(self):
         customer_signal = {
             "thread_id": "thread-customer",

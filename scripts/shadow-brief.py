@@ -3837,6 +3837,13 @@ def _snowcubes_customer_subject_candidate(value: Any) -> bool:
     )
 
 
+def _is_shopify_mail_address(email: str) -> bool:
+    domain = email.rpartition("@")[2].casefold()
+    return domain in {"shopify.com", "shopifyemail.com"} or domain.endswith(
+        (".shopify.com", ".shopifyemail.com")
+    )
+
+
 def _snowcubes_customer_thread_evidence(
     *,
     subject: Any,
@@ -3913,8 +3920,7 @@ def _snowcubes_customer_thread_evidence(
         for email in external
         if email not in owned
         and not email.endswith("@trysnowcubes.com")
-        and not email.partition("@")[2].endswith("shopify.com")
-        and not email.partition("@")[2].endswith("shopifyemail.com")
+        and not _is_shopify_mail_address(email)
         and "noreply" not in email
         and "no-reply" not in email
     }
