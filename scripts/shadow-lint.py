@@ -191,7 +191,7 @@ def lint_plan(
                 0,
                 "blocking",
                 f"{dimension} is {budget[dimension]} (limit {budget['limits'][dimension]}); "
-                "archive one proven milestone with shadow lifecycle",
+                f"{_board.hot_plan_budget_remedy(text.encode('utf-8'))}",
             )
         )
 

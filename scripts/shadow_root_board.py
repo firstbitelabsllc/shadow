@@ -15,6 +15,7 @@ import fcntl
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import shlex
@@ -358,7 +359,10 @@ def bounded_plan_content(snapshot: _plan_store.PlanSnapshot) -> bytes:
     )
     if declared > MAX_PLAN_BYTES:
         raise BoardError("plan exceeds the bounded size limit")
-    content = snapshot.materialize()
+    try:
+        content = snapshot.materialize()
+    except _plan_store.PlanStoreError as exc:
+        raise BoardError(str(exc)) from exc
     if len(content) > MAX_PLAN_BYTES:
         raise BoardError("plan exceeds the bounded size limit")
     return content
@@ -426,6 +430,42 @@ def hot_plan_budget(content: bytes) -> dict:
     }
 
 
+def _has_archive_eligible_milestone(text: str) -> bool:
+    """Whether lifecycle can archive at least one milestone from this frozen text."""
+    import importlib.util
+    import sys
+
+    name = "shadow_lifecycle"
+    module = sys.modules.get(name)
+    if module is None:
+        path = Path(__file__).resolve().parent / "shadow-lifecycle.py"
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            return False
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    lines = text.splitlines(keepends=True)
+    for item in module.milestones(lines):
+        try:
+            module.validate_milestone(item, lines)
+        except module.LifecycleError:
+            continue
+        return True
+    return False
+
+
+def hot_plan_budget_remedy(content: bytes) -> str:
+    """Name the remedy that can actually shrink this hot plan."""
+    try:
+        text = content.decode("utf-8")
+    except UnicodeError:
+        return "no archive-eligible milestone; run `shadow plan migrate`"
+    if _has_archive_eligible_milestone(text):
+        return "archive one proven milestone with shadow lifecycle"
+    return "no archive-eligible milestone; run `shadow plan migrate`"
+
+
 def assert_hot_plan_budget(content: bytes) -> dict:
     """Refuse a plan that cannot enter or mutate the normal computer board."""
     measured = hot_plan_budget(content)
@@ -433,7 +473,8 @@ def assert_hot_plan_budget(content: bytes) -> dict:
         raise BoardError(
             "hot plan exceeds the checked-in "
             + ", ".join(measured["exceeded"])
-            + " budget; archive one proven milestone with shadow lifecycle"
+            + " budget; "
+            + hot_plan_budget_remedy(content)
         )
     return measured
 
@@ -1588,7 +1629,16 @@ def reconcile(
                 raise BoardError(
                     "bounded discovery entity changed during reconciliation; retry"
                 ) from exc
-            assert_hot_plan_budget(content)
+            try:
+                assert_hot_plan_budget(content)
+            except BoardError as exc:
+                # Quarantine, never blank the board: the entity registers
+                # unhealthy and every claim and plan-write path still
+                # enforces the budget at its own gate.
+                print(
+                    f"shadow: {seed['plan']} enters the board over budget: {exc}",
+                    file=sys.stderr,
+                )
             if seed["expected_size"] is not None and (
                 len(content) != seed["expected_size"]
                 or hashlib.sha256(content).hexdigest() != seed["expected_sha256"]

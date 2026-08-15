@@ -199,18 +199,23 @@ class PlanSnapshotTests(unittest.TestCase):
         object_path = self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
         object_path.write_bytes(object_path.read_bytes() + b"tamper")
 
-        with self.assertRaisesRegex(store.PlanStoreError, "object digest mismatch"):
+        with self.assertRaisesRegex(store.PlanStoreError, "object digest mismatch") as ctx:
             store.PlanSnapshot.open(plan_path).row("~bb22")
+        self.assertIn(digest, str(ctx.exception))
+        self.assertIn(str(object_path), str(ctx.exception))
 
     def test_missing_object_refuses_materialization(self) -> None:
         source = plan()
         build = store.build_tree(source)
         plan_path = install_tree(self.root, source)
         digest = build.root["catalog_root"]
-        (self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest).unlink()
+        object_path = self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+        object_path.unlink()
 
-        with self.assertRaisesRegex(store.PlanStoreError, "referenced object is missing"):
+        with self.assertRaisesRegex(store.PlanStoreError, "referenced object is missing") as ctx:
             store.PlanSnapshot.open(plan_path).materialize()
+        self.assertIn(digest, str(ctx.exception))
+        self.assertIn(str(object_path), str(ctx.exception))
 
 
 class DryRunMigrationTests(unittest.TestCase):

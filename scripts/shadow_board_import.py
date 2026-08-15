@@ -545,16 +545,23 @@ def reconcile_portfolio(
         try:
             text = read_plan(source_path)
         except (BrowserError, OSError, UnicodeError) as exc:
-            raise board.BoardError(
-                f"{source_path} cannot be read during board import"
-            ) from exc
+            # One unreadable local plan must not blank the whole board; the
+            # entity sits out this cycle and the operator is told exactly why.
+            print(
+                f"shadow: {source_path} quarantined from board import: {exc}",
+                file=sys.stderr,
+            )
+            continue
         plan = amp._parse(text)
         if not plan["brief"].get("Project") or not plan["brief"].get("Mode"):
             continue
         unclean = amp.unclean_note(plan)
         if unclean:
-            raise board.BoardError(
-                f"{source_path} cannot enter the computer board: {unclean}"
+            # Seed the entity anyway: the status layer's bounded re-read
+            # renders it broken while every healthy peer still reports.
+            print(
+                f"shadow: {source_path} enters the board unhealthy: {unclean}",
+                file=sys.stderr,
             )
         content = text.encode("utf-8")
         seeds.append(
