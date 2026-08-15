@@ -3243,7 +3243,15 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def _seed(self, module, home: Path, *, source_exists: bool, source_claimed: bool):
+    def _seed(
+        self,
+        module,
+        home: Path,
+        *,
+        source_exists: bool,
+        source_claimed: bool,
+        declared_source: bool = True,
+    ):
         root = home.parent
         source = root / "former-source" / "PLAN.md"
         if source_exists:
@@ -3255,7 +3263,15 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
             "# Private authority\n\n- [pending] resume row ~aa11\n",
             encoding="utf-8",
         )
-        source_id = "1" * 64
+        # Only a stored id that reproduces from a declared local-only origin
+        # proves the vanished locator aliases the private authority. An
+        # undeclared id stands for an ordinary product entity that merely
+        # shares this project and row id.
+        source_id = (
+            module.logical_entity_id("github.com/leojkwan/ai-leo", "PLAN.md")
+            if declared_source
+            else "1" * 64
+        )
         destination_id = "2" * 64
         with module._transaction(home) as (board_root, board_path, payload):
             payload["revision"] = 7
@@ -3289,6 +3305,41 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
             module._commit(board_root, "seed missing alias fixture")
         return source_id, destination_id
 
+    def _discard(self, module, home: Path) -> int:
+        return module.discard_missing_unclaimed_aliases(
+            local_only={"github.com/leojkwan/ai-leo": "ai-leo"},
+            home=home,
+        )
+
+    def test_never_discards_a_missing_entity_without_declared_alias_proof(self):
+        """A shared project and row id are not evidence of an alias."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            module = self._module()
+            source_id, destination_id = self._seed(
+                module,
+                home,
+                source_exists=False,
+                source_claimed=False,
+                declared_source=False,
+            )
+            before = (home / ".shadow" / "board.json").read_bytes()
+
+            self.assertEqual(self._discard(module, home), 0)
+
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+            payload = module.snapshot(home=home)
+            self.assertEqual(
+                {entity["id"] for entity in payload["entities"]},
+                {source_id, destination_id},
+            )
+            stale = next(
+                entity for entity in payload["entities"] if entity["id"] == source_id
+            )
+            self.assertEqual(stale["resume"], "~aa11")
+
     def test_discards_only_missing_claimless_alias_and_preserves_live_claim_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3299,7 +3350,7 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
                 module, home, source_exists=False, source_claimed=False
             )
 
-            self.assertEqual(module.discard_missing_unclaimed_aliases(home=home), 1)
+            self.assertEqual(self._discard(module, home), 1)
 
             payload = module.snapshot(home=home)
             self.assertEqual([entity["id"] for entity in payload["entities"]], [destination_id])
@@ -3324,7 +3375,7 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
                     )
                     before = (home / ".shadow" / "board.json").read_bytes()
 
-                    self.assertEqual(module.discard_missing_unclaimed_aliases(home=home), 0)
+                    self.assertEqual(self._discard(module, home), 0)
 
                     self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
                     payload = module.snapshot(home=home)
