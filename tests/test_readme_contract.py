@@ -12,32 +12,47 @@ SHADOW = ROOT / "bin" / "shadow"
 
 
 class ShareReadyDocumentationTests(unittest.TestCase):
-    def test_readme_leads_with_authority_loop_and_footer(self) -> None:
+    def test_readme_leads_with_authority_loop_and_install(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         required = (
-            "one durable workboard per computer",
+            "assets/shadow-banner.svg",
             "PLAN.md",
-            "```mermaid",
+            "shadow init --here",
             "shadow status",
-            "shadow throw",
             "shadow accept",
-            "shadow status --in-flight --json",
-            "Ongoing tasks",
-            "Active tasks: none",
-            "Proof boundaries",
-            "Host integration",
+            "shadow doctor",
+            "install.sh",
             "--branch shadow-v1.0.1",
-            "scripts/shadow-verify-two-seat.py",
-            "--live --goal-file",
         )
         for phrase in required:
             self.assertIn(phrase, text)
+        # The board's authority is per computer, and the work is durable across
+        # a killed chat: the two claims a stranger must read before installing.
+        self.assertRegex(text, r"one\s+board per computer")
+        self.assertIn("durable", text)
         self.assertNotIn("npm test", text)
         self.assertNotIn("/Users/", text)
 
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("Every Shadow chat response ends with a compact `Ongoing tasks` projection", skill)
         self.assertIn("shadow status --in-flight --json", skill)
+
+    def test_the_footer_projection_contract_stays_written_down(self) -> None:
+        """The README sends detail to the docs site, so the host-facing footer
+        contract must stay stated where hosts and strangers actually read it."""
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        quickstart = (ROOT / "docs" / "guide" / "quickstart.md").read_text(encoding="utf-8")
+        for text in (skill, quickstart):
+            self.assertIn("shadow status --in-flight --json", text)
+            self.assertIn("Ongoing tasks", text)
+            self.assertIn("Active tasks: none", text)
+
+    def test_the_two_seat_harness_stays_written_down(self) -> None:
+        commands = (ROOT / "docs" / "reference" / "commands.md").read_text(encoding="utf-8")
+        self.assertIn("scripts/shadow-verify-two-seat.py", commands)
+        self.assertIn("--live --goal-file", commands)
+        host = (ROOT / "docs" / "reference" / "host-integration.md")
+        self.assertTrue(host.is_file(), "host integration detail must have a documented home")
 
     def test_quickstart_has_a_real_claim_and_close_loop(self) -> None:
         text = (ROOT / "docs" / "guide" / "quickstart.md").read_text(encoding="utf-8")
@@ -89,27 +104,26 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertIn("animation: none", text)
 
 
-class ADiagramAStrangerCanFollow(unittest.TestCase):
-    """The README's first picture must be followable cold: every concept the
-    diagram names is glossed in plain words in the same section, and every
-    command the use path names actually exists in the CLI's own help."""
+class AReadmeAStrangerCanFollow(unittest.TestCase):
+    """The README must be followable cold: every word the vocabulary leans on is
+    glossed in plain words before the install, and every command it names
+    actually exists in the CLI's own help."""
 
-    def test_the_picture_glosses_every_concept_it_names(self) -> None:
+    def test_the_vocabulary_glosses_every_word_it_names(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("## The picture", text)
-        section = text.split("## The picture", 1)[1].split("## The loop", 1)[0]
+        section = text.split("## Install", 1)[0]
         for concept in ("board", "plans", "seats", "claim", "proof", "accept"):
-            self.assertIn(f"**{concept}**", section, f"the diagram names {concept} but never explains it")
+            self.assertIn(f"**{concept}**", section, f"the README leans on {concept} but never explains it")
+        self.assertIn("claim → work → prove → accept → next", section)
 
-    def test_the_use_path_names_only_real_commands(self) -> None:
+    def test_the_readme_names_only_real_commands(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
-        section = text.split("## How you use it", 1)[1].split("## The loop", 1)[0]
         help_text = subprocess.run(
             [str(ROOT / "bin" / "shadow"), "--help"], capture_output=True, text=True, check=False
         ).stdout
         import re as _re
-        for verb in set(_re.findall(r"`shadow ([a-z-]+)", section)):
-            self.assertIn(f"  {verb} ", help_text, f"README use path names `shadow {verb}` but the CLI help does not")
+        for verb in set(_re.findall(r"(?:`|^|\s)shadow ([a-z-]+)", text, _re.MULTILINE)):
+            self.assertIn(f"  {verb} ", help_text, f"README names `shadow {verb}` but the CLI help does not")
 
 
 if __name__ == "__main__":

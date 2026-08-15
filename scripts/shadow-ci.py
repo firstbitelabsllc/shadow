@@ -101,6 +101,7 @@ DOC_MODULES = {
     "tests.test_documented_targets",
     "tests.test_grammar_contract",
     "tests.test_public_ready_grep_gate",
+    "tests.test_readme_contract",
     "tests.test_standing_goal",
 }
 DOC_ROOTS = ("docs/", "README.md", "AGENT.md", "SKILL.md", "skills/", "CONTRIBUTING.md", "PLAN.md")
