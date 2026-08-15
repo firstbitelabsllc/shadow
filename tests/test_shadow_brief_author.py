@@ -337,40 +337,130 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
         mail = source["superhuman_context"]
         private_thread_id = "thread-private-7"
         private_message_id = "message-private-8"
+        prose_only_id = "opaque-only-in-wake-9173"
+        mail.update(
+            {
+                "schema": "shadow.superhuman-context.v3",
+                "status": "COMPLETE",
+                "complete": True,
+                "all_clear_allowed": True,
+                "declared_query_complete": True,
+                "account_discovery": {
+                    "status": "COMPLETE",
+                    "malformed_rows": 0,
+                    "wake": None,
+                },
+                "linked_accounts": [
+                    {
+                        "acting_email": identity,
+                        "is_primary": index == 0,
+                        "added_at": "2026-01-01T00:00:00Z",
+                        "sender_identities": [identity],
+                        "sender_identity_complete": True,
+                    }
+                    for index, identity in enumerate(mail["expected_identities"])
+                ],
+                "coverage": [
+                    {
+                        "acting_email": identity,
+                        "expected": True,
+                        "linked": True,
+                        "status": "COMPLETE",
+                        "pagination": {
+                            "pages": 1,
+                            "exhausted": True,
+                            "truncated": False,
+                        },
+                    }
+                    for identity in mail["expected_identities"]
+                ],
+            }
+        )
         mail["problems"] = [f"Re-open exact thread {private_thread_id}."]
-        mail["wake"] = f"Inspect message {private_message_id}."
-        mail["coverage"][0]["wake"] = f"Verify {private_thread_id} before an all-clear."
+        mail["wake"] = f"Inspect message {private_message_id} and {prose_only_id}."
+        mail["coverage"][0]["problem"] = f"Unverified item {prose_only_id}."
+        mail["coverage"][0]["wake"] = (
+            f"Verify {private_thread_id} and {prose_only_id} before an all-clear."
+        )
         mail["category_index"] = {
             category: {
-                "total": index + 10,
+                "total": 1,
                 "shown": 1,
-                "omitted": index + 9,
+                "omitted": 0,
                 "locations_complete": True,
                 "signal_ids": [f"signal-{index}"],
             }
             for index, category in enumerate(author.MAIL_ACTION_CATEGORIES)
         }
+        tags_by_category = {
+            "urgent_replies": ["urgent", "reply"],
+            "waiting_replies": ["waiting_reply"],
+            "forgotten_obligations": ["obligation"],
+            "order_return_follow_up": ["order_return"],
+            "proactive_candidates": ["proactive"],
+        }
+        mail["action_index"] = []
+        mail["signals"] = []
         for index, category in enumerate(author.MAIL_ACTION_CATEGORIES):
+            age = 25.0 if category == "forgotten_obligations" else 1.0
+            message_at = (
+                "2026-08-14T11:00:00Z"
+                if category == "forgotten_obligations"
+                else "2026-08-15T11:00:00Z"
+            )
+            thread_id = f"{private_thread_id}-{index}"
+            message_id = f"{private_message_id}-{index}"
+            source_threads = [
+                {
+                    "acting_email": "trysnowcubes@gmail.com",
+                    "thread_id": thread_id,
+                    "last_message_id": message_id,
+                }
+            ]
+            mail["action_index"].append(
+                {
+                    "signal_id": f"signal-{index}",
+                    "last_message_at": message_at,
+                    "message_age_hours": age,
+                    "action_tags": tags_by_category[category],
+                    "source_threads": source_threads,
+                }
+            )
+            mail["signals"].append(
+                {
+                    "signal_id": f"signal-{index}",
+                    "stable_provider_identity": True,
+                    "thread_body_read": True,
+                    "last_message_at": message_at,
+                    "message_age_hours": age,
+                    "action_tags": tags_by_category[category],
+                    "semantic_status": "PROPOSAL",
+                    "subject": f"Candidate {index}",
+                    "proposal": "Consider a personal follow-up.",
+                    "proposal_only": True,
+                    "thread_id": thread_id,
+                    "last_message_id": message_id,
+                    "source_identities": ["trysnowcubes@gmail.com"],
+                    "source_threads": source_threads,
+                }
+            )
             mail[category] = [
                 {
+                    "signal_id": f"signal-{index}",
                     "subject": f"Candidate {index}",
-                    "last_message_at": "2026-08-15T11:00:00Z",
-                    "thread_id": private_thread_id,
-                    "last_message_id": private_message_id,
-                    "source_threads": [
-                        {
-                            "acting_email": "trysnowcubes@gmail.com",
-                            "thread_id": private_thread_id,
-                            "last_message_id": private_message_id,
-                        }
-                    ],
+                    "last_message_at": message_at,
+                    "thread_id": thread_id,
+                    "last_message_id": message_id,
+                    "source_threads": source_threads,
                     "source_identities": ["trysnowcubes@gmail.com"],
-                    "action_tags": ["proactive"],
+                    "action_tags": tags_by_category[category],
                     "semantic_status": "PROPOSAL",
                     "confidence": "HIGH",
-                    "message_age_hours": 4.0,
+                    "message_age_hours": age,
                     "proposal": "Consider a personal follow-up.",
-                    "wake": f"Open {private_message_id} in the exact account.",
+                    "wake": (
+                        f"Open {private_message_id} and {prose_only_id} in the exact account."
+                    ),
                 }
             ]
 
@@ -383,6 +473,15 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
             set(author.MAIL_ACTION_CATEGORIES),
         )
         self.assertEqual(len(populations), 5)
+        self.assertTrue(
+            all(
+                row["fact"]["total"] == 1
+                and row["fact"]["shown"] == 1
+                and row["fact"]["omitted"] == 0
+                and row["fact"]["locations_complete"] is True
+                for row in populations
+            )
+        )
         self.assertTrue(
             all(
                 set(row["fact"])
@@ -401,10 +500,31 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
                 for row in candidates
             )
         )
+        summary = next(
+            row["fact"]
+            for row in evidence["facts"]
+            if row["ref"] == "packet.superhuman.summary"
+        )
+        self.assertEqual(summary["problem_count"], 1)
+        self.assertTrue(summary["wake_required"])
+        self.assertTrue(summary["population_receipts_complete"])
+        self.assertNotIn("problems", summary)
+        self.assertNotIn("wake", summary)
+        coverage = next(
+            row["fact"]
+            for row in evidence["facts"]
+            if row["ref"] == "packet.superhuman.coverage.0"
+        )
+        self.assertTrue(coverage["problem_present"])
+        self.assertTrue(coverage["wake_required"])
+        self.assertNotIn("problem", coverage)
+        self.assertNotIn("wake", coverage)
+        self.assertTrue(all(row["fact"]["wake_required"] for row in candidates))
+        self.assertTrue(all("wake" not in row["fact"] for row in candidates))
         encoded = json.dumps(evidence, sort_keys=True)
         self.assertNotIn(private_thread_id, encoded)
         self.assertNotIn(private_message_id, encoded)
-        self.assertIn("[private mail item]", encoded)
+        self.assertNotIn(prose_only_id, encoded)
 
         cited_population = "packet.superhuman.category_index.urgent_replies"
         rendered = author.render_letter_html(
@@ -413,6 +533,53 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
         )
         self.assertNotIn(private_thread_id, rendered)
         self.assertNotIn(private_message_id, rendered)
+        self.assertNotIn(prose_only_id, rendered)
+
+    def test_mail_projection_does_not_promote_forged_incomplete_population(
+        self,
+    ) -> None:
+        source = packet()
+        mail = source["superhuman_context"]
+        mail["schema"] = "shadow.superhuman-context.v3"
+        mail["declared_query_complete"] = False
+        mail["category_index"] = {
+            category: {
+                "total": 0,
+                "shown": 0,
+                "omitted": 0,
+                "locations_complete": False,
+                "signal_ids": [],
+            }
+            for category in author.MAIL_ACTION_CATEGORIES
+        }
+        mail["category_index"]["urgent_replies"] = {
+            "total": 999,
+            "shown": 1,
+            "omitted": 998,
+            "locations_complete": True,
+            "signal_ids": ["mail-action-1"],
+        }
+        mail["urgent_replies"] = [{"signal_id": "mail-action-1"}]
+        mail["action_index"] = []
+
+        evidence = author.build_evidence_projection(source, self.profile)
+        populations = {
+            row["fact"]["category"]: row["fact"]
+            for row in evidence["facts"]
+            if row["kind"] == "mail_population"
+        }
+
+        self.assertIsNone(populations["urgent_replies"]["total"])
+        self.assertIsNone(populations["urgent_replies"]["shown"])
+        self.assertIsNone(populations["urgent_replies"]["omitted"])
+        self.assertFalse(populations["urgent_replies"]["locations_complete"])
+        summary = next(
+            row["fact"]
+            for row in evidence["facts"]
+            if row["ref"] == "packet.superhuman.summary"
+        )
+        self.assertFalse(summary["population_receipts_complete"])
+        self.assertTrue(summary["wake_required"])
 
     def test_owner_scheduler_kill_is_pinned_even_when_newer_progress_would_drop_it(
         self,

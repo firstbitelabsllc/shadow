@@ -6974,6 +6974,86 @@ class AuthorityScopeTests(unittest.TestCase):
             "thread_id"
         ] = True
 
+        duplicate_message_owner = _m5_mail_fixture()
+        duplicate_message = json.loads(
+            json.dumps(duplicate_message_owner["action_index"][0])
+        )
+        duplicate_message["signal_id"] = "mail-action-2"
+        duplicate_message["source_threads"][0]["thread_id"] = "different-thread"
+        duplicate_message_owner["action_index"].append(duplicate_message)
+        duplicate_message_owner["signals"].append(
+            {
+                **json.loads(json.dumps(duplicate_message_owner["signals"][0])),
+                "signal_id": "mail-action-2",
+                "thread_id": "different-thread",
+            }
+        )
+        duplicate_message_excerpt = json.loads(
+            json.dumps(duplicate_message_owner["urgent_replies"][0])
+        )
+        duplicate_message_excerpt["signal_id"] = "mail-action-2"
+        duplicate_message_excerpt["thread_id"] = "different-thread"
+        duplicate_message_excerpt["source_threads"][0]["thread_id"] = "different-thread"
+        duplicate_message_owner["urgent_replies"].append(duplicate_message_excerpt)
+        duplicate_message_owner["category_index"]["urgent_replies"].update(
+            {
+                "total": 2,
+                "shown": 2,
+                "omitted": 0,
+                "signal_ids": ["mail-action-1", "mail-action-2"],
+            }
+        )
+
+        non_string_signal_id = _m5_mail_fixture()
+        non_string_signal_id["action_index"][0]["signal_id"] = True
+        non_string_signal_id["signals"][0]["signal_id"] = "True"
+        non_string_signal_id["urgent_replies"][0]["signal_id"] = "True"
+        non_string_signal_id["category_index"]["urgent_replies"]["signal_ids"] = [
+            "True"
+        ]
+
+        cross_account_message_owner = _m5_mail_fixture()
+        cross_account_message = json.loads(
+            json.dumps(cross_account_message_owner["action_index"][0])
+        )
+        cross_account_message["signal_id"] = "mail-action-cross-account"
+        cross_account_message["source_threads"][0].update(
+            {
+                "acting_email": "trysnowcubes@gmail.com",
+                "thread_id": "snow-thread-2",
+            }
+        )
+        cross_account_message_owner["action_index"].append(cross_account_message)
+        cross_account_message_owner["signals"].append(
+            {
+                **json.loads(json.dumps(cross_account_message_owner["signals"][0])),
+                "signal_id": "mail-action-cross-account",
+                "thread_id": "snow-thread-2",
+                "source_identities": ["trysnowcubes@gmail.com"],
+                "source_threads": [dict(cross_account_message["source_threads"][0])],
+            }
+        )
+        cross_account_excerpt = json.loads(
+            json.dumps(cross_account_message_owner["urgent_replies"][0])
+        )
+        cross_account_excerpt.update(
+            {
+                "signal_id": "mail-action-cross-account",
+                "thread_id": "snow-thread-2",
+                "source_identities": ["trysnowcubes@gmail.com"],
+                "source_threads": [dict(cross_account_message["source_threads"][0])],
+            }
+        )
+        cross_account_message_owner["urgent_replies"].append(cross_account_excerpt)
+        cross_account_message_owner["category_index"]["urgent_replies"].update(
+            {
+                "total": 2,
+                "shown": 2,
+                "omitted": 0,
+                "signal_ids": ["mail-action-1", "mail-action-cross-account"],
+            }
+        )
+
         self.assertIn(
             "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
             brief._superhuman_receipt_problems(inflated),
@@ -7002,6 +7082,91 @@ class AuthorityScopeTests(unittest.TestCase):
             "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
             brief._superhuman_receipt_problems(non_string_provider_id),
         )
+        self.assertIn(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
+            brief._superhuman_receipt_problems(duplicate_message_owner),
+        )
+        self.assertIn(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
+            brief._superhuman_receipt_problems(non_string_signal_id),
+        )
+        self.assertIn(
+            "Superhuman action_index has invalid, duplicate, or conflicting provider locations",
+            brief._superhuman_receipt_problems(cross_account_message_owner),
+        )
+
+    def test_superhuman_population_rejects_false_completion_and_malformed_zero_bucket(
+        self,
+    ):
+        partial = _m5_mail_fixture()
+        partial["declared_query_complete"] = True
+        for receipt in partial["category_index"].values():
+            receipt["locations_complete"] = True
+
+        malformed = _m5_mail_fixture(include_action=False)
+        malformed["account_discovery"] = {
+            "status": "COMPLETE",
+            "malformed_rows": 0,
+            "wake": None,
+        }
+        malformed["coverage"] = [
+            {
+                "acting_email": identity,
+                "expected": True,
+                "linked": True,
+                "status": "COMPLETE",
+                "pagination": {"pages": 1, "exhausted": True, "truncated": False},
+            }
+            for identity in brief.EXPECTED_SUPERHUMAN_IDENTITIES
+        ]
+        malformed["linked_accounts"] = [
+            {
+                "acting_email": identity,
+                "is_primary": index == 0,
+                "added_at": "2026-01-01T00:00:00Z",
+                "sender_identities": [identity],
+                "sender_identity_complete": True,
+            }
+            for index, identity in enumerate(brief.EXPECTED_SUPERHUMAN_IDENTITIES)
+        ]
+        malformed["declared_query_complete"] = True
+        for receipt in malformed["category_index"].values():
+            receipt["locations_complete"] = True
+        hidden_category = json.loads(json.dumps(malformed))
+        hidden_category["category_index"]["hidden_queue"] = {
+            "total": 0,
+            "shown": 0,
+            "omitted": 0,
+            "locations_complete": True,
+            "signal_ids": [],
+        }
+        malformed["urgent_replies"] = None
+
+        partial_receipts, partial_problems = brief._superhuman_population_receipts(
+            partial
+        )
+        malformed_receipts, malformed_problems = brief._superhuman_population_receipts(
+            malformed
+        )
+        hidden_receipts, hidden_problems = brief._superhuman_population_receipts(
+            hidden_category
+        )
+
+        self.assertEqual(partial_receipts, {})
+        self.assertIn(
+            "Superhuman declared_query_complete does not match account discovery and coverage",
+            partial_problems,
+        )
+        self.assertNotIn("urgent_replies", malformed_receipts)
+        self.assertIn(
+            "Superhuman urgent_replies bucket must be a list",
+            malformed_problems,
+        )
+        self.assertEqual(hidden_receipts, {})
+        self.assertIn(
+            "Superhuman category_index key universe mismatch",
+            hidden_problems,
+        )
 
     def test_renderer_never_promotes_excerpt_length_when_population_receipt_is_missing(
         self,
@@ -7016,6 +7181,25 @@ class AuthorityScopeTests(unittest.TestCase):
         self.assertIn("Complete obligation population", rendered)
         self.assertIn("<td>UNKNOWN</td><td>UNKNOWN</td><td>UNKNOWN</td>", rendered)
         self.assertIn("The reader excerpt is not promoted to a full count.", rendered)
+
+    def test_renderer_fails_closed_for_truthy_non_list_mail_buckets(self):
+        for malformed in (7, True, {"not": "rows"}, "broken"):
+            with self.subTest(malformed=malformed):
+                packet = _scheduled_packet_fixture()
+                mail = _m5_mail_fixture()
+                mail["urgent_replies"] = malformed
+                packet["superhuman_context"] = mail
+
+                rendered = brief.render_html(packet)
+
+                self.assertIn(
+                    "<td>UNKNOWN</td><td>UNKNOWN</td><td>UNKNOWN</td>",
+                    rendered,
+                )
+                self.assertIn(
+                    "The reader excerpt is not promoted to a full count.",
+                    rendered,
+                )
 
     def test_superhuman_verifier_requires_exact_discovered_linked_account_coverage(
         self,
@@ -8970,8 +9154,15 @@ class AuthorityScopeTests(unittest.TestCase):
                 }
             )
             mail.update(
-                {"status": "COMPLETE", "complete": True, "all_clear_allowed": True}
+                {
+                    "status": "COMPLETE",
+                    "complete": True,
+                    "all_clear_allowed": True,
+                    "declared_query_complete": True,
+                }
             )
+            for receipt in mail["category_index"].values():
+                receipt["locations_complete"] = True
 
         linked = {
             "acting_email": "newly-linked@example.com",

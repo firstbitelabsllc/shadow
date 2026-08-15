@@ -2774,7 +2774,10 @@ def build_superhuman_context(
         {
             "observed_at": end_date,
             "declared_query_complete": declared_query_complete,
+            "expected_identities": list(EXPECTED_SUPERHUMAN_IDENTITIES),
+            "account_discovery": account_discovery,
             "linked_accounts": linked_accounts,
+            "coverage": coverage,
             "action_index": action_index,
             "category_index": category_index,
             "urgent_replies": urgent_replies,
@@ -5580,9 +5583,9 @@ def _superhuman_population_receipts(
     if not isinstance(category_index, dict):
         return valid_receipts, ["Superhuman category_index must be an object"]
     expected_keys = set(SUPERHUMAN_ACTION_CATEGORY_KEYS)
-    if set(category_index) != expected_keys:
+    category_universe_valid = set(category_index) == expected_keys
+    if not category_universe_valid:
         problems.append("Superhuman category_index key universe mismatch")
-    source_complete = mail.get("declared_query_complete") is True
 
     linked_accounts = mail.get("linked_accounts")
     linked_identities = {
@@ -5590,6 +5593,58 @@ def _superhuman_population_receipts(
         for row in (linked_accounts if isinstance(linked_accounts, list) else [])
         if isinstance(row, dict) and str(row.get("acting_email") or "").strip()
     }
+    account_discovery = mail.get("account_discovery")
+    discovery_complete = bool(
+        isinstance(account_discovery, dict)
+        and account_discovery.get("status") == "COMPLETE"
+        and account_discovery.get("malformed_rows") == 0
+        and not isinstance(account_discovery.get("malformed_rows"), bool)
+    )
+    coverage_value = mail.get("coverage")
+    coverage = coverage_value if isinstance(coverage_value, list) else []
+    coverage_identities: list[str] = []
+    coverage_rows_complete = bool(coverage)
+    for row in coverage:
+        if not isinstance(row, dict):
+            coverage_rows_complete = False
+            continue
+        acting_email_value = row.get("acting_email")
+        acting_email = (
+            acting_email_value.strip().lower()
+            if isinstance(acting_email_value, str)
+            else ""
+        )
+        coverage_identities.append(acting_email)
+        pagination = row.get("pagination")
+        pages = pagination.get("pages") if isinstance(pagination, dict) else None
+        row_problems = row.get("problems")
+        if not (
+            acting_email
+            and row.get("linked") is True
+            and row.get("status") == "COMPLETE"
+            and isinstance(pagination, dict)
+            and isinstance(pages, int)
+            and not isinstance(pages, bool)
+            and pages > 0
+            and pagination.get("exhausted") is True
+            and pagination.get("truncated") is False
+            and (row_problems is None or row_problems == [])
+        ):
+            coverage_rows_complete = False
+    expected_coverage = set(EXPECTED_SUPERHUMAN_IDENTITIES) | linked_identities
+    coverage_complete = bool(
+        coverage_rows_complete
+        and set(coverage_identities) == expected_coverage
+        and len(coverage_identities) == len(expected_coverage)
+        and mail.get("expected_identities") == list(EXPECTED_SUPERHUMAN_IDENTITIES)
+    )
+    derived_source_complete = discovery_complete and coverage_complete
+    declared_source_complete = mail.get("declared_query_complete") is True
+    if declared_source_complete != derived_source_complete:
+        problems.append(
+            "Superhuman declared_query_complete does not match account discovery and coverage"
+        )
+    source_complete = declared_source_complete and derived_source_complete
     observed_raw = mail.get("observed_at")
     try:
         observed_at = datetime.fromisoformat(str(observed_raw).replace("Z", "+00:00"))
@@ -5645,7 +5700,8 @@ def _superhuman_population_receipts(
         if not isinstance(raw_row, dict):
             action_index_valid = False
             continue
-        signal_id = str(raw_row.get("signal_id") or "").strip()
+        signal_id_value = raw_row.get("signal_id")
+        signal_id = signal_id_value.strip() if isinstance(signal_id_value, str) else ""
         tags_value = raw_row.get("action_tags")
         tags = (
             [str(tag).strip() for tag in tags_value]
@@ -5700,15 +5756,16 @@ def _superhuman_population_receipts(
         action_rows.append(normalized_row)
         action_by_id[signal_id] = normalized_row
         for acting_email, thread_id, message_id in refs:
-            provider_key = (
-                acting_email,
-                "thread" if thread_id else "message",
-                thread_id or message_id,
-            )
-            prior = provider_owner.get(provider_key)
-            if prior is not None and prior != signal_id:
-                action_index_valid = False
-            provider_owner[provider_key] = signal_id
+            provider_keys = []
+            if thread_id:
+                provider_keys.append((acting_email, "thread", thread_id))
+            if message_id:
+                provider_keys.append(("", "message", message_id))
+            for provider_key in provider_keys:
+                prior = provider_owner.get(provider_key)
+                if prior is not None and prior != signal_id:
+                    action_index_valid = False
+                provider_owner[provider_key] = signal_id
     if not action_index_valid or len(action_rows) != len(action_index):
         problems.append(
             "Superhuman action_index has invalid, duplicate, or conflicting provider locations"
@@ -5765,6 +5822,8 @@ def _superhuman_population_receipts(
         else:
             total, shown, omitted = counts
         rows_value = mail.get(key)
+        if not isinstance(rows_value, list):
+            category_problems.append(f"Superhuman {key} bucket must be a list")
         rows = rows_value if isinstance(rows_value, list) else []
         if (
             total != len(normalized_ids)
@@ -5780,7 +5839,10 @@ def _superhuman_population_receipts(
             if not isinstance(raw_row, dict):
                 category_problems.append(f"Superhuman {key} excerpt row is invalid")
                 continue
-            signal_id = str(raw_row.get("signal_id") or "").strip()
+            signal_id_value = raw_row.get("signal_id")
+            signal_id = (
+                signal_id_value.strip() if isinstance(signal_id_value, str) else ""
+            )
             excerpt_ids.append(signal_id)
             manifest_row = action_by_id.get(signal_id)
             refs, refs_valid = normalized_refs(raw_row.get("source_threads"))
@@ -5834,6 +5896,8 @@ def _superhuman_population_receipts(
             )
         if not action_index_valid:
             category_problems.append(f"Superhuman {key} action_index is invalid")
+        if not category_universe_valid:
+            category_problems.append(f"Superhuman {key} category universe is invalid")
         if category_problems:
             problems.extend(category_problems)
             continue
@@ -6330,23 +6394,28 @@ def render_html(packet: dict[str, Any]) -> str:
         if coverage_rows
         else "<p class='empty'>No Superhuman identity coverage was available.</p>"
     )
+
+    def mail_rows(key: str) -> list[Any]:
+        value = mail.get(key)
+        return value if isinstance(value, list) else []
+
     action_groups = (
-        ("urgent_replies", "Urgent reply", mail.get("urgent_replies") or []),
-        ("waiting_replies", "Waiting reply", mail.get("waiting_replies") or []),
+        ("urgent_replies", "Urgent reply", mail_rows("urgent_replies")),
+        ("waiting_replies", "Waiting reply", mail_rows("waiting_replies")),
         (
             "forgotten_obligations",
             "Forgotten obligation",
-            mail.get("forgotten_obligations") or [],
+            mail_rows("forgotten_obligations"),
         ),
         (
             "order_return_follow_up",
             "Order or return",
-            mail.get("order_return_follow_up") or [],
+            mail_rows("order_return_follow_up"),
         ),
         (
             "proactive_candidates",
             "Proactive Snowcubes candidate",
-            mail.get("proactive_candidates") or [],
+            mail_rows("proactive_candidates"),
         ),
     )
     population_receipts, population_problems = _superhuman_population_receipts(mail)

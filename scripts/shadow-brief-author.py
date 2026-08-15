@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html as html_lib
+import importlib.util
 import json
 import os
 import re
@@ -255,6 +256,37 @@ def _redact_mail_provider_ids(value: Any, opaque_ids: set[str]) -> Any:
     return value
 
 
+def _validated_mail_population_receipts(mail: Any) -> dict[str, dict[str, Any]]:
+    """Reuse the collector's exact private-population validator, fail closed."""
+    module_name = "_shadow_brief_population_contract"
+    module = sys.modules.get(module_name)
+    if module is None:
+        script_path = ROOT / "scripts" / "shadow-brief.py"
+        scripts_path = str(script_path.parent)
+        if scripts_path not in sys.path:
+            sys.path.insert(0, scripts_path)
+        spec = importlib.util.spec_from_file_location(module_name, script_path)
+        if spec is None or spec.loader is None:
+            return {}
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            return {}
+    validator = getattr(module, "_superhuman_population_receipts", None)
+    if not callable(validator):
+        return {}
+    try:
+        receipts, problems = validator(mail)
+    except Exception:
+        return {}
+    if problems or not isinstance(receipts, dict):
+        return {}
+    return receipts
+
+
 def build_evidence_projection(
     packet: dict[str, Any],
     profile: dict[str, Any],
@@ -331,6 +363,8 @@ def build_evidence_projection(
         else {}
     )
     mail_opaque_ids = _mail_opaque_provider_ids(mail)
+    validated_populations = _validated_mail_population_receipts(mail)
+    populations_complete = set(validated_populations) == set(MAIL_ACTION_CATEGORIES)
 
     def safe_mail_fact(value: Any) -> Any:
         return _redact_mail_provider_ids(value, mail_opaque_ids)
@@ -339,21 +373,35 @@ def build_evidence_projection(
         "packet.superhuman.summary",
         "mail_coverage",
         safe_mail_fact(
-            _bounded_dict(
-                mail,
-                (
-                    "status",
-                    "available",
-                    "complete",
-                    "all_clear_allowed",
-                    "observed_at",
-                    "query_range",
-                    "expected_identities",
-                    "problems",
-                    "wake",
-                    "threads_unique",
+            {
+                **_bounded_dict(
+                    mail,
+                    (
+                        "status",
+                        "available",
+                        "complete",
+                        "all_clear_allowed",
+                        "observed_at",
+                        "query_range",
+                        "expected_identities",
+                        "threads_unique",
+                    ),
                 ),
-            ),
+                "problem_count": (
+                    sum(
+                        1
+                        for problem in (
+                            mail.get("problems")
+                            if isinstance(mail.get("problems"), list)
+                            else [mail.get("problems")]
+                        )
+                        if isinstance(problem, str) and problem.strip()
+                    )
+                    + (0 if populations_complete else 1)
+                ),
+                "wake_required": bool(mail.get("wake")) or not populations_complete,
+                "population_receipts_complete": populations_complete,
+            },
         ),
     )
     coverage = mail.get("coverage") if isinstance(mail.get("coverage"), list) else []
@@ -368,18 +416,20 @@ def build_evidence_projection(
             f"packet.superhuman.coverage.{index}",
             "mail_identity_coverage",
             safe_mail_fact(
-                _bounded_dict(
-                    row,
-                    (
-                        "expected_email",
-                        "acting_email",
-                        "linked",
-                        "status",
-                        "observed_at",
-                        "problem",
-                        "wake",
+                {
+                    **_bounded_dict(
+                        row,
+                        (
+                            "expected_email",
+                            "acting_email",
+                            "linked",
+                            "status",
+                            "observed_at",
+                        ),
                     ),
-                ),
+                    "problem_present": bool(row.get("problem") or row.get("problems")),
+                    "wake_required": bool(row.get("wake")),
+                },
             ),
         )
     for index, identity in enumerate(profile["expected_identities"]):
@@ -392,23 +442,12 @@ def build_evidence_projection(
                 "expected_email": identity,
                 "linked": False,
                 "status": "UNKNOWN",
-                "wake": (
-                    f"The source packet has no independent coverage row for {identity}; "
-                    "link or re-read that exact Superhuman identity before any all-clear."
-                ),
+                "problem_present": True,
+                "wake_required": True,
             },
         )
-    category_index = (
-        mail.get("category_index")
-        if isinstance(mail.get("category_index"), dict)
-        else {}
-    )
     for category in MAIL_ACTION_CATEGORIES:
-        receipt = (
-            category_index.get(category)
-            if isinstance(category_index.get(category), dict)
-            else {}
-        )
+        receipt = validated_populations.get(category, {})
 
         def count_or_unknown(key: str) -> int | None:
             value = receipt.get(key)
@@ -434,22 +473,24 @@ def build_evidence_projection(
                 f"packet.superhuman.{category}.{index}",
                 "mail_candidate",
                 safe_mail_fact(
-                    _bounded_dict(
-                        row,
-                        (
-                            "subject",
-                            "last_message_at",
-                            "source_identities",
-                            "action_tags",
-                            "semantic_status",
-                            "confidence",
-                            "source_observed_at",
-                            "message_age_hours",
-                            "waiting_direction",
-                            "proposal",
-                            "wake",
+                    {
+                        **_bounded_dict(
+                            row,
+                            (
+                                "subject",
+                                "last_message_at",
+                                "source_identities",
+                                "action_tags",
+                                "semantic_status",
+                                "confidence",
+                                "source_observed_at",
+                                "message_age_hours",
+                                "waiting_direction",
+                                "proposal",
+                            ),
                         ),
-                    ),
+                        "wake_required": bool(row.get("wake")),
+                    },
                 ),
             )
 
