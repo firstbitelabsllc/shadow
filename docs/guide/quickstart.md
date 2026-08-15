@@ -9,8 +9,15 @@ From a Git project with no `PLAN.md` yet:
 
 ```bash
 shadow init --here
-$EDITOR PLAN.md
-shadow lint PLAN.md
+```
+
+`shadow init --here` prints `created local PLAN.md: <path>` — a machine-local
+plan under `~/.shadow/plans/<project>/PLAN.md`, never a file inside this repo.
+Open and lint that exact printed path, giving this checkout as its source:
+
+```bash
+$EDITOR ~/.shadow/plans/<project>/PLAN.md
+shadow lint --repo . ~/.shadow/plans/<project>/PLAN.md
 ```
 
 Fill the generated Brief, then add a task whose proof is executable in this
@@ -32,11 +39,11 @@ Choose a stable seat name and read from any directory:
 shadow status --by your-seat
 ```
 
-Copy the exact `shadow throw` command printed for a reachable row. Quote ids
-such as `~ab12` in zsh:
+Copy the exact `shadow throw` command printed for a reachable row — it names
+the entity id, not a repo path. Quote ids such as `~ab12` in zsh:
 
 ```bash
-shadow throw --repo . --task '~ab12' --by your-seat
+shadow throw --entity <entity-id> --task '~ab12' --by your-seat
 shadow amp --repo . --by your-seat
 ```
 

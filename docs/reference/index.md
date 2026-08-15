@@ -4,7 +4,6 @@
 - [The Method](method.md) — the operating cycle and attack-then-refute review
 - [Plan grammar](grammar.md) — the machine-readable law lint enforces
 - [Plan scale](plan-scale.md) — frozen lookup corpus, complexity baseline, and architecture gates
-- [PLAN.md fields](plan-fields.md)
 - [Host integration](host-integration.md) — the static standing goal, and what to paste where
 - [Amp](amp.md) — the goal as a pointer, and what it deliberately will not do
 - [Chief-of-staff briefing](chief-of-staff.md)

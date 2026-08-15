@@ -44,16 +44,16 @@ transcripts, provider payloads, or absolute private paths in it.
 
 ## Main skill map
 
-| Skill | Use it for |
+| Surface | Use it for |
 | --- | --- |
 | `/shadow` | Start/resume work, read the Outcome, drain reachable lanes, and leave proof plus successors. |
-| `/amp` | Turn a vague request into a complete, repository-grounded prompt. It does not dispatch or own a queue. |
-| `/ponytail` | Decide what to delete, reuse, defer, or implement before adding scope. |
-| `/thermo` | Review the working implementation after correctness for ownership, duplication, and boundary failures. |
-| `/browse` | Research current external facts or projects; keep sources and uncertainty explicit. |
-| `/local` | Inspect local files, commands, and runtime state without assuming chat context is current. |
-| `/skillbox` | Mount or validate skills on this computer and confirm the resolved source path. |
-| `/slop` | Remove duplicated or generated instructions when the handoff or plan becomes noisy. |
+
+`shadow amp` is a CLI subcommand, not a mounted skill: it projects a
+paste-ready resume block for a checkpoint the seat already claimed — see
+[amp](../reference/amp.md). Four optional extension buckets
+(`superpowers`, `taste`, `future`, `explain`) fill process, quality,
+pre-mortem, and diagram capabilities when mounted — see
+[extension buckets](../reference/buckets.md).
 
 Use native Codex, Claude Code, or Cursor for execution. Provider-specific
 helpers are adapters; none becomes the plan authority or stores credentials.
