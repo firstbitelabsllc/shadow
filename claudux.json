@@ -1,0 +1,8 @@
+{
+  "project": {
+    "name": "Shadow",
+    "type": "python",
+    "description": "One durable workboard per computer, PLAN.md per project, atomic claims and proof receipts so any AI coding session can stop and resume without losing the work",
+    "model": "fable"
+  }
+}

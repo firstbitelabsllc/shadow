@@ -1,0 +1,22 @@
+{
+  "name": "shadow-docs",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Shadow documentation with enhanced VitePress configuration",
+  "scripts": {
+    "docs:dev": "vitepress dev",
+    "docs:build": "vitepress build",
+    "docs:build:pages": "DOCS_BASE=/shadow/ vitepress build",
+    "docs:preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.4.5",
+    "typescript": "^5.0.0",
+    "vue": "^3.4.0",
+    "@types/node": "^18.0.0"
+  },
+  "overrides": {
+    "vite": "^5.4.21",
+    "esbuild": "^0.25.0"
+  }
+}
