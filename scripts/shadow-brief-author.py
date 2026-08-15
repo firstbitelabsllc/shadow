@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html as html_lib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -83,6 +85,34 @@ def load_profile(path: Path = PROFILE_PATH) -> dict[str, Any]:
             not isinstance(value, int) or value < 0 for value in caps.values()
         ):
             raise AuthoringError(f"author profile {key} are invalid")
+    reader_max = profile.get("reader_max_characters")
+    patterns = profile.get("reader_forbidden_patterns")
+    if not isinstance(reader_max, int) or reader_max < 500 or reader_max > 10000:
+        raise AuthoringError("author profile reader character cap is invalid")
+    if not isinstance(patterns, list) or any(
+        not isinstance(pattern, str) or not pattern for pattern in patterns
+    ):
+        raise AuthoringError("author profile reader forbidden patterns are invalid")
+    pinned_terms = profile.get("pinned_progress_terms")
+    if not isinstance(pinned_terms, list) or any(
+        not isinstance(term, str) or not term for term in pinned_terms
+    ):
+        raise AuthoringError("author profile pinned progress terms are invalid")
+    required_rules = profile.get("reader_required_if_evidence")
+    if not isinstance(required_rules, list) or any(
+        not isinstance(rule, dict)
+        or set(rule) != {"evidence_term", "reader_pattern", "description"}
+        or any(not isinstance(rule.get(key), str) or not rule[key] for key in rule)
+        for rule in required_rules
+    ):
+        raise AuthoringError("author profile conditional reader requirements are invalid")
+    try:
+        for pattern in patterns:
+            re.compile(pattern, re.IGNORECASE)
+        for rule in required_rules:
+            re.compile(rule["reader_pattern"], re.IGNORECASE)
+    except re.error as exc:
+        raise AuthoringError(f"author profile reader pattern is invalid: {exc}") from exc
     timeout = profile.get("timeout_seconds")
     if not isinstance(timeout, int) or timeout < 30 or timeout > 900:
         raise AuthoringError("author profile timeout is invalid")
@@ -171,7 +201,11 @@ def build_evidence_projection(
                 )
         progress = entity.get("recent_progress")
         if isinstance(progress, list):
-            selected = progress[-caps["entity_progress_per_entity"] :]
+            selected = list(progress[-caps["entity_progress_per_entity"] :])
+            for item in progress:
+                if any(term in str(item) for term in profile["pinned_progress_terms"]):
+                    selected.append(item)
+            selected = list(dict.fromkeys(str(item) for item in selected))
             for item_index, item in enumerate(selected):
                 add(
                     f"{entity_ref}.recent_progress.{item_index}",
@@ -367,11 +401,15 @@ def validate_letter(
         for row in evidence.get("facts", [])
         if isinstance(row, dict) and isinstance(row.get("ref"), str)
     }
+    reader_text: list[str] = []
+    cited_refs: set[str] = set()
     for name in ("verdict", "closing"):
         value = letter.get(name)
         if not isinstance(value, str) or not value.strip() or len(value) > 280:
             raise AuthoringError(f"model result {name} is invalid")
+        reader_text.append(value.strip())
     total_items = 0
+    normalized_items: set[str] = set()
     for section in SECTION_NAMES:
         rows = letter.get(section)
         cap = profile["section_caps"][section]
@@ -385,6 +423,11 @@ def validate_letter(
             refs = row.get("source_refs")
             if not isinstance(text, str) or not text.strip() or len(text) > 480:
                 raise AuthoringError(f"model result {section} has invalid prose")
+            normalized = re.sub(r"\s+", " ", text.strip()).casefold()
+            if normalized in normalized_items:
+                raise AuthoringError("model result repeats the same reader item")
+            normalized_items.add(normalized)
+            reader_text.append(text.strip())
             if (
                 not isinstance(refs, list)
                 or not refs
@@ -392,9 +435,155 @@ def validate_letter(
                 or any(ref not in known_refs for ref in refs)
             ):
                 raise AuthoringError(f"model result {section} cites unknown evidence")
+            cited_refs.update(refs)
     if total_items == 0:
         raise AuthoringError("model result contains no cited judgment")
+    reader_body = "\n".join(reader_text)
+    if len(reader_body) > profile["reader_max_characters"]:
+        raise AuthoringError("model result exceeds the reader character cap")
+    for pattern in profile["reader_forbidden_patterns"]:
+        if re.search(pattern, reader_body, re.IGNORECASE):
+            raise AuthoringError(
+                f"model result contains forbidden reader-body pattern: {pattern}"
+            )
+    for rule in profile["reader_required_if_evidence"]:
+        matching_refs = {
+            row["ref"]
+            for row in evidence.get("facts", [])
+            if isinstance(row, dict)
+            and isinstance(row.get("ref"), str)
+            and rule["evidence_term"] in str(row.get("fact"))
+        }
+        if not matching_refs:
+            continue
+        if not matching_refs.intersection(cited_refs):
+            raise AuthoringError(
+                f"model result omits controlling evidence: {rule['description']}"
+            )
+        if not re.search(rule["reader_pattern"], reader_body, re.IGNORECASE):
+            raise AuthoringError(
+                f"model result obscures controlling evidence: {rule['description']}"
+            )
     return letter
+
+
+def validate_artifact(
+    artifact: Any,
+    profile: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    if not isinstance(artifact, dict) or artifact.get("schema") != ARTIFACT_SCHEMA:
+        raise AuthoringError("authored artifact schema is unsupported")
+    if set(artifact) != {"schema", "letter", "author_receipt", "evidence"}:
+        raise AuthoringError("authored artifact fields are invalid")
+    evidence = artifact.get("evidence")
+    receipt = artifact.get("author_receipt")
+    if not isinstance(evidence, dict) or evidence.get("schema") != EVIDENCE_SCHEMA:
+        raise AuthoringError("authored artifact evidence is invalid")
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema") != RECEIPT_SCHEMA
+        or receipt.get("status") != "ok"
+        or receipt.get("evidence_sha256") != sha256_json(evidence)
+    ):
+        raise AuthoringError("authored artifact host receipt does not bind its evidence")
+    letter = validate_letter(artifact.get("letter"), evidence, profile)
+    if receipt.get("letter_sha256") != sha256_json(letter):
+        raise AuthoringError("authored artifact host receipt does not bind its letter")
+    return letter, evidence, receipt
+
+
+SECTION_LABELS = {
+    "what_matters": "What matters",
+    "decisions_made": "Decisions made",
+    "needs_leo": "Needs you",
+    "people_waiting": "People waiting",
+    "risks": "Risks I’m carrying",
+    "next_owned_moves": "What I’ll do next",
+    "coverage_gaps": "What I can’t see yet",
+}
+
+
+def render_letter_html(artifact: dict[str, Any], profile: dict[str, Any]) -> str:
+    letter, evidence, receipt = validate_artifact(artifact, profile)
+    fact_index = {
+        row["ref"]: row
+        for row in evidence["facts"]
+        if isinstance(row, dict) and isinstance(row.get("ref"), str)
+    }
+    used_refs: list[str] = []
+    sections: list[str] = []
+    for name in SECTION_NAMES:
+        rows = letter[name]
+        if not rows:
+            continue
+        items: list[str] = []
+        for row in rows:
+            for ref in row["source_refs"]:
+                if ref not in used_refs:
+                    used_refs.append(ref)
+            refs = " ".join(
+                f'<span class="ref">{html_lib.escape(ref)}</span>'
+                for ref in row["source_refs"]
+            )
+            items.append(
+                '<li><p>'
+                + html_lib.escape(row["text"])
+                + f'</p><div class="refs" aria-label="Evidence references">{refs}</div></li>'
+            )
+        sections.append(
+            f'<section><h2>{html_lib.escape(SECTION_LABELS[name])}</h2>'
+            f'<ul>{"".join(items)}</ul></section>'
+        )
+    appendix_rows: list[str] = []
+    for ref in used_refs:
+        source = fact_index[ref]
+        fact = json.dumps(source["fact"], ensure_ascii=False, sort_keys=True)
+        appendix_rows.append(
+            '<li><code>'
+            + html_lib.escape(ref)
+            + '</code><span>'
+            + html_lib.escape(fact)
+            + '</span></li>'
+        )
+    generated = html_lib.escape(str(evidence.get("generated_at") or "time unavailable"))
+    host = html_lib.escape(str(receipt.get("host") or "model host unavailable"))
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chief-of-staff brief</title>
+<style>
+:root {{ color-scheme: light; --ink:#1d241f; --muted:#667067; --paper:#f6f4ed; --card:#fffefa; --line:#d8d7ce; --green:#254f3b; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:var(--paper); color:var(--ink); font-family:ui-serif,Georgia,Cambria,"Times New Roman",serif; line-height:1.5; }}
+main {{ width:min(760px,calc(100% - 32px)); margin:0 auto; padding:56px 0 72px; }}
+.eyebrow {{ margin:0 0 14px; color:var(--green); font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif; letter-spacing:.12em; text-transform:uppercase; }}
+h1 {{ margin:0; max-width:18ch; font-size:clamp(34px,7vw,62px); font-weight:500; letter-spacing:-.035em; line-height:1.03; }}
+.meta {{ margin:20px 0 42px; color:var(--muted); font:14px/1.5 ui-sans-serif,system-ui,sans-serif; }}
+section {{ border-top:1px solid var(--line); padding:26px 0 18px; }}
+h2 {{ margin:0 0 14px; color:var(--green); font:700 13px/1.2 ui-sans-serif,system-ui,sans-serif; letter-spacing:.08em; text-transform:uppercase; }}
+ul {{ list-style:none; margin:0; padding:0; }}
+section li {{ padding:12px 0; }}
+section li + li {{ border-top:1px solid color-mix(in srgb,var(--line) 70%,transparent); }}
+section p {{ margin:0; font-size:clamp(18px,2.7vw,22px); letter-spacing:-.008em; }}
+.refs {{ display:none; }}
+.closing {{ margin:34px 0 0; padding:26px; border-radius:16px; background:var(--green); color:#fff; font-size:22px; }}
+details {{ margin-top:42px; border-top:1px solid var(--line); padding-top:20px; color:var(--muted); font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }}
+summary {{ cursor:pointer; font-family:ui-sans-serif,system-ui,sans-serif; font-weight:700; color:var(--ink); }}
+details ol {{ padding-left:20px; }} details li {{ margin:14px 0; }} details code {{ display:block; color:var(--green); }} details span {{ overflow-wrap:anywhere; }}
+@media (max-width:520px) {{ main {{ width:min(100% - 24px,760px); padding:30px 0 48px; }} h1 {{ font-size:38px; }} .meta {{ margin-bottom:28px; }} section {{ padding-top:22px; }} .closing {{ margin-top:24px; padding:20px; font-size:19px; }} }}
+</style>
+</head>
+<body><main>
+<p class="eyebrow">Private · {html_lib.escape(str(evidence.get("slot") or "brief"))}</p>
+<h1>{html_lib.escape(letter["verdict"])}</h1>
+<p class="meta">Observed {generated} · Authored by {host}</p>
+{"".join(sections)}
+<p class="closing">{html_lib.escape(letter["closing"])}</p>
+<details><summary>Private evidence appendix · {len(used_refs)} cited facts</summary><ol>{"".join(appendix_rows)}</ol></details>
+</main></body></html>
+"""
 
 
 def resolve_host(
@@ -449,6 +638,7 @@ def invoke_author(
                 resolved,
                 "exec",
                 "--ephemeral",
+                "--ignore-user-config",
                 "--ignore-rules",
                 "--sandbox",
                 "read-only",
@@ -590,6 +780,27 @@ def cmd_author(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_render(args: argparse.Namespace) -> int:
+    try:
+        profile = load_profile(Path(args.profile))
+        artifact = json.loads(Path(args.input).read_text(encoding="utf-8"))
+        rendered = render_letter_html(artifact, profile)
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(output, flags, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except (AuthoringError, OSError, ValueError, RecursionError) as exc:
+        print(json.dumps({"status": "blocked", "wake": str(exc)}, indent=2), file=sys.stderr)
+        return 1
+    print(str(output))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="shadow-brief-author")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -602,6 +813,11 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--host", choices=("codex", "claude-code"))
             command.add_argument("--model")
         command.set_defaults(func=handler)
+    render = sub.add_parser("render")
+    render.add_argument("--input", required=True)
+    render.add_argument("--output", required=True)
+    render.add_argument("--profile", default=str(PROFILE_PATH))
+    render.set_defaults(func=cmd_render)
     return parser
 
 

@@ -98,6 +98,22 @@ def letter(ref: str = "packet.board") -> dict:
     }
 
 
+def artifact(evidence: dict, value: dict | None = None) -> dict:
+    value = value or letter()
+    return {
+        "schema": author.ARTIFACT_SCHEMA,
+        "letter": value,
+        "author_receipt": {
+            "schema": author.RECEIPT_SCHEMA,
+            "status": "ok",
+            "host": "codex",
+            "evidence_sha256": author.sha256_json(evidence),
+            "letter_sha256": author.sha256_json(value),
+        },
+        "evidence": evidence,
+    }
+
+
 class ChiefOfStaffAuthorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.profile = author.load_profile()
@@ -137,6 +153,18 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
         )
         self.assertNotIn("x" * 1201, encoded)
 
+    def test_owner_scheduler_kill_is_pinned_even_when_newer_progress_would_drop_it(self) -> None:
+        source = packet()
+        source["board"]["entities"][0]["recent_progress"] = [
+            "SCHEDULER DISABLED BY LEO -> keep it dead.",
+            *[f"newer line {index}" for index in range(12)],
+        ]
+        evidence = author.build_evidence_projection(source, self.profile)
+        progress = [
+            row["fact"] for row in evidence["facts"] if row["kind"] == "recent_progress"
+        ]
+        self.assertIn("SCHEDULER DISABLED BY LEO -> keep it dead.", progress)
+
     def test_missing_host_fails_closed(self) -> None:
         with self.assertRaisesRegex(author.AuthoringError, "deterministic collector cannot author"):
             author.resolve_host(self.profile, None, {})
@@ -145,6 +173,61 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
         with self.assertRaisesRegex(author.AuthoringError, "unknown evidence"):
             author.validate_letter(letter("made.up.fact"), self.evidence, self.profile)
 
+    def test_reader_rejects_technical_dump_language_and_duplicate_items(self) -> None:
+        technical = letter()
+        technical["what_matters"][0]["text"] = "The origin/main branch has 174/174 tests."
+        with self.assertRaisesRegex(author.AuthoringError, "forbidden reader-body"):
+            author.validate_letter(technical, self.evidence, self.profile)
+        duplicate = letter()
+        duplicate["risks"] = [dict(duplicate["what_matters"][0])]
+        with self.assertRaisesRegex(author.AuthoringError, "repeats"):
+            author.validate_letter(duplicate, self.evidence, self.profile)
+
+    def test_reader_must_plainly_cite_an_owner_kill_when_present(self) -> None:
+        evidence = dict(self.evidence)
+        evidence["facts"] = [
+            *self.evidence["facts"],
+            {
+                "ref": "packet.board.entities.0.recent_progress.9",
+                "kind": "recent_progress",
+                "fact": "SCHEDULER DISABLED BY LEO -> the old report stays off.",
+            },
+        ]
+        omitted = letter()
+        with self.assertRaisesRegex(author.AuthoringError, "omits controlling evidence"):
+            author.validate_letter(omitted, evidence, self.profile)
+
+        obscured = letter("packet.board.entities.0.recent_progress.9")
+        with self.assertRaisesRegex(author.AuthoringError, "obscures controlling evidence"):
+            author.validate_letter(obscured, evidence, self.profile)
+
+        explicit = letter("packet.board.entities.0.recent_progress.9")
+        explicit["what_matters"][0]["text"] = "You killed the old report, and it stays off."
+        self.assertEqual(author.validate_letter(explicit, evidence, self.profile), explicit)
+
+    def test_renderer_is_short_responsive_and_hides_exact_evidence_in_appendix(self) -> None:
+        rendered = author.render_letter_html(artifact(self.evidence), self.profile)
+        self.assertLess(len(rendered), 30_000)
+        self.assertIn('name="viewport"', rendered)
+        self.assertIn("@media (max-width:520px)", rendered)
+        self.assertIn("Private evidence appendix", rendered)
+        self.assertNotIn("developer status", rendered)
+        self.assertNotIn("~c6sp", rendered)
+        self.assertIn("Authored by codex", rendered)
+
+    def test_renderer_rejects_receipt_that_does_not_bind_letter(self) -> None:
+        forged = artifact(self.evidence)
+        forged["letter"]["verdict"] = "Changed after authoring."
+        with self.assertRaisesRegex(author.AuthoringError, "does not bind its letter"):
+            author.render_letter_html(forged, self.profile)
+
+    def test_renderer_escapes_model_prose(self) -> None:
+        escaped = letter()
+        escaped["closing"] = "All boats rise <together>."
+        rendered = author.render_letter_html(artifact(self.evidence, escaped), self.profile)
+        self.assertIn("All boats rise &lt;together&gt;.", rendered)
+        self.assertNotIn("<together>", rendered)
+
     @mock.patch.object(author.shutil, "which", return_value="/usr/local/bin/codex")
     def test_codex_success_requires_schema_valid_cited_json(self, _which: mock.Mock) -> None:
         def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -152,6 +235,7 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
             result_path.write_text(json.dumps(letter()), encoding="utf-8")
             self.assertIn("--sandbox", command)
             self.assertIn("read-only", command)
+            self.assertIn("--ignore-user-config", command)
             self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
             self.assertIn("Return only the schema-valid JSON letter", str(kwargs["input"]))
             return subprocess.CompletedProcess(command, 0, "", "")

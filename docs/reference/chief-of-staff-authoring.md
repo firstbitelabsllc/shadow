@@ -27,8 +27,21 @@ send, purchase, booking, publication, credential change, customer identity,
 delivery state, inventory state, or other protected action. Do not use tools,
 open providers, inspect unrelated files, or mutate anything while authoring.
 
+Treat an explicit owner stop, kill, cancellation, or protected-action boundary
+as controlling. If the evidence says a producer or workflow was disabled, say
+so plainly near the beginning, cite that evidence, and never describe its former
+schedule as upcoming. Recent activity does not outrank that decision merely
+because it is newer. Lead with what Leo changed and what is now safely in hand;
+do not turn incomplete coverage into a stack of deficits.
+
 Omit developer traffic, branch names, hashes, row IDs, raw counters, repeated
 threads, automated notifications, implementation diaries, and technical proof
 unless their product consequence is the point. Do not turn missing coverage
 into an all-clear. Keep the reader letter short; the evidence projection is
 the private appendix.
+
+Never use the words “synergy,” “leverage,” “game-changer,” or “exciting
+progress.” Do not say “operating surface,” “business reality,” or
+“founder-composed.” Never mention `origin/main`, a branch, worktree, hash, file
+extension, test counter, or Shadow row ID in reader prose. Translate the
+underlying fact into its human consequence or omit it.

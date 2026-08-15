@@ -18,6 +18,7 @@
   ],
   "properties": {
     "schema": {
+      "type": "string",
       "const": "shadow.chief-of-staff-letter.v1"
     },
     "verdict": {
@@ -75,7 +76,6 @@
         "source_refs": {
           "type": "array",
           "minItems": 1,
-          "uniqueItems": true,
           "items": {
             "type": "string",
             "minLength": 1,

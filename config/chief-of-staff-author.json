@@ -23,6 +23,10 @@
     "pull_requests": 20,
     "snowcubes_surfaces": 16
   },
+  "pinned_progress_terms": [
+    "SCHEDULER DISABLED BY LEO",
+    "MODEL-AUTHOR CONTRACT CORRECTION"
+  ],
   "section_caps": {
     "what_matters": 5,
     "decisions_made": 4,
@@ -32,6 +36,28 @@
     "next_owned_moves": 5,
     "coverage_gaps": 4
   },
+  "reader_max_characters": 5000,
+  "reader_forbidden_patterns": [
+    "\\borigin/main\\b",
+    "\\b(?:branch|worktree|sha|hash)\\b",
+    "\\b(?:git|github) (?:commit|pull request)\\b",
+    "\\b\\d+/\\d+ tests?\\b",
+    "~[a-z0-9]{4}\\b",
+    "/Users/",
+    "\\.(?:py|json|tsx?|mjs)\\b",
+    "\\b(?:synergy|leverage|game[- ]changer|exciting progress)\\b",
+    "\\boperating surface\\b",
+    "\\bbusiness reality\\b",
+    "\\bfounder-composed\\b",
+    "\\[FINAL v\\d+\\]"
+  ],
+  "reader_required_if_evidence": [
+    {
+      "evidence_term": "SCHEDULER DISABLED BY LEO",
+      "reader_pattern": "\\b(?:killed|disabled|stays? off|kept? off|not running)\\b",
+      "description": "Leo's decision to keep the old report off"
+    }
+  ],
   "tone": {
     "register": "direct, personal, generous, and quietly accountable",
     "principle": "all boats rise",

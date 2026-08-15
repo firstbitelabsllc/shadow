@@ -114,6 +114,10 @@ TASK_RE = re.compile(
 )
 MILESTONE_RE = re.compile(r"^### (?P<title>.+)\s*$")
 BRIEF_RE = re.compile(r"^- (?P<key>Project|Mode|Priority): (?P<val>.+)$")
+BRIEF_CONTROL_PROGRESS_MARKERS = (
+    "SCHEDULER DISABLED BY LEO",
+    "MODEL-AUTHOR CONTRACT CORRECTION",
+)
 
 
 def brief_subject(slot: Any, generated_at: Any) -> str:
@@ -374,6 +378,12 @@ def parse_plan(path: Path) -> EntityBrief:
         elif section_name == "progress" and clean.startswith("- "):
             recent_progress.append(clean[2:])
 
+    selected_progress = list(recent_progress[-4:])
+    for item in recent_progress:
+        if any(marker in item for marker in BRIEF_CONTROL_PROGRESS_MARKERS):
+            selected_progress.append(item)
+    selected_progress = list(dict.fromkeys(selected_progress))
+
     return EntityBrief(
         project=project,
         plan=str(path),
@@ -383,7 +393,7 @@ def parse_plan(path: Path) -> EntityBrief:
         blocked=blocked,
         forgotten=forgotten,
         decisions=decisions[-3:],
-        recent_progress=recent_progress[-4:],
+        recent_progress=selected_progress,
     )
 
 

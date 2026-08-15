@@ -3362,6 +3362,32 @@ class SourceBoundaryTests(unittest.TestCase):
 
 
 class AuthorityScopeTests(unittest.TestCase):
+    def test_owner_control_progress_survives_the_recent_progress_cap(self):
+        old_controls = [
+            "2026-08-15T14:00:00Z SCHEDULER DISABLED BY LEO -> keep it off",
+            "2026-08-15T14:04:00Z MODEL-AUTHOR CONTRACT CORRECTION -> Codex or Claude writes it",
+        ]
+        newer = [
+            f"2026-08-15T15:{index:02d}:00Z ordinary progress {index}"
+            for index in range(10)
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "PLAN.md"
+            plan.write_text(
+                "## Brief\n- Project: ai-leo\n- Mode: ship\n\n"
+                "## Tasks\n### Brief\n"
+                "- [pending] Produce a useful brief ~br01 | proof: read artifact -> useful\n"
+                "- [pending] Close the brief ~br02 (DoD) | proof: read artifact -> complete | needs: ~br01\n\n"
+                "## Deferred\n\n## Contradictions\n\n## Progress\n"
+                + "".join(f"- {line}\n" for line in [*old_controls, *newer]),
+                encoding="utf-8",
+            )
+
+            parsed = brief.parse_plan(plan)
+
+        self.assertEqual(parsed.recent_progress[:4], newer[-4:])
+        self.assertEqual(parsed.recent_progress[-2:], old_controls)
+
     def test_partitioned_plan_is_materialized_before_the_brief_parses_it(self):
         logical = (
             "# Product plan\n\n"
