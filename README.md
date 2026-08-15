@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/shadow-banner.svg" alt="Shadow's loop: read the plan, choose the next checkpoint, act, verify, and leave a resumable checkpoint." width="100%" /></p>
+<p align="center"><img src="assets/shadow-banner.svg" alt="The Shadow loop — board, claim, work, prove, accept — orbiting one glowing checkpoint labeled resume here." width="100%" /></p>
 
 # Shadow
 

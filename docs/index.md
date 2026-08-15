@@ -12,6 +12,9 @@ hero:
     - theme: alt
       text: See the workflow
       link: /guide/quickstart
+  image:
+    src: /session-handoff.svg
+    alt: A session is killed mid-flight; its thread drops to the ~/.shadow board rail and resumes seamlessly in the next session.
 
 features:
   - title: Calm briefing
