@@ -1,11 +1,11 @@
-<p align="center"><img src="assets/shadow-banner.svg" alt="The Shadow loop — board, claim, work, prove, accept — orbiting one glowing checkpoint labeled resume here." width="100%" /></p>
+<p align="center"><img src="assets/shadow-banner.svg" alt="Shadow's loop: read the plan, choose the next checkpoint, act, verify, and leave a resumable checkpoint." width="100%" /></p>
 
 # Shadow
 
 **Shadow is you, one step down.** Say what you want in any wired AI coding
 host — Claude Code, Codex, Cursor — and Shadow keeps the work durable: one
-board per computer saying who is doing what, one `PLAN.md` per project holding
-the work itself, and a proof receipt on every finished step. Kill any chat at
+board per computer, one `PLAN.md` per project, a proof receipt on every
+finished step. Kill any chat at
 any time; the next session resumes exactly where the last one stopped.
 
 Six words carry the whole system:
@@ -24,14 +24,14 @@ The loop every seat runs: **claim → work → prove → accept → next**.
 ## Install
 
 ```bash
-git clone --branch shadow-v1.0.1 --depth 1 https://github.com/firstbitelabsllc/shadow.git
+git clone --branch shadow-v1.0.2 --depth 1 https://github.com/firstbitelabsllc/shadow.git
 cd shadow && bash install.sh && shadow doctor
 ```
 
 Git, Bash, Python 3.10+, and a supported host. No Node, no daemon, no
-database, no transcript store. The clone is the install; to upgrade, check
-out the newer `shadow-v*` tag and rerun `install.sh`. If `shadow` is not
-found afterward, add `~/.local/bin` to your PATH.
+transcript store. The clone is the install; to upgrade, check out the
+newer `shadow-v*` tag and rerun `install.sh`. If `shadow` is not found,
+add `~/.local/bin` to your PATH.
 
 ## First run
 
@@ -61,19 +61,14 @@ All configuration is deliberately small, and stress-tested that way:
   (`version`, `adversarial-lenses`). That's the whole config file, by law:
   a dial may exist only where a wrong value costs quality, never truth.
 - **Environment** — `SHADOW_ROOT`, `SHADOW_PORTFOLIO_ROOT`, host binary
-  overrides, and the bucket bindings above; the full table is in
+  overrides, and the bucket bindings above — full table:
   [Config](https://firstbitelabsllc.github.io/shadow/reference/config).
-
-## What it will and will not do
-
-It coordinates every reachable lane, keeps one writer per claim, and leaves
-proof plus a successor; it refuses unclaimed execution, missing proof, and
-ambiguous authority. Hosts keep their own auth, model, and billing.
 
 When your branch tracks a configured `origin`, `shadow throw` also takes one
 Git coordination lock under `refs/heads/shadow/claims/v1/<entity>/<row>`: it
 carries no task or proof text, never becomes authority, and leaves the tracked
 branch untouched. With no such upstream the same flow stays local-only.
+Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
 
 ## Docs
 
