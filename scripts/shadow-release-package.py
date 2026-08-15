@@ -329,7 +329,7 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
     bin_dir.mkdir()
     home = root / "home"
     home.mkdir()
-    for host in (".claude", ".agents", ".cursor", ".codex"):
+    for host in (".claude", ".agents", ".cursor", ".codex", ".grok"):
         (home / host).mkdir()
     native_host = bin_dir / "codex"
     native_host.write_text("#!/bin/sh\nprintf 'codex stranger-proof\\n'\n", encoding="utf-8")
@@ -383,12 +383,14 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         home / ".claude" / "skills" / "shadow",
         home / ".agents" / "skills" / "shadow",
         home / ".cursor" / "skills" / "shadow",
+        home / ".grok" / "skills" / "shadow",
     ):
         if not mount.is_symlink() or mount.resolve() != consumer.resolve():
             raise RuntimeError(f"installed skill mount is missing or stale: {mount.parent.parent.name}")
     for instructions in (
         home / ".claude" / "CLAUDE.md",
         home / ".codex" / "AGENTS.md",
+        home / ".grok" / "AGENTS.md",
     ):
         text = instructions.read_text(encoding="utf-8")
         if goal.strip() not in text or text.count("<!-- shadow:goal:begin") != 1:

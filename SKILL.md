@@ -81,7 +81,7 @@ That text never changes; only what the plans point at does.
 Use the active host directly for normal work. For each claimed handoff, use:
 
 ```bash
-shadow host run --host codex|claude-code|cursor \
+shadow host run --host codex|claude-code|cursor|grok \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
   --allowed-path <exact-path> \
   --out <project>/.shadow/evidence/<id>.json
@@ -180,7 +180,7 @@ boundary `config.md` draws around which provider a native host uses.
 Shadow owns a single product identity and one authority hierarchy: the
 per-computer root board for coordination, entity `PLAN.md` files for milestone
 and checkpoint detail/proof, and project-local evidence paths. Native Codex,
-Claude Code, and Cursor own model authentication and execution. Do not add a
+Claude Code, Cursor, and Grok own model authentication and execution. Do not add a
 router, daemon, scheduler, cloud executor, credential relay, transcript store,
 or parallel status database.
 Thermo and Ponytail remain separate review disciplines rather than runtime
