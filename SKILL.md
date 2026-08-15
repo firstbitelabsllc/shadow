@@ -1,6 +1,6 @@
 ---
 name: shadow
-description: "Chief-of-staff briefing, durable plan/proof/resume, and proactive parallel native-host execution for AI coding work."
+description: "Use when work must survive sessions, hosts, or interruptions and needs one durable plan, proof, resume path, or chief-of-staff brief. Skip factual answers and obvious one-step edits with no handoff."
 ---
 
 # Shadow
@@ -58,7 +58,8 @@ resolved from the current local catalog. Broad intent compiles into the owning
 `PLAN.md`; its full tool roster, inventories, matrices, sequencing, fallbacks,
 and standing policy stay there. Fold a request-specific boundary into outcome
 or proof rather than adding a fifth line. Shortening the pointer must never
-narrow the outcome.
+narrow the outcome. Quantify only when the number changes a decision. Counts of
+tasks, agents, commits, tests, or artifacts are receipts, not goal success.
 
 `shadow throw --repo <project> --task '~id' --by <seat>` atomically claims the
 checkpoint and returns its deterministic starting block. `shadow amp` resumes
@@ -184,3 +185,10 @@ router, daemon, scheduler, cloud executor, credential relay, transcript store,
 or parallel status database.
 Thermo and Ponytail remain separate review disciplines rather than runtime
 roles.
+
+## Acceptance
+
+Shadow is accepted only when a cold seat can recover the one authority, resume
+owned work, and run proof that could reject a plausible shallow result. A plan
+write, claim, commit, passing command, merge, install, live surface, and
+person-observed outcome remain distinct receipts.

@@ -1,6 +1,6 @@
 ---
 name: goal
-description: "Compile loose intent into the canonical PLAN and a bounded Shadow launcher with local skill tags."
+description: "Use when loose or broad intent needs one durable Shadow PLAN and a bounded launcher. Do not use for a one-step request with no handoff or to create a second task list."
 ---
 
 # Shape a goal
@@ -15,7 +15,10 @@ outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 2. If the plan is not executable, update it with the missing authority,
    contradictions, acceptance, and reachable checkpoints, then continue into
    implementation. Stop after planning only when explicitly asked.
-3. Leave the one standing Shadow goal unchanged and skill-free. For a specific
+3. Preserve the whole requested outcome. Quantify only when a number changes a
+   decision; task, agent, commit, test, and artifact counts are receipts rather
+   than success. Choose proof that would fail a plausible shallow result.
+4. Leave the one standing Shadow goal unchanged and skill-free. For a specific
    goal, emit at most 80 words across four one-line sentences:
 
 ```text
@@ -46,4 +49,6 @@ For a loose steer, translate only the operative signal using
 ## Quality gate
 
 The launcher is at most 80 words, every line changes execution, and a fresh
-seat can begin by opening its authority. If not, update the plan and cut again.
+seat can begin by opening its authority. Its proof can reject a plausible bad
+implementation without mistaking activity for completion. If not, update the
+plan and cut again.
