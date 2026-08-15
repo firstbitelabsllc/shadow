@@ -178,6 +178,28 @@ class ShadowHostTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             shadow_host.parser().parse_args(["probe", "--host", "not-a-host"])
 
+    def test_documented_delegation_door_names_every_sealed_host_and_no_model(self) -> None:
+        # Shadow's entire delegation surface is `shadow host run --host X`.
+        # The SKILL handoff and the CLI help are the caller contract. If either
+        # omits a cheaper/alternate host, a seat cannot dispatch there.
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        help_text = subprocess.run(
+            [str(SKILL_DIR / "bin" / "shadow"), "help", "host"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+        for host in ("codex", "claude-code", "cursor", "grok"):
+            self.assertIn(host, skill, f"SKILL.md handoff lost {host}")
+            self.assertIn(host, help_text, f"shadow help host lost {host}")
+            args = shadow_host.parser().parse_args(["run", "--host", host, "--task-file", "t", "--task-id", "add-proof"])
+            self.assertEqual(args.host, host)
+            shape = shadow_host.public_command_shape(host)
+            self.assertNotIn("--model", shape)
+            self.assertNotIn("-m", shape)
+        self.assertIn("shadow host run --host", skill)
+        self.assertNotIn("shadow route", skill)
+
     def test_grok_command_shape_uses_prompt_file_without_model_selector(self) -> None:
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
