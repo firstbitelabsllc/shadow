@@ -2978,6 +2978,365 @@ def _snowcubes_m12_surface(observed_at: str) -> dict[str, Any]:
     )
 
 
+SNOWCUBES_CUSTOMER_OPPORTUNITY_SCHEMA = (
+    "shadow.snowcubes-customer-opportunities.v1"
+)
+
+
+def _customer_source_time(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _customer_source_age_hours(value: Any, observed_at: datetime) -> float | None:
+    parsed = _customer_source_time(value)
+    if parsed is None or parsed > observed_at:
+        return None
+    return round((observed_at - parsed).total_seconds() / 3600.0, 1)
+
+
+def _customer_email(value: Any) -> str | None:
+    normalized = str(value or "").strip().casefold()
+    if not normalized or "@" not in normalized or any(char.isspace() for char in normalized):
+        return None
+    return normalized
+
+
+def build_snowcubes_customer_opportunities(
+    *,
+    mail: dict[str, Any] | None,
+    shopify: dict[str, Any] | None,
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    """Join exact Snowcubes mail and Shopify facts without creating a CRM.
+
+    The join deliberately accepts already-read provider facts. It performs no
+    provider call and grants no permission to contact, draft, send, purchase,
+    refund, or change fulfillment. A subject line never proves delivery,
+    customer identity, first-order status, or an order match.
+    """
+    now = _customer_source_time(observed_at)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    observed = now.isoformat(timespec="seconds")
+    mail = mail if isinstance(mail, dict) else {}
+    shopify = shopify if isinstance(shopify, dict) else {}
+
+    problems: list[str] = []
+    mail_available = mail.get("available") is True
+    mail_complete = mail_available and mail.get("complete") is True
+    mail_account = str(mail.get("acting_email") or SNOWCUBES_BUSINESS_MAIL).casefold()
+    if mail_account != SNOWCUBES_BUSINESS_MAIL:
+        problems.append("mail source is not the Snowcubes business account")
+        mail_available = False
+        mail_complete = False
+
+    shopify_available = shopify.get("available") is True
+    shopify_complete = shopify_available and shopify.get("complete") is True
+    shopify_store = str(shopify.get("store") or "").strip()
+    if shopify_available and shopify_store != SNOWCUBES_SHOPIFY_STORE:
+        problems.append("Shopify source is not the canonical Snowcubes store")
+        shopify_available = False
+        shopify_complete = False
+
+    mail_rows: list[dict[str, Any]] = []
+    seen_threads: set[str] = set()
+    if mail_available:
+        for raw in mail.get("signals") or []:
+            if not isinstance(raw, dict):
+                problems.append("mail source contains a malformed signal")
+                continue
+            source_identities = {
+                str(value).strip().casefold()
+                for value in (raw.get("source_identities") or [])
+                if str(value).strip()
+            }
+            thread_id = str(raw.get("thread_id") or "").strip()
+            message_id = str(raw.get("last_message_id") or "").strip()
+            if (
+                not thread_id
+                or raw.get("stable_provider_identity") is not True
+                or mail_account not in source_identities
+            ):
+                problems.append("mail signal lacks a stable Snowcubes provider identity")
+                continue
+            thread_key = f"superhuman:{mail_account}:{thread_id}"
+            if thread_key in seen_threads:
+                continue
+            seen_threads.add(thread_key)
+            source_time = raw.get("verified_message_at") or raw.get("last_message_at")
+            tags = list(
+                dict.fromkeys(str(value) for value in (raw.get("action_tags") or []))
+            )
+            mail_rows.append(
+                {
+                    "provider_key": thread_key,
+                    "thread_id": thread_id,
+                    "last_message_id": message_id or None,
+                    "subject": str(raw.get("subject") or "")[:160],
+                    "observed_at": str(source_time or "") or None,
+                    "age_hours": _customer_source_age_hours(source_time, now),
+                    "confidence": (
+                        str(raw.get("confidence") or "UNKNOWN").upper()
+                        if raw.get("thread_body_read") is True
+                        else "LOW"
+                    ),
+                    "semantic_status": str(
+                        raw.get("semantic_status") or "UNKNOWN"
+                    ).upper(),
+                    "thread_body_read": raw.get("thread_body_read") is True,
+                    "action_tags": tags,
+                    "shopify_order_id": str(raw.get("shopify_order_id") or "").strip()
+                    or None,
+                    "shopify_customer_id": str(
+                        raw.get("shopify_customer_id") or ""
+                    ).strip()
+                    or None,
+                    "customer_email": (
+                        _customer_email(raw.get("customer_email"))
+                        if raw.get("customer_email_verified") is True
+                        else None
+                    ),
+                }
+            )
+
+    order_rows: list[dict[str, Any]] = []
+    seen_orders: set[str] = set()
+    if shopify_available:
+        for raw in shopify.get("orders") or []:
+            if not isinstance(raw, dict):
+                problems.append("Shopify source contains a malformed order")
+                continue
+            order_id = str(raw.get("order_id") or raw.get("id") or "").strip()
+            if not order_id:
+                problems.append("Shopify order lacks a stable provider identity")
+                continue
+            order_key = f"shopify:{shopify_store}:{order_id}"
+            if order_key in seen_orders:
+                continue
+            seen_orders.add(order_key)
+            source_time = raw.get("observed_at") or shopify.get("observed_at")
+            order_rows.append(
+                {
+                    "provider_key": order_key,
+                    "order_id": order_id,
+                    "order_name": str(raw.get("order_name") or raw.get("name") or "")
+                    or None,
+                    "shopify_customer_id": str(raw.get("customer_id") or "").strip()
+                    or None,
+                    "customer_email": (
+                        _customer_email(raw.get("customer_email"))
+                        if raw.get("customer_email_verified") is True
+                        else None
+                    ),
+                    "created_at": str(raw.get("created_at") or "") or None,
+                    "observed_at": str(source_time or "") or None,
+                    "age_hours": _customer_source_age_hours(source_time, now),
+                    "customer_order_count": (
+                        raw.get("customer_order_count")
+                        if isinstance(raw.get("customer_order_count"), int)
+                        and not isinstance(raw.get("customer_order_count"), bool)
+                        and raw.get("customer_order_count") >= 1
+                        else None
+                    ),
+                    "fulfillment_status": str(raw.get("fulfillment_status") or "")
+                    or None,
+                    "delivery_status": str(raw.get("delivery_status") or "").casefold()
+                    or None,
+                    "delivered_at": str(raw.get("delivered_at") or "") or None,
+                }
+            )
+
+    unmatched_orders = {row["provider_key"]: row for row in order_rows}
+
+    def order_match(mail_row: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+        order_id = mail_row.get("shopify_order_id")
+        if order_id:
+            matches = [row for row in order_rows if row["order_id"] == order_id]
+            return (matches[0], "exact_order_id") if len(matches) == 1 else (None, None)
+        customer_id = mail_row.get("shopify_customer_id")
+        if customer_id:
+            matches = [
+                row for row in order_rows if row.get("shopify_customer_id") == customer_id
+            ]
+            return (matches[0], "exact_customer_id") if len(matches) == 1 else (None, None)
+        email = mail_row.get("customer_email")
+        if email and shopify_complete:
+            matches = [row for row in order_rows if row.get("customer_email") == email]
+            return (matches[0], "exact_verified_email") if len(matches) == 1 else (None, None)
+        return None, None
+
+    def signal(state: str, *, source: str, confidence: str) -> dict[str, str]:
+        return {"state": state, "source": source, "confidence": confidence}
+
+    def opportunity(
+        mail_row: dict[str, Any] | None,
+        order_row: dict[str, Any] | None,
+        match_basis: str | None,
+    ) -> dict[str, Any]:
+        matched = mail_row is not None and order_row is not None and match_basis is not None
+        keys = [
+            value["provider_key"]
+            for value in (mail_row, order_row)
+            if isinstance(value, dict)
+        ]
+        opportunity_id = hashlib.sha256("|".join(sorted(keys)).encode("utf-8")).hexdigest()[:24]
+        tags = set(mail_row.get("action_tags") or []) if mail_row else set()
+        mail_proven = bool(
+            mail_row
+            and mail_row.get("thread_body_read") is True
+            and mail_row.get("semantic_status") in {"PROPOSAL", "OBSERVED"}
+        )
+        first_order_state = "UNKNOWN"
+        if order_row and order_row.get("customer_order_count") is not None:
+            first_order_state = (
+                "CONFIRMED" if order_row["customer_order_count"] == 1 else "NOT_FIRST"
+            )
+        delivery_state = "UNKNOWN"
+        if order_row:
+            delivery_status = order_row.get("delivery_status")
+            delivered_at = _customer_source_time(order_row.get("delivered_at"))
+            if (
+                delivery_status == "delivered"
+                and delivered_at is not None
+                and delivered_at <= now
+            ):
+                delivery_state = "CONFIRMED"
+            elif delivery_status in {"in_transit", "out_for_delivery", "attempted"}:
+                delivery_state = delivery_status.upper()
+        waiting_state = (
+            "PROPOSAL" if mail_proven and "waiting_reply" in tags else "NOT_OBSERVED"
+        ) if mail_row else "UNKNOWN"
+        recovery_state = (
+            "PROPOSAL"
+            if mail_proven and tags.intersection({"order_return", "recovery"})
+            else "NOT_OBSERVED"
+        ) if mail_row else "UNKNOWN"
+        relationship_state = (
+            "PROPOSAL"
+            if mail_proven and tags.intersection({"proactive", "reply"})
+            else "NOT_OBSERVED"
+        ) if mail_row else "UNKNOWN"
+        confidence = (
+            "HIGH"
+            if match_basis in {"exact_order_id", "exact_customer_id"}
+            else "MEDIUM" if match_basis == "exact_verified_email" else "LOW"
+        )
+        identity_known = bool(
+            matched
+            and order_row
+            and (
+                order_row.get("shopify_customer_id")
+                or order_row.get("customer_email")
+            )
+        )
+        return {
+            "opportunity_id": opportunity_id,
+            "join_state": "MATCHED" if matched else "UNKNOWN",
+            "match_basis": match_basis,
+            "confidence": confidence,
+            "customer_identity": {
+                "state": "KNOWN" if identity_known else "UNKNOWN",
+                "shopify_customer_id": (
+                    order_row.get("shopify_customer_id") if identity_known else None
+                ),
+                "customer_email": (
+                    order_row.get("customer_email") if identity_known else None
+                ),
+            },
+            "mail": mail_row or {"state": "UNKNOWN"},
+            "shopify": order_row or {"state": "UNKNOWN"},
+            "signals": {
+                "first_order": signal(
+                    first_order_state,
+                    source="shopify" if order_row else "missing_shopify",
+                    confidence="HIGH" if first_order_state != "UNKNOWN" else "LOW",
+                ),
+                "delivery": signal(
+                    delivery_state,
+                    source="shopify" if order_row else "missing_shopify",
+                    confidence="HIGH" if delivery_state != "UNKNOWN" else "LOW",
+                ),
+                "waiting_reply": signal(
+                    waiting_state,
+                    source="superhuman" if mail_row else "missing_mail",
+                    confidence=str(mail_row.get("confidence") or "LOW") if mail_row else "LOW",
+                ),
+                "recovery": signal(
+                    recovery_state,
+                    source="superhuman" if mail_row else "missing_mail",
+                    confidence=str(mail_row.get("confidence") or "LOW") if mail_row else "LOW",
+                ),
+                "relationship": signal(
+                    relationship_state,
+                    source="superhuman" if mail_row else "missing_mail",
+                    confidence=str(mail_row.get("confidence") or "LOW") if mail_row else "LOW",
+                ),
+            },
+            "permission_to_contact": "UNKNOWN",
+            "inventory_state": "UNKNOWN",
+            "protected_action": "PROPOSAL_ONLY",
+        }
+
+    opportunities: list[dict[str, Any]] = []
+    for mail_row in mail_rows:
+        order_row, basis = order_match(mail_row)
+        if order_row:
+            unmatched_orders.pop(order_row["provider_key"], None)
+        opportunities.append(opportunity(mail_row, order_row, basis))
+    for order_row in unmatched_orders.values():
+        opportunities.append(opportunity(None, order_row, None))
+    opportunities.sort(key=lambda row: row["opportunity_id"])
+
+    source_status = {
+        "superhuman": "COMPLETE" if mail_complete else (
+            "UNKNOWN" if mail_available else "UNAVAILABLE"
+        ),
+        "shopify": "COMPLETE" if shopify_complete else (
+            "UNKNOWN" if shopify_available else "UNAVAILABLE"
+        ),
+    }
+    if not mail_available:
+        problems.append("Snowcubes business mail is unavailable")
+    elif not mail_complete:
+        problems.append("Snowcubes business mail coverage is incomplete")
+    if not shopify_available:
+        problems.append("Shopify order and fulfillment facts are unavailable")
+    elif not shopify_complete:
+        problems.append("Shopify order and fulfillment coverage is incomplete")
+    if any(row["join_state"] == "UNKNOWN" for row in opportunities):
+        problems.append("one or more customer opportunities lack an exact two-source join")
+
+    return {
+        "schema": SNOWCUBES_CUSTOMER_OPPORTUNITY_SCHEMA,
+        "observed_at": observed,
+        "status": (
+            "COMPLETE"
+            if mail_complete
+            and shopify_complete
+            and all(row["join_state"] == "MATCHED" for row in opportunities)
+            else "UNKNOWN"
+        ),
+        "source_status": source_status,
+        "opportunities": opportunities,
+        "problems": list(dict.fromkeys(problems)),
+        "no_write_receipt": {
+            "provider_calls": 0,
+            "drafts_created": 0,
+            "messages_sent": 0,
+            "shopify_mutations": 0,
+        },
+    }
+
+
 def collect_snowcubes_context(
     *,
     vercel: dict[str, Any] | None = None,
@@ -4328,6 +4687,20 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         board=board,
         mail=snowcubes_mail,
     )
+    snowcubes_customer_opportunities = build_snowcubes_customer_opportunities(
+        mail=snowcubes_mail,
+        shopify={
+            "available": False,
+            "complete": False,
+            "status": "UNKNOWN",
+            "store": SNOWCUBES_SHOPIFY_STORE,
+            "orders": [],
+            "error": (
+                "Shopify read-only order and fulfillment adapter is not configured "
+                "for this producer."
+            ),
+        },
+    )
     recs = build_recommendations(board, repos)
     analysis = build_chief_of_staff_analysis(
         board=board,
@@ -4352,6 +4725,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "superhuman_context": mail,
         "producer": producer_provenance(),
         "snowcubes_context": snowcubes,
+        "snowcubes_customer_opportunities": snowcubes_customer_opportunities,
         "paint_health": paint_health,
         "analysis": analysis,
         "recommendations": [asdict(r) for r in recs],
