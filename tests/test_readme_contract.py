@@ -58,8 +58,11 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         text = (ROOT / "docs" / "guide" / "quickstart.md").read_text(encoding="utf-8")
         for phrase in (
             "shadow init --here",
-            "$EDITOR PLAN.md",
-            "shadow lint PLAN.md",
+            # `shadow init --here` writes the machine-local plan under
+            # ~/.shadow/plans/<project>/, so the quickstart must open and lint
+            # that printed path with this checkout as its source.
+            "$EDITOR ~/.shadow/plans/<project>/PLAN.md",
+            "shadow lint --repo . ~/.shadow/plans/<project>/PLAN.md",
             "shadow status --by",
             "shadow throw",
             "shadow amp",
@@ -69,6 +72,8 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         ):
             self.assertIn(phrase, text)
         self.assertNotIn("proof: cmd npm test", text)
+        # Never send a reader back to a repo-root PLAN.md: no such file exists.
+        self.assertNotIn("shadow lint PLAN.md", text)
 
     def test_public_help_is_quiet_and_advertises_supported_flags(self) -> None:
         verbs = (
