@@ -62,6 +62,7 @@ SEND_ATTEMPT_SCHEMA = "shadow.superhuman-send-attempt.v1"
 SUPERHUMAN_LOOKBACK_DAYS = 90
 SUPERHUMAN_PAGE_LIMIT = 50
 SUPERHUMAN_MAX_PAGES = 40
+SUPERHUMAN_PREWINDOW_MAX_PAGES = 40
 SUPERHUMAN_MAX_ACTION_THREADS = 40
 SUPERHUMAN_GLOBAL_ACTION_LIMIT = 40
 SUPERHUMAN_READ_BUDGET_SECONDS = 420
@@ -787,9 +788,13 @@ def build_superhuman_context(
     start_date = (now - timedelta(days=SUPERHUMAN_LOOKBACK_DAYS)).isoformat(
         timespec="seconds"
     )
+    prewindow_end_date = (
+        now - timedelta(days=SUPERHUMAN_LOOKBACK_DAYS, seconds=1)
+    ).isoformat(timespec="seconds")
     query_range = {
         "start_date": start_date,
         "end_date": end_date,
+        "prewindow_end_date": prewindow_end_date,
         "lookback_days": SUPERHUMAN_LOOKBACK_DAYS,
     }
     context_problems: list[str] = []
@@ -858,6 +863,14 @@ def build_superhuman_context(
                 "truncated": True,
             },
             "calendar": {"status": "UNKNOWN", "proposal_only": True},
+            "forgotten_horizon": {
+                "status": "UNKNOWN",
+                "end_date": prewindow_end_date,
+                "pages": 0,
+                "exhausted": False,
+                "truncated": True,
+                "wake": wake,
+            },
             "problems": [problem],
             "wake": wake,
             "metrics": {
@@ -1546,6 +1559,138 @@ def build_superhuman_context(
     global_action_limit_hit = False
     read_budget_hit = False
     linked_order = [account["acting_email"] for account in linked_accounts]
+
+    def read_prewindow_active_inbox(
+        acting_email: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
+        """Exhaust a bounded older active-inbox range without inventing history."""
+        rows: list[dict[str, Any]] = []
+        problems: list[str] = []
+        pages = 0
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        seen_provider_rows: set[str] = set()
+        total_estimate: int | None = None
+        exhausted = False
+        truncated = False
+        while pages < SUPERHUMAN_PREWINDOW_MAX_PAGES:
+            if read_budget_exhausted():
+                truncated = True
+                problems.append(
+                    "pre-window active inbox: global read budget expired before exhaustion"
+                )
+                break
+            arguments: dict[str, Any] = {
+                "acting_email": acting_email,
+                "end_date": prewindow_end_date,
+                "labels": ["INBOX"],
+                "limit": SUPERHUMAN_PAGE_LIMIT,
+                "sort": "oldest",
+            }
+            if cursor:
+                arguments["cursor"] = cursor
+            try:
+                page = call_tool("list_threads", arguments)
+                if not isinstance(page, dict):
+                    raise RuntimeError("list_threads returned no structured payload")
+                if page.get("error"):
+                    raise RuntimeError(str(page.get("error")))
+                page_rows = page.get("threads")
+                if not isinstance(page_rows, list):
+                    raise RuntimeError("list_threads returned a malformed thread list")
+            except Exception as exc:
+                preserve_assertion(exc)
+                truncated = True
+                problems.append(f"pre-window active inbox read failed: {exc}")
+                break
+            pages += 1
+            for provider_row in page_rows:
+                if not isinstance(provider_row, dict):
+                    truncated = True
+                    problems.append("pre-window active inbox returned an unusable thread row")
+                    continue
+                row = dict(provider_row)
+                row["_shadow_source_lane"] = "prewindow_active_inbox"
+                row["_shadow_prewindow"] = True
+                thread_id = str(row.get("thread_id") or row.get("id") or "").strip()
+                message_id = str(row.get("last_message_id") or "").strip()
+                if thread_id:
+                    provider_key = f"thread:{acting_email}:{thread_id}"
+                elif message_id:
+                    provider_key = f"message:{message_id}"
+                else:
+                    provider_key = "fallback:" + "|".join(
+                        (
+                            acting_email,
+                            normalized_subject(row.get("subject")),
+                            normalized_message_time(row.get("last_message_at")),
+                        )
+                    )
+                if provider_key in seen_provider_rows:
+                    truncated = True
+                    problems.append(
+                        f"pre-window active inbox repeated provider row {provider_key}"
+                    )
+                    continue
+                seen_provider_rows.add(provider_key)
+                rows.append(row)
+            estimate = page.get("total_estimate")
+            if isinstance(estimate, int) and not isinstance(estimate, bool) and estimate >= 0:
+                total_estimate = max(total_estimate or 0, estimate)
+            if bool(page.get("truncated")) or any(
+                bool(row.get("truncated"))
+                for row in page_rows
+                if isinstance(row, dict)
+            ):
+                truncated = True
+                problems.append("pre-window active inbox returned truncated provider data")
+            maximum_rows = SUPERHUMAN_PAGE_LIMIT * SUPERHUMAN_PREWINDOW_MAX_PAGES
+            if total_estimate is not None and total_estimate > maximum_rows:
+                truncated = True
+                problems.append(
+                    f"pre-window active inbox estimate {total_estimate} exceeds the {maximum_rows}-row safety bound"
+                )
+                break
+            next_cursor = str(page.get("next_cursor") or "").strip()
+            if not next_cursor:
+                exhausted = True
+                break
+            if next_cursor in seen_cursors:
+                truncated = True
+                problems.append(
+                    f"pre-window active inbox pagination cursor cycle at {next_cursor}"
+                )
+                break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        if not exhausted and pages >= SUPERHUMAN_PREWINDOW_MAX_PAGES:
+            truncated = True
+            problems.append(
+                f"pre-window active inbox stopped at the {SUPERHUMAN_PREWINDOW_MAX_PAGES}-page safety cap"
+            )
+        if exhausted and total_estimate is not None and total_estimate > len(seen_provider_rows):
+            truncated = True
+            problems.append(
+                f"pre-window active inbox estimate {total_estimate} exceeds {len(seen_provider_rows)} exhausted unique rows"
+            )
+        complete = exhausted and not truncated and not problems
+        wake = None
+        if not complete:
+            wake = (
+                f"Re-read {acting_email} active INBOX through {prewindow_end_date}, exhaust every cursor, "
+                "and verify each older obligation candidate before relying on an all-clear."
+            )
+        return rows, {
+            "status": "COMPLETE" if complete else "UNKNOWN",
+            "end_date": prewindow_end_date,
+            "pages": pages,
+            "exhausted": exhausted,
+            "truncated": truncated or not exhausted,
+            "total_estimate": total_estimate,
+            "unique_threads": len(seen_provider_rows),
+            "wake": wake,
+        }, problems
+
     for account in linked_accounts:
         acting_email = account["acting_email"]
         pages = 0
@@ -1719,10 +1864,18 @@ def build_superhuman_context(
                 }
             )
 
+        declared_raw_thread_count = len(raw_threads)
+        declared_rows = list(raw_threads)
+        prewindow_rows, forgotten_horizon_receipt, prewindow_problems = (
+            read_prewindow_active_inbox(acting_email)
+        )
+        raw_threads.extend(prewindow_rows)
+        problems.extend(prewindow_problems)
+
         newest_source = max(
             (
                 (parsed_time(row.get("last_message_at")), str(row.get("last_message_at") or ""))
-                for row in raw_threads
+                for row in declared_rows
                 if parsed_time(row.get("last_message_at")) is not None
             ),
             default=(None, None),
@@ -1777,14 +1930,16 @@ def build_superhuman_context(
                     "unusable source timestamp"
                 )
             labels = {str(label).lower() for label in (row.get("labels") or [])}
-            if "unread" in labels:
+            if not row.get("_shadow_prewindow") and "unread" in labels:
                 metrics["unread_threads"] += 1
-            if signal["kind"] == "github":
+            if not row.get("_shadow_prewindow") and signal["kind"] == "github":
                 metrics["github_notification_threads"] += 1
-            elif signal["kind"] == "human_or_other":
+            elif not row.get("_shadow_prewindow") and signal["kind"] == "human_or_other":
                 metrics["human_or_other_threads"] += 1
             combined = f"{row.get('subject', '')} {row.get('snippet', '')}".lower()
-            if "usage limit" in combined or "usage/spend limit" in combined:
+            if not row.get("_shadow_prewindow") and (
+                "usage limit" in combined or "usage/spend limit" in combined
+            ):
                 metrics["cursor_limit_threads"] += 1
             account_signal_rows.append(signal)
 
@@ -2198,7 +2353,7 @@ def build_superhuman_context(
             "source_age_hours": 0.0,
             "newest_message_at": newest_source,
             "newest_message_age_hours": source_age(newest_source),
-            "threads_returned_raw": len(raw_threads),
+            "threads_returned_raw": declared_raw_thread_count,
             "threads_returned": len(account_signals),
             "total_estimate": total_estimate,
             "pagination": {
@@ -2208,6 +2363,7 @@ def build_superhuman_context(
                 "lanes": lane_receipts,
             },
             "calendar": calendar,
+            "forgotten_horizon": forgotten_horizon_receipt,
             "problems": list(dict.fromkeys(problems)),
             "metrics": metrics,
         }
@@ -2394,19 +2550,33 @@ def build_superhuman_context(
             f"Read the remaining {omitted} {category.replace('_', ' ')} row directly in "
             f"Superhuman; the {SUPERHUMAN_CATEGORY_LIMIT}-row category cap truncated this section."
         )
-    forgotten_horizon = {
-        "status": "UNKNOWN",
-        "declared_thread_start": start_date,
-        "proposal_only": True,
-        "wake": (
-            f"Search read-only Superhuman mail before {start_date[:10]} for unresolved registration, driver license, "
-            "payment, order, and return obligations; the 90-day paginated query is exhausted only for its declared range."
-        ),
-    }
-    context_problems.append(
-        f"forgotten-obligation history before {start_date[:10]} is not proven exhaustive"
+    horizon_complete = bool(coverage) and all(
+        (row.get("forgotten_horizon") or {}).get("status") == "COMPLETE"
+        for row in coverage
     )
-    context_wakes.append(forgotten_horizon["wake"])
+    forgotten_horizon = {
+        "status": "COMPLETE" if horizon_complete else "UNKNOWN",
+        "declared_thread_start": start_date,
+        "swept_through": prewindow_end_date,
+        "proposal_only": True,
+        "accounts": [
+            {
+                "acting_email": row.get("acting_email"),
+                **dict(row.get("forgotten_horizon") or {}),
+            }
+            for row in coverage
+        ],
+        "wake": None,
+    }
+    if not horizon_complete:
+        forgotten_horizon["wake"] = (
+            f"Exhaust each expected identity's read-only active INBOX through {prewindow_end_date}; "
+            "older obligations remain UNKNOWN and no action was performed."
+        )
+        context_problems.append(
+            f"forgotten-obligation active-inbox history through {prewindow_end_date} is not proven exhaustive"
+        )
+        context_wakes.append(str(forgotten_horizon["wake"]))
     semantic_unknown = any(
         signal.get("semantic_status") == "UNKNOWN" for signal in unique_signals
     )

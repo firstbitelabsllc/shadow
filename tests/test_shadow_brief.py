@@ -752,6 +752,83 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertFalse(context["all_clear_allowed"])
         self.assertEqual(context["status"], "UNKNOWN")
 
+    def test_forgotten_horizon_clears_only_after_each_expected_active_inbox_exhausts(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+        horizon_calls = []
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []} for email in identities
+                    ]
+                }
+            if name == "list_threads":
+                if "start_date" not in arguments:
+                    horizon_calls.append(dict(arguments))
+                return {"threads": [], "total_estimate": 0}
+            if name == "query_email_and_calendar":
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        self.assertEqual(len(horizon_calls), len(identities))
+        self.assertTrue(
+            all(call["sort"] == "oldest" for call in horizon_calls)
+        )
+        self.assertTrue(
+            all(call["labels"] == ["INBOX"] for call in horizon_calls)
+        )
+        self.assertEqual(context["forgotten_horizon"]["status"], "COMPLETE")
+        self.assertTrue(context["complete"])
+        self.assertTrue(context["all_clear_allowed"])
+
+    def test_forgotten_horizon_stays_unknown_when_a_cursor_cannot_exhaust(self):
+        observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
+        identities = (
+            "leojkwan@gmail.com",
+            "trysnowcubes@gmail.com",
+            "firstbitelabs@gmail.com",
+        )
+
+        def call_tool(name, arguments):
+            if name == "list_accounts":
+                return {
+                    "accounts": [
+                        {"accountEmail": email, "aliases": []} for email in identities
+                    ]
+                }
+            if name == "list_threads":
+                if (
+                    "start_date" not in arguments
+                    and arguments["acting_email"] == identities[0]
+                ):
+                    return {"threads": [], "next_cursor": "stuck", "total_estimate": 0}
+                return {"threads": [], "total_estimate": 0}
+            if name == "query_email_and_calendar":
+                return {
+                    "answer": "No conflict surfaced.",
+                    "sources": [{"id": "calendar-source"}],
+                }
+            raise AssertionError(f"unexpected Superhuman tool: {name}")
+
+        context = brief.build_superhuman_context(call_tool, observed_at=observed_at)
+
+        self.assertEqual(context["forgotten_horizon"]["status"], "UNKNOWN")
+        self.assertFalse(context["complete"])
+        self.assertFalse(context["all_clear_allowed"])
+        self.assertIn("not proven exhaustive", " ".join(context["problems"]))
+        self.assertIn("no action was performed", context["forgotten_horizon"]["wake"])
+
     def test_mail_coverage_exhausts_pages_and_deduplicates_actions_across_accounts(self):
         observed_at = brief.datetime.fromisoformat("2026-08-14T12:00:00+00:00")
         linked = ("leojkwan@gmail.com", "trysnowcubes@gmail.com")
@@ -1428,18 +1505,26 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertTrue(personal["pagination"]["truncated"])
         self.assertIn("exceeds the 2000-row pagination safety bound", " ".join(personal["problems"]))
         self.assertTrue(seen_queries)
-        for query in seen_queries:
+        declared_queries = [query for query in seen_queries if "start_date" in query]
+        horizon_queries = [query for query in seen_queries if "start_date" not in query]
+        for query in declared_queries:
             self.assertEqual(query["start_date"], "2026-05-16T12:00:00+00:00")
             self.assertEqual(query["end_date"], "2026-08-14T12:00:00+00:00")
             self.assertEqual(query["limit"], 50)
             self.assertEqual(query["sort"], "newest")
             self.assertIn(query["labels"], [["INBOX"], ["SENT"]])
             self.assertIn(query["acting_email"], identities)
+        for query in horizon_queries:
+            self.assertEqual(query["end_date"], "2026-05-16T11:59:59+00:00")
+            self.assertEqual(query["limit"], 50)
+            self.assertEqual(query["sort"], "oldest")
+            self.assertEqual(query["labels"], ["INBOX"])
+            self.assertIn(query["acting_email"], identities)
         for email in identities:
             self.assertEqual(
                 {
                     tuple(query["labels"])
-                    for query in seen_queries
+                    for query in declared_queries
                     if query["acting_email"] == email
                 },
                 {("INBOX",), ("SENT",)},
@@ -1896,8 +1981,8 @@ class PrivateStoreTests(unittest.TestCase):
         self.assertEqual(personal["status"], "UNKNOWN")
         self.assertEqual(personal["source_age_hours"], 0.0)
         self.assertEqual(personal["newest_message_age_hours"], 1.0)
-        self.assertEqual(context["forgotten_horizon"]["status"], "UNKNOWN")
-        self.assertIn("before 2026-05-16", context["forgotten_horizon"]["wake"])
+        self.assertEqual(context["forgotten_horizon"]["status"], "COMPLETE")
+        self.assertIsNone(context["forgotten_horizon"]["wake"])
         self.assertFalse(context["all_clear_allowed"])
 
     def test_mail_waiting_direction_uses_last_message_and_suppresses_done_rows(self):
