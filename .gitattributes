@@ -22,3 +22,7 @@ docs/package.json export-ignore
 docs/package-lock.json export-ignore
 docs/postcss.config.js export-ignore
 docs/vite.config.js export-ignore
+# Historical, unreferenced screenshots stay in source history but do not make
+# every stranger-install artifact pay their binary weight.
+docs/assets/brief-decision.png export-ignore
+docs/assets/board-phone.png export-ignore
