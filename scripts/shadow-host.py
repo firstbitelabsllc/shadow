@@ -32,7 +32,7 @@ from shadow_task_lib import TaskError, frozen_task_sha256
 PROBE_SCHEMA = "shadow.host-probe.v1"
 ATTEMPT_SCHEMA = "shadow.host-attempt.v1"
 HOST_RECEIPT_SCHEMA = "shadow.host-receipt.v1"
-HOSTS = {"codex", "claude-code", "cursor"}
+HOSTS = {"codex", "claude-code", "cursor", "grok"}
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 MAX_CAPTURE_BYTES = 64 * 1024
@@ -269,6 +269,15 @@ def public_command_shape(host: str) -> list[str]:
             "--force",
             "agent",
         ]
+    if host == "grok":
+        return [
+            "--cwd",
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "acceptEdits",
+            "--prompt-file",
+        ]
     raise HostError("host_unknown", f"unsupported host: {host}")
 
 
@@ -278,12 +287,14 @@ def launch_command(
     binary: str,
     repo: Path,
     final_message: Path,
+    prompt_file: Path | None = None,
 ) -> list[str]:
     """Build the private native argv for one frozen task.
 
-    All three native CLIs receive the frozen task on stdin. Cursor's current
-    non-interactive CLI requires ``agent``.  This argv never becomes an
-    attempt field.
+    Codex, Claude Code, and Cursor receive the frozen task on stdin. Grok's
+    documented headless entry is ``--prompt-file`` (not stdin). Cursor's
+    current non-interactive CLI requires ``agent``. This argv never becomes
+    an attempt field and never includes a model or account selector.
     """
 
     if host == "codex":
@@ -329,13 +340,33 @@ def launch_command(
         ]
         command.append("agent")
         return command
+    if host == "grok":
+        if prompt_file is None:
+            raise HostError("host_unknown", "grok requires a prompt file")
+        return [
+            binary,
+            "--cwd",
+            str(repo),
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "acceptEdits",
+            "--prompt-file",
+            str(prompt_file),
+        ]
     raise HostError("host_unknown", f"unsupported host: {host}")
 
 
-def command_shape(host: str, binary: str, repo: Path, final_message: Path) -> list[str]:
+def command_shape(
+    host: str,
+    binary: str,
+    repo: Path,
+    final_message: Path,
+    prompt_file: Path | None = None,
+) -> list[str]:
     """Compatibility helper for tests of the native argv."""
 
-    return launch_command(host, binary, repo, final_message)
+    return launch_command(host, binary, repo, final_message, prompt_file)
 
 
 def host_prompt(task: str, task_id: str, allowed: list[str], task_sha256: str) -> str:
@@ -476,9 +507,10 @@ def json_objects(text: str) -> list[dict[str, Any]]:
         if not isinstance(value, dict):
             return
         candidates.append(value)
-        nested = value.get("result")
-        if isinstance(nested, str) and nested != text:
-            candidates.extend(json_objects(nested))
+        for key in ("result", "text"):
+            nested = value.get(key)
+            if isinstance(nested, str) and nested != text:
+                candidates.extend(json_objects(nested))
 
     for raw in JSON_FENCE_RE.findall(text):
         try:
@@ -727,7 +759,9 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     binary = resolve_binary(args.host, args.binary)
     with tempfile.TemporaryDirectory(prefix="shadow-host-") as temp_dir:
         final_message = Path(temp_dir) / "final-message.txt"
-        command = launch_command(args.host, binary, repo, final_message)
+        prompt_file = Path(temp_dir) / "prompt.txt"
+        prompt_file.write_text(prompt, encoding="utf-8")
+        command = launch_command(args.host, binary, repo, final_message, prompt_file)
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
         output_texts = [result.get("stdout", b"").decode("utf-8", errors="replace")]
         output_texts.append(result.get("stderr", b"").decode("utf-8", errors="replace"))

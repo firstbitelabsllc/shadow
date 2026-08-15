@@ -18,11 +18,12 @@ from shadow_version import read_version, VersionError  # noqa: E402
 
 
 ROOT = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
-HOSTS = ("codex", "claude-code", "cursor")
+HOSTS = ("codex", "claude-code", "cursor", "grok")
 MOUNTS = (
     Path.home() / ".claude" / "skills" / "shadow",
     Path.home() / ".agents" / "skills" / "shadow",
     Path.home() / ".cursor" / "skills" / "shadow",
+    Path.home() / ".grok" / "skills" / "shadow",
 )
 
 
@@ -167,7 +168,8 @@ def host_goal_checks() -> list[dict[str, Any]]:
         return f"~/{relative.as_posix()}", True
 
     for label, path in (("claude-code", Path.home() / ".claude" / "CLAUDE.md"),
-                        ("codex", Path.home() / ".codex" / "AGENTS.md")):
+                        ("codex", Path.home() / ".codex" / "AGENTS.md"),
+                        ("grok", Path.home() / ".grok" / "AGENTS.md")):
         name = f"standing goal: {label}"
         resolved = path.resolve(strict=False)
         public_host = f"~/{path.relative_to(Path.home()).as_posix()}"
@@ -229,8 +231,18 @@ def host_goal_checks() -> list[dict[str, Any]]:
                 f"symlink leaves the private host root — {origin}; run: shadow goal --install"
             )
 
-    if len(origins) == 2 and origins[0][1] != origins[1][1]:
+    # Claude Code and Codex may share one canonical instruction file via
+    # symlinks. Grok's documented home file is a third, independent target
+    # and must not trip that pair's split warning.
+    pair = [
+        resolved
+        for index, resolved in origins
+        if results[index]["name"] in {"standing goal: claude-code", "standing goal: codex"}
+    ]
+    if len(pair) == 2 and pair[0] != pair[1]:
         for index, _ in origins:
+            if results[index]["name"] not in {"standing goal: claude-code", "standing goal: codex"}:
+                continue
             if results[index]["state"] == "pass":
                 results[index]["state"] = "warn"
             results[index]["detail"] += "; split: supported hosts resolve to different targets"

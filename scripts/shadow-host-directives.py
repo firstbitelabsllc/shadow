@@ -36,7 +36,7 @@ over-promise here would be a lie about someone's hand-written instructions:
   filesystem that rejects a directory `fsync` degrades to atomic visibility, not
   crash-durability of the name change — never to a partial write. This covers a
   write into a directory that already exists, which every installed host's does
-  (`~/.claude`, `~/.codex`); a fresh create that must also make new parent
+  (`~/.claude`, `~/.codex`, `~/.grok`); a fresh create that must also make new parent
   directories syncs the file and its immediate directory but not the chain of
   newly created ancestors, whose persistence across power loss is best-effort.
   A killed writer may leave its hidden temp name behind. The next writer removes
@@ -148,6 +148,7 @@ KNOWN_EARLIER_STANDING_GOALS: Final = (
 HOSTS: Final = {
     "claude-code": Path.home() / ".claude" / "CLAUDE.md",
     "codex": Path.home() / ".codex" / "AGENTS.md",
+    "grok": Path.home() / ".grok" / "AGENTS.md",
 }
 
 

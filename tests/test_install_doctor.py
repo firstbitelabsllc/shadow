@@ -34,7 +34,7 @@ class TheGateUsesTheResolvedPythonNotBarePython3(unittest.TestCase):
             bin_dir = scratch / "bin"
             home.mkdir()
             bin_dir.mkdir()
-            for host_home in (".claude", ".agents", ".cursor"):
+            for host_home in (".claude", ".agents", ".cursor", ".grok"):
                 (home / host_home).mkdir()
             marker = scratch / "versioned-interpreter-used"
 
@@ -92,7 +92,7 @@ class DoctorNamesEverySupportedHostThatDidNotReceiveTheDirective(unittest.TestCa
             bin_dir = scratch / "bin"
             home.mkdir()
             bin_dir.mkdir()
-            for directory in (".claude", ".codex", ".agents", ".cursor"):
+            for directory in (".claude", ".codex", ".agents", ".cursor", ".grok"):
                 (home / directory).mkdir()
             shadow = bin_dir / "shadow"
             shadow.symlink_to(CLI)
@@ -123,6 +123,7 @@ class DoctorNamesEverySupportedHostThatDidNotReceiveTheDirective(unittest.TestCa
         self.assertEqual(set(goal_checks), {
             "standing goal: claude-code",
             "standing goal: codex",
+            "standing goal: grok",
         })
         for item in goal_checks.values():
             self.assertEqual(item["state"], "warn")

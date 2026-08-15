@@ -188,7 +188,7 @@ class HostDirectiveOriginIsReported(unittest.TestCase):
             home = Path(tmp)
             canonical = home / "LOCAL_AGENT.md"
             canonical.write_text(doctor.standing_goal() + "\n", encoding="utf-8")
-            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md")):
+            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md"), (".grok", "AGENTS.md")):
                 host_dir = home / directory
                 host_dir.mkdir()
                 (host_dir / name).symlink_to(canonical)
@@ -199,7 +199,7 @@ class HostDirectiveOriginIsReported(unittest.TestCase):
             finally:
                 Path.home = original                        # type: ignore[assignment]
 
-        for label in ("claude-code", "codex"):
+        for label in ("claude-code", "codex", "grok"):
             item = results[f"standing goal: {label}"]
             self.assertEqual(item["state"], "pass")
             self.assertEqual(item["resolved"], "~/LOCAL_AGENT.md")
@@ -227,7 +227,7 @@ class HostDirectiveOriginIsReported(unittest.TestCase):
     def test_copies_and_split_links_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md")):
+            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md"), (".grok", "AGENTS.md")):
                 host_dir = home / directory
                 host_dir.mkdir()
                 (host_dir / name).write_text(doctor.standing_goal() + "\n", encoding="utf-8")
@@ -235,7 +235,7 @@ class HostDirectiveOriginIsReported(unittest.TestCase):
             Path.home = staticmethod(lambda: home)          # type: ignore[assignment]
             try:
                 copies = doctor.host_goal_checks()
-                for item, target_name in zip(copies, ("claude.md", "codex.md")):
+                for item, target_name in zip(copies, ("claude.md", "codex.md", "grok.md")):
                     Path(item["path"].replace("~/", f"{home}/")).unlink()
                     target = home / target_name
                     target.write_text(doctor.standing_goal() + "\n", encoding="utf-8")
@@ -246,8 +246,11 @@ class HostDirectiveOriginIsReported(unittest.TestCase):
 
         self.assertTrue(all(item["state"] == "warn" for item in copies))
         self.assertTrue(all("not a symlink" in item["detail"] for item in copies))
-        self.assertTrue(all(item["state"] == "warn" for item in split))
-        self.assertTrue(all("resolve to different targets" in item["detail"] for item in split))
+        pair = [item for item in split if item["name"] != "standing goal: grok"]
+        grok = next(item for item in split if item["name"] == "standing goal: grok")
+        self.assertTrue(all(item["state"] == "warn" for item in pair))
+        self.assertTrue(all("resolve to different targets" in item["detail"] for item in pair))
+        self.assertNotIn("resolve to different targets", grok["detail"])
 
     def test_an_outside_home_target_is_failed_and_redacted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
@@ -255,7 +258,7 @@ class HostDirectiveOriginIsReported(unittest.TestCase):
             target = Path(outside) / "private-operator" / "canonical.md"
             target.parent.mkdir()
             target.write_text(doctor.standing_goal() + "\n", encoding="utf-8")
-            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md")):
+            for directory, name in ((".claude", "CLAUDE.md"), (".codex", "AGENTS.md"), (".grok", "AGENTS.md")):
                 host_dir = home / directory
                 host_dir.mkdir()
                 (host_dir / name).symlink_to(target)

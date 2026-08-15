@@ -2,10 +2,10 @@
 
 Shadow should work the moment a host opens, in any directory, with zero
 per-session setup: same durable board, same standing goal, proxy stance on.
-This page is the complete cold-start wiring for Claude Code and Codex. Cursor's
-skill mount and sealed host-run are supported, but file-backed cold directive
-activation is explicitly unsupported until Cursor exposes a reviewed user-rule
-surface; Shadow does not invent `~/.cursor/rules`.
+This page is the complete cold-start wiring for Claude Code, Codex, and Grok.
+Cursor's skill mount and sealed host-run are supported, but file-backed cold
+directive activation is explicitly unsupported until Cursor exposes a reviewed
+user-rule surface; Shadow does not invent `~/.cursor/rules`.
 
 ## 1. Install once
 
@@ -30,7 +30,7 @@ directory has no plan, so every entry point shows the same board.
 The goal for any Shadow seat is **static**. It is the same text for every
 person, every host, every day; only what the durable plans point at changes.
 `shadow goal --install` owns this marker-delimited block inside
-`~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`:
+`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, and `~/.grok/AGENTS.md`:
 
 ```text
 ## Shadow — standing goal (static; the pointer moves, this text does not)
@@ -131,5 +131,5 @@ reading it.
 ```bash
 cd "$(mktemp -d)" && shadow status --by shadow-check
 # Run the exact Claim command status printed, then its exact Continue command.
-shadow doctor  # command, mounts, managed Claude/Codex block, and identity green
+shadow doctor  # command, mounts, managed Claude/Codex/Grok block, and identity green
 ```
