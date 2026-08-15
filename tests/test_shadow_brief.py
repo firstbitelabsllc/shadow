@@ -468,6 +468,19 @@ def _authored_products_fixture() -> dict[str, object]:
     }
 
 
+def _authored_runtime_fixture(
+    source_bundle: dict[str, str] | None = None,
+) -> dict[str, object]:
+    return {
+        "source_bundle": (
+            brief._current_authored_source_bundle()
+            if source_bundle is None
+            else source_bundle
+        ),
+        "author_module": object(),
+    }
+
+
 def _rewrite_m5_packet(row: dict[str, object], mutate) -> None:
     path = Path(str(row["archive_json"]))
     path.chmod(0o600)
@@ -967,6 +980,11 @@ class PrivateStoreTests(unittest.TestCase):
             with (
                 mock.patch.object(brief, "EVIDENCE_DIR", evidence),
                 mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    return_value=_authored_runtime_fixture(),
+                ),
                 mock.patch.object(brief, "collect_packet", return_value=packet),
                 mock.patch.object(
                     brief, "_build_authored_products", return_value=products
@@ -1036,6 +1054,11 @@ class PrivateStoreTests(unittest.TestCase):
                 mock.patch.object(brief, "EVIDENCE_DIR", evidence),
                 mock.patch.object(brief, "LOG_DIR", ledger),
                 mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    return_value=_authored_runtime_fixture(),
+                ),
+                mock.patch.object(
                     brief, "collect_packet", return_value=_scheduled_packet_fixture()
                 ),
                 mock.patch.object(
@@ -1080,6 +1103,11 @@ class PrivateStoreTests(unittest.TestCase):
             with (
                 mock.patch.object(brief, "EVIDENCE_DIR", evidence),
                 mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    return_value=_authored_runtime_fixture(),
+                ),
                 mock.patch.object(
                     brief, "collect_packet", return_value=_scheduled_packet_fixture()
                 ),
@@ -1134,6 +1162,11 @@ class PrivateStoreTests(unittest.TestCase):
                     brief,
                     "scheduled_window",
                     return_value=_scheduled_window_fixture(),
+                ),
+                mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    return_value=_authored_runtime_fixture(),
                 ),
                 mock.patch.object(
                     brief, "collect_packet", return_value=_scheduled_packet_fixture()
@@ -1293,6 +1326,11 @@ class PrivateStoreTests(unittest.TestCase):
                             brief,
                             "scheduled_window",
                             return_value=_scheduled_window_fixture(),
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "_preflight_authored_runtime",
+                            return_value=_authored_runtime_fixture(),
                         ),
                         mock.patch.object(
                             brief,
@@ -1466,6 +1504,11 @@ class PrivateStoreTests(unittest.TestCase):
                     return_value=_scheduled_window_fixture(),
                 ),
                 mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    return_value=_authored_runtime_fixture(),
+                ),
+                mock.patch.object(
                     brief, "collect_packet", return_value=_scheduled_packet_fixture()
                 ),
                 mock.patch.object(
@@ -1511,12 +1554,17 @@ class PrivateStoreTests(unittest.TestCase):
                 mock.patch.object(brief, "EVIDENCE_DIR", evidence),
                 mock.patch.object(brief, "LOG_DIR", ledger),
                 mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    return_value=_authored_runtime_fixture(before),
+                ),
+                mock.patch.object(
                     brief, "collect_packet", return_value=_scheduled_packet_fixture()
                 ),
                 mock.patch.object(
                     brief,
                     "_current_authored_source_bundle",
-                    side_effect=(before, before, after),
+                    side_effect=(before, after),
                 ),
                 mock.patch.object(
                     brief, "_build_authored_products", return_value=products
