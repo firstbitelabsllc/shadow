@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -41,6 +43,61 @@ def _list_threads_arguments(
 
 
 class ReadOnlyProviderBrokerTests(unittest.TestCase):
+    def test_receipt_validator_rejects_forged_fields_and_impossible_counts(
+        self,
+    ) -> None:
+        broker = brief.ReadOnlyProviderBroker(token_loader=lambda **_kwargs: None)
+        broker.open_superhuman_cached_session()
+        valid = broker.seal_receipt()
+
+        extra = json.loads(json.dumps(valid))
+        extra["unmeasured_provider_writes"] = 999
+        self.assertFalse(brief._valid_provider_read_receipt(extra))
+
+        impossible_session = json.loads(json.dumps(valid))
+        impossible_session["session_operations"]["initialized_notifications"] = 1
+        self.assertFalse(brief._valid_provider_read_receipt(impossible_session))
+
+        cross_balanced = json.loads(json.dumps(valid))
+        cross_balanced["broker_operations"] = {
+            "attempted": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "denied": 0,
+        }
+        cross_balanced["by_capability"] = {
+            "github.open_prs": {
+                "attempted": 1,
+                "succeeded": 0,
+                "failed": 0,
+                "denied": 0,
+            },
+            "vercel.deployments": {
+                "attempted": 0,
+                "succeeded": 1,
+                "failed": 0,
+                "denied": 0,
+            },
+        }
+        self.assertFalse(brief._valid_provider_read_receipt(cross_balanced))
+
+        missing_session = json.loads(json.dumps(valid))
+        missing_session["broker_operations"] = {
+            "attempted": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "denied": 0,
+        }
+        missing_session["by_capability"] = {
+            "superhuman.list_accounts": {
+                "attempted": 1,
+                "succeeded": 1,
+                "failed": 0,
+                "denied": 0,
+            }
+        }
+        self.assertFalse(brief._valid_provider_read_receipt(missing_session))
+
     def test_exact_cli_allowlist_counts_before_transport(self) -> None:
         observed: list[tuple[list[str], int]] = []
         broker: object
@@ -308,6 +365,114 @@ class ReadOnlyProviderBrokerTests(unittest.TestCase):
         self.assertEqual(receipt["oauth_refresh_attempts"], 0)
         self.assertEqual(receipt["write_capabilities_granted"], [])
         self.assertEqual(receipt["write_operations_executed"], 0)
+
+    def test_failed_initialized_notification_is_not_counted_as_success(self) -> None:
+        class Response:
+            headers: dict[str, str] = {"mcp-session-id": "session-1"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b'{"jsonrpc":"2.0","id":1,"result":{}}'
+
+        broker = brief.ReadOnlyProviderBroker(
+            token_loader=mock.Mock(return_value="cached-token")
+        )
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=[Response(), urllib.error.URLError("notification failed")],
+        ):
+            context = brief.collect_superhuman_context(provider_broker=broker)
+
+        receipt = broker.seal_receipt()
+        self.assertEqual(context["status"], "UNKNOWN")
+        self.assertEqual(
+            receipt["session_operations"],
+            {
+                "cached_token_lookups": 1,
+                "initialize_attempts": 1,
+                "initialized_notifications": 0,
+            },
+        )
+        self.assertTrue(brief._valid_provider_read_receipt(receipt))
+
+    def test_jsonrpc_session_error_is_not_counted_as_initialized(self) -> None:
+        class Response:
+            headers: dict[str, str] = {"mcp-session-id": "session-1"}
+
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return self.body
+
+        for label, responses in (
+            (
+                "initialize-object-error",
+                [Response(b'{"error":{"message":"initialize denied"}}')],
+            ),
+            ("initialize-string-error", [Response(b'{"error":"denied"}')]),
+            ("initialize-empty", [Response(b"{}")]),
+            (
+                "initialize-wrong-id",
+                [Response(b'{"jsonrpc":"2.0","id":999,"result":{}}')],
+            ),
+            (
+                "initialize-boolean-id",
+                [Response(b'{"jsonrpc":"2.0","id":true,"result":{}}')],
+            ),
+            (
+                "initialize-missing-id",
+                [Response(b'{"jsonrpc":"2.0","result":{}}')],
+            ),
+            (
+                "initialize-wrong-version",
+                [Response(b'{"jsonrpc":"1.0","id":1,"result":{}}')],
+            ),
+            (
+                "notification-object-error",
+                [
+                    Response(b'{"jsonrpc":"2.0","id":1,"result":{}}'),
+                    Response(b'{"error":{"message":"notify denied"}}'),
+                ],
+            ),
+            (
+                "notification-string-error",
+                [
+                    Response(b'{"jsonrpc":"2.0","id":1,"result":{}}'),
+                    Response(b'{"error":"denied"}'),
+                ],
+            ),
+        ):
+            with self.subTest(label=label):
+                broker = brief.ReadOnlyProviderBroker(
+                    token_loader=mock.Mock(return_value="cached-token")
+                )
+                urlopen = mock.Mock(side_effect=responses)
+                with mock.patch("urllib.request.urlopen", urlopen):
+                    context = brief.collect_superhuman_context(provider_broker=broker)
+
+                receipt = broker.seal_receipt()
+                self.assertEqual(context["status"], "UNKNOWN")
+                self.assertEqual(
+                    receipt["session_operations"],
+                    {
+                        "cached_token_lookups": 1,
+                        "initialize_attempts": 1,
+                        "initialized_notifications": 0,
+                    },
+                )
+                self.assertTrue(brief._valid_provider_read_receipt(receipt))
 
 
 if __name__ == "__main__":

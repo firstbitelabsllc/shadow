@@ -44,6 +44,50 @@ CUSTOMER_EVIDENCE_SCHEMA = "shadow.snowcubes-customer-opportunity-evidence.v1"
 CUSTOMER_LETTER_SCHEMA = "shadow.snowcubes-customer-opportunity-letter.v1"
 CUSTOMER_ARTIFACT_SCHEMA = "shadow.snowcubes-customer-opportunity-artifact.v1"
 CUSTOMER_RECEIPT_SCHEMA = "shadow.snowcubes-customer-opportunity-author-receipt.v1"
+AUTHOR_ISOLATION_SCHEMA = "shadow.native-author-isolation.v1"
+AUTHOR_RECEIPT_KEYS = frozenset(
+    {
+        "schema",
+        "status",
+        "host",
+        "host_executable",
+        "requested_model",
+        "model_observed",
+        "profile_sha256",
+        "prompt_sha256",
+        "evidence_sha256",
+        "letter_sha256",
+        "authored_at",
+        "tools_allowed",
+        "isolation",
+    }
+)
+CODEX_AUTHOR_DISABLED_FEATURES = (
+    "apps",
+    "auth_elicitation",
+    "browser_use",
+    "browser_use_external",
+    "browser_use_full_cdp_access",
+    "code_mode_host",
+    "computer_use",
+    "goals",
+    "hooks",
+    "image_generation",
+    "in_app_browser",
+    "memories",
+    "multi_agent",
+    "plugins",
+    "remote_plugin",
+    "shell_snapshot",
+    "shell_tool",
+    "skill_mcp_dependency_install",
+    "skill_search",
+    "standalone_web_search",
+    "tool_call_mcp_elicitation",
+    "tool_suggest",
+    "unified_exec",
+    "workspace_dependencies",
+)
 SECTION_NAMES = (
     "what_matters",
     "decisions_made",
@@ -1226,6 +1270,23 @@ def validate_artifact(
         raise AuthoringError(
             "authored artifact host receipt does not bind its evidence"
         )
+    host = receipt.get("host")
+    if host not in profile["allowed_hosts"]:
+        raise AuthoringError("authored artifact host receipt names an unsupported host")
+    _validate_author_receipt_shape(receipt)
+    if receipt.get("profile_sha256") != sha256_json(profile):
+        raise AuthoringError("authored artifact host receipt does not bind its profile")
+    if (
+        receipt.get("prompt_sha256")
+        != hashlib.sha256(PROMPT_PATH.read_bytes()).hexdigest()
+    ):
+        raise AuthoringError("authored artifact host receipt does not bind its prompt")
+    if receipt.get("tools_allowed") is not False or receipt.get(
+        "isolation"
+    ) != expected_author_isolation(host):
+        raise AuthoringError(
+            "authored artifact host receipt does not match the wrapper isolation contract"
+        )
     letter = validate_letter(artifact.get("letter"), evidence, profile)
     if receipt.get("letter_sha256") != sha256_json(letter):
         raise AuthoringError("authored artifact host receipt does not bind its letter")
@@ -1264,6 +1325,7 @@ def validate_customer_artifact(
         raise AuthoringError(
             "customer-opportunity host receipt names an unsupported host"
         )
+    _validate_author_receipt_shape(receipt)
     if receipt.get("profile_sha256") != sha256_json(profile):
         raise AuthoringError(
             "customer-opportunity host receipt does not bind its profile"
@@ -1275,10 +1337,11 @@ def validate_customer_artifact(
         raise AuthoringError(
             "customer-opportunity host receipt does not bind its prompt"
         )
-    expected_tools = "read-only sandbox" if host == "codex" else False
-    if receipt.get("tools_allowed") != expected_tools:
+    if receipt.get("tools_allowed") is not False or receipt.get(
+        "isolation"
+    ) != expected_author_isolation(host):
         raise AuthoringError(
-            "customer-opportunity host receipt does not prove tool isolation"
+            "customer-opportunity host receipt does not match the wrapper isolation contract"
         )
     try:
         generated_at = datetime.fromisoformat(
@@ -1526,6 +1589,106 @@ def _extract_claude_result(stdout: str) -> Any:
     return envelope
 
 
+def sanitized_author_environment(environ: dict[str, str], host: str) -> dict[str, str]:
+    """Expose only host auth and process essentials to the isolated model CLI."""
+    common = {
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LOGNAME",
+        "NODE_EXTRA_CA_CERTS",
+        "PATH",
+        "SHELL",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "USER",
+        "XDG_CONFIG_HOME",
+    }
+    host_auth = (
+        {"CODEX_HOME", "OPENAI_API_KEY"}
+        if host == "codex"
+        else {"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR"}
+    )
+    allowed = common | host_auth
+    return {
+        key: value
+        for key, value in environ.items()
+        if key in allowed and isinstance(value, str)
+    }
+
+
+def expected_author_isolation(host: str) -> dict[str, Any]:
+    if host == "codex":
+        controls = {
+            "strict_config": True,
+            "ignore_user_config": True,
+            "ignore_rules": True,
+            "ephemeral": True,
+            "sandbox": "read-only",
+            "disabled_features": list(CODEX_AUTHOR_DISABLED_FEATURES),
+        }
+    elif host == "claude-code":
+        controls = {
+            "bare": True,
+            "safe_mode": True,
+            "slash_commands": False,
+            "chrome": False,
+            "tools": [],
+            "mcp_servers": [],
+            "session_persistence": False,
+        }
+    else:
+        raise AuthoringError(f"unsupported author host: {host}")
+    return {
+        "schema": AUTHOR_ISOLATION_SCHEMA,
+        "host": host,
+        "temporary_cwd": True,
+        "temporary_home": True,
+        "host_auth_only_environment": True,
+        "operational_provider_credentials": [],
+        "native_model_transport_allowed": True,
+        "tool_allowlist": [],
+        "mcp_servers": [],
+        "controls": controls,
+    }
+
+
+def _validate_author_receipt_shape(receipt: dict[str, Any]) -> None:
+    if set(receipt) != AUTHOR_RECEIPT_KEYS:
+        raise AuthoringError("authored artifact host receipt fields are invalid")
+    host = receipt.get("host")
+    executable = receipt.get("host_executable")
+    expected_executable = {"codex": "codex", "claude-code": "claude"}.get(host)
+    if (
+        expected_executable is None
+        or not isinstance(executable, str)
+        or not executable
+        or not Path(executable).is_absolute()
+        or Path(executable).name != expected_executable
+    ):
+        raise AuthoringError("authored artifact host executable is invalid")
+    requested_model = receipt.get("requested_model")
+    if requested_model is not None and (
+        not isinstance(requested_model, str) or not requested_model.strip()
+    ):
+        raise AuthoringError("authored artifact requested model is invalid")
+    if receipt.get("model_observed") is not None:
+        raise AuthoringError("authored artifact observed model is invalid")
+    try:
+        authored_at = datetime.fromisoformat(
+            str(receipt.get("authored_at") or "").replace("Z", "+00:00")
+        )
+        if authored_at.tzinfo is None:
+            raise ValueError("timestamp lacks a timezone")
+    except ValueError as exc:
+        raise AuthoringError("authored artifact time is invalid") from exc
+
+
 def _invoke_structured_author(
     evidence: dict[str, Any],
     profile: dict[str, Any],
@@ -1540,7 +1703,14 @@ def _invoke_structured_author(
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     environ: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if (
+        host not in {"codex", "claude-code"}
+        or not isinstance(profile.get("allowed_hosts"), list)
+        or host not in profile["allowed_hosts"]
+    ):
+        raise AuthoringError(f"unsupported author host: {host}")
     executable = "codex" if host == "codex" else "claude"
+    child_environment = sanitized_author_environment(environ or {}, host)
     resolved = shutil.which(executable)
     if resolved is None:
         raise AuthoringError(f"configured author host is unavailable: {executable}")
@@ -1554,34 +1724,56 @@ def _invoke_structured_author(
     command: list[str]
     with tempfile.TemporaryDirectory(prefix="shadow-brief-author-") as temp_name:
         temp = Path(temp_name)
+        private_home = temp / "home"
+        private_xdg = temp / "xdg"
+        private_tmp = temp / "tmp"
+        private_claude = temp / "claude"
+        for directory in (private_home, private_xdg, private_tmp, private_claude):
+            directory.mkdir(mode=0o700)
+        child_environment.update(
+            {
+                "HOME": str(private_home),
+                "XDG_CONFIG_HOME": str(private_xdg),
+                "TEMP": str(private_tmp),
+                "TMP": str(private_tmp),
+                "TMPDIR": str(private_tmp),
+            }
+        )
+        if host == "claude-code":
+            child_environment["CLAUDE_CONFIG_DIR"] = str(private_claude)
         if host == "codex":
             result_path = temp / "result.json"
             command = [
                 resolved,
                 "exec",
+                "--strict-config",
                 "--ephemeral",
                 "--ignore-user-config",
                 "--ignore-rules",
                 "--sandbox",
                 "read-only",
+                "--cd",
+                str(temp),
                 "--skip-git-repo-check",
                 "--output-schema",
                 str(result_schema_path),
                 "--output-last-message",
                 str(result_path),
             ]
+            for feature in CODEX_AUTHOR_DISABLED_FEATURES:
+                command.extend(("--disable", feature))
             if model:
                 command.extend(("--model", model))
             command.append("-")
             completed = runner(
                 command,
                 input=prompt,
-                cwd=str(ROOT),
+                cwd=str(temp),
                 capture_output=True,
                 text=True,
                 timeout=timeout,
                 check=False,
-                env=environ,
+                env=child_environment,
             )
             if completed.returncode != 0:
                 raise AuthoringError(
@@ -1598,6 +1790,10 @@ def _invoke_structured_author(
             command = [
                 resolved,
                 "--print",
+                "--bare",
+                "--safe-mode",
+                "--disable-slash-commands",
+                "--no-chrome",
                 "--no-session-persistence",
                 "--permission-mode",
                 "dontAsk",
@@ -1616,12 +1812,12 @@ def _invoke_structured_author(
             completed = runner(
                 command,
                 input=prompt,
-                cwd=str(ROOT),
+                cwd=str(temp),
                 capture_output=True,
                 text=True,
                 timeout=timeout,
                 check=False,
-                env=environ,
+                env=child_environment,
             )
             if completed.returncode != 0:
                 raise AuthoringError(
@@ -1646,7 +1842,8 @@ def _invoke_structured_author(
         "evidence_sha256": sha256_json(evidence),
         "letter_sha256": sha256_json(letter),
         "authored_at": datetime.now(timezone.utc).isoformat(),
-        "tools_allowed": False if host == "claude-code" else "read-only sandbox",
+        "tools_allowed": False,
+        "isolation": expected_author_isolation(host),
     }
     return letter, receipt
 

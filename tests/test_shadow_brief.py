@@ -426,6 +426,10 @@ def _scheduled_packet_fixture(
     consistent: bool = True,
     producer: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    provider_broker = brief.ReadOnlyProviderBroker(
+        token_loader=lambda *, allow_refresh: None
+    )
+    provider_broker.open_superhuman_cached_session()
     return {
         "generated_at": generated_at,
         "slot": "morning",
@@ -433,12 +437,34 @@ def _scheduled_packet_fixture(
         "authority": {"board_snapshot": {"consistent": consistent, "revision": 41}},
         "paint_health": {},
         "producer": producer if producer is not None else _m5_producer_fixture(),
+        "provider_access": provider_broker.seal_receipt(),
         "superhuman_context": _m5_mail_fixture(),
         "repos": [],
         "github_open_prs": [],
         "recommendations": [],
         "analysis": {},
         "snowcubes_context": {"surfaces": []},
+    }
+
+
+def _authored_products_fixture() -> dict[str, object]:
+    return {
+        "source_json": b'{"source":true}\n',
+        "chief_json": b'{"chief":true}\n',
+        "chief_html": b"<html>chief</html>",
+        "customer_json": b'{"customer":true}\n',
+        "customer_html": b"<html>customer</html>",
+        "chief_receipt": {
+            "status": "ok",
+            "host": "codex",
+            "authored_at": "2026-08-12T12:08:00Z",
+        },
+        "customer_receipt": {
+            "status": "ok",
+            "host": "codex",
+            "authored_at": "2026-08-12T12:12:00Z",
+        },
+        "source_bundle": brief._current_authored_source_bundle(),
     }
 
 
@@ -472,6 +498,153 @@ def _rewrite_m5_html(row: dict[str, object], mutate) -> None:
 
 
 class PrivateStoreTests(unittest.TestCase):
+    def test_private_archive_rolls_back_final_name_when_parent_fsync_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "outcome.json"
+            real_fsync_directory = brief._fsync_directory
+            calls = 0
+
+            def fail_first_parent_fsync(path):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise OSError("injected parent fsync failure")
+                return real_fsync_directory(path)
+
+            with (
+                mock.patch.object(
+                    brief,
+                    "_fsync_directory",
+                    side_effect=fail_first_parent_fsync,
+                ),
+                self.assertRaisesRegex(OSError, "injected parent fsync failure"),
+            ):
+                brief._place_private_archive(
+                    target, b'{"status":"ok"}\n', final_mode=0o600
+                )
+
+            self.assertFalse(target.exists())
+
+    def test_private_archive_reads_temporary_identity_before_publishing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "outcome.json"
+            original_lstat = Path.lstat
+
+            def fail_temporary_identity(path):
+                if path.name.startswith(f".{target.name}."):
+                    raise OSError("injected identity failure")
+                return original_lstat(path)
+
+            with (
+                mock.patch.object(Path, "lstat", fail_temporary_identity),
+                self.assertRaisesRegex(OSError, "injected identity failure"),
+            ):
+                brief._place_private_archive(
+                    target, b'{"status":"ok"}\n', final_mode=0o600
+                )
+
+            self.assertFalse(target.exists())
+
+    def test_private_bundle_atomic_rename_refuses_racing_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            target = parent / "bundle"
+
+            def create_racing_target(_source, destination):
+                destination.mkdir()
+                raise FileExistsError("racing target won")
+
+            with (
+                mock.patch.object(
+                    brief,
+                    "_rename_directory_noreplace",
+                    side_effect=create_racing_target,
+                ),
+                self.assertRaisesRegex(FileExistsError, "racing target won"),
+            ):
+                brief._place_private_bundle(target, {"manifest.json": b"{}\n"})
+
+            self.assertTrue(target.is_dir())
+            self.assertEqual(list(target.iterdir()), [])
+            self.assertEqual(
+                [path for path in parent.iterdir() if path.name != "bundle"], []
+            )
+
+    def test_native_no_replace_rename_never_replaces_existing_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            source = parent / "source"
+            target = parent / "target"
+            source.mkdir()
+            target.mkdir()
+            (source / "source.txt").write_text("source", encoding="utf-8")
+            (target / "target.txt").write_text("target", encoding="utf-8")
+
+            with self.assertRaises(FileExistsError):
+                brief._rename_directory_noreplace(source, target)
+
+            self.assertTrue((source / "source.txt").is_file())
+            self.assertEqual((target / "target.txt").read_text(), "target")
+
+    def test_private_bundle_rolls_back_when_parent_fsync_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            target = parent / "bundle"
+            real_fsync_directory = brief._fsync_directory
+
+            def fail_published_parent(path):
+                if path == parent and target.exists():
+                    raise OSError("injected published-parent fsync failure")
+                return real_fsync_directory(path)
+
+            with (
+                mock.patch.object(
+                    brief, "_fsync_directory", side_effect=fail_published_parent
+                ),
+                self.assertRaisesRegex(OSError, "published-parent fsync failure"),
+            ):
+                brief._place_private_bundle(target, {"manifest.json": b"{}\n"})
+
+            self.assertFalse(target.exists())
+
+    def test_authored_run_turns_provider_policy_failure_into_blocked_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            args = mock.Mock(
+                scheduled_trigger=False,
+                slot="morning",
+                chief_host="codex",
+                customer_host="codex",
+            )
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    return_value={
+                        "source_bundle": brief._current_authored_source_bundle(),
+                        "author_module": object(),
+                    },
+                ),
+                mock.patch.object(
+                    brief,
+                    "collect_packet",
+                    side_effect=brief.ProviderPolicyError("mutator denied"),
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(args, {})
+
+            summary = json.loads((ledger / "last-run.json").read_text())
+
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(summary["status"], "blocked")
+        self.assertIn("ProviderPolicyError: mutator denied", summary["wake"])
+
     def test_new_private_jsonl_entry_fsyncs_parent_and_preserves_append(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "ledger" / "events.jsonl"
@@ -742,6 +915,723 @@ class PrivateStoreTests(unittest.TestCase):
         )
         self.assertEqual(plist["ProgramArguments"][1], str(program))
         self.assertEqual(plist["ProgramArguments"][-1], "--scheduled-trigger")
+        self.assertEqual(
+            plist["ProgramArguments"][2:-1],
+            [
+                "authored-run",
+                "--chief-host",
+                "codex",
+                "--customer-host",
+                "codex",
+            ],
+        )
+        command = " ".join(plist["ProgramArguments"])
+        for forbidden in ("--deliver", "--send-authorized-self", "send_draft"):
+            self.assertNotIn(forbidden, command)
+
+    def test_unauthorized_manual_delivery_makes_no_provider_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            html_path = Path(tmp) / "brief.html"
+            html_path.write_text("<p>private brief</p>", encoding="utf-8")
+            token = mock.Mock(side_effect=AssertionError("provider auth was read"))
+            with mock.patch.object(brief, "_mcp_remote_token", token):
+                result = brief.deliver_superhuman_http(
+                    html_path,
+                    subject="Shadow brief",
+                    send_authorized_self=False,
+                )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["delivery_status"], "not_sent")
+        self.assertIsNone(result["draft_id"])
+        token.assert_not_called()
+
+    def test_authored_run_publishes_both_products_without_delivery_or_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            packet = _scheduled_packet_fixture()
+            products = _authored_products_fixture()
+            args = mock.Mock(
+                scheduled_trigger=False,
+                slot="morning",
+                chief_host="codex",
+                customer_host="codex",
+            )
+            notify = mock.Mock(return_value={"status": "ok"})
+            delivery = mock.Mock(side_effect=AssertionError("delivery was reached"))
+            deterministic = mock.Mock(
+                side_effect=AssertionError("deterministic renderer was reached")
+            )
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "collect_packet", return_value=packet),
+                mock.patch.object(
+                    brief, "_build_authored_products", return_value=products
+                ),
+                mock.patch.object(brief, "macos_notify", notify),
+                mock.patch.object(brief, "deliver_superhuman", delivery),
+                mock.patch.object(brief, "deliver_superhuman_http", delivery),
+                mock.patch.object(brief, "render_html", deterministic),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(args, {})
+
+            archives = sorted(evidence.iterdir())
+            bundle = next(path for path in archives if path.is_dir())
+            bundle_files = sorted(bundle.iterdir())
+            bundle_mode = stat.S_IMODE(bundle.stat().st_mode)
+            bundle_modes = [stat.S_IMODE(path.stat().st_mode) for path in bundle_files]
+            receipt_path = next(evidence.glob("manual-authored-window-*-outcome.json"))
+            receipt_mode = stat.S_IMODE(receipt_path.stat().st_mode)
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            manifest = json.loads(
+                (bundle / "manifest.json").read_text(encoding="utf-8")
+            )
+            latest_exists = (evidence / "latest.html").exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(archives), 2)
+        self.assertEqual(bundle_mode, 0o700)
+        self.assertEqual(len(bundle_files), 6)
+        self.assertEqual(bundle_modes, [0o600] * 6)
+        self.assertEqual(receipt_mode, 0o600)
+        self.assertEqual(manifest["status"], "UNKNOWN_NO_RETRY")
+        self.assertEqual(receipt["provider_mutations"]["drafts_created"], 0)
+        self.assertEqual(receipt["provider_mutations"]["messages_sent"], 0)
+        self.assertEqual(receipt["delivery_status"], "not_requested")
+        self.assertFalse(latest_exists)
+        notify.assert_called_once()
+        delivery.assert_not_called()
+        deterministic.assert_not_called()
+
+    def test_authored_run_publishes_reader_bundle_atomically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            products = _authored_products_fixture()
+            args = mock.Mock(
+                scheduled_trigger=False,
+                slot="morning",
+                chief_host="codex",
+                customer_host="codex",
+            )
+            original_place = brief._place_private_archive
+            staged_writes = 0
+
+            def fail_third_staged_write(path, content, **kwargs):
+                nonlocal staged_writes
+                if path.parent.name.endswith(".staging"):
+                    staged_writes += 1
+                    if staged_writes == 3:
+                        raise OSError("injected staged publication failure")
+                return original_place(path, content, **kwargs)
+
+            notify = mock.Mock(return_value={"status": "ok"})
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(
+                    brief, "_build_authored_products", return_value=products
+                ),
+                mock.patch.object(
+                    brief, "_place_private_archive", side_effect=fail_third_staged_write
+                ),
+                mock.patch.object(brief, "macos_notify", notify),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(args, {})
+
+            visible_entries = list(evidence.iterdir()) if evidence.exists() else []
+
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(staged_writes, 3)
+        self.assertEqual(visible_entries, [])
+        notify.assert_not_called()
+
+    def test_authored_run_reserves_unknown_manifest_before_notification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            products = _authored_products_fixture()
+            args = mock.Mock(
+                scheduled_trigger=False,
+                slot="morning",
+                chief_host="codex",
+                customer_host="codex",
+            )
+            original_place = brief._place_private_archive
+
+            def fail_outcome(path, content, **kwargs):
+                if path.name.endswith("-outcome.json"):
+                    raise OSError("injected outcome failure")
+                return original_place(path, content, **kwargs)
+
+            notify = mock.Mock(return_value={"status": "ok"})
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(
+                    brief, "_build_authored_products", return_value=products
+                ),
+                mock.patch.object(
+                    brief, "_place_private_archive", side_effect=fail_outcome
+                ),
+                mock.patch.object(brief, "macos_notify", notify),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(args, {})
+
+            bundle = next(path for path in evidence.iterdir() if path.is_dir())
+            manifest = json.loads(
+                (bundle / "manifest.json").read_text(encoding="utf-8")
+            )
+            outcomes = list(evidence.glob("*-outcome.json"))
+
+        self.assertEqual(exit_code, 3)
+        self.assertEqual(manifest["status"], "UNKNOWN_NO_RETRY")
+        self.assertEqual(manifest["notification"]["status"], "UNKNOWN_NO_RETRY")
+        self.assertEqual(outcomes, [])
+        notify.assert_called_once()
+
+    def test_authored_window_index_is_a_rebuildable_cache_not_success_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            evidence.mkdir()
+            ledger.mkdir()
+            products = _authored_products_fixture()
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot=None,
+                chief_host="codex",
+                customer_host="codex",
+            )
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief,
+                    "AUTHORED_WINDOW_LOG",
+                    ledger / "authored-windows.jsonl",
+                ),
+                mock.patch.object(
+                    brief,
+                    "scheduled_window",
+                    return_value=_scheduled_window_fixture(),
+                ),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(
+                    brief, "_valid_producer_provenance", return_value=True
+                ),
+                mock.patch.object(
+                    brief,
+                    "_authored_source_bundle_matches_commit",
+                    return_value=True,
+                ),
+                mock.patch.object(
+                    brief, "_build_authored_products", return_value=products
+                ),
+                mock.patch.object(
+                    brief, "_authored_products_are_fresh", return_value=(True, None)
+                ),
+                mock.patch.object(
+                    brief,
+                    "_append_private_jsonl",
+                    side_effect=OSError("injected index failure"),
+                ),
+                mock.patch.object(
+                    brief,
+                    "macos_notify",
+                    return_value={
+                        "status": "ok",
+                        "notified_at": "2026-08-12T12:15:00Z",
+                    },
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(
+                    args, _scheduled_proof_fixture()
+                )
+
+            outcome = json.loads(
+                next(evidence.glob("authored-window-*-outcome.json")).read_text(
+                    encoding="utf-8"
+                )
+            )
+            last_run = json.loads(
+                (ledger / "last-run.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(outcome["status"], "ok")
+        self.assertIn("index_problem", last_run)
+        self.assertFalse((ledger / "authored-windows.jsonl").exists())
+
+    def test_corrupt_legacy_window_ledger_still_consumes_the_natural_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            evidence.mkdir()
+            ledger.mkdir()
+            legacy_log = ledger / "windows.jsonl"
+            legacy_log.write_bytes(b'{"truncated":\n')
+            legacy_log.chmod(0o600)
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot=None,
+                chief_host="codex",
+                customer_host="codex",
+            )
+            collect = mock.Mock(return_value=_scheduled_packet_fixture())
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", legacy_log),
+                mock.patch.object(
+                    brief, "AUTHORED_WINDOW_LOG", ledger / "authored-windows.jsonl"
+                ),
+                mock.patch.object(
+                    brief,
+                    "scheduled_window",
+                    return_value=_scheduled_window_fixture(),
+                ),
+                mock.patch.object(brief, "collect_packet", collect),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                first_exit = brief._cmd_authored_run_locked(
+                    args, _scheduled_proof_fixture()
+                )
+
+            legacy_log.write_text("", encoding="utf-8")
+            legacy_log.chmod(0o600)
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", legacy_log),
+                mock.patch.object(
+                    brief, "AUTHORED_WINDOW_LOG", ledger / "authored-windows.jsonl"
+                ),
+                mock.patch.object(
+                    brief,
+                    "scheduled_window",
+                    return_value=_scheduled_window_fixture(),
+                ),
+                mock.patch.object(brief, "collect_packet", collect),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                second_exit = brief._cmd_authored_run_locked(
+                    args, _scheduled_proof_fixture()
+                )
+
+            barrier = ledger / "scheduled-attempt-20260812-080000.json"
+            barrier_exists = barrier.is_file()
+
+        self.assertEqual((first_exit, second_exit), (3, 3))
+        self.assertTrue(barrier_exists)
+        collect.assert_not_called()
+
+    def test_scheduled_author_failure_keeps_barrier_and_publishes_no_reader_artifact(
+        self,
+    ):
+        for failure in (
+            ValueError("chief author returned invalid JSON"),
+            subprocess.TimeoutExpired(["codex"], 30),
+            RuntimeError("customer render failed"),
+        ):
+            with self.subTest(failure=type(failure).__name__):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    evidence = root / "evidence"
+                    ledger = root / "ledger"
+                    evidence.mkdir()
+                    ledger.mkdir()
+                    args = mock.Mock(
+                        scheduled_trigger=True,
+                        slot=None,
+                        chief_host="codex",
+                        customer_host="codex",
+                    )
+                    notify = mock.Mock(return_value={"status": "ok"})
+                    delivery = mock.Mock(
+                        side_effect=AssertionError("provider mutation was reached")
+                    )
+                    author = mock.Mock(side_effect=failure)
+                    with (
+                        mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                        mock.patch.object(brief, "LOG_DIR", ledger),
+                        mock.patch.object(
+                            brief, "WINDOW_LOG", ledger / "windows.jsonl"
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "AUTHORED_WINDOW_LOG",
+                            ledger / "authored-windows.jsonl",
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "scheduled_window",
+                            return_value=_scheduled_window_fixture(),
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "collect_packet",
+                            return_value=_scheduled_packet_fixture(),
+                        ),
+                        mock.patch.object(
+                            brief, "_valid_producer_provenance", return_value=True
+                        ),
+                        mock.patch.object(
+                            brief,
+                            "_authored_source_bundle_matches_commit",
+                            return_value=True,
+                        ),
+                        mock.patch.object(brief, "_build_authored_products", author),
+                        mock.patch.object(brief, "macos_notify", notify),
+                        mock.patch.object(brief, "deliver_superhuman", delivery),
+                        mock.patch.object(brief, "deliver_superhuman_http", delivery),
+                        contextlib.redirect_stdout(io.StringIO()),
+                        contextlib.redirect_stderr(io.StringIO()),
+                    ):
+                        exit_code = brief._cmd_authored_run_locked(
+                            args, _scheduled_proof_fixture()
+                        )
+
+                    barrier = ledger / "scheduled-attempt-20260812-080000.json"
+                    reader_artifacts = list(evidence.glob("*.html")) + list(
+                        evidence.glob("*.json")
+                    )
+                    barrier_exists = barrier.is_file()
+                    barrier_mode = (
+                        stat.S_IMODE(barrier.stat().st_mode) if barrier_exists else None
+                    )
+
+                self.assertEqual(exit_code, 3)
+                self.assertTrue(barrier_exists)
+                self.assertEqual(barrier_mode, 0o400)
+                self.assertEqual(reader_artifacts, [])
+                author.assert_called_once()
+                notify.assert_not_called()
+                delivery.assert_not_called()
+
+    def test_scheduled_authored_preflight_failure_blocks_before_collection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            evidence.mkdir()
+            ledger.mkdir()
+            collect = mock.Mock(
+                side_effect=AssertionError("provider collection was reached")
+            )
+            author = mock.Mock()
+            notify = mock.Mock()
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot=None,
+                chief_host="codex",
+                customer_host="codex",
+            )
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief,
+                    "scheduled_window",
+                    return_value=_scheduled_window_fixture(),
+                ),
+                mock.patch.object(
+                    brief,
+                    "_preflight_authored_runtime",
+                    side_effect=RuntimeError("codex unavailable"),
+                ),
+                mock.patch.object(brief, "collect_packet", collect),
+                mock.patch.object(brief, "_build_authored_products", author),
+                mock.patch.object(brief, "macos_notify", notify),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(
+                    args, _scheduled_proof_fixture()
+                )
+
+            barrier = ledger / "scheduled-attempt-20260812-080000.json"
+            barrier_exists = barrier.is_file()
+
+        self.assertEqual(exit_code, 3)
+        self.assertTrue(barrier_exists)
+        collect.assert_not_called()
+        author.assert_not_called()
+        notify.assert_not_called()
+
+    def test_author_loader_uses_verified_sha_cache_key(self):
+        old_name = "_shadow_brief_author_runtime"
+        sentinel = object()
+        previous = sys.modules.get(old_name)
+        sys.modules[old_name] = sentinel
+        try:
+            source_sha256 = brief._current_authored_source_bundle()[
+                "scripts/shadow-brief-author.py"
+            ]
+            loaded = brief._load_brief_author_module(source_sha256)
+            self.assertIsNot(loaded, sentinel)
+            self.assertEqual(loaded._shadow_source_sha256, source_sha256)
+            self.assertIs(brief._load_brief_author_module(source_sha256), loaded)
+            with self.assertRaisesRegex(RuntimeError, "changed after source preflight"):
+                brief._load_brief_author_module("0" * 64)
+        finally:
+            if previous is None:
+                sys.modules.pop(old_name, None)
+            else:
+                sys.modules[old_name] = previous
+
+    def test_authored_product_freshness_binds_both_hosts_to_the_natural_window(
+        self,
+    ):
+        products = {
+            "chief_receipt": {"authored_at": "2026-08-12T12:08:00Z"},
+            "customer_receipt": {"authored_at": "2026-08-12T12:12:00Z"},
+        }
+        fresh, wake = brief._authored_products_are_fresh(
+            products,
+            generated_at="2026-08-12T08:05:00-04:00",
+            scheduled_for="2026-08-12T08:00:00-04:00",
+            now=brief.datetime.fromisoformat("2026-08-12T12:13:00+00:00"),
+        )
+        self.assertTrue(fresh)
+        self.assertIsNone(wake)
+
+        late = json.loads(json.dumps(products))
+        late["customer_receipt"]["authored_at"] = "2026-08-12T12:31:00Z"
+        fresh, wake = brief._authored_products_are_fresh(
+            late,
+            generated_at="2026-08-12T08:05:00-04:00",
+            scheduled_for="2026-08-12T08:00:00-04:00",
+            now=brief.datetime.fromisoformat("2026-08-12T12:20:00+00:00"),
+        )
+        self.assertFalse(fresh)
+        self.assertIn("outside the source window", str(wake))
+
+    def test_scheduled_authored_run_rejects_uncommitted_author_contracts_before_hosts(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            evidence.mkdir()
+            ledger.mkdir()
+            args = mock.Mock(
+                scheduled_trigger=True,
+                slot=None,
+                chief_host="codex",
+                customer_host="codex",
+            )
+            author = mock.Mock(return_value=_authored_products_fixture())
+            notify = mock.Mock(return_value={"status": "ok"})
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(brief, "WINDOW_LOG", ledger / "windows.jsonl"),
+                mock.patch.object(
+                    brief,
+                    "AUTHORED_WINDOW_LOG",
+                    ledger / "authored-windows.jsonl",
+                ),
+                mock.patch.object(
+                    brief,
+                    "scheduled_window",
+                    return_value=_scheduled_window_fixture(),
+                ),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(
+                    brief, "_valid_producer_provenance", return_value=True
+                ),
+                mock.patch.object(
+                    brief,
+                    "_authored_source_bundle_matches_commit",
+                    return_value=False,
+                ),
+                mock.patch.object(brief, "_build_authored_products", author),
+                mock.patch.object(brief, "macos_notify", notify),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(
+                    args, _scheduled_proof_fixture()
+                )
+
+            committed_bundle = any(path.is_dir() for path in evidence.iterdir())
+
+        self.assertEqual(exit_code, 3)
+        self.assertFalse(committed_bundle)
+        author.assert_not_called()
+        notify.assert_not_called()
+
+    def test_authored_run_rehashes_contracts_after_both_hosts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "evidence"
+            ledger = root / "ledger"
+            before = brief._current_authored_source_bundle()
+            after = {**before, "scripts/shadow-brief-author.py": "f" * 64}
+            products = _authored_products_fixture()
+            args = mock.Mock(
+                scheduled_trigger=False,
+                slot="morning",
+                chief_host="codex",
+                customer_host="codex",
+            )
+            notify = mock.Mock(return_value={"status": "ok"})
+            with (
+                mock.patch.object(brief, "EVIDENCE_DIR", evidence),
+                mock.patch.object(brief, "LOG_DIR", ledger),
+                mock.patch.object(
+                    brief, "collect_packet", return_value=_scheduled_packet_fixture()
+                ),
+                mock.patch.object(
+                    brief,
+                    "_current_authored_source_bundle",
+                    side_effect=(before, before, after),
+                ),
+                mock.patch.object(
+                    brief, "_build_authored_products", return_value=products
+                ) as build,
+                mock.patch.object(brief, "macos_notify", notify),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = brief._cmd_authored_run_locked(args, {})
+
+            committed_bundle = evidence.exists() and any(
+                path.is_dir() for path in evidence.iterdir()
+            )
+
+        self.assertEqual(exit_code, 3)
+        self.assertFalse(committed_bundle)
+        build.assert_called_once()
+        notify.assert_not_called()
+
+    def test_verify_authored_outcomes_is_no_send_source_proof_only(self):
+        producer = _m5_producer_fixture()
+        bundle = brief._current_authored_source_bundle()
+        rows = [
+            {
+                "scheduled_for": "2026-08-12T08:00:00-04:00",
+                "producer": producer,
+                "source_bundle": bundle,
+            },
+            {
+                "scheduled_for": "2026-08-12T20:00:00-04:00",
+                "producer": producer,
+                "source_bundle": bundle,
+            },
+        ]
+        with mock.patch.object(brief, "_validate_authored_outcome", return_value=[]):
+            result = brief.verify_authored_outcomes(
+                rows,
+                evidence_dir=Path("/private/evidence"),
+                ledger_dir=Path("/private/ledger"),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "source-proof-only")
+        self.assertEqual(result["delivery_status"], "not_requested")
+        self.assertFalse(result["mailbox_readback_satisfied"])
+        self.assertIn("does not satisfy", result["note"])
+
+        duplicate = [*rows, dict(rows[-1])]
+        with mock.patch.object(brief, "_validate_authored_outcome", return_value=[]):
+            result = brief.verify_authored_outcomes(
+                duplicate,
+                evidence_dir=Path("/private/evidence"),
+                ledger_dir=Path("/private/ledger"),
+            )
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any(
+                "duplicate authored outcomes" in problem
+                for problem in result["problems"]
+            )
+        )
+
+    def test_authored_outcome_reader_requires_private_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp)
+            path = evidence / "authored-window-20260812-080000-outcome.json"
+            path.write_text('{"scheduled_for":"window"}\n', encoding="utf-8")
+            path.chmod(0o644)
+            rows, problems = brief._read_authored_outcomes(evidence)
+            self.assertEqual(rows, [])
+            self.assertTrue(
+                any("unsafe authored outcome" in value for value in problems)
+            )
+
+            path.chmod(0o600)
+            rows, problems = brief._read_authored_outcomes(evidence)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(problems, [])
+
+    def test_authored_notification_must_finish_inside_its_window(self):
+        on_time = {
+            "status": "ok",
+            "notified_at": "2026-08-12T12:20:00Z",
+        }
+        self.assertTrue(
+            brief._authored_notification_is_fresh(
+                on_time,
+                generated_at="2026-08-12T08:05:00-04:00",
+                scheduled_for="2026-08-12T08:00:00-04:00",
+            )
+        )
+        late = {**on_time, "notified_at": "2026-08-12T12:31:00Z"}
+        self.assertFalse(
+            brief._authored_notification_is_fresh(
+                late,
+                generated_at="2026-08-12T08:05:00-04:00",
+                scheduled_for="2026-08-12T08:00:00-04:00",
+            )
+        )
+
+    def test_last_run_cache_is_atomic_private_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp)
+            with mock.patch.object(brief, "LOG_DIR", ledger):
+                first = brief._write_last_run_best_effort({"status": "first"})
+                second = brief._write_last_run_best_effort({"status": "second"})
+            path = ledger / "last-run.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            mode = stat.S_IMODE(path.stat().st_mode)
+
+        self.assertTrue(first)
+        self.assertTrue(second)
+        self.assertEqual(payload, {"status": "second"})
+        self.assertEqual(mode, 0o600)
 
     def test_mail_coverage_discovers_linked_accounts_and_keeps_missing_expected_identity_unknown(
         self,
@@ -3076,7 +3966,11 @@ class PrivateStoreTests(unittest.TestCase):
             packet = brief.collect_packet(slot="morning")
 
         self.assertIs(packet["superhuman_context"], mail)
-        collect_mail.assert_called_once_with()
+        collect_mail.assert_called_once()
+        self.assertIsInstance(
+            collect_mail.call_args.kwargs.get("provider_broker"),
+            brief.ReadOnlyProviderBroker,
+        )
         html = brief.render_html(packet)
         self.assertEqual(html.count("Mail and calendar coverage"), 1)
         self.assertEqual(html.count("What was checked"), 1)
@@ -5910,8 +6804,6 @@ class AuthorityScopeTests(unittest.TestCase):
                 root = Path(tmp)
                 evidence = root / "evidence"
                 ledger = root / "ledger"
-                real_write_text = Path.write_text
-                last_run_attempts: list[Path] = []
                 packet = _scheduled_packet_fixture(
                     consistent=branch != "board",
                     generated_at=(
@@ -5921,15 +6813,10 @@ class AuthorityScopeTests(unittest.TestCase):
                     ),
                 )
 
-                def fail_last_run(path, *args, **kwargs):
-                    if path.name == "last-run.json":
-                        last_run_attempts.append(path)
-                        raise OSError(f"{branch} last-run unavailable")
-                    return real_write_text(path, *args, **kwargs)
-
                 notify = mock.Mock()
                 deliver = mock.Mock()
                 append = mock.Mock()
+                last_run = mock.Mock(return_value=False)
                 args = mock.Mock(
                     scheduled_trigger=True,
                     slot="morning",
@@ -5950,12 +6837,7 @@ class AuthorityScopeTests(unittest.TestCase):
                     mock.patch.object(brief, "macos_notify", notify),
                     mock.patch.object(brief, "deliver_superhuman", deliver),
                     mock.patch.object(brief, "append_scheduled_window", append),
-                    mock.patch.object(
-                        brief.Path,
-                        "write_text",
-                        autospec=True,
-                        side_effect=fail_last_run,
-                    ),
+                    mock.patch.object(brief, "_write_last_run_best_effort", last_run),
                     contextlib.redirect_stdout(io.StringIO()),
                     contextlib.redirect_stderr(io.StringIO()),
                 ):
@@ -5968,7 +6850,7 @@ class AuthorityScopeTests(unittest.TestCase):
                         self.fail(f"{branch} recovery write escaped: {exc}")
 
                 self.assertNotEqual(exit_code, 0)
-                self.assertEqual(last_run_attempts, [ledger / "last-run.json"])
+                last_run.assert_called_once()
                 self.assertEqual(notify.call_count, 0)
                 self.assertEqual(deliver.call_count, 0)
                 self.assertEqual(append.call_count, 0)

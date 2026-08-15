@@ -11,9 +11,12 @@ never carries operational plans, mailbox receipts, or a second task queue.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import fcntl
 import hashlib
 import html
+import importlib.util
 import json
 import math
 import os
@@ -27,6 +30,7 @@ import stat
 import subprocess
 import sys
 import time
+import types
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -47,6 +51,7 @@ PRIVATE_BRIEF_ROOT = Path.home() / ".shadow" / "briefs"
 EVIDENCE_DIR = PRIVATE_BRIEF_ROOT / "evidence"
 LOG_DIR = PRIVATE_BRIEF_ROOT / "ledger"
 WINDOW_LOG = LOG_DIR / "scheduled-windows.jsonl"
+AUTHORED_WINDOW_LOG = LOG_DIR / "authored-scheduled-windows.jsonl"
 SEND_ATTEMPT_LOG = LOG_DIR / "send-attempts.jsonl"
 MAILBOX_READBACK_LOG = LOG_DIR / "mailbox-readbacks.jsonl"
 SELF_MAIL = "leojkwan@gmail.com"
@@ -57,6 +62,7 @@ EXPECTED_SUPERHUMAN_IDENTITIES = (
     "firstbitelabs@gmail.com",
 )
 SUPERHUMAN_CONTEXT_SCHEMA = "shadow.superhuman-context.v3"
+PROVIDER_READ_RECEIPT_SCHEMA = "shadow.provider-read-receipt.v1"
 PRODUCER_PROVENANCE_SCHEMA = "shadow.brief-producer.v1"
 SCHEDULED_ATTEMPT_SCHEMA = "shadow.bidaily-attempt.v1"
 SEND_ATTEMPT_SCHEMA = "shadow.superhuman-send-attempt.v1"
@@ -110,8 +116,28 @@ SNOWCUBES_NATIVE_LINKS = {
 # natural windows. Older Snowcubes-first and generic notes remain private
 # history, not evidence for this outcome.
 WINDOW_RECEIPT_SCHEMA = "shadow.bidaily-window.v4"
+AUTHORED_WINDOW_RECEIPT_SCHEMA = "shadow.authored-bidaily-window.v1"
 MAILBOX_READBACK_SCHEMA = "shadow.superhuman-mailbox-readback.v1"
 SUPERHUMAN_MCP_RESOURCE = "https://mcp.mail.superhuman.com/mcp"
+SUPERHUMAN_READ_ONLY_QUERY = (
+    "Read only: for the next 14 days, summarize concrete calendar conflicts, deadlines, and "
+    "follow-through suggested by mail. Also search older accessible mail for unresolved "
+    "registration, driver license, payment, order, or return obligations predating the declared "
+    f"{SUPERHUMAN_LOOKBACK_DAYS}-day thread list; older hits are proposals, not exhaustive proof. "
+    "Return proposals only. Do not create, update, invite, book, send, purchase, cancel, or "
+    "change any account state."
+)
+NATIVE_AUTHOR_HOST = "codex"
+AUTHORED_SOURCE_FILES = (
+    "scripts/shadow-brief.py",
+    "scripts/shadow-brief-author.py",
+    "config/chief-of-staff-author.json",
+    "config/snowcubes-customer-opportunity-author.json",
+    "docs/reference/chief-of-staff-authoring.md",
+    "docs/reference/snowcubes-customer-opportunity-authoring.md",
+    "schemas/chief-of-staff-letter.v1.json",
+    "schemas/snowcubes-customer-opportunity-letter.v1.json",
+)
 
 
 class PrivateJSONLError(OSError):
@@ -238,6 +264,431 @@ def _run(
         timeout=timeout,
         check=False,
         env=env,
+    )
+
+
+class ProviderPolicyError(RuntimeError):
+    """A provider operation escaped the brief's closed read-only policy."""
+
+
+class ReadOnlyProviderBroker:
+    """Closed, measurable read surface for one brief collection pass.
+
+    The broker counts operations before transport, rejects every unrecognised
+    CLI or MCP shape, and becomes immutable once its receipt is sealed. It has
+    no write method and never refreshes provider credentials.
+    """
+
+    _CLI_POLICIES = {
+        "github.open_prs": (
+            "gh",
+            "search",
+            "prs",
+            "--author",
+            "@me",
+            "--state",
+            "open",
+            "--limit",
+            str(GITHUB_PR_LIMIT),
+            "--json",
+            "title,url,repository,updatedAt,isDraft",
+        ),
+        "vercel.deployments": ("vercel", "ls", "--format", "json", "-y"),
+        "supabase.projects": (
+            "supabase",
+            "projects",
+            "list",
+            "--output",
+            "json",
+        ),
+    }
+    _SUPERHUMAN_METHODS = frozenset(
+        {"list_accounts", "list_threads", "get_thread", "query_email_and_calendar"}
+    )
+
+    def __init__(
+        self,
+        *,
+        run_transport: Any | None = None,
+        superhuman_transport: Any | None = None,
+        token_loader: Any | None = None,
+    ) -> None:
+        self._run_transport = run_transport or _run
+        self._superhuman_transport = superhuman_transport
+        self._token_loader = token_loader
+        self._sealed = False
+        self._counts = {"attempted": 0, "succeeded": 0, "failed": 0, "denied": 0}
+        self._by_capability: dict[str, dict[str, int]] = {}
+        self._linked_accounts: set[str] = set()
+        self._listed_threads: set[tuple[str, str]] = set()
+        self._allowed_cursors: dict[tuple[Any, ...], set[str]] = {}
+        self._list_accounts_called = False
+        self._calendar_accounts: set[str] = set()
+        self._session_operations = {
+            "cached_token_lookups": 0,
+            "initialize_attempts": 0,
+            "initialized_notifications": 0,
+        }
+        policy = {
+            "cli": {key: list(value) for key, value in self._CLI_POLICIES.items()},
+            "superhuman_methods": sorted(self._SUPERHUMAN_METHODS),
+            "superhuman_query": SUPERHUMAN_READ_ONLY_QUERY,
+            "oauth_refresh_allowed": False,
+        }
+        self._policy_sha256 = hashlib.sha256(
+            json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    def _capability_counts(self, capability: str) -> dict[str, int]:
+        return self._by_capability.setdefault(
+            capability,
+            {"attempted": 0, "succeeded": 0, "failed": 0, "denied": 0},
+        )
+
+    def _begin(self, capability: str) -> None:
+        if self._sealed:
+            raise ProviderPolicyError("the provider receipt is sealed")
+        self._counts["attempted"] += 1
+        self._capability_counts(capability)["attempted"] += 1
+
+    def _mark(self, capability: str, state: str) -> None:
+        self._counts[state] += 1
+        self._capability_counts(capability)[state] += 1
+
+    def _deny(self, capability: str, reason: str) -> None:
+        self._mark(capability, "denied")
+        raise ProviderPolicyError(reason)
+
+    def run_cli(
+        self,
+        capability: str,
+        argv: list[str],
+        *,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        self._begin(capability)
+        expected = self._CLI_POLICIES.get(capability)
+        if expected is None or tuple(argv) != expected:
+            self._deny(
+                capability,
+                f"CLI operation is outside the read-only policy: {capability}",
+            )
+        try:
+            result = self._run_transport(list(argv), timeout=timeout)
+        except Exception:
+            self._mark(capability, "failed")
+            raise
+        self._mark(capability, "succeeded" if result.returncode == 0 else "failed")
+        return result
+
+    @staticmethod
+    def _account(value: Any) -> str:
+        candidate = value.strip().lower() if isinstance(value, str) else ""
+        return candidate if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", candidate) else ""
+
+    @staticmethod
+    def _nonempty_string(value: Any) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    @staticmethod
+    def _list_lane(arguments: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            arguments.get("acting_email"),
+            tuple(arguments.get("labels") or []),
+            arguments.get("sort"),
+            arguments.get("start_date"),
+            arguments.get("end_date"),
+        )
+
+    def _validate_superhuman(self, name: str, arguments: dict[str, Any]) -> str:
+        capability = f"superhuman.{name}"
+        if name not in self._SUPERHUMAN_METHODS or not isinstance(arguments, dict):
+            self._deny(
+                capability, f"Superhuman method is outside the read-only policy: {name}"
+            )
+        if name == "list_accounts":
+            if arguments or self._list_accounts_called:
+                self._deny(capability, "list_accounts must run once with no arguments")
+            return capability
+
+        account = self._account(arguments.get("acting_email"))
+        if not account or account not in self._linked_accounts:
+            self._deny(
+                capability, "Superhuman account was not discovered by list_accounts"
+            )
+
+        if name == "list_threads":
+            allowed_keys = {
+                "acting_email",
+                "start_date",
+                "end_date",
+                "labels",
+                "limit",
+                "sort",
+                "cursor",
+            }
+            labels = arguments.get("labels")
+            sort_order = arguments.get("sort")
+            exact_keys = set(arguments)
+            if (
+                not exact_keys <= allowed_keys
+                or arguments.get("limit") != SUPERHUMAN_PAGE_LIMIT
+                or labels not in (["INBOX"], ["SENT"])
+                or sort_order not in {"newest", "oldest"}
+                or not self._nonempty_string(arguments.get("end_date"))
+                or (sort_order == "oldest" and labels != ["INBOX"])
+                or (
+                    sort_order == "newest"
+                    and not self._nonempty_string(arguments.get("start_date"))
+                )
+                or (sort_order == "oldest" and "start_date" in arguments)
+            ):
+                self._deny(
+                    capability,
+                    "list_threads arguments do not match a declared read lane",
+                )
+            cursor = arguments.get("cursor")
+            if cursor is not None:
+                if not self._nonempty_string(
+                    cursor
+                ) or cursor not in self._allowed_cursors.get(
+                    self._list_lane(arguments), set()
+                ):
+                    self._deny(
+                        capability,
+                        "list_threads cursor has no same-lane provider lineage",
+                    )
+            return capability
+
+        if name == "get_thread":
+            expected_keys = {
+                "acting_email",
+                "thread_id",
+                "include_comments",
+                "include_drafts",
+                "message_limit",
+            }
+            thread_id = self._nonempty_string(arguments.get("thread_id"))
+            if (
+                set(arguments) != expected_keys
+                or not thread_id
+                or (account, thread_id) not in self._listed_threads
+                or arguments.get("include_comments") is not False
+                or arguments.get("include_drafts") is not False
+                or arguments.get("message_limit") != 100
+            ):
+                self._deny(
+                    capability, "get_thread lacks exact same-account list lineage"
+                )
+            return capability
+
+        if (
+            set(arguments) != {"acting_email", "question"}
+            or arguments.get("question") != SUPERHUMAN_READ_ONLY_QUERY
+            or account in self._calendar_accounts
+        ):
+            self._deny(
+                capability,
+                "query_email_and_calendar must use the exact read-only question once per account",
+            )
+        return capability
+
+    def bind_superhuman_transport(self, transport: Any) -> None:
+        if self._sealed:
+            raise ProviderPolicyError("the provider receipt is sealed")
+        if self._superhuman_transport is not None or not callable(transport):
+            raise ProviderPolicyError("Superhuman transport may be bound exactly once")
+        self._superhuman_transport = transport
+
+    def open_superhuman_cached_session(self) -> str | None:
+        if self._sealed:
+            raise ProviderPolicyError("the provider receipt is sealed")
+        self._session_operations["cached_token_lookups"] += 1
+        loader = self._token_loader or _mcp_remote_token
+        return loader(allow_refresh=False)
+
+    def note_superhuman_session(self, operation: str) -> None:
+        if self._sealed:
+            raise ProviderPolicyError("the provider receipt is sealed")
+        if operation == "initialize":
+            self._session_operations["initialize_attempts"] += 1
+        elif operation == "initialized":
+            self._session_operations["initialized_notifications"] += 1
+        else:
+            raise ProviderPolicyError("unknown Superhuman session operation")
+
+    def call_superhuman(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        capability = f"superhuman.{name}"
+        self._begin(capability)
+        capability = self._validate_superhuman(name, arguments)
+        if self._superhuman_transport is None:
+            self._deny(capability, "Superhuman read transport is unavailable")
+        try:
+            payload = self._superhuman_transport(name, dict(arguments))
+        except Exception:
+            self._mark(capability, "failed")
+            raise
+        if not isinstance(payload, dict):
+            self._mark(capability, "failed")
+            raise RuntimeError(f"{name} returned no structured payload")
+        self._mark(capability, "succeeded")
+        if name == "list_accounts":
+            self._list_accounts_called = True
+            for row in payload.get("accounts") or []:
+                if not isinstance(row, dict):
+                    continue
+                account = self._account(
+                    row.get("accountEmail")
+                    or row.get("account_email")
+                    or row.get("email")
+                )
+                if account:
+                    self._linked_accounts.add(account)
+        elif name == "list_threads":
+            account = self._account(arguments.get("acting_email"))
+            for row in payload.get("threads") or []:
+                if not isinstance(row, dict):
+                    continue
+                thread_id = self._nonempty_string(row.get("thread_id") or row.get("id"))
+                if thread_id:
+                    self._listed_threads.add((account, thread_id))
+            cursor = self._nonempty_string(
+                payload.get("next_cursor") or payload.get("nextCursor")
+            )
+            if cursor:
+                self._allowed_cursors.setdefault(self._list_lane(arguments), set()).add(
+                    cursor
+                )
+        elif name == "query_email_and_calendar":
+            self._calendar_accounts.add(self._account(arguments.get("acting_email")))
+        return payload
+
+    def receipt(self) -> dict[str, Any]:
+        return {
+            "schema": PROVIDER_READ_RECEIPT_SCHEMA,
+            "status": "ok" if self._sealed and self._counts["denied"] == 0 else "open",
+            "policy_sha256": self._policy_sha256,
+            "sealed": self._sealed,
+            "broker_operations": dict(self._counts),
+            "by_capability": {
+                key: dict(value) for key, value in sorted(self._by_capability.items())
+            },
+            "session_operations": dict(self._session_operations),
+            "write_capabilities_granted": [],
+            "write_operations_executed": 0,
+            "oauth_refresh_attempts": 0,
+        }
+
+    def seal_receipt(self) -> dict[str, Any]:
+        if self._sealed:
+            return self.receipt()
+        self._sealed = True
+        return self.receipt()
+
+
+def _valid_provider_read_receipt(value: Any) -> bool:
+    """Validate the sealed broker measurement bound into an authored packet."""
+    if not isinstance(value, dict):
+        return False
+    expected_keys = {
+        "schema",
+        "status",
+        "policy_sha256",
+        "sealed",
+        "broker_operations",
+        "by_capability",
+        "session_operations",
+        "write_capabilities_granted",
+        "write_operations_executed",
+        "oauth_refresh_attempts",
+    }
+    expected_policy = ReadOnlyProviderBroker().receipt()["policy_sha256"]
+    counts = value.get("broker_operations")
+    by_capability = value.get("by_capability")
+    session = value.get("session_operations")
+    if (
+        set(value) != expected_keys
+        or value.get("schema") != PROVIDER_READ_RECEIPT_SCHEMA
+        or value.get("status") != "ok"
+        or value.get("sealed") is not True
+        or value.get("policy_sha256") != expected_policy
+        or value.get("write_capabilities_granted") != []
+        or value.get("write_operations_executed") != 0
+        or value.get("oauth_refresh_attempts") != 0
+        or not isinstance(counts, dict)
+        or not isinstance(by_capability, dict)
+        or not isinstance(session, dict)
+    ):
+        return False
+    count_keys = {"attempted", "succeeded", "failed", "denied"}
+    if set(counts) != count_keys or any(
+        not isinstance(counts.get(key), int)
+        or isinstance(counts.get(key), bool)
+        or counts.get(key) < 0
+        for key in count_keys
+    ):
+        return False
+    if (
+        counts["attempted"]
+        != (counts["succeeded"] + counts["failed"] + counts["denied"])
+        or counts["denied"] != 0
+    ):
+        return False
+    allowed_capabilities = set(ReadOnlyProviderBroker._CLI_POLICIES) | {
+        f"superhuman.{name}" for name in ReadOnlyProviderBroker._SUPERHUMAN_METHODS
+    }
+    totals = {key: 0 for key in count_keys}
+    for capability, capability_counts in by_capability.items():
+        if capability not in allowed_capabilities or not isinstance(
+            capability_counts, dict
+        ):
+            return False
+        if set(capability_counts) != count_keys or any(
+            not isinstance(capability_counts.get(key), int)
+            or isinstance(capability_counts.get(key), bool)
+            or capability_counts.get(key) < 0
+            for key in count_keys
+        ):
+            return False
+        if capability_counts["attempted"] != (
+            capability_counts["succeeded"]
+            + capability_counts["failed"]
+            + capability_counts["denied"]
+        ):
+            return False
+        for key in count_keys:
+            totals[key] += capability_counts[key]
+    if totals != counts:
+        return False
+    session_keys = {
+        "cached_token_lookups",
+        "initialize_attempts",
+        "initialized_notifications",
+    }
+    if set(session) != session_keys or any(
+        not isinstance(session.get(key), int)
+        or isinstance(session.get(key), bool)
+        or session.get(key) < 0
+        for key in session_keys
+    ):
+        return False
+    cached = session["cached_token_lookups"]
+    initialize = session["initialize_attempts"]
+    initialized = session["initialized_notifications"]
+    if not (
+        cached == 1
+        and initialize in {0, 1}
+        and initialized in {0, 1}
+        and initialized <= initialize <= cached
+    ):
+        return False
+    superhuman_attempted = sum(
+        capability_counts["attempted"]
+        for capability, capability_counts in by_capability.items()
+        if capability.startswith("superhuman.")
+    )
+    return (superhuman_attempted == 0 and initialized == 0) or (
+        superhuman_attempted > 0 and initialize == initialized == 1
     )
 
 
@@ -713,24 +1164,30 @@ def collect_repos(root: Path, *, max_age_h: float = 168.0) -> list[RepoPaint]:
     return paints
 
 
-def collect_github(limit: int = GITHUB_PR_LIMIT) -> list[dict[str, Any]]:
+def collect_github(
+    limit: int = GITHUB_PR_LIMIT,
+    *,
+    provider_broker: ReadOnlyProviderBroker | None = None,
+) -> list[dict[str, Any]]:
     if not shutil.which("gh"):
         return []
-    proc = _run(
-        [
-            "gh",
-            "search",
-            "prs",
-            "--author",
-            "@me",
-            "--state",
-            "open",
-            "--limit",
-            str(limit),
-            "--json",
-            "title,url,repository,updatedAt,isDraft",
-        ],
-        timeout=45,
+    argv = [
+        "gh",
+        "search",
+        "prs",
+        "--author",
+        "@me",
+        "--state",
+        "open",
+        "--limit",
+        str(limit),
+        "--json",
+        "title,url,repository,updatedAt,isDraft",
+    ]
+    proc = (
+        provider_broker.run_cli("github.open_prs", argv, timeout=45)
+        if provider_broker is not None
+        else _run(argv, timeout=45)
     )
     if proc.returncode != 0:
         return [{"error": (proc.stderr or proc.stdout or "gh failed")[:300]}]
@@ -740,11 +1197,18 @@ def collect_github(limit: int = GITHUB_PR_LIMIT) -> list[dict[str, Any]]:
         return [{"error": "gh json decode failed"}]
 
 
-def collect_vercel() -> dict[str, Any]:
+def collect_vercel(
+    *, provider_broker: ReadOnlyProviderBroker | None = None
+) -> dict[str, Any]:
     if not shutil.which("vercel"):
         return {"available": False}
     # Vercel CLI 50+ uses --format json (not --json).
-    proc = _run(["vercel", "ls", "--format", "json", "-y"], timeout=40)
+    argv = ["vercel", "ls", "--format", "json", "-y"]
+    proc = (
+        provider_broker.run_cli("vercel.deployments", argv, timeout=40)
+        if provider_broker is not None
+        else _run(argv, timeout=40)
+    )
     if proc.returncode != 0:
         return {"available": True, "error": (proc.stderr or proc.stdout or "")[:300]}
     try:
@@ -781,11 +1245,18 @@ def collect_vercel() -> dict[str, Any]:
     }
 
 
-def collect_supabase() -> dict[str, Any]:
+def collect_supabase(
+    *, provider_broker: ReadOnlyProviderBroker | None = None
+) -> dict[str, Any]:
     """Read project health only; never query tables or copy application data."""
     if not shutil.which("supabase"):
         return {"available": False, "error": "Supabase CLI is not installed"}
-    proc = _run(["supabase", "projects", "list", "--output", "json"], timeout=45)
+    argv = ["supabase", "projects", "list", "--output", "json"]
+    proc = (
+        provider_broker.run_cli("supabase.projects", argv, timeout=45)
+        if provider_broker is not None
+        else _run(argv, timeout=45)
+    )
     if proc.returncode != 0:
         return {
             "available": False,
@@ -2419,14 +2890,7 @@ def build_superhuman_context(
                 "query_email_and_calendar",
                 {
                     "acting_email": acting_email,
-                    "question": (
-                        "Read only: for the next 14 days, summarize concrete calendar conflicts, deadlines, and "
-                        "follow-through suggested by mail. Also search older accessible mail for unresolved "
-                        "registration, driver license, payment, order, or return obligations predating the declared "
-                        f"{SUPERHUMAN_LOOKBACK_DAYS}-day thread list; older hits are proposals, not exhaustive proof. "
-                        "Return proposals only. Do not create, update, invite, "
-                        "book, send, purchase, cancel, or change any account state."
-                    ),
+                    "question": SUPERHUMAN_READ_ONLY_QUERY,
                 },
             )
             if not isinstance(calendar_payload, dict):
@@ -3009,12 +3473,20 @@ def superhuman_account_context(
     return result
 
 
-def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, Any]:
+def collect_superhuman_context(
+    *,
+    acting_email: str | None = None,
+    provider_broker: ReadOnlyProviderBroker | None = None,
+) -> dict[str, Any]:
     """Collect every linked account once, returning only metadata and proposals."""
     import urllib.error
     import urllib.request
 
-    token = _mcp_remote_token()
+    token = (
+        provider_broker.open_superhuman_cached_session()
+        if provider_broker is not None
+        else _mcp_remote_token()
+    )
     if not token:
 
         def unavailable(_name: str, _arguments: dict[str, Any]) -> dict[str, Any]:
@@ -3051,7 +3523,9 @@ def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, 
             )
 
     try:
-        sid, _ = post(
+        if provider_broker is not None:
+            provider_broker.note_superhuman_session("initialize")
+        sid, initialize_result = post(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -3063,13 +3537,37 @@ def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, 
                 },
             }
         )
-        post(
+        if (
+            "error" in initialize_result
+            or not isinstance(initialize_result.get("result"), dict)
+            or (
+                initialize_result.get("jsonrpc") != "2.0"
+                or not isinstance(initialize_result.get("id"), int)
+                or isinstance(initialize_result.get("id"), bool)
+                or initialize_result.get("id") != 1
+            )
+        ):
+            raise RuntimeError("Superhuman MCP initialize returned an error")
+        _notification_sid, initialized_result = post(
             {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, sid
         )
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        if "error" in initialized_result:
+            raise RuntimeError(
+                "Superhuman MCP initialized notification returned an error"
+            )
+        if provider_broker is not None:
+            provider_broker.note_superhuman_session("initialized")
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+        json.JSONDecodeError,
+        RuntimeError,
+    ) as exc:
+        failure_message = f"Superhuman session initialization failed: {exc}"
 
         def failed(_name: str, _arguments: dict[str, Any]) -> dict[str, Any]:
-            raise RuntimeError(f"Superhuman session initialization failed: {exc}")
+            raise RuntimeError(failure_message)
 
         context = build_superhuman_context(failed)
         return (
@@ -3080,7 +3578,7 @@ def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, 
 
     request_id = 2
 
-    def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def call_tool_transport(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         nonlocal request_id, sid
         current_id = request_id
         request_id += 1
@@ -3102,6 +3600,11 @@ def collect_superhuman_context(*, acting_email: str | None = None) -> dict[str, 
             raise RuntimeError(f"{name} returned no structured payload")
         return payload
 
+    if provider_broker is not None:
+        provider_broker.bind_superhuman_transport(call_tool_transport)
+        call_tool = provider_broker.call_superhuman
+    else:
+        call_tool = call_tool_transport
     context = build_superhuman_context(call_tool)
     return (
         superhuman_account_context(context, acting_email) if acting_email else context
@@ -5353,16 +5856,21 @@ def build_chief_of_staff_analysis(
     }
 
 
-def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
+def collect_packet(
+    *,
+    slot: str | None = None,
+    provider_broker: ReadOnlyProviderBroker | None = None,
+) -> dict[str, Any]:
     started = datetime.now(REPORT_TIMEZONE)
     if slot is None:
         slot = "morning" if started.hour < 14 else "evening"
     root = portfolio_root()
+    broker = provider_broker or ReadOnlyProviderBroker()
     repos = collect_repos(root)
-    github = collect_github()
-    vercel = collect_vercel()
-    supabase = collect_supabase()
-    mail = collect_superhuman_context()
+    github = collect_github(provider_broker=broker)
+    vercel = collect_vercel(provider_broker=broker)
+    supabase = collect_supabase(provider_broker=broker)
+    mail = collect_superhuman_context(provider_broker=broker)
     snowcubes_mail = superhuman_account_context(mail, SNOWCUBES_BUSINESS_MAIL)
     growth_health = collect_growth_source_status()
     paint_health = {
@@ -5455,6 +5963,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         source_health=paint_health,
     )
     generated = datetime.now(REPORT_TIMEZONE)
+    provider_access = broker.seal_receipt()
     packet = {
         "generated_at": generated.isoformat(timespec="seconds"),
         "slot": slot,
@@ -5466,6 +5975,7 @@ def collect_packet(*, slot: str | None = None) -> dict[str, Any]:
         "vercel": vercel,
         "supabase": supabase,
         "superhuman_context": mail,
+        "provider_access": provider_access,
         "producer": producer_provenance(),
         "snowcubes_context": snowcubes,
         "snowcubes_customer_opportunities": snowcubes_customer_opportunities,
@@ -7068,6 +7578,9 @@ def macos_notify(title: str, body: str) -> dict[str, Any]:
             "status": "blocked",
             "title": title,
             "body": body,
+            "notified_at": datetime.now(timezone.utc).isoformat(
+                timespec="microseconds"
+            ),
             "returncode": None,
             "error": f"{type(exc).__name__}: {exc}",
         }
@@ -7075,6 +7588,7 @@ def macos_notify(title: str, body: str) -> dict[str, Any]:
         "status": "ok" if proc.returncode == 0 else "blocked",
         "title": title,
         "body": body,
+        "notified_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
         "returncode": proc.returncode,
         "error": (proc.stderr or "")[:300] or None,
     }
@@ -7770,6 +8284,8 @@ def _declared_archive_path(
 def _scheduled_attempt_barrier_is_valid(
     ledger_dir: Path,
     row: dict[str, Any],
+    *,
+    expected_state: str = "RESERVED",
 ) -> bool:
     stem = _scheduled_archive_stem(row)
     receipt = row.get("attempt_barrier")
@@ -7813,10 +8329,57 @@ def _scheduled_attempt_barrier_is_valid(
     return bool(
         isinstance(payload, dict)
         and payload.get("schema") == SCHEDULED_ATTEMPT_SCHEMA
-        and payload.get("state") == "RESERVED"
+        and payload.get("state") == expected_state
         and payload.get("scheduled_for") == row.get("scheduled_for")
         and payload.get("slot") == row.get("slot")
     )
+
+
+def _read_private_archive_bytes(path: Path, *, expected_mode: int) -> bytes | None:
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, flags)
+        identity = os.fstat(descriptor)
+        named_identity = os.lstat(path)
+        if (
+            not stat.S_ISREG(identity.st_mode)
+            or identity.st_uid != os.getuid()
+            or stat.S_IMODE(identity.st_mode) != expected_mode
+            or identity.st_nlink != 1
+            or stat.S_ISLNK(named_identity.st_mode)
+            or not stat.S_ISREG(named_identity.st_mode)
+            or named_identity.st_uid != os.getuid()
+            or stat.S_IMODE(named_identity.st_mode) != expected_mode
+            or named_identity.st_nlink != 1
+            or (identity.st_dev, identity.st_ino)
+            != (named_identity.st_dev, named_identity.st_ino)
+        ):
+            return None
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = None
+            content = handle.read()
+            final_identity = os.fstat(handle.fileno())
+        final_named_identity = os.lstat(path)
+        if (
+            (identity.st_dev, identity.st_ino)
+            != (final_identity.st_dev, final_identity.st_ino)
+            or (identity.st_dev, identity.st_ino)
+            != (final_named_identity.st_dev, final_named_identity.st_ino)
+            or not stat.S_ISREG(final_named_identity.st_mode)
+            or stat.S_ISLNK(final_named_identity.st_mode)
+            or final_named_identity.st_uid != os.getuid()
+            or stat.S_IMODE(final_named_identity.st_mode) != expected_mode
+            or final_named_identity.st_nlink != 1
+        ):
+            return None
+        return content
+    except OSError:
+        return None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _read_send_attempt_proof(path: Path) -> list[dict[str, Any]] | None:
@@ -8521,7 +9084,7 @@ def _refresh_mcp_remote_token(token_path: Path, tokens: dict[str, Any]) -> str |
     return str(access_token)
 
 
-def _mcp_remote_token() -> str | None:
+def _mcp_remote_token(*, allow_refresh: bool = True) -> str | None:
     auth_root = Path.home() / ".mcp-auth"
     if not auth_root.is_dir():
         return None
@@ -8540,6 +9103,8 @@ def _mcp_remote_token() -> str | None:
     if tok and data.get("refresh_token") and isinstance(expires_in, (int, float)):
         expires_at = token_path.stat().st_mtime + float(expires_in)
         if time.time() >= expires_at - 300:
+            if not allow_refresh:
+                return None if time.time() >= expires_at else str(tok)
             refreshed = _refresh_mcp_remote_token(token_path, data)
             if refreshed:
                 return refreshed
@@ -9052,6 +9617,17 @@ def deliver_superhuman_http(
     import urllib.error
     import urllib.request
 
+    if not send_authorized_self:
+        return {
+            "status": "blocked",
+            "delivery_status": "not_sent",
+            "draft_id": None,
+            "acting_email": SELF_MAIL,
+            "subject": subject,
+            "sent_at": None,
+            "notes": "exact self-send authorization is absent; no provider call was made",
+            "wake": "obtain explicit authorization for this exact self-send before delivery",
+        }
     tok = _mcp_remote_token()
     if not tok:
         return None
@@ -9306,9 +9882,11 @@ def launch_agent_plist(program: Path) -> dict[str, Any]:
         "ProgramArguments": [
             python,
             str(program),
-            "run",
-            "--deliver",
-            "--send-authorized-self",
+            "authored-run",
+            "--chief-host",
+            NATIVE_AUTHOR_HOST,
+            "--customer-host",
+            NATIVE_AUTHOR_HOST,
             "--scheduled-trigger",
         ],
         "StartCalendarInterval": [
@@ -9480,8 +10058,8 @@ def _command_targets_scheduled_brief(values: list[str]) -> bool:
     if not command:
         return False
     program = Path(command[0]).name
-    if program == "shadow" and len(command) >= 3 and command[1:3] == ["brief", "run"]:
-        return True
+    if program == "shadow" and len(command) >= 3:
+        return command[1:3] in (["brief", "run"], ["brief", "authored-run"])
     if program == "shadow-brief.py":
         return True
     if re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", program) is None:
@@ -9845,8 +10423,52 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _place_private_archive(path: Path, content: bytes) -> None:
+def _rename_directory_noreplace(source: Path, target: Path) -> None:
+    """Atomically publish a directory without replacing any existing name."""
+    source_bytes = os.fsencode(source)
+    target_bytes = os.fsencode(target)
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        rename = getattr(libc, "renamex_np", None)
+        if rename is None:
+            raise OSError(errno.ENOTSUP, "renamex_np is unavailable")
+        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(source_bytes, target_bytes, 0x00000004)  # RENAME_EXCL
+    elif sys.platform.startswith("linux"):
+        rename = getattr(libc, "renameat2", None)
+        if rename is None:
+            raise OSError(errno.ENOTSUP, "renameat2 is unavailable")
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(-100, source_bytes, -100, target_bytes, 0x00000001)
+    else:
+        raise OSError(errno.ENOTSUP, "no atomic no-replace directory rename")
+    if result == 0:
+        return
+    failure = ctypes.get_errno()
+    if failure in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise FileExistsError(
+            failure, f"immutable authored bundle already exists: {target}", target
+        )
+    raise OSError(failure, os.strerror(failure), target)
+
+
+def _place_private_archive(
+    path: Path,
+    content: bytes,
+    *,
+    final_mode: int = 0o400,
+) -> None:
     """Publish complete immutable bytes once; an existing name is never replaced."""
+    if final_mode not in {0o400, 0o600}:
+        raise ValueError("private archive final mode must be 0400 or 0600")
     path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -9864,20 +10486,103 @@ def _place_private_archive(path: Path, content: bytes) -> None:
         raise FileExistsError(
             f"could not reserve a private archive temporary for {path}"
         )
+    published_identity: tuple[int, int] | None = None
+    durable = False
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(content)
-            os.fchmod(handle.fileno(), 0o400)
+            os.fchmod(handle.fileno(), final_mode)
             handle.flush()
             os.fsync(handle.fileno())
+        identity = temporary.lstat()
         try:
             os.link(temporary, path, follow_symlinks=False)
         except FileExistsError:
             raise FileExistsError(f"immutable archive already exists: {path}") from None
+        published_identity = (identity.st_dev, identity.st_ino)
         _fsync_directory(path.parent)
+        durable = True
+    except BaseException:
+        if published_identity is not None:
+            try:
+                named = path.lstat()
+                if (named.st_dev, named.st_ino) != published_identity:
+                    raise RuntimeError(
+                        f"private archive rollback identity changed: {path}"
+                    )
+                path.unlink()
+                _fsync_directory(path.parent)
+            except FileNotFoundError:
+                pass
+        raise
     finally:
-        temporary.unlink(missing_ok=True)
+        try:
+            temporary.unlink(missing_ok=True)
+            _fsync_directory(path.parent)
+        except OSError:
+            if not durable:
+                pass
+
+
+def _remove_private_staging_directory(path: Path) -> None:
+    """Best-effort cleanup for one validated, unpublished bundle staging path."""
+    try:
+        os.chmod(path, 0o700)
+        for child in path.iterdir():
+            identity = child.lstat()
+            if not stat.S_ISREG(identity.st_mode) or child.is_symlink():
+                return
+            os.chmod(child, 0o600)
+            child.unlink()
+        path.rmdir()
         _fsync_directory(path.parent)
+    except OSError:
+        return
+
+
+def _place_private_bundle(path: Path, files: dict[str, bytes]) -> None:
+    """Publish one complete private reader bundle with a single directory rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if os.path.lexists(path):
+        raise FileExistsError(f"immutable authored bundle already exists: {path}")
+    if not files or any(
+        not isinstance(name, str)
+        or not name
+        or Path(name).name != name
+        or not isinstance(content, bytes)
+        for name, content in files.items()
+    ):
+        raise ValueError("authored bundle names and bytes are invalid")
+
+    staging = path.parent / (
+        f".{path.name}.{os.getpid()}.{secrets.token_hex(16)}.staging"
+    )
+    os.mkdir(staging, 0o700)
+    committed = False
+    try:
+        for name in sorted(files):
+            _place_private_archive(staging / name, files[name], final_mode=0o600)
+        os.chmod(staging, 0o700)
+        _fsync_directory(staging)
+        staging_identity = staging.lstat()
+        _rename_directory_noreplace(staging, path)
+        try:
+            _fsync_directory(path.parent)
+        except BaseException:
+            named = path.lstat()
+            if (named.st_dev, named.st_ino) != (
+                staging_identity.st_dev,
+                staging_identity.st_ino,
+            ):
+                raise RuntimeError(f"authored bundle rollback identity changed: {path}")
+            _remove_private_staging_directory(path)
+            if os.path.lexists(path):
+                raise RuntimeError(f"authored bundle rollback failed: {path}")
+            raise
+        committed = True
+    finally:
+        if not committed:
+            _remove_private_staging_directory(staging)
 
 
 def _archive_stamp(
@@ -9895,13 +10600,53 @@ def _archive_stamp(
 
 
 def _write_last_run_best_effort(summary: dict[str, Any]) -> bool:
+    path = LOG_DIR / "last-run.json"
+    temporary: Path | None = None
+    descriptor: int | None = None
     try:
-        (LOG_DIR / "last-run.json").write_text(
-            json.dumps(summary, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        for nonce in range(100):
+            candidate = path.parent / f".{path.name}.{os.getpid()}.{nonce}.tmp"
+            try:
+                descriptor = os.open(candidate, flags, 0o600)
+            except FileExistsError:
+                continue
+            temporary = candidate
+            break
+        if descriptor is None or temporary is None:
+            return False
+        rendered = (json.dumps(summary, indent=2) + "\n").encode("utf-8")
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = None
+            handle.write(rendered)
+            os.fchmod(handle.fileno(), 0o600)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if os.path.lexists(path):
+            identity = path.lstat()
+            if (
+                not stat.S_ISREG(identity.st_mode)
+                or stat.S_ISLNK(identity.st_mode)
+                or identity.st_uid != os.getuid()
+                or stat.S_IMODE(identity.st_mode) != 0o600
+                or identity.st_nlink != 1
+            ):
+                return False
+        os.replace(temporary, path)
+        temporary = None
+        _fsync_directory(path.parent)
     except OSError:
         return False
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return True
 
 
@@ -9911,6 +10656,753 @@ def _print_json_best_effort(payload: dict[str, Any], *, file: Any = None) -> boo
     except OSError:
         return False
     return True
+
+
+def _load_brief_author_module(expected_sha256: str | None = None) -> Any:
+    path = Path(__file__).resolve().with_name("shadow-brief-author.py")
+    source = path.read_bytes()
+    source_sha256 = hashlib.sha256(source).hexdigest()
+    if expected_sha256 is not None and source_sha256 != expected_sha256:
+        raise RuntimeError("native author bytes changed after source preflight")
+    module_name = f"_shadow_brief_author_runtime_{source_sha256}"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        if getattr(existing, "_shadow_source_sha256", None) != source_sha256:
+            raise RuntimeError(
+                "cached native author module has the wrong source identity"
+            )
+        return existing
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None:
+        raise RuntimeError(f"native author module is unavailable: {path}")
+    module = types.ModuleType(module_name)
+    module.__file__ = str(path)
+    module.__package__ = ""
+    module.__spec__ = spec
+    module._shadow_source_sha256 = source_sha256
+    sys.modules[module_name] = module
+    try:
+        code = compile(source, str(path), "exec")
+        exec(code, module.__dict__)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+    return module
+
+
+def _preflight_authored_runtime(
+    *,
+    chief_host: str,
+    customer_host: str,
+    scheduled_trigger: bool,
+) -> dict[str, Any]:
+    """Freeze author code/contracts and host availability before provider reads."""
+    source_bundle = _current_authored_source_bundle()
+    author = _load_brief_author_module(
+        source_bundle.get("scripts/shadow-brief-author.py")
+    )
+    chief_profile = author.load_profile()
+    customer_profile = author.load_customer_profile()
+    resolved_hosts: dict[str, str] = {}
+    for label, host, profile in (
+        ("chief_of_staff", chief_host, chief_profile),
+        ("snowcubes_customer_opportunities", customer_host, customer_profile),
+    ):
+        resolved = author.resolve_host(profile, host, {})
+        if scheduled_trigger and resolved != NATIVE_AUTHOR_HOST:
+            raise RuntimeError(
+                f"scheduled {label} host must be the canonical {NATIVE_AUTHOR_HOST}"
+            )
+        executable = "codex" if resolved == "codex" else "claude"
+        executable_path = shutil.which(executable)
+        if executable_path is None:
+            raise RuntimeError(f"configured author host is unavailable: {executable}")
+        resolved_hosts[label] = executable_path
+    return {
+        "source_bundle": source_bundle,
+        "author_module": author,
+        "chief_profile": chief_profile,
+        "customer_profile": customer_profile,
+        "resolved_hosts": resolved_hosts,
+    }
+
+
+def _current_authored_source_bundle() -> dict[str, str]:
+    """Hash every checked-in byte that governs either authored product."""
+    source_root = Path(__file__).resolve().parents[1]
+    bundle: dict[str, str] = {}
+    for relative_name in AUTHORED_SOURCE_FILES:
+        relative = Path(relative_name)
+        path = (source_root / relative).resolve(strict=True)
+        if path.relative_to(source_root) != relative:
+            raise ValueError(f"authored source escaped its repository root: {relative}")
+        bundle[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return bundle
+
+
+def _authored_source_bundle_matches_commit(
+    source_bundle: Any,
+    producer: Any,
+) -> bool:
+    """Prove the current author contracts are the exact packet-producing commit."""
+    if (
+        not _valid_producer_provenance(producer)
+        or not isinstance(source_bundle, dict)
+        or set(source_bundle) != set(AUTHORED_SOURCE_FILES)
+    ):
+        return False
+    if source_bundle.get("scripts/shadow-brief.py") != producer.get("script_sha256"):
+        return False
+    source_root = Path(__file__).resolve().parents[1]
+    source_commit = producer.get("source_commit")
+    for relative_name in AUTHORED_SOURCE_FILES:
+        expected_sha256 = source_bundle.get(relative_name)
+        if not isinstance(expected_sha256, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", expected_sha256
+        ):
+            return False
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(source_root),
+                    "show",
+                    f"{source_commit}:{relative_name}",
+                ],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if (
+            result.returncode != 0
+            or hashlib.sha256(result.stdout).hexdigest() != expected_sha256
+        ):
+            return False
+    return True
+
+
+def _build_authored_products(
+    packet: dict[str, Any],
+    *,
+    chief_host: str,
+    customer_host: str,
+    environ: dict[str, str] | None = None,
+    source_bundle: dict[str, str] | None = None,
+    author_module: Any | None = None,
+) -> dict[str, Any]:
+    """Build and validate both model-authored products before publishing either."""
+    author = author_module or _load_brief_author_module(
+        (source_bundle or {}).get("scripts/shadow-brief-author.py")
+    )
+    child_environment = dict(os.environ) if environ is None else dict(environ)
+
+    chief_profile = author.load_profile()
+    chief_evidence = author.build_evidence_projection(packet, chief_profile)
+    chief_letter, chief_receipt = author.invoke_author(
+        chief_evidence,
+        chief_profile,
+        host=chief_host,
+        environ=child_environment,
+    )
+    chief_artifact = {
+        "schema": author.ARTIFACT_SCHEMA,
+        "letter": chief_letter,
+        "author_receipt": chief_receipt,
+        "evidence": chief_evidence,
+    }
+    author.validate_artifact(chief_artifact, chief_profile)
+    chief_html = author.render_letter_html(chief_artifact, chief_profile)
+
+    customer_profile = author.load_customer_profile()
+    customer_evidence = author.build_customer_evidence_projection(
+        packet, customer_profile
+    )
+    customer_letter, customer_receipt = author.invoke_customer_author(
+        customer_evidence,
+        customer_profile,
+        host=customer_host,
+        environ=child_environment,
+    )
+    customer_artifact = {
+        "schema": author.CUSTOMER_ARTIFACT_SCHEMA,
+        "letter": customer_letter,
+        "author_receipt": customer_receipt,
+        "evidence": customer_evidence,
+    }
+    author.validate_customer_artifact(customer_artifact, customer_profile)
+    customer_html = author.render_customer_letter_html(
+        customer_artifact, customer_profile
+    )
+
+    bound_source_bundle = (
+        _current_authored_source_bundle()
+        if source_bundle is None
+        else dict(source_bundle)
+    )
+
+    return {
+        "source_json": (json.dumps(packet, indent=2) + "\n").encode("utf-8"),
+        "chief_json": (json.dumps(chief_artifact, indent=2) + "\n").encode("utf-8"),
+        "chief_html": chief_html.encode("utf-8"),
+        "customer_json": (json.dumps(customer_artifact, indent=2) + "\n").encode(
+            "utf-8"
+        ),
+        "customer_html": customer_html.encode("utf-8"),
+        "chief_receipt": chief_receipt,
+        "customer_receipt": customer_receipt,
+        "source_bundle": bound_source_bundle,
+    }
+
+
+def _authored_products_are_fresh(
+    products: dict[str, Any],
+    *,
+    generated_at: Any,
+    scheduled_for: Any,
+    now: datetime | None = None,
+) -> tuple[bool, str | None]:
+    generated = _parse_aware_datetime(generated_at)
+    scheduled = _parse_aware_datetime(scheduled_for)
+    if generated is None or scheduled is None:
+        return False, "authored source/window timestamp is invalid"
+    deadline = scheduled + timedelta(minutes=30)
+    completed = now or datetime.now(timezone.utc)
+    if completed.tzinfo is None or completed.utcoffset() is None:
+        return False, "authored completion timestamp is invalid"
+    if completed > deadline:
+        return False, "both authors did not finish inside the natural-window deadline"
+    for label, key in (
+        ("chief-of-staff", "chief_receipt"),
+        ("Snowcubes customer-opportunity", "customer_receipt"),
+    ):
+        receipt = products.get(key)
+        authored_at = _parse_aware_datetime(
+            receipt.get("authored_at") if isinstance(receipt, dict) else None
+        )
+        if authored_at is None or not generated <= authored_at <= deadline:
+            return False, f"{label} author receipt is outside the source window"
+    return True, None
+
+
+def _authored_notification_is_fresh(
+    notification: Any,
+    *,
+    generated_at: Any,
+    scheduled_for: Any,
+) -> bool:
+    generated = _parse_aware_datetime(generated_at)
+    scheduled = _parse_aware_datetime(scheduled_for)
+    notified = _parse_aware_datetime(
+        notification.get("notified_at") if isinstance(notification, dict) else None
+    )
+    return bool(
+        generated is not None
+        and scheduled is not None
+        and notified is not None
+        and generated <= notified <= scheduled + timedelta(minutes=30)
+    )
+
+
+def _authored_archive_paths(
+    stamp: str,
+    *,
+    scheduled_trigger: bool,
+    evidence_dir: Path | None = None,
+) -> dict[str, Path]:
+    prefix = "" if scheduled_trigger else "manual-"
+    root = EVIDENCE_DIR if evidence_dir is None else evidence_dir
+    bundle = root / f"{prefix}authored-window-{stamp}"
+    return {
+        "bundle": bundle,
+        "source_json": bundle / "source.json",
+        "chief_json": bundle / "chief-of-staff.json",
+        "chief_html": bundle / "chief-of-staff.html",
+        "customer_json": bundle / "snowcubes-customer-opportunities.json",
+        "customer_html": bundle / "snowcubes-customer-opportunities.html",
+        "manifest_json": bundle / "manifest.json",
+        "outcome_json": root / f"{prefix}authored-window-{stamp}-outcome.json",
+    }
+
+
+def _authored_blocked_summary(
+    *,
+    trigger_proof: dict[str, Any],
+    trigger_window: dict[str, Any],
+    attempt_barrier: dict[str, str] | None,
+    wake: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    summary = {
+        "schema": AUTHORED_WINDOW_RECEIPT_SCHEMA,
+        "status": "blocked",
+        "trigger_proof": trigger_proof,
+        "scheduled_window": trigger_window,
+        "scheduled_for": trigger_window.get("scheduled_for"),
+        "wake": wake,
+        **extra,
+    }
+    if attempt_barrier is not None:
+        summary["attempt_barrier"] = attempt_barrier
+    _write_last_run_best_effort(summary)
+    _print_json_best_effort(summary, file=sys.stderr)
+    return summary
+
+
+def cmd_authored_run(args: argparse.Namespace) -> int:
+    trigger_proof: dict[str, Any] = {}
+    if args.scheduled_trigger:
+        trigger_proof = launch_trigger_proof()
+        if not scheduled_trigger_is_authorized(True, trigger_proof):
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window={},
+                attempt_barrier=None,
+                wake="scheduled authored run was not started by the exact LaunchAgent",
+            )
+            return 2
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    lock_handle = None
+    if args.scheduled_trigger:
+        try:
+            lock_handle = _acquire_scheduled_run_lock()
+        except OSError as exc:
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window={},
+                attempt_barrier=None,
+                wake=f"scheduled authored-run lock is unavailable: {exc}",
+            )
+            return 3
+        if lock_handle is None:
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window={},
+                attempt_barrier=None,
+                wake="another scheduled brief invocation holds the one producer lock",
+            )
+            return 3
+    try:
+        return _cmd_authored_run_locked(args, trigger_proof)
+    finally:
+        _release_scheduled_run_lock(lock_handle)
+
+
+def _cmd_authored_run_locked(
+    args: argparse.Namespace, trigger_proof: dict[str, Any]
+) -> int:
+    trigger_window: dict[str, Any] = {}
+    attempt_barrier: dict[str, str] | None = None
+    if args.scheduled_trigger:
+        trigger_window = scheduled_window(datetime.now(REPORT_TIMEZONE))
+        if not trigger_window.get("on_schedule"):
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier=None,
+                wake=(
+                    "scheduled authored run is outside the 08:00/20:00 New York "
+                    "window; do not collect, notify, publish, or retry"
+                ),
+            )
+            return 3
+    try:
+        stamp = _archive_stamp(
+            scheduled_trigger=args.scheduled_trigger,
+            trigger_window=trigger_window,
+        )
+    except ValueError as exc:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=None,
+            wake=str(exc),
+        )
+        return 3
+    paths = _authored_archive_paths(stamp, scheduled_trigger=args.scheduled_trigger)
+
+    if args.scheduled_trigger:
+        barrier_path = LOG_DIR / f"scheduled-attempt-{stamp}.json"
+        existing_archive = os.path.lexists(paths["bundle"]) or os.path.lexists(
+            paths["outcome_json"]
+        )
+        existing_barrier = os.path.lexists(barrier_path)
+        if existing_archive or existing_barrier:
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier={
+                    "path": str(barrier_path),
+                    "state": "PRESENT" if existing_barrier else "ABSENT",
+                },
+                wake="this natural window already has an immutable bundle or barrier; never retry",
+            )
+            return 3
+        scheduled_for = trigger_window.get("scheduled_for")
+        barrier_payload = {
+            "schema": SCHEDULED_ATTEMPT_SCHEMA,
+            "state": "RESERVED_FOR_AUTHORED_RUN",
+            "scheduled_for": scheduled_for,
+            "slot": trigger_window.get("slot"),
+        }
+        try:
+            _place_private_archive(
+                barrier_path,
+                (json.dumps(barrier_payload, sort_keys=True) + "\n").encode("utf-8"),
+            )
+        except OSError as exc:
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier={
+                    "path": str(barrier_path),
+                    "state": "PRESENT"
+                    if os.path.lexists(barrier_path)
+                    else "UNAVAILABLE",
+                },
+                wake=f"authored-run attempt barrier could not be reserved: {exc}",
+            )
+            return 3
+        attempt_barrier = {"path": str(barrier_path), "state": "PRESENT"}
+        try:
+            legacy_rows = _read_jsonl(WINDOW_LOG)
+        except PrivateJSONLError as exc:
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier=attempt_barrier,
+                wake=f"scheduled-window ledger is unsafe: {exc}; never retry this reserved window",
+            )
+            return 3
+        existing_receipt = any(
+            row.get("scheduled_for") == scheduled_for for row in legacy_rows
+        )
+        if existing_receipt:
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier=attempt_barrier,
+                wake="this natural window already has a durable ledger receipt; never retry",
+            )
+            return 3
+
+    try:
+        authored_runtime = _preflight_authored_runtime(
+            chief_host=args.chief_host,
+            customer_host=args.customer_host,
+            scheduled_trigger=args.scheduled_trigger,
+        )
+    except Exception as exc:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                f"native author preflight failed ({type(exc).__name__}: {exc}); "
+                "no provider read, author, notification, draft, or send was invoked"
+            ),
+        )
+        return 3
+
+    slot = trigger_window.get("slot") if args.scheduled_trigger else args.slot
+    try:
+        packet = collect_packet(slot=slot)
+    except (
+        OSError,
+        subprocess.TimeoutExpired,
+        ValueError,
+        RecursionError,
+        RuntimeError,
+    ) as exc:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                f"read-only collection failed ({type(exc).__name__}: {exc}); "
+                "wait for the next natural window and never retry this reserved one"
+            ),
+        )
+        return 3
+    board_snapshot = (packet.get("authority") or {}).get("board_snapshot") or {}
+    if board_snapshot.get("consistent") is not True:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake="the Shadow board snapshot did not stabilize; no authored artifact was published",
+        )
+        return 3
+    if not _valid_provider_read_receipt(packet.get("provider_access")):
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                "the read-only provider broker did not produce one sealed zero-write "
+                "receipt; no author, notification, draft, or send was invoked"
+            ),
+        )
+        return 3
+    if args.scheduled_trigger:
+        scheduled_at = _parse_aware_datetime(trigger_window.get("scheduled_for"))
+        generated_at = _parse_aware_datetime(packet.get("generated_at"))
+        if (
+            scheduled_at is None
+            or generated_at is None
+            or not scheduled_at <= generated_at <= scheduled_at + timedelta(minutes=30)
+            or packet.get("slot") != trigger_window.get("slot")
+        ):
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier=attempt_barrier,
+                wake="the collected source is not fresh for this exact natural window",
+            )
+            return 3
+        if not _valid_producer_provenance(packet.get("producer")):
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier=attempt_barrier,
+                wake="producer provenance is invalid; no author or notification was invoked",
+            )
+            return 3
+    source_bundle = authored_runtime["source_bundle"]
+    try:
+        source_bundle_after_collection = _current_authored_source_bundle()
+    except (OSError, ValueError) as exc:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=f"authored source bundle changed or became unavailable after collection ({exc})",
+        )
+        return 3
+    if source_bundle_after_collection != source_bundle:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                "the author module, profiles, prompts, or schemas changed during "
+                "collection; no author or notification was invoked"
+            ),
+        )
+        return 3
+    if args.scheduled_trigger and not _authored_source_bundle_matches_commit(
+        source_bundle, packet.get("producer")
+    ):
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                "the author module, profiles, prompts, or schemas do not match the "
+                "packet-producing commit; no author or notification was invoked"
+            ),
+        )
+        return 3
+    try:
+        products = _build_authored_products(
+            packet,
+            chief_host=args.chief_host,
+            customer_host=args.customer_host,
+            source_bundle=source_bundle,
+            author_module=authored_runtime["author_module"],
+        )
+    except Exception as exc:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                f"native authoring failed ({type(exc).__name__}: {exc}); "
+                "no reader artifact, notification, draft, or send was produced"
+            ),
+        )
+        return 3
+    if products.get("source_bundle") != source_bundle:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake="native authoring did not bind the exact preflight source bundle",
+        )
+        return 3
+
+    if args.scheduled_trigger:
+        products_fresh, freshness_wake = _authored_products_are_fresh(
+            products,
+            generated_at=packet.get("generated_at"),
+            scheduled_for=trigger_window.get("scheduled_for"),
+        )
+        if not products_fresh:
+            _authored_blocked_summary(
+                trigger_proof=trigger_proof,
+                trigger_window=trigger_window,
+                attempt_barrier=attempt_barrier,
+                wake=(
+                    f"{freshness_wake}; no reader artifact, notification, draft, or send "
+                    "was produced"
+                ),
+            )
+            return 3
+
+    try:
+        source_bundle_after_authoring = _current_authored_source_bundle()
+    except (OSError, ValueError) as exc:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=f"authored source changed or became unavailable after authoring ({exc})",
+        )
+        return 3
+    if source_bundle_after_authoring != source_bundle:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                "the author module, profiles, prompts, or schemas changed during "
+                "authoring; no reader artifact or notification was published"
+            ),
+        )
+        return 3
+
+    artifact_keys = (
+        "source_json",
+        "chief_json",
+        "chief_html",
+        "customer_json",
+        "customer_html",
+    )
+    reported_paths = {
+        key: str(value) for key, value in paths.items() if key != "outcome_json"
+    }
+    base_summary: dict[str, Any] = {
+        "schema": AUTHORED_WINDOW_RECEIPT_SCHEMA,
+        "status": "UNKNOWN_NO_RETRY",
+        "on_schedule": args.scheduled_trigger,
+        "slot": trigger_window.get("slot") if args.scheduled_trigger else args.slot,
+        "trigger": "launchd-calendar" if args.scheduled_trigger else "manual",
+        "trigger_proof": trigger_proof,
+        "scheduled_window": trigger_window,
+        "scheduled_for": trigger_window.get("scheduled_for"),
+        "generated_at": packet.get("generated_at"),
+        "board_revision": (packet.get("board") or {}).get("revision"),
+        "producer": packet.get("producer"),
+        "paths": reported_paths,
+        "sha256": {
+            key: hashlib.sha256(products[key]).hexdigest() for key in artifact_keys
+        },
+        "authors": {
+            "chief_of_staff": products["chief_receipt"],
+            "snowcubes_customer_opportunities": products["customer_receipt"],
+        },
+        "source_bundle": products["source_bundle"],
+        "provider_access": packet.get("provider_access"),
+        "notification": {
+            "status": "UNKNOWN_NO_RETRY",
+            "notes": "the reader bundle committed before the one local notification attempt",
+        },
+        "provider_mutations": {
+            "drafts_created": 0,
+            "messages_sent": 0,
+            "shopify_writes": 0,
+        },
+        "delivery_status": "not_requested",
+    }
+    if attempt_barrier is not None:
+        base_summary["attempt_barrier"] = attempt_barrier
+    manifest = (json.dumps(base_summary, indent=2) + "\n").encode("utf-8")
+    bundle_files = {paths[key].name: products[key] for key in artifact_keys}
+    bundle_files[paths["manifest_json"].name] = manifest
+    try:
+        _place_private_bundle(paths["bundle"], bundle_files)
+    except (OSError, ValueError) as exc:
+        _authored_blocked_summary(
+            trigger_proof=trigger_proof,
+            trigger_window=trigger_window,
+            attempt_barrier=attempt_barrier,
+            wake=(
+                f"atomic authored publication failed: {exc}; inspect the barrier and "
+                "never overwrite or retry"
+            ),
+            bundle=str(paths["bundle"]),
+        )
+        return 3
+
+    notification = macos_notify(
+        "Shadow briefs ready",
+        f"{packet.get('slot') or 'brief'} · board rev {(packet.get('board') or {}).get('revision')}",
+    )
+    if args.scheduled_trigger and not _authored_notification_is_fresh(
+        notification,
+        generated_at=packet.get("generated_at"),
+        scheduled_for=trigger_window.get("scheduled_for"),
+    ):
+        notification = {
+            **notification,
+            "status": "blocked",
+            "error": "notification timestamp is outside the exact natural window",
+        }
+    status = "ok" if notification.get("status") == "ok" else "blocked"
+    summary: dict[str, Any] = {
+        **base_summary,
+        "status": status,
+        "paths": {**reported_paths, "outcome_json": str(paths["outcome_json"])},
+        "notification": notification,
+    }
+    if status != "ok":
+        summary["wake"] = (
+            "the local notification failed after both private artifacts were published; "
+            "do not send or retry this window"
+        )
+    try:
+        _place_private_archive(
+            paths["outcome_json"],
+            (json.dumps(summary, indent=2) + "\n").encode("utf-8"),
+            final_mode=0o600,
+        )
+    except OSError as exc:
+        recovery = {
+            **base_summary,
+            "status": "blocked",
+            "wake": (
+                f"authored outcome persistence failed: {exc}; the complete immutable "
+                "bundle records UNKNOWN_NO_RETRY and no send is allowed"
+            ),
+        }
+        _write_last_run_best_effort(recovery)
+        _print_json_best_effort(recovery, file=sys.stderr)
+        return 3
+
+    index_problem: str | None = None
+    if args.scheduled_trigger:
+        try:
+            _append_private_jsonl(
+                AUTHORED_WINDOW_LOG,
+                {
+                    **trigger_window,
+                    "trigger": "launchd-calendar",
+                    **summary,
+                },
+            )
+        except OSError as exc:
+            index_problem = (
+                f"authored window index refresh failed: {exc}; the immutable outcome "
+                "remains authoritative and the index must be rebuilt from outcomes"
+            )
+    if index_problem is not None:
+        summary = {**summary, "index_problem": index_problem}
+    _write_last_run_best_effort(summary)
+    _print_json_best_effort(summary, file=sys.stderr if status != "ok" else None)
+    return 0 if status == "ok" else 3
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -10606,6 +12098,340 @@ def cmd_readback_window(args: argparse.Namespace) -> int:
     return 0 if readback.get("status") == "EXACT_SENT_CONFIRMED" else 1
 
 
+def _read_authored_outcomes(
+    evidence_dir: Path,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    rows: list[dict[str, Any]] = []
+    problems: list[str] = []
+    if not evidence_dir.is_dir():
+        return rows, problems
+    for path in sorted(evidence_dir.glob("authored-window-*-outcome.json")):
+        if not re.fullmatch(r"authored-window-\d{8}-\d{6}-outcome\.json", path.name):
+            problems.append(f"unexpected authored outcome name: {path.name}")
+            continue
+        content = _read_private_archive_bytes(path, expected_mode=0o600)
+        if content is None:
+            problems.append(f"unsafe authored outcome: {path}")
+            continue
+        try:
+            row = json.loads(content.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            problems.append(f"invalid authored outcome JSON: {path}")
+            continue
+        if not isinstance(row, dict):
+            problems.append(f"authored outcome root must be an object: {path}")
+            continue
+        row = {**row, "_outcome_path": str(path)}
+        rows.append(row)
+    return rows, problems
+
+
+def _authored_bundle_identity_is_valid(path: Path, evidence_dir: Path) -> bool:
+    try:
+        identity = path.lstat()
+    except OSError:
+        return False
+    return bool(
+        path.parent == evidence_dir
+        and not path.is_symlink()
+        and stat.S_ISDIR(identity.st_mode)
+        and identity.st_uid == os.getuid()
+        and stat.S_IMODE(identity.st_mode) == 0o700
+    )
+
+
+def _validate_authored_outcome(
+    row: dict[str, Any],
+    *,
+    evidence_dir: Path,
+    ledger_dir: Path,
+) -> list[str]:
+    label = str(row.get("scheduled_for") or "<unknown-window>")
+    problems: list[str] = []
+    scheduled = _parse_aware_datetime(row.get("scheduled_for"))
+    if (
+        row.get("schema") != AUTHORED_WINDOW_RECEIPT_SCHEMA
+        or row.get("status") != "ok"
+        or row.get("on_schedule") is not True
+        or row.get("trigger") != "launchd-calendar"
+        or row.get("slot") not in {"morning", "evening"}
+        or not _scheduled_for_is_canonical(row)
+        or scheduled is None
+    ):
+        return [f"{label}: authored outcome identity is invalid"]
+    expected_slot = "morning" if scheduled.hour == 8 else "evening"
+    if row.get("slot") != expected_slot or scheduled.hour not in SLOT_HOURS:
+        problems.append(f"{label}: authored slot does not match its natural window")
+    if not scheduled_trigger_is_authorized(True, row.get("trigger_proof")):
+        problems.append(f"{label}: exact LaunchAgent trigger proof is invalid")
+    if not _scheduled_attempt_barrier_is_valid(
+        ledger_dir,
+        row,
+        expected_state="RESERVED_FOR_AUTHORED_RUN",
+    ):
+        problems.append(f"{label}: authored attempt barrier is invalid")
+    generated = _parse_aware_datetime(row.get("generated_at"))
+    if generated is None or not scheduled <= generated <= scheduled + timedelta(
+        minutes=30
+    ):
+        problems.append(f"{label}: source packet is outside its natural window")
+    board_revision = row.get("board_revision")
+    if not isinstance(board_revision, int) or isinstance(board_revision, bool):
+        problems.append(f"{label}: board revision is invalid")
+    if not _valid_producer_provenance(row.get("producer")):
+        problems.append(f"{label}: producer provenance is invalid")
+    if not _authored_source_bundle_matches_commit(
+        row.get("source_bundle"), row.get("producer")
+    ):
+        problems.append(f"{label}: authored source bundle is not the exact commit")
+    if row.get("delivery_status") != "not_requested":
+        problems.append(f"{label}: scheduled delivery must remain not requested")
+    if row.get("provider_mutations") != {
+        "drafts_created": 0,
+        "messages_sent": 0,
+        "shopify_writes": 0,
+    }:
+        problems.append(f"{label}: zero protected provider mutations are not recorded")
+    if not _valid_provider_read_receipt(row.get("provider_access")):
+        problems.append(f"{label}: sealed read-only provider receipt is invalid")
+    notification = row.get("notification")
+    if not isinstance(notification, dict):
+        notification = {}
+    if (
+        notification.get("status") != "ok"
+        or notification.get("title") != "Shadow briefs ready"
+        or notification.get("body")
+        != f"{row.get('slot')} · board rev {row.get('board_revision')}"
+        or not _authored_notification_is_fresh(
+            notification,
+            generated_at=row.get("generated_at"),
+            scheduled_for=row.get("scheduled_for"),
+        )
+    ):
+        problems.append(f"{label}: local notification proof is invalid or late")
+
+    stamp = scheduled.astimezone(REPORT_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+    expected = _authored_archive_paths(
+        stamp,
+        scheduled_trigger=True,
+        evidence_dir=evidence_dir,
+    )
+    paths = row.get("paths")
+    expected_paths = {key: str(value) for key, value in expected.items()}
+    if not isinstance(paths, dict) or paths != expected_paths:
+        problems.append(f"{label}: authored path manifest is not exact")
+        return problems
+    outcome_path = Path(str(row.get("_outcome_path") or ""))
+    if outcome_path != expected["outcome_json"]:
+        problems.append(f"{label}: outcome path does not match the natural window")
+    bundle_path = expected["bundle"]
+    if not _authored_bundle_identity_is_valid(bundle_path, evidence_dir):
+        problems.append(f"{label}: authored bundle identity or mode is invalid")
+        return problems
+
+    artifact_keys = (
+        "source_json",
+        "chief_json",
+        "chief_html",
+        "customer_json",
+        "customer_html",
+    )
+    artifact_bytes: dict[str, bytes] = {}
+    declared_hashes = row.get("sha256")
+    if not isinstance(declared_hashes, dict) or set(declared_hashes) != set(
+        artifact_keys
+    ):
+        problems.append(f"{label}: authored artifact hash manifest is invalid")
+        declared_hashes = {}
+    for key in artifact_keys:
+        content = _read_private_archive_bytes(expected[key], expected_mode=0o600)
+        if content is None:
+            problems.append(f"{label}: {key} is unsafe or unreadable")
+            continue
+        artifact_bytes[key] = content
+        if hashlib.sha256(content).hexdigest() != declared_hashes.get(key):
+            problems.append(f"{label}: {key} hash mismatch")
+
+    manifest_bytes = _read_private_archive_bytes(
+        expected["manifest_json"], expected_mode=0o600
+    )
+    if manifest_bytes is None:
+        problems.append(f"{label}: pre-notification manifest is unsafe or unreadable")
+    else:
+        try:
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            manifest = None
+        expected_manifest_paths = {
+            key: value for key, value in expected_paths.items() if key != "outcome_json"
+        }
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("status") != "UNKNOWN_NO_RETRY"
+            or manifest.get("scheduled_for") != row.get("scheduled_for")
+            or manifest.get("generated_at") != row.get("generated_at")
+            or manifest.get("board_revision") != row.get("board_revision")
+            or manifest.get("paths") != expected_manifest_paths
+            or manifest.get("sha256") != row.get("sha256")
+            or manifest.get("authors") != row.get("authors")
+            or manifest.get("source_bundle") != row.get("source_bundle")
+            or manifest.get("provider_access") != row.get("provider_access")
+            or manifest.get("provider_mutations") != row.get("provider_mutations")
+            or manifest.get("delivery_status") != "not_requested"
+            or not isinstance(manifest.get("notification"), dict)
+            or manifest["notification"].get("status") != "UNKNOWN_NO_RETRY"
+        ):
+            problems.append(
+                f"{label}: pre-notification manifest does not bind the outcome"
+            )
+
+    if set(artifact_bytes) != set(artifact_keys):
+        return problems
+    try:
+        source_packet = json.loads(artifact_bytes["source_json"].decode("utf-8"))
+        chief_artifact = json.loads(artifact_bytes["chief_json"].decode("utf-8"))
+        customer_artifact = json.loads(artifact_bytes["customer_json"].decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        problems.append(f"{label}: one authored JSON artifact is invalid")
+        return problems
+    if not all(
+        isinstance(value, dict)
+        for value in (source_packet, chief_artifact, customer_artifact)
+    ):
+        problems.append(f"{label}: authored JSON roots must be objects")
+        return problems
+    if (
+        source_packet.get("generated_at") != row.get("generated_at")
+        or source_packet.get("slot") != row.get("slot")
+        or (source_packet.get("board") or {}).get("revision")
+        != row.get("board_revision")
+        or source_packet.get("producer") != row.get("producer")
+        or source_packet.get("provider_access") != row.get("provider_access")
+    ):
+        problems.append(f"{label}: source packet identity does not match the outcome")
+    author = _load_brief_author_module(
+        (row.get("source_bundle") or {}).get("scripts/shadow-brief-author.py")
+    )
+    try:
+        chief_profile = author.load_profile()
+        customer_profile = author.load_customer_profile()
+        author.validate_artifact(chief_artifact, chief_profile)
+        author.validate_customer_artifact(customer_artifact, customer_profile)
+        expected_chief_html = author.render_letter_html(
+            chief_artifact, chief_profile
+        ).encode("utf-8")
+        expected_customer_html = author.render_customer_letter_html(
+            customer_artifact, customer_profile
+        ).encode("utf-8")
+    except Exception as exc:
+        problems.append(f"{label}: authored artifact validation failed: {exc}")
+        return problems
+    if expected_chief_html != artifact_bytes["chief_html"]:
+        problems.append(f"{label}: chief-of-staff HTML does not match its artifact")
+    if expected_customer_html != artifact_bytes["customer_html"]:
+        problems.append(
+            f"{label}: customer-opportunity HTML does not match its artifact"
+        )
+    authors = row.get("authors")
+    if (
+        not isinstance(authors, dict)
+        or authors.get("chief_of_staff") != chief_artifact.get("author_receipt")
+        or authors.get("snowcubes_customer_opportunities")
+        != customer_artifact.get("author_receipt")
+    ):
+        problems.append(f"{label}: native author receipts do not match the artifacts")
+    freshness_products = {
+        "chief_receipt": chief_artifact.get("author_receipt"),
+        "customer_receipt": customer_artifact.get("author_receipt"),
+    }
+    fresh, wake = _authored_products_are_fresh(
+        freshness_products,
+        generated_at=row.get("generated_at"),
+        scheduled_for=row.get("scheduled_for"),
+        now=_parse_aware_datetime(notification.get("notified_at")),
+    )
+    if not fresh:
+        problems.append(f"{label}: {wake}")
+    return problems
+
+
+def verify_authored_outcomes(
+    rows: list[dict[str, Any]],
+    *,
+    evidence_dir: Path,
+    ledger_dir: Path,
+) -> dict[str, Any]:
+    groups: dict[datetime, list[dict[str, Any]]] = {}
+    ignored: list[str] = []
+    for row in rows:
+        instant = _scheduled_window_instant(row)
+        if instant is None:
+            ignored.append(str(row.get("scheduled_for") or "<invalid>"))
+            continue
+        groups.setdefault(instant, []).append(row)
+    selected_groups = [groups[key] for key in sorted(groups)][-2:]
+    selected = [group[-1] for group in selected_groups]
+    problems: list[str] = []
+    for group in selected_groups:
+        if len(group) != 1:
+            problems.append(
+                f"{group[-1].get('scheduled_for')}: duplicate authored outcomes found"
+            )
+        for row in group:
+            problems.extend(
+                _validate_authored_outcome(
+                    row,
+                    evidence_dir=evidence_dir,
+                    ledger_dir=ledger_dir,
+                )
+            )
+    if len(selected) != 2:
+        problems.append(
+            f"need two distinct authored 08:00/20:00 natural windows; found {len(selected)}"
+        )
+    else:
+        first = _parse_aware_datetime(selected[0].get("scheduled_for"))
+        second = _parse_aware_datetime(selected[1].get("scheduled_for"))
+        if (
+            first is None
+            or second is None
+            or not natural_windows_are_consecutive(first, second)
+        ):
+            problems.append("latest authored natural windows are not consecutive")
+        if selected[0].get("producer") != selected[1].get("producer") or selected[
+            0
+        ].get("source_bundle") != selected[1].get("source_bundle"):
+            problems.append("authored windows did not run one exact installed producer")
+    return {
+        "ok": not problems,
+        "status": "source-proof-only" if not problems else "blocked",
+        "problems": problems,
+        "windows": [row.get("scheduled_for") for row in selected],
+        "ignored_invalid_windows": ignored,
+        "delivery_status": "not_requested",
+        "mailbox_readback_satisfied": False,
+        "note": (
+            "This verifies the no-send authored producer only. It does not satisfy the "
+            "current ~c6lv exact self-mail and mailbox-readback acceptance predicate."
+        ),
+    }
+
+
+def cmd_verify_authored_windows(_args: argparse.Namespace) -> int:
+    rows, read_problems = _read_authored_outcomes(EVIDENCE_DIR)
+    result = verify_authored_outcomes(
+        rows,
+        evidence_dir=EVIDENCE_DIR,
+        ledger_dir=LOG_DIR,
+    )
+    result["problems"] = [*read_problems, *result["problems"]]
+    result["ok"] = not result["problems"]
+    if not result["ok"]:
+        result["status"] = "blocked"
+    print(json.dumps(result, indent=2))
+    return 0 if result["ok"] else 1
+
+
 def cmd_verify_windows(_args: argparse.Namespace) -> int:
     try:
         rows = _read_jsonl(WINDOW_LOG)
@@ -10700,6 +12526,19 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dry-run", action="store_true")
     run.set_defaults(func=cmd_run)
 
+    authored_run = sub.add_parser("authored-run")
+    authored_run.add_argument("--slot", choices=["morning", "evening"])
+    authored_run.add_argument(
+        "--chief-host", choices=("codex", "claude-code"), required=True
+    )
+    authored_run.add_argument(
+        "--customer-host", choices=("codex", "claude-code"), required=True
+    )
+    authored_run.add_argument(
+        "--scheduled-trigger", action="store_true", help=argparse.SUPPRESS
+    )
+    authored_run.set_defaults(func=cmd_authored_run)
+
     d = sub.add_parser("deliver")
     d.add_argument("--html")
     d.add_argument("--subject")
@@ -10717,6 +12556,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     vw = sub.add_parser("verify-windows")
     vw.set_defaults(func=cmd_verify_windows)
+
+    vaw = sub.add_parser("verify-authored-windows")
+    vaw.set_defaults(func=cmd_verify_authored_windows)
 
     rb = sub.add_parser("readback-window")
     rb.add_argument("--scheduled-for")

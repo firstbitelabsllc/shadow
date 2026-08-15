@@ -56,7 +56,19 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("scripts/shadow-lifecycle.py", "schemas/retirement-manifest.v1.json"), (
         "tests.test_lifecycle", "tests.test_root_board", "tests.test_status_focus",
     )),
-    (("scripts/shadow-brief.py",), ("tests.test_shadow_brief",)),
+    ((
+        "scripts/shadow-brief.py", "scripts/shadow-brief-author.py",
+        "config/chief-of-staff-author.json",
+        "config/snowcubes-customer-opportunity-author.json",
+        "docs/reference/chief-of-staff-authoring.md",
+        "docs/reference/snowcubes-customer-opportunity-authoring.md",
+        "schemas/chief-of-staff-letter.v1.json",
+        "schemas/snowcubes-customer-opportunity-letter.v1.json",
+    ), (
+        "tests.test_shadow_brief",
+        "tests.test_shadow_brief_author",
+        "tests.test_shadow_provider_broker",
+    )),
     (("browser/", "bin/shadow-browse"), (
         "tests.test_browser", "tests.test_browser_shell", "tests.test_status_focus",
         "tests.test_root_board", "tests.test_config_defaults",

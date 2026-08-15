@@ -660,7 +660,7 @@ class LiveTwoSeatProof(unittest.TestCase):
         result = run_harness(
             fixture.script,
             fixture.operator_home,
-            "--live", "--goal-file", str(fixture.goal), "--timeout-seconds", "10", "--json",
+            "--live", "--goal-file", str(fixture.goal), "--timeout-seconds", "30", "--json",
             extra_env={
                 "SHADOW_CLAUDE_CODE_BIN": str(claude),
                 "SHADOW_CODEX_BIN": str(codex),

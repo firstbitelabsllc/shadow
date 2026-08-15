@@ -109,8 +109,18 @@ def artifact(evidence: dict, value: dict | None = None) -> dict:
             "schema": author.RECEIPT_SCHEMA,
             "status": "ok",
             "host": "codex",
+            "host_executable": "/usr/local/bin/codex",
+            "requested_model": None,
+            "model_observed": None,
+            "profile_sha256": author.sha256_json(author.load_profile()),
+            "prompt_sha256": author.hashlib.sha256(
+                author.PROMPT_PATH.read_bytes()
+            ).hexdigest(),
+            "tools_allowed": False,
+            "isolation": author.expected_author_isolation("codex"),
             "evidence_sha256": author.sha256_json(evidence),
             "letter_sha256": author.sha256_json(value),
+            "authored_at": "2026-08-15T13:00:00Z",
         },
         "evidence": evidence,
     }
@@ -264,13 +274,18 @@ def customer_artifact(evidence: dict, value: dict | None = None) -> dict:
             "schema": author.CUSTOMER_RECEIPT_SCHEMA,
             "status": "ok",
             "host": "codex",
+            "host_executable": "/usr/local/bin/codex",
+            "requested_model": None,
+            "model_observed": None,
             "profile_sha256": author.sha256_json(author.load_customer_profile()),
             "prompt_sha256": author.hashlib.sha256(
                 author.CUSTOMER_PROMPT_PATH.read_bytes()
             ).hexdigest(),
-            "tools_allowed": "read-only sandbox",
+            "tools_allowed": False,
+            "isolation": author.expected_author_isolation("codex"),
             "evidence_sha256": author.sha256_json(evidence),
             "letter_sha256": author.sha256_json(value),
+            "authored_at": "2026-08-15T13:00:00Z",
         },
         "evidence": evidence,
     }
@@ -665,6 +680,43 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
         with self.assertRaisesRegex(author.AuthoringError, "does not bind its letter"):
             author.render_letter_html(forged, self.profile)
 
+    def test_chief_artifact_rejects_unapproved_host_profile_prompt_or_tools(
+        self,
+    ) -> None:
+        cases = {
+            "host": ("mail-writer", "unsupported host"),
+            "profile_sha256": ("0" * 64, "does not bind its profile"),
+            "prompt_sha256": ("0" * 64, "does not bind its prompt"),
+            "tools_allowed": (True, "wrapper isolation contract"),
+            "isolation": ({"schema": "weakened"}, "wrapper isolation contract"),
+        }
+        for field, (value, message) in cases.items():
+            with self.subTest(field=field):
+                forged = artifact(self.evidence)
+                forged["author_receipt"][field] = value
+                with self.assertRaisesRegex(author.AuthoringError, message):
+                    author.render_letter_html(forged, self.profile)
+
+    def test_chief_artifact_requires_exact_wrapper_receipt_shape(self) -> None:
+        for field in ("host_executable", "authored_at"):
+            with self.subTest(field=field):
+                forged = artifact(self.evidence)
+                forged["author_receipt"].pop(field)
+                with self.assertRaisesRegex(
+                    author.AuthoringError, "fields are invalid"
+                ):
+                    author.validate_artifact(forged, self.profile)
+
+        forged = artifact(self.evidence)
+        forged["author_receipt"]["authored_at"] = "not-a-timestamp"
+        with self.assertRaisesRegex(author.AuthoringError, "time is invalid"):
+            author.validate_artifact(forged, self.profile)
+
+        forged = artifact(self.evidence)
+        forged["author_receipt"]["host_executable"] = "/tmp/claude"
+        with self.assertRaisesRegex(author.AuthoringError, "executable is invalid"):
+            author.validate_artifact(forged, self.profile)
+
     def test_renderer_escapes_model_prose(self) -> None:
         escaped = letter()
         escaped["closing"] = "All boats rise <together>."
@@ -685,11 +737,30 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
             result_path.write_text(json.dumps(letter()), encoding="utf-8")
             self.assertIn("--sandbox", command)
             self.assertIn("read-only", command)
+            self.assertIn("--strict-config", command)
             self.assertIn("--ignore-user-config", command)
+            self.assertIn("--ignore-rules", command)
+            self.assertIn("--ephemeral", command)
+            disabled = [
+                command[index + 1]
+                for index, value in enumerate(command[:-1])
+                if value == "--disable"
+            ]
+            self.assertEqual(disabled, list(author.CODEX_AUTHOR_DISABLED_FEATURES))
+            self.assertEqual(command[command.index("--cd") + 1], str(kwargs["cwd"]))
             self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
             self.assertIn(
                 "Return only the schema-valid JSON letter", str(kwargs["input"])
             )
+            child_environment = kwargs["env"]
+            self.assertEqual(child_environment["OPENAI_API_KEY"], "host-auth")
+            self.assertEqual(child_environment["CODEX_HOME"], "/native/codex-auth")
+            self.assertEqual(
+                child_environment["HOME"], str(Path(str(kwargs["cwd"])) / "home")
+            )
+            self.assertNotEqual(child_environment["HOME"], "/real/home")
+            self.assertNotIn("SUPERHUMAN_ACCESS_TOKEN", child_environment)
+            self.assertNotIn("SHOPIFY_ACCESS_TOKEN", child_environment)
             return subprocess.CompletedProcess(command, 0, "", "")
 
         result, receipt = author.invoke_author(
@@ -697,11 +768,41 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
             self.profile,
             host="codex",
             runner=runner,
-            environ={},
+            environ={
+                "PATH": "/usr/bin:/bin",
+                "HOME": "/real/home",
+                "CODEX_HOME": "/native/codex-auth",
+                "OPENAI_API_KEY": "host-auth",
+                "SUPERHUMAN_ACCESS_TOKEN": "mail-secret",
+                "SHOPIFY_ACCESS_TOKEN": "shop-secret",
+            },
         )
         self.assertEqual(result["schema"], author.LETTER_SCHEMA)
         self.assertEqual(receipt["host"], "codex")
         self.assertEqual(receipt["status"], "ok")
+        self.assertFalse(receipt["tools_allowed"])
+        self.assertEqual(
+            receipt["isolation"], author.expected_author_isolation("codex")
+        )
+
+    def test_unsupported_host_is_rejected_before_resolution_or_runner(self) -> None:
+        runner = mock.Mock(side_effect=AssertionError("runner must not execute"))
+        with (
+            mock.patch.object(
+                author.shutil,
+                "which",
+                side_effect=AssertionError("host resolution must not execute"),
+            ),
+            self.assertRaisesRegex(author.AuthoringError, "unsupported author host"),
+        ):
+            author.invoke_author(
+                self.evidence,
+                self.profile,
+                host="mail-writer",
+                runner=runner,
+                environ={},
+            )
+        runner.assert_not_called()
 
     @mock.patch.object(author.shutil, "which", return_value="/usr/local/bin/claude")
     def test_claude_runs_without_tools_and_no_automatic_host_fallback(
@@ -719,6 +820,23 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
             self.assertNotIn(
                 "Return only the schema-valid JSON letter", " ".join(command)
             )
+            for flag in (
+                "--bare",
+                "--safe-mode",
+                "--disable-slash-commands",
+                "--no-chrome",
+                "--no-session-persistence",
+                "--strict-mcp-config",
+            ):
+                self.assertIn(flag, command)
+            cwd = Path(str(kwargs["cwd"]))
+            self.assertTrue(cwd.name.startswith("shadow-brief-author-"))
+            child_environment = kwargs["env"]
+            self.assertEqual(child_environment["ANTHROPIC_API_KEY"], "host-auth")
+            self.assertNotEqual(child_environment["HOME"], "/real/home")
+            self.assertEqual(child_environment["HOME"], str(cwd / "home"))
+            self.assertNotEqual(child_environment["CLAUDE_CONFIG_DIR"], "/real/claude")
+            self.assertNotIn("SUPERHUMAN_ACCESS_TOKEN", child_environment)
             envelope = {"structured_output": letter()}
             return subprocess.CompletedProcess(command, 0, json.dumps(envelope), "")
 
@@ -727,10 +845,20 @@ class ChiefOfStaffAuthorTests(unittest.TestCase):
             self.profile,
             host="claude-code",
             runner=runner,
-            environ={},
+            environ={
+                "PATH": "/usr/bin:/bin",
+                "HOME": "/real/home",
+                "CLAUDE_CONFIG_DIR": "/real/claude",
+                "ANTHROPIC_API_KEY": "host-auth",
+                "SUPERHUMAN_ACCESS_TOKEN": "mail-secret",
+            },
         )
         self.assertEqual(result["schema"], author.LETTER_SCHEMA)
         self.assertEqual(receipt["host"], "claude-code")
+        self.assertFalse(receipt["tools_allowed"])
+        self.assertEqual(
+            receipt["isolation"], author.expected_author_isolation("claude-code")
+        )
         self.assertEqual(len(calls), 1)
         tools_index = calls[0].index("--tools")
         self.assertEqual(calls[0][tools_index + 1], "")
@@ -1047,7 +1175,19 @@ class SnowcubesCustomerOpportunityAuthorTests(unittest.TestCase):
             author.validate_customer_artifact(forged, self.profile)
         forged = customer_artifact(self.evidence)
         forged["author_receipt"]["tools_allowed"] = True
-        with self.assertRaisesRegex(author.AuthoringError, "tool isolation"):
+        with self.assertRaisesRegex(
+            author.AuthoringError, "wrapper isolation contract"
+        ):
+            author.validate_customer_artifact(forged, self.profile)
+        forged = customer_artifact(self.evidence)
+        forged["author_receipt"]["unexpected"] = True
+        with self.assertRaisesRegex(author.AuthoringError, "fields are invalid"):
+            author.validate_customer_artifact(forged, self.profile)
+        forged = customer_artifact(self.evidence)
+        forged["author_receipt"]["isolation"] = {"schema": "weakened"}
+        with self.assertRaisesRegex(
+            author.AuthoringError, "wrapper isolation contract"
+        ):
             author.validate_customer_artifact(forged, self.profile)
 
     def test_customer_artifact_rejects_stale_evidence(self) -> None:
