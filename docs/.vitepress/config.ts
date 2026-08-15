@@ -38,7 +38,6 @@ export default defineConfig({
           collapsed: true,
           items: [
             { text: 'Plan grammar', link: '/reference/grammar' },
-            { text: 'Plan fields', link: '/reference/plan-fields' },
             { text: 'Plan scale', link: '/reference/plan-scale' },
             { text: 'Amp', link: '/reference/amp' },
           ],
@@ -74,7 +73,6 @@ export default defineConfig({
           collapsed: true,
           items: [
             { text: 'Telemetry', link: '/reference/telemetry' },
-            { text: 'Universal system register', link: '/reference/universal-system-register' },
             { text: 'Privacy', link: '/reference/privacy' },
           ],
         },
