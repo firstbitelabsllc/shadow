@@ -4819,6 +4819,20 @@ class PrivateStoreTests(unittest.TestCase):
 
         self.assertTrue(brief._is_shopify_mail_address("STORE@ALERTS.SHOPIFY.COM"))
 
+        multi_party = brief._snowcubes_customer_thread_evidence(
+            subject="New customer message about Snowcubes order TSC01615",
+            messages=[
+                {
+                    "from": "attacker@evilshopify.com",
+                    "to": ["victim@example.com", brief.SNOWCUBES_BUSINESS_MAIL],
+                    "body": "Question about TSC01615",
+                }
+            ],
+            owned_identities={brief.SNOWCUBES_BUSINESS_MAIL},
+        )
+        self.assertNotIn("customer_email", multi_party)
+        self.assertNotIn("customer_email_verified", multi_party)
+
     def test_customer_opportunity_excludes_unrelated_mail_from_exact_join(self):
         customer_signal = {
             "thread_id": "thread-customer",
