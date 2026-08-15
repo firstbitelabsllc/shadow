@@ -2,238 +2,83 @@
 
 # Shadow
 
-Shadow keeps one durable workboard per computer and the work itself in each
-project's `PLAN.md`. It tells a native coding host what to do next, tracks
-ownership, and records proof so a chat can end without losing the task.
+**Shadow is you, one step down.** Say what you want in any wired AI coding
+host — Claude Code, Codex, Cursor — and Shadow keeps the work durable: one
+board per computer saying who is doing what, one `PLAN.md` per project holding
+the work itself, and a proof receipt on every finished step. Kill any chat at
+any time; the next session resumes exactly where the last one stopped.
 
-**Shadow is you, one step down.** The slogan is the stance: you set intent;
-Shadow reconstructs the work, chooses a reachable next move, and keeps the
-loop recoverable.
+Six words carry the whole system:
 
-## The picture
+| word | meaning |
+|---|---|
+| **board** | one small ledger per computer: ownership, priority, resume |
+| **plans** | each repo's `PLAN.md`: checkpoints, each with its proving test |
+| **seats** | the AI workers, each under one stable name |
+| **claim** | a seat takes a checkpoint atomically; exactly one winner |
+| **proof** | done means the checkpoint's named check passed |
+| **accept** | the only flip to completed: rerun the proof clean, record it |
 
-```
-        you  — say what you want, in plain words
-         │
-         ▼
-   computer board   (~/.shadow — one per machine)
-   "who is doing what, right now": project priority, claims, owners, resume
-         │
-         ▼
-   project plans    (PLAN.md — one per repository)
-   "the work itself": milestones → checkpoints → proof receipts
-         │
-         ▼
-   seats            (a Claude session, a Codex session, …)
-   the AI workers — each works under one stable name
+The loop every seat runs: **claim → work → prove → accept → next**.
 
-   the loop every seat runs:
-   claim a checkpoint → do the work → prove it → accept → pick the next one
-```
-
-Six words carry the whole system, in plain terms:
-
-- **board** — one small ledger per computer saying who is doing what right
-  now. Not the work itself; just ownership, priority, and where to resume.
-- **plans** — each repository's `PLAN.md`: the actual work, broken into
-  checkpoints, each with the test that proves it done.
-- **seats** — the AI workers (a Claude session, a Codex session), each under
-  one stable name so work is always attributable.
-- **claim** — a seat takes a checkpoint atomically before working. Two seats
-  grabbing the same one: exactly one wins, the loser is told who owns it.
-- **proof** — no checkpoint is "done" by assertion. Each carries a named
-  check, and done means that check passed.
-- **accept** — the only way a checkpoint flips to completed: rerun its proof
-  in a clean copy and record the receipt in the plan.
-
-## How you use it
-
-Install once (below), then open a chat in any wired host — Claude Code,
-Codex — and say what you want. The seat reads the board (`shadow status`),
-claims the next reachable checkpoint (`shadow throw`), does the work, and
-closes it with proof (`shadow accept`). You never fill in a form or learn
-the grammar to get value: you speak intent, and you can always see what
-every seat is doing with `shadow status --in-flight` or the local board
-page (`shadow browse`). Kill any chat at any time — the board and the plan
-carry everything needed to resume, which is the point of the whole design.
-
-## The loop
-
-```mermaid
-flowchart LR
-    chat["Chat or native host"] --> status["shadow status\ncomputer board"]
-    status --> throw["shadow throw\natomic claim"]
-    throw --> plan["project PLAN.md\ncheckpoint + proof"]
-    plan --> work["amp / host run\nclaimed paths only"]
-    work --> accept["accept or return\nreceipt or wake"]
-    accept --> status
-```
-
-The board at `~/.shadow` owns project priority, entity pointers, claims,
-owners, and resume. Infrastructure entities keep plans locally below
-`~/.shadow/plans/`; product repositories may keep a declared release plan with
-their source. The browser, a chat transcript, a worktree copy, or a provider's
-private plan is never a competing authority.
-
-When the current branch tracks configured `origin`, `shadow throw` also takes
-one deterministic Git coordination lock under
-`refs/heads/shadow/claims/v1/<entity>/<row>` before work leaves the seat. Its
-closed public receipt contains no task or proof text and never becomes
-authority. The tracked branch stays untouched; the repository ruleset must
-permit the claim namespace. Without a configured origin upstream, Shadow keeps
-the same local-only behavior. A refused or ambiguous coordination write prints
-no work packet; confirmed loss compensates its exact local attempt, while an
-ambiguous result retains that claim for the same-seat retry.
-
-## Install once
+## Install
 
 ```bash
-git clone --branch shadow-v1.0.1 --depth 1 \
-  https://github.com/firstbitelabsllc/shadow.git
-cd shadow
-bash install.sh
-shadow doctor
+git clone --branch shadow-v1.0.1 --depth 1 https://github.com/firstbitelabsllc/shadow.git
+cd shadow && bash install.sh && shadow doctor
 ```
 
-Requirements are Git, Bash, Python 3.10+, and a supported native host. There is
-no Node, npm, database, daemon, or transcript store. The namespaced tag is the
-immutable stable release, and the clone is the install. To update, read GitHub
-Latest, fetch tags, check out that exact `shadow-v*` tag, and rerun
-`install.sh`. Contributors who intentionally want moving development source may
-clone `main` instead. `install.sh` mounts the same checkout into the host skill
-roots and writes Shadow's managed standing-goal block into Claude Code
-and Codex instruction files. Cursor's skill mount and sealed host runner are
-supported, but file-backed cold directive activation is deliberately
-unsupported until Cursor exposes a reviewed user-rule surface.
+Git, Bash, Python 3.10+, and a supported host. No Node, no daemon, no
+database, no transcript store. The clone is the install; to upgrade, check
+out the newer `shadow-v*` tag and rerun `install.sh`. If `shadow` is not
+found afterward, add `~/.local/bin` to your PATH.
 
-`shadow doctor` checks installation and host wiring. It does not prove a live
-session loaded the skill. For that boundary, use the offline verifier first and
-then the quota-bearing live check when you have a stable board:
+## First run
+
+From any Git project, replacing only the seat name:
 
 ```bash
-scripts/shadow-verify-host.sh --host claude-code --by claude
-scripts/shadow-verify-host.sh --host codex --by codex --live
+PLAN=$(shadow init --here | awk -F': ' '{print $2}')  # never overwrites a plan
+$EDITOR "$PLAN"                    # fill the Brief; one task with its proof
+shadow status --by your-seat      # prints the exact throw command — run it
+# do the work, then close out:
+shadow accept --repo . --row '~a1b2' --by your-seat   # cmd proofs flip here
+# read/gate proofs instead: record the observation in the plan, then shadow return
 ```
 
-To prove two independent seats can coordinate instead of merely describe one
-board, run the sealed disposable harness. Its default uses deterministic local
-seat drivers and no model quota. Live mode is explicit and requires one frozen
-seat-neutral goal file; it runs Claude and Codex only inside a fresh scratch
-HOME and two disposable local repositories:
+Quote row ids (`'~a1b2'`) and use the id status printed. `shadow status
+--in-flight` shows every seat's live work; `shadow browse` renders the board.
 
-```bash
-scripts/shadow-python.sh scripts/shadow-verify-two-seat.py --json
-scripts/shadow-python.sh scripts/shadow-verify-two-seat.py \
-  --live --goal-file ./frozen-goal.txt --json
-```
+## Customize
 
-The receipt proves the shared goal hash/ref, two distinct historical owners,
-overlapping peer-visible claims, two completed proofs, and zero orphan claims.
-Live mode also requires the running checkout to be clean and exactly at the
-freshly fetched ref. The harness never completes the person-observed gate on
-its own.
+All configuration is deliberately small, and stress-tested that way:
 
-## First run: one complete handoff
+- **Buckets** — optional capability slots (`shadow buckets`): superpowers,
+  taste, future, explain. Every one may be empty; none ever gates a cycle.
+  Rebind or opt out per machine with `SHADOW_BUCKET_<NAME>=<abs path>|off` —
+  don't want superpowers? `SHADOW_BUCKET_SUPERPOWERS=off` and everything runs.
+- **`shadow.yaml`** — one optional repo-root file with exactly two keys
+  (`version`, `adversarial-lenses`). That's the whole config file, by law:
+  a dial may exist only where a wrong value costs quality, never truth.
+- **Environment** — `SHADOW_ROOT`, `SHADOW_PORTFOLIO_ROOT`, host binary
+  overrides, and the bucket bindings above; the full table is in
+  [Config](https://firstbitelabsllc.github.io/shadow/reference/config).
 
-Run this from a Git project. The only placeholder you replace is the stable
-seat name; copy the exact row id and command that `shadow status` prints.
+## What it will and will not do
 
-```bash
-shadow init --here                 # creates PLAN.md; never overwrites one
-$EDITOR PLAN.md                    # fill the Brief and one typed task/proof
-shadow lint PLAN.md
-shadow status --by your-seat      # reads the computer board and prints next moves
-shadow throw --repo . --task '~ab12' --by your-seat
-shadow amp --repo . --by your-seat # or use shadow host run for a sealed host
-# do the claimed work, then reproduce its proof
-shadow accept --repo . --row '~ab12' --by your-seat
-shadow status --in-flight --json   # leave a resumable handoff
-```
+It coordinates every reachable lane, keeps one writer per claim, and leaves
+proof plus a successor; it refuses unclaimed execution, missing proof, and
+ambiguous authority. Hosts keep their own auth, model, and billing.
 
-Task ids look like `~ab12`; quote them in zsh so the shell does not expand the
-tilde before Shadow runs. A migrated row may retain an old mnemonic such as
-`P9a~formats` at the head of its text; `shadow throw` accepts that unique alias
-but records and prints the row's canonical `~hash`. `shadow accept` is the only
-command-proof flip path.
-For a person-observed `read` or `gate` proof, record the result in `PLAN.md`
-and use `shadow return`. For a blocked task, record one exact Deferred wake
-before returning the claim.
+When your branch tracks a configured `origin`, `shadow throw` also takes one
+Git coordination lock under `refs/heads/shadow/claims/v1/<entity>/<row>`: it
+carries no task or proof text, never becomes authority, and leaves the tracked
+branch untouched. With no such upstream the same flow stays local-only.
 
-For a remotely coordinated claim, `shadow accept --no-push` retains both the
-local claim and remote lock. A later ordinary accept publishes the completed
-PLAN, records the completed tombstone, and only then releases the local claim.
+## Docs
 
-For the other shipped rails, use the same explicit projections:
+The full contract lives at **[the docs site](https://firstbitelabsllc.github.io/shadow/)** —
+install detail, the claim/proof loop, every verb and flag, plan grammar,
+buckets, privacy. Developing Shadow itself starts at [`AGENT.md`](AGENT.md).
 
-```bash
-shadow goal --install --host codex     # install the static host instruction block
-shadow host probe --host codex --json  # probe without running a task
-shadow buckets --json                  # show optional method slots and fallbacks
-shadow lifecycle --repo . --json       # report hot-plan limits; never guesses deletion
-```
-
-The exhaustive flag and exit-code reference lives in
-[Commands](docs/reference/commands.md); this page keeps one first-success path
-instead of becoming a second CLI manual.
-
-## Proof boundaries
-
-These are separate receipts, not synonyms:
-
-- A green command proves source behavior in the checkout where it ran.
-- A merged commit proves protected `origin/main` contains that source.
-- An install/stranger-install check proves a fresh package can wire the tool.
-- A live host check proves one real host session loaded and described the board.
-- Deployment, external delivery, and customer/runtime behavior need their own
-  owning-plan evidence; Shadow never infers them from CI, a demo, or a receipt.
-
-## At the end of every Shadow chat
-
-Render a compact **Ongoing tasks** footer from a fresh
-`shadow status --in-flight --json` read (claims first), joined with the current
-seat's reachable and waiting rows from `shadow status --json --by <seat>`:
-
-```text
-Ongoing tasks
-- project/outcome — checkpoint; owner; state; next proof or exact wake
-Active tasks: none
-```
-
-Use the empty line only when the board has no ongoing claims or waiting work.
-This footer is a projection of the board, not a second queue: never hard-code
-stale status, copy private paths/provider data, or turn a chat message into
-authority.
-
-## What Shadow will and will not do
-
-Shadow will coordinate every reachable project lane, preserve one writer per
-claim, prepare a bounded host handoff, and leave proof plus a successor. It
-will refuse unclaimed execution, missing proof, dirty or ambiguous authority,
-and unsupported host activation rather than guess. Native hosts keep their own
-authentication, model, and billing choices.
-
-## Find the exact contract
-
-- [Installation](docs/guide/installation.md) — mounts, upgrades, and host limits
-- [Quick start](docs/guide/quickstart.md) — the full claim/proof loop
-- [Use Shadow in more places](docs/guide/publishing.md) — honest ChatGPT, Codex, Claude, Cursor, Custom GPT, and MCP boundaries
-- [Commands](docs/reference/commands.md) — every verb and flag
-- [Host integration](docs/reference/host-integration.md) — cold-start behavior
-- [Native hosts](docs/reference/native-hosts.md) — sealed runs and activation
-- [Method](docs/reference/method.md) — the operating cycle and adversarial step
-- [Plan grammar](docs/reference/grammar.md) — durable plan rules
-- [Amp](docs/reference/amp.md) · [Buckets](docs/reference/buckets.md)
-- [Privacy](docs/reference/privacy.md) · [Other-computer handoff](docs/guide/other-computer-handoff.md)
-
-## Develop Shadow itself
-
-```bash
-scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'
-scripts/shadow-public-ready-grep-gate.py --tracked-only --metadata
-```
-
-The method is one page in [`AGENT.md`](AGENT.md), with the durable grammar in
-[`docs/reference/grammar.md`](docs/reference/grammar.md). Keep source/test,
-merge, install, and live-dogfood evidence distinct when changing the repo.
-
-Shadow is released under the [MIT License](LICENSE).
+MIT License.

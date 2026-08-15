@@ -33,6 +33,8 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         self.assertFalse(selected.run_all)
         self.assertIn("tests.test_grammar_contract", selected.modules)
         self.assertIn("tests.test_standing_goal", selected.browser_modules)
+        readme = ci.select_paths(["README.md"])
+        self.assertIn("tests.test_readme_contract", readme.modules)
 
     def test_changelog_changes_run_the_release_contract(self) -> None:
         selected = ci.select_paths(["CHANGELOG.md"])
