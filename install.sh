@@ -6,7 +6,7 @@
 # substring tests. Installing is now: clone, link the command, mount the
 # skill. Updating is `git pull` — the clone IS the install.
 #
-#   bash install.sh                 # link into ~/.local/bin + all three hosts
+#   bash install.sh                 # link into ~/.local/bin + all native hosts
 #   bash install.sh --bin-dir DIR   # put the `shadow` command somewhere else
 #   bash install.sh --no-skills     # command only, skip the host mounts
 #
@@ -65,7 +65,7 @@ ln -sfn "${ROOT}/bin/shadow" "${BIN_DIR}/shadow"
 echo "installed: ${BIN_DIR}/shadow -> ${ROOT}/bin/shadow"
 
 if [[ "${LINK_SKILLS}" -eq 1 ]]; then
-  for host in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills"; do
+  for host in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills" "${HOME}/.grok/skills"; do
     if [[ -d "$(dirname "${host}")" ]]; then
       mkdir -p "${host}"
       # `ln -sfn` into an existing REAL directory silently creates

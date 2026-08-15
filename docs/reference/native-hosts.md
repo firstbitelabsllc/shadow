@@ -1,16 +1,17 @@
 # Native hosts
 
-Shadow's sealed host runner supports `codex`, `claude-code`, and `cursor`. You
-choose the host directly: `shadow host run --host <name>` is the complete
-sealed path. There is no roster, route, or seat layer in front of it, and
-Shadow cannot verify or guarantee the provider model or billing tier inside a
-host.
+Shadow's sealed host runner supports `codex`, `claude-code`, `cursor`, and
+`grok`. You choose the host directly: `shadow host run --host <name>` is the
+complete sealed path. There is no roster, route, or seat layer in front of it,
+and Shadow cannot verify or guarantee the provider model or billing tier inside
+a host.
 
 Cold directive activation is a narrower surface. Shadow manages a marker block
-in Claude Code's `CLAUDE.md` and Codex's `AGENTS.md`. Cursor user rules live in
-application settings; no reviewed file/API convention exists, so Shadow marks
-Cursor cold activation **unsupported** instead of inventing a path and calling
-it installed. Cursor's skill mount and sealed host-run remain supported.
+in Claude Code's `CLAUDE.md`, Codex's `AGENTS.md`, and Grok's `AGENTS.md`.
+Cursor user rules live in application settings; no reviewed file/API convention
+exists, so Shadow marks Cursor cold activation **unsupported** instead of
+inventing a path and calling it installed. Cursor's skill mount and sealed
+host-run remain supported.
 
 Every run requires an exact clean Git worktree, a frozen task file, a task
 ID, and one or more exact allowed paths. Scope escape, missing receipt,
@@ -22,7 +23,7 @@ the frozen task's SHA-256, not its prompt or provider output.
 Shadow passes no model or account selector and records none. Which provider,
 model, or account a host uses is that host CLI's own business, configured in
 the host's own config (for example the Codex CLI config file, Claude Code
-settings, or Cursor settings).
+settings, Cursor settings, or Grok's `~/.grok/config.toml`).
 
 ## A fleet map of hosts and models lives outside Shadow
 
@@ -48,6 +49,12 @@ being asked. The write targets:
 | --- | --- |
 | claude-code | `~/.claude/CLAUDE.md` |
 | codex | `~/.codex/AGENTS.md` |
+| grok | `~/.grok/AGENTS.md` |
+
+Grok's own docs name `~/.grok/AGENTS.md` as the user-level instruction file
+and `~/.grok/rules/` as the always-scanned home rules directory. Activation
+writes the named file so doctor and verify do not depend on Claude
+compatibility loading `~/.claude/CLAUDE.md`.
 
 **Cursor is not activated, by decision (2026-08-10).** Cursor's user-level
 rules live in the application's settings interface, not in a file: its own

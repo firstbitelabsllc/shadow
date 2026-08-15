@@ -1,4 +1,4 @@
-"""Tests for the three native Shadow host adapters."""
+"""Tests for the native Shadow host adapters."""
 
 from __future__ import annotations
 
@@ -168,6 +168,104 @@ class ShadowHostTests(unittest.TestCase):
         self.assertEqual(command[-1], "agent")
         self.assertNotIn("frozen task", command)
 
+    def test_sealed_host_set_includes_grok_and_refuses_unknown(self) -> None:
+        # Regression: the old three-host-only set silently dropped grok from
+        # probe/run argparse and launch. A host set without grok must fail here.
+        self.assertGreaterEqual(
+            set(shadow_host.HOSTS),
+            {"codex", "claude-code", "cursor", "grok"},
+        )
+        with self.assertRaises(SystemExit):
+            shadow_host.parser().parse_args(["probe", "--host", "not-a-host"])
+
+    def test_documented_delegation_door_names_every_sealed_host_and_no_model(self) -> None:
+        # Shadow's entire delegation surface is `shadow host run --host X`.
+        # The SKILL handoff and the CLI help are the caller contract. If either
+        # omits a cheaper/alternate host, a seat cannot dispatch there.
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        help_text = subprocess.run(
+            [str(SKILL_DIR / "bin" / "shadow"), "help", "host"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+        for host in ("codex", "claude-code", "cursor", "grok"):
+            self.assertIn(host, skill, f"SKILL.md handoff lost {host}")
+            self.assertIn(host, help_text, f"shadow help host lost {host}")
+            args = shadow_host.parser().parse_args(["run", "--host", host, "--task-file", "t", "--task-id", "add-proof"])
+            self.assertEqual(args.host, host)
+            shape = shadow_host.public_command_shape(host)
+            self.assertNotIn("--model", shape)
+            self.assertNotIn("-m", shape)
+        self.assertIn("shadow host run --host", skill)
+        self.assertNotIn("shadow route", skill)
+
+    def test_grok_command_shape_uses_prompt_file_without_model_selector(self) -> None:
+        repo = Path("/workspace/repo")
+        final_message = Path("/tmp/final-message.txt")
+        prompt_file = Path("/tmp/prompt.txt")
+        command = shadow_host.command_shape("grok", "grok", repo, final_message, prompt_file)
+        self.assertEqual(
+            command,
+            [
+                "grok",
+                "--cwd",
+                str(repo),
+                "--output-format",
+                "json",
+                "--permission-mode",
+                "acceptEdits",
+                "--prompt-file",
+                str(prompt_file),
+            ],
+        )
+        self.assertNotIn("--model", command)
+        self.assertNotIn("-m", command)
+        self.assertEqual(
+            shadow_host.public_command_shape("grok"),
+            [
+                "--cwd",
+                "--output-format",
+                "json",
+                "--permission-mode",
+                "acceptEdits",
+                "--prompt-file",
+            ],
+        )
+        self.assertNotIn("--model", shadow_host.public_command_shape("grok"))
+
+    def test_missing_grok_binary_fail_closes_without_launching_another_host(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            empty = Path(dirname)
+            with mock.patch.dict(os.environ, {"PATH": str(empty)}, clear=False):
+                with self.assertRaises(shadow_host.HostError) as raised:
+                    shadow_host.resolve_binary("grok", None)
+        self.assertEqual(raised.exception.kind, "host_unavailable")
+        self.assertIn("grok", raised.exception.detail)
+
+    def test_grok_json_envelope_parses_receipt_from_text_field(self) -> None:
+        receipt = {
+            "schema": "shadow.host-receipt.v1",
+            "task_id": "grok-native-probe",
+            "status": "ok",
+            "summary": "marker created",
+            "changed_paths": ["result.txt"],
+            "tests": [{"name": "marker", "status": "pass"}],
+            "proof_ref": "grok-native-probe",
+        }
+        envelope = json.dumps(
+            {
+                "text": "Working on the bounded file.\n```json\n"
+                + json.dumps(receipt)
+                + "\n```\n",
+                "stopReason": "end_turn",
+                "sessionId": "abc",
+            }
+        )
+        receipts = shadow_host.json_objects(envelope)
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(receipts[0]["task_id"], "grok-native-probe")
+
     def test_host_prompt_supplies_the_receipt_contract(self) -> None:
         task = "Change the bounded file."
         digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
@@ -329,6 +427,13 @@ class ShadowHostTests(unittest.TestCase):
                         "--print", "--output-format", "json", "--no-session-persistence",
                         "--permission-mode", "acceptEdits", "--add-dir", resolved,
                     ])
+                elif host == "grok":
+                    self.assertEqual(argv[1:8], [
+                        "--cwd", resolved, "--output-format", "json",
+                        "--permission-mode", "acceptEdits", "--prompt-file",
+                    ])
+                    self.assertTrue(argv[8].endswith("prompt.txt"), argv[8])
+                    self.assertNotIn("--model", argv)
                 else:
                     self.assertEqual(argv[1:], [
                         "--print", "--output-format", "json", "--workspace", resolved,
