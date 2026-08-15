@@ -1,6 +1,6 @@
 ---
 name: shadow
-description: Use when someone needs a plain-language view of ongoing work, decisions already made, risks, stalled work, questions worth challenging, and a credible completion outlook.
+description: Use when someone needs a plain-language view of ongoing work, decisions, risks, stalled work, challenges, or a credible completion outlook. Do not claim current board state when the host cannot read it.
 ---
 
 # Shadow — portable front door
@@ -40,6 +40,8 @@ CHOOSE → MAKE → PROVE → REACH PEOPLE → LEARN
 
 Branches, commit titles, file paths, repository state, row IDs, commands, and
 raw receipts are technical evidence on demand. They are never the main story.
+Counts of tasks, agents, commits, or artifacts are not progress unless the
+number changes a human decision.
 
 ## Make operating decisions
 
@@ -66,3 +68,9 @@ write:
 In local mode, the computer board and current product plans remain authority.
 Use their normal claim, proof, and resume paths; do not copy their work into
 the conversation.
+
+## Acceptance
+
+The reader can state the human outcome, what changed, the largest live risk,
+the next evidence checkpoint, and any decision requested. Coach mode and local
+board knowledge are explicit; confidence never exceeds observed evidence.
