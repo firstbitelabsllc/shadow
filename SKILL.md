@@ -134,7 +134,10 @@ Lead with:
 Explain every term in the same message that uses it. A change gets a
 before/after pair; a flow gets a small diagram; a fact gets one line —
 and when the `explain` bucket is filled (default: the mounted `show-me`
-skill), render these through it rather than improvising the format:
+skill), render these through it rather than improvising the format. In a
+terminal host, a fenced mermaid block is source code, not an explanation —
+anything denser than a text tree or diff renders as one focused HTML file
+opened for the person:
 
 ```
 BEFORE                       AFTER
