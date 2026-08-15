@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/firstbitelabsllc/shadow/schemas/chief-of-staff-letter.v1.json",
+  "title": "Shadow chief-of-staff letter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "verdict",
+    "what_matters",
+    "decisions_made",
+    "needs_leo",
+    "people_waiting",
+    "risks",
+    "next_owned_moves",
+    "coverage_gaps",
+    "closing"
+  ],
+  "properties": {
+    "schema": {
+      "const": "shadow.chief-of-staff-letter.v1"
+    },
+    "verdict": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "what_matters": {
+      "$ref": "#/$defs/items"
+    },
+    "decisions_made": {
+      "$ref": "#/$defs/items"
+    },
+    "needs_leo": {
+      "$ref": "#/$defs/items"
+    },
+    "people_waiting": {
+      "$ref": "#/$defs/items"
+    },
+    "risks": {
+      "$ref": "#/$defs/items"
+    },
+    "next_owned_moves": {
+      "$ref": "#/$defs/items"
+    },
+    "coverage_gaps": {
+      "$ref": "#/$defs/items"
+    },
+    "closing": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280
+    }
+  },
+  "$defs": {
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "source_refs"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 480
+        },
+        "source_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          }
+        }
+      }
+    }
+  }
+}

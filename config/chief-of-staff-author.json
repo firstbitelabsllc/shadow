@@ -1,0 +1,46 @@
+{
+  "schema": "shadow.chief-of-staff-author-profile.v1",
+  "author_host_env": "SHADOW_CHIEF_OF_STAFF_AUTHOR_HOST",
+  "allowed_hosts": [
+    "codex",
+    "claude-code"
+  ],
+  "default_host": null,
+  "timeout_seconds": 240,
+  "expected_identities": [
+    "leojkwan@gmail.com",
+    "trysnowcubes@gmail.com",
+    "firstbitelabs@gmail.com"
+  ],
+  "evidence_caps": {
+    "claims": 20,
+    "entities": 20,
+    "entity_progress_per_entity": 4,
+    "open_checkpoint_per_entity": 1,
+    "identity_coverage": 10,
+    "mail_candidates_per_kind": 8,
+    "repositories": 24,
+    "pull_requests": 20,
+    "snowcubes_surfaces": 16
+  },
+  "section_caps": {
+    "what_matters": 5,
+    "decisions_made": 4,
+    "needs_leo": 4,
+    "people_waiting": 4,
+    "risks": 4,
+    "next_owned_moves": 5,
+    "coverage_gaps": 4
+  },
+  "tone": {
+    "register": "direct, personal, generous, and quietly accountable",
+    "principle": "all boats rise",
+    "forbid": [
+      "corporate warmth",
+      "company-brand performance",
+      "developer status dump",
+      "generic encouragement",
+      "invented certainty"
+    ]
+  }
+}
