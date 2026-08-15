@@ -2353,6 +2353,130 @@ def discard_unclaimed_source_alias(
         return json.loads(json.dumps(payload))
 
 
+def _same_path(registered: str, candidate: Path) -> bool:
+    """Whether a registered locator names the same file as ``candidate``."""
+    try:
+        return Path(registered).resolve() == candidate.resolve()
+    except OSError:
+        return False
+
+
+def declared_local_alias_slug(entity: dict, local_only: dict[str, str]) -> str | None:
+    """Return the private slug a missing locator is *proved* to alias.
+
+    Identity of a deleted path cannot be re-read from disk, but the board
+    already stores the hash that path's identity minted, and that hash
+    reproduces only for the exact ``(repository origin, repository-relative
+    path)`` pair it came from. Replaying the declared local-only origins
+    against the locator's own path suffixes therefore either reproduces the
+    stored id, which names both the missing locator's logical identity and the
+    one private plan that is allowed to stand in for it, or proves nothing and
+    returns ``None``.
+
+    Project membership and resume rows deliberately do not participate: a
+    project groups distinct entities on purpose and row ids are plan-local, so
+    neither can establish that two entities are the same authority.
+    """
+    stored = entity["id"]
+    parts = Path(entity["plan"]).parts
+    relatives = ["/".join(parts[index:]) for index in range(1, len(parts))]
+    for origin, slug in local_only.items():
+        for relative in relatives:
+            if logical_entity_id(origin, relative) == stored:
+                return slug
+    return None
+
+
+def discard_missing_unclaimed_aliases(
+    *,
+    local_only: dict[str, str],
+    home: Path | None = None,
+) -> int:
+    """Remove only a provably stale source locator from the private board.
+
+    A migration can leave an old source ``PLAN.md`` locator after the plan has
+    moved under the board's private ``plans/`` root, and a later cleanup can
+    delete the source checkout entirely. Once the file is gone, the repair
+    paths that resolve a locator's Git identity from disk cannot name it at
+    all, so the phantom entity outlives every reconcile. This repair is
+    deliberately narrower than identity reconciliation: it never reads,
+    rekeys, claims, or releases the surviving entity, and it takes identity
+    only from the board's own records rather than from the absent path.
+
+    An alias is discarded only when its source file is absent, it owns no
+    claim, and its stored id proves, through ``local_only``, that the locator
+    belongs to a repository whose authority may only live at one private
+    ``plans/<slug>/PLAN.md`` -- and that exact private plan is registered,
+    carries the same project, and still holds the alias's resume row. Without
+    that proof the entity is left alone: a shared project and a plan-local row
+    id never make two entities the same authority, so a checkout that is
+    merely absent for now keeps its last-known resume state. Existing or
+    divergent source plans are never candidates either: they need an explicit
+    migration decision rather than a status-time guess.
+    """
+    # Discovery calls this opportunistically before it has decided that this
+    # computer needs a board. Do not turn a read-only first import into a
+    # durable board directory merely to discover that there is nothing to
+    # repair.
+    if snapshot(home=home) is None:
+        return 0
+    with _transaction(home) as (root, path, payload):
+        resolved_private_root = (root / "plans").resolve()
+        repairs: list[dict] = []
+        for source in payload["entities"]:
+            source_path = Path(source["plan"])
+            if source_path.exists() or source_path.is_symlink():
+                continue
+            resume = source["resume"]
+            if resume is None:
+                continue
+            if any(claim["entity"] == source["id"] for claim in payload["claims"]):
+                continue
+            slug = declared_local_alias_slug(source, local_only)
+            if slug is None:
+                continue
+            destination_path = resolved_private_root / slug / "PLAN.md"
+            if not regular_plan(destination_path):
+                continue
+            destination = next(
+                (
+                    item
+                    for item in payload["entities"]
+                    if item is not source and _same_path(item["plan"], destination_path)
+                ),
+                None,
+            )
+            if destination is None or destination["project"] != source["project"]:
+                continue
+            if destination["resume"] != resume:
+                continue
+            try:
+                rows = set(_grammar.HASH_RE.findall(
+                    read_plan_bytes(destination_path).decode("utf-8")
+                ))
+            except (BoardError, UnicodeError):
+                continue
+            if resume in rows:
+                repairs.append(source)
+        if not repairs:
+            return 0
+        stale_ids = {entity["id"] for entity in repairs}
+        payload["entities"] = [
+            entity for entity in payload["entities"] if entity["id"] not in stale_ids
+        ]
+        used_projects = {entity["project"] for entity in payload["entities"]}
+        payload["projects"] = [
+            project for project in payload["projects"] if project["id"] in used_projects
+        ]
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write(path, payload)
+        _commit(root, "shadow board: discard missing unclaimed alias")
+        return len(repairs)
+
+
 def claimed_rows(plan: Path, *, home: Path | None = None) -> set[str]:
     state = entity_state(plan, home=home)
     return (

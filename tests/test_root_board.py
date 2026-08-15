@@ -3232,6 +3232,239 @@ class ElectionPrefersTheMostRecentlyCommittedCopy(unittest.TestCase):
             self.assertEqual(self._elected(portfolio), "widget")
 
 
+class MissingUnclaimedAliasCleanup(unittest.TestCase):
+    """Status-time cleanup may remove only missing, claimless migration debris."""
+
+    def _module(self):
+        spec = importlib.util.spec_from_file_location("shadow_missing_alias", BOARD_MODULE)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    def _seed(
+        self,
+        module,
+        home: Path,
+        *,
+        source_exists: bool,
+        source_claimed: bool,
+        declared_source: bool = True,
+    ):
+        root = home.parent
+        source = root / "former-source" / "PLAN.md"
+        if source_exists:
+            source.parent.mkdir()
+            source.write_text("# Former source\n", encoding="utf-8")
+        destination = home / ".shadow" / "plans" / "ai-leo" / "PLAN.md"
+        destination.parent.mkdir(parents=True)
+        destination.write_text(
+            "# Private authority\n\n- [pending] resume row ~aa11\n",
+            encoding="utf-8",
+        )
+        # Only a stored id that reproduces from a declared local-only origin
+        # proves the vanished locator aliases the private authority. An
+        # undeclared id stands for an ordinary product entity that merely
+        # shares this project and row id.
+        source_id = (
+            module.logical_entity_id("github.com/leojkwan/ai-leo", "PLAN.md")
+            if declared_source
+            else "1" * 64
+        )
+        destination_id = "2" * 64
+        with module._transaction(home) as (board_root, board_path, payload):
+            payload["revision"] = 7
+            payload["projects"] = [{"id": "ai-leo", "priority": 1}]
+            payload["entities"] = [
+                {
+                    "id": source_id,
+                    "project": "ai-leo",
+                    "plan": str(source),
+                    "resume": "~aa11",
+                },
+                {
+                    "id": destination_id,
+                    "project": "ai-leo",
+                    "plan": str(destination),
+                    "resume": "~aa11",
+                },
+            ]
+            payload["claims"] = [
+                {
+                    "entity": source_id if source_claimed else destination_id,
+                    "row": "~aa11",
+                    "owner": "stable-seat",
+                    "claimed_at": "2026-08-11T00:00:00Z",
+                    "return_by": "2026-08-11T08:00:00Z",
+                    "recovery": module.RECOVERY_ACTION,
+                }
+            ]
+            module._validate(payload)
+            module._write(board_path, payload)
+            module._commit(board_root, "seed missing alias fixture")
+        return source_id, destination_id
+
+    def _discard(self, module, home: Path) -> int:
+        return module.discard_missing_unclaimed_aliases(
+            local_only={"github.com/leojkwan/ai-leo": "ai-leo"},
+            home=home,
+        )
+
+    def test_never_discards_a_missing_entity_without_declared_alias_proof(self):
+        """A shared project and row id are not evidence of an alias."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            module = self._module()
+            source_id, destination_id = self._seed(
+                module,
+                home,
+                source_exists=False,
+                source_claimed=False,
+                declared_source=False,
+            )
+            before = (home / ".shadow" / "board.json").read_bytes()
+
+            self.assertEqual(self._discard(module, home), 0)
+
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+            payload = module.snapshot(home=home)
+            self.assertEqual(
+                {entity["id"] for entity in payload["entities"]},
+                {source_id, destination_id},
+            )
+            stale = next(
+                entity for entity in payload["entities"] if entity["id"] == source_id
+            )
+            self.assertEqual(stale["resume"], "~aa11")
+
+    def test_discards_only_missing_claimless_alias_and_preserves_live_claim_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            module = self._module()
+            source_id, destination_id = self._seed(
+                module, home, source_exists=False, source_claimed=False
+            )
+
+            self.assertEqual(self._discard(module, home), 1)
+
+            payload = module.snapshot(home=home)
+            self.assertEqual([entity["id"] for entity in payload["entities"]], [destination_id])
+            self.assertNotIn(source_id, [claim["entity"] for claim in payload["claims"]])
+            self.assertEqual(payload["claims"][0]["entity"], destination_id)
+            self.assertEqual(payload["claims"][0]["owner"], "stable-seat")
+            self.assertEqual(payload["entities"][0]["resume"], "~aa11")
+
+    def test_never_discards_a_present_source_or_a_source_that_owns_a_claim(self):
+        for source_exists, source_claimed in ((True, False), (False, True)):
+            with self.subTest(source_exists=source_exists, source_claimed=source_claimed):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    home = root / "home"
+                    home.mkdir()
+                    module = self._module()
+                    source_id, destination_id = self._seed(
+                        module,
+                        home,
+                        source_exists=source_exists,
+                        source_claimed=source_claimed,
+                    )
+                    before = (home / ".shadow" / "board.json").read_bytes()
+
+                    self.assertEqual(self._discard(module, home), 0)
+
+                    self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+                    payload = module.snapshot(home=home)
+                    self.assertEqual(
+                        {entity["id"] for entity in payload["entities"]},
+                        {source_id, destination_id},
+                    )
+
+    def test_status_discards_the_stale_ai_leo_alias_without_recreating_or_rekeying_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            source_repo = project(portfolio, name="ai-leo", display_name="ai-leo")
+            source_plan = source_repo / "PLAN.md"
+            source_plan.write_text(
+                source_plan.read_text(encoding="utf-8").replace("~aa11", "~c001"),
+                encoding="utf-8",
+            )
+            git(source_repo, "add", "PLAN.md")
+            git(source_repo, "commit", "--quiet", "-m", "make private resume fixture")
+            git(source_repo, "remote", "add", "origin", "git@github.com:leojkwan/ai-leo.git")
+            module = self._module()
+            source_id = module.entity_id(source_plan)
+            private_plan = home / ".shadow" / "plans" / "ai-leo" / "PLAN.md"
+            private_plan.parent.mkdir(parents=True)
+            private_plan.write_bytes(source_plan.read_bytes())
+            # Main issues private plans a `local-plan:` identity rather than a
+            # Git one, and reconcile rekeys a stored id that disagrees. Seed
+            # the canonical id so this test proves the alias repair, not that
+            # unrelated rekeying.
+            private_id = module.logical_entity_id(
+                f"local-plan:{(home / '.shadow' / 'plans').resolve()}",
+                "ai-leo/PLAN.md",
+            )
+            stale_source = root / "ai-leo-main" / "PLAN.md"
+            with module._transaction(home) as (board_root, board_path, payload):
+                payload["revision"] = 7
+                payload["projects"] = [{"id": "ai-leo", "priority": 1}]
+                payload["entities"] = [
+                    {
+                        "id": source_id,
+                        "project": "ai-leo",
+                        "plan": str(stale_source),
+                        "resume": "~c001",
+                    },
+                    {
+                        "id": private_id,
+                        "project": "ai-leo",
+                        "plan": str(private_plan),
+                        "resume": "~c001",
+                    },
+                ]
+                payload["claims"] = [
+                    {
+                        "entity": private_id,
+                        "row": "~c001",
+                        "owner": "stable-seat",
+                        "claimed_at": "2026-08-11T00:00:00Z",
+                        "return_by": "2099-08-11T08:00:00Z",
+                        "recovery": module.RECOVERY_ACTION,
+                    }
+                ]
+                module._validate(payload)
+                module._write(board_path, payload)
+                module._commit(board_root, "seed live private authority")
+            before_claim = dict(board(home)["claims"][0])
+
+            observed = run(
+                home,
+                "status",
+                "--root",
+                str(portfolio),
+                "--in-flight",
+                "--json",
+                cwd=root,
+            )
+
+            self.assertEqual(observed.returncode, 0, observed.stderr)
+            payload = board(home)
+            self.assertNotIn(source_id, [entity["id"] for entity in payload["entities"]])
+            private = next(entity for entity in payload["entities"] if entity["id"] == private_id)
+            self.assertEqual(private["plan"], str(private_plan))
+            self.assertEqual(private["resume"], "~c001")
+            self.assertEqual(payload["claims"], [before_claim])
+
+
 if __name__ == "__main__":
 
 
