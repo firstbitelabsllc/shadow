@@ -759,11 +759,21 @@ class PlanSnapshot:
         limit: int,
         counters: list[int],
     ) -> bytes:
-        content = _safe_read(self.object_path(digest), limit)
+        path = self.object_path(digest)
+        try:
+            content = _safe_read(path, limit)
+        except PlanStoreError as exc:
+            if str(exc) == "referenced object is missing":
+                raise PlanStoreError(
+                    f"referenced object is missing: expected digest {digest} at {path}"
+                ) from exc
+            raise
         counters[0] += 1
         counters[1] += len(content)
         if digest_bytes(content) != digest:
-            raise PlanStoreError("object digest mismatch")
+            raise PlanStoreError(
+                f"object digest mismatch: expected digest {digest} at {path}"
+            )
         return content
 
     def _page(
