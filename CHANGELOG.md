@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.1 — 2026-08-16 — the release artifact stops carrying host-private runtime
+
+- 1.1.0 was tagged before two fixes merged, so its tarball still shipped
+  `scripts/shadow-brief.py` — 380KB of retired, host-private runtime carrying
+  three personal email addresses and a store id — plus an orphan asset. Trunk
+  had already export-ignored and then deleted both; this release is the first
+  artifact that actually reflects that.
+- The deterministic brief producer, its verb, its help, its dispatch, its
+  tests, and its CI lane are gone (17,492 lines). The digest is authored by a
+  native host through the operator's own scheduled job.
+- A live-host test no longer reports machine contention as a product failure.
+
 ## 1.1.0 — 2026-08-15 — slots: the extension surface, owner-shaped
 
 - The term is `slot` everywhere: verb `shadow slots`, env `SHADOW_SLOT_<NAME>`,
