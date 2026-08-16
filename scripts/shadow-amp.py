@@ -516,7 +516,6 @@ def _pack_root_override() -> tuple[str, str]:
     """
     for variable in (
         "SHADOW_AMP_PACK_ROOT",
-        "SHADOW_SLOT_SUPERPOWERS",
         "SHADOW_BUCKET_SUPERPOWERS",
     ):
         value = os.environ.get(variable, "").strip()

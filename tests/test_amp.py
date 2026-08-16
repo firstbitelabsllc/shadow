@@ -358,7 +358,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             tools = "/craft for UI, /superpowers for verification, /ghost if available"
             with mock.patch.dict(
                 os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_SLOT_SUPERPOWERS": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
+                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
                 clear=False,
             ):
                 first = amp.capability_block(tools, home)
@@ -410,7 +410,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             (forbidden / "SKILL.md").write_text("# Brainstorming\n", encoding="utf-8")
             with mock.patch.dict(
                 os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_SLOT_SUPERPOWERS": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
+                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
                 clear=False,
             ):
                 block = amp.capability_block("/superpowers for discipline", home)
@@ -449,7 +449,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             }
             with mock.patch.dict(
                 os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_SLOT_SUPERPOWERS": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
+                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
                 clear=False,
             ):
                 blocks = {
@@ -629,7 +629,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             manifest.write_text("[]", encoding="utf-8")
             with mock.patch.dict(
                 os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_SLOT_SUPERPOWERS": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
+                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
                 clear=False,
             ):
                 block = amp.capability_block(
@@ -669,7 +669,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             )
             with mock.patch.dict(
                 os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_SLOT_SUPERPOWERS": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
+                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
                 clear=False,
             ):
                 block = amp.capability_block(
@@ -995,7 +995,6 @@ class PackRootOverridePrecedence(unittest.TestCase):
             cleared = {
                 "PATH": "",
                 "SHADOW_AMP_PACK_ROOT": "",
-                "SHADOW_SLOT_SUPERPOWERS": "",
                 "SHADOW_BUCKET_SUPERPOWERS": "",
             }
             with mock.patch.dict(os.environ, {**cleared, **env}, clear=False):
@@ -1008,10 +1007,9 @@ class PackRootOverridePrecedence(unittest.TestCase):
         self.assertIn("result: off", block)
         self.assertIn("off by SHADOW_AMP_PACK_ROOT", block)
 
-    def test_the_canonical_name_beats_both_legacy_names(self) -> None:
+    def test_the_canonical_name_beats_the_legacy_name(self) -> None:
         block = self._off_detail({
             "SHADOW_AMP_PACK_ROOT": "off",
-            "SHADOW_SLOT_SUPERPOWERS": "/nowhere/slot",
             "SHADOW_BUCKET_SUPERPOWERS": "/nowhere/bucket",
         })
         self.assertIn("off by SHADOW_AMP_PACK_ROOT", block)
@@ -1021,12 +1019,35 @@ class PackRootOverridePrecedence(unittest.TestCase):
         self.assertIn("result: off", block)
         self.assertIn("off by SHADOW_BUCKET_SUPERPOWERS", block)
 
-    def test_a_whitespace_canonical_value_does_not_mask_a_legacy_name(self) -> None:
+
+    def test_a_mounted_superpowers_skill_never_selects_the_pack_root(self) -> None:
+        # Ponytail F1 (2026-08-15): with the pack slot undeclared, resolution
+        # falls through to the skill roots, so a mounted skill named
+        # superpowers reads present — the guard must still refuse selection.
+        # Survives Lane 5: no pack machinery involved.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            leaf = home / ".claude" / "skills" / "superpowers"
+            leaf.mkdir(parents=True)
+            (leaf / "SKILL.md").write_text("# superpowers\n", encoding="utf-8")
+            cleared = {
+                "PATH": "",
+                "SHADOW_AMP_PACK_ROOT": "",
+                "SHADOW_BUCKET_SUPERPOWERS": "",
+            }
+            with mock.patch.dict(os.environ, cleared, clear=False):
+                block = amp.capability_block("/superpowers for verification", home)
+        self.assertIn("superpowers | result: warning", block)
+        self.assertIn("no compatible whole leaf installed", block)
+        self.assertIn("selected: native host + Shadow Method", block)
+        self.assertNotIn("selected: /superpowers", block)
+
+    def test_a_whitespace_canonical_value_does_not_mask_the_legacy_name(self) -> None:
         block = self._off_detail({
             "SHADOW_AMP_PACK_ROOT": "   ",
-            "SHADOW_SLOT_SUPERPOWERS": "off",
+            "SHADOW_BUCKET_SUPERPOWERS": "off",
         })
-        self.assertIn("off by SHADOW_SLOT_SUPERPOWERS", block)
+        self.assertIn("off by SHADOW_BUCKET_SUPERPOWERS", block)
 
 
 class MemorySlotIsRoutedRecall(unittest.TestCase):

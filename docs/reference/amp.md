@@ -95,6 +95,8 @@ The delegation guard never lived in a slot declaration; it is amp core and
 survives the 2026-08-15 slot-set change. Amp may name only a concrete
 installed whole leaf from the compatible set: `verification-before-completion`,
 `test-driven-development`, `systematic-debugging`, `receiving-code-review`.
+A `superpowers` request never selects the pack root — presence, mounted or
+packed, only ever yields the host-neutral adaptation or the fallback.
 `writing-plans`, `executing-plans`, `dispatching-parallel-agents`,
 `subagent-driven-development`, `using-superpowers`, `brainstorming`, and
 `requesting-code-review` are refused even when explicitly requested, and the
@@ -105,6 +107,7 @@ or refused-leaf invocations are removed from the projected `TOOLS:` line.
 
 The pack root is configured by `SHADOW_AMP_PACK_ROOT` (an absolute path, or
 `off` to disable pack inspection). This is amp-core configuration, not a slot
-binding: no slot named superpowers exists. The legacy names
-`SHADOW_SLOT_SUPERPOWERS` and `SHADOW_BUCKET_SUPERPOWERS` are honored behind
-it for one release train, then die.
+binding: no slot named superpowers exists, and no `SHADOW_SLOT_*` key exists
+for a name outside the slot set. The shipped legacy name
+`SHADOW_BUCKET_SUPERPOWERS` is honored behind it for one release train, then
+dies.
