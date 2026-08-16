@@ -22,7 +22,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "shadow accept",
             "shadow doctor",
             "install.sh",
-            "--branch shadow-v1.0.2",
+            "--branch shadow-v1.1.0",
         )
         for phrase in required:
             self.assertIn(phrase, text)
