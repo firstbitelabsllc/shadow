@@ -1,0 +1,47 @@
+{
+  "schema": "leo.product-plugin.v1",
+  "plugin": {
+    "name": "shadow",
+    "version": "1.1.1",
+    "description": "A warm, candid front door for understanding work, making sound calls, and knowing what is actually true.",
+    "display_name": "Shadow",
+    "author": { "name": "First Bite Labs" },
+    "repository": "https://github.com/firstbitelabsllc/shadow",
+    "license": "MIT",
+    "category": "Productivity"
+  },
+  "source": {
+    "mode": "git",
+    "commit": "0587770b1d871bc885897209c1b7babdff6dec8d"
+  },
+  "skills": [
+    {
+      "name": "shadow",
+      "path": "ai/skills/shadow",
+      "role": "router",
+      "files": ["SKILL.md"]
+    }
+  ],
+  "shared_dependencies": [
+    "assistant",
+    "future",
+    "nia"
+  ],
+  "private_overlays": [],
+  "compatibility_routes": [
+    {
+      "name": "shadow-legacy-portable",
+      "package": false,
+      "status": "temporary",
+      "retire_after": "Cursor, Claude, Codex, and Grok resolve the sealed shadow package and cold conversational probes prove coach and local modes remain honest."
+    }
+  ],
+  "protected_actions": [
+    "send an external message",
+    "publish externally",
+    "spend money",
+    "change access or credentials",
+    "delete material",
+    "make an irreversible product decision"
+  ]
+}
