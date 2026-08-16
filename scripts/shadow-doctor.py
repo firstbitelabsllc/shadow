@@ -253,17 +253,17 @@ def bucket_checks() -> list[dict[str, Any]]:
     """Which extension buckets are filled. Read-only, derived, never stored."""
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location(
-        "shadow_buckets", ROOT / "scripts" / "shadow-buckets.py"
-    )
-    if spec is None or spec.loader is None:
-        return []
-    module = importlib.util.module_from_spec(spec)
     try:
+        spec = importlib.util.spec_from_file_location(
+            "shadow_buckets", ROOT / "scripts" / "shadow-buckets.py"
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("extension buckets machinery could not be loaded")
+        module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module.checks()
-    except OSError:
-        return []
+    except Exception as exc:
+        return [check("extension buckets", "fail", str(exc))]
 
 
 def collect() -> dict[str, Any]:
