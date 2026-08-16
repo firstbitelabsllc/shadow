@@ -164,9 +164,9 @@ Hide implementation detail unless it changes the decision. The browser is a
 loopback projection of the computer board joined to entity plans; it never
 becomes authority.
 
-## Extension slots
+## Extensions
 
-Shadow declares named slots its method assumes it can reach — memory for
+Shadow declares named extensions its method assumes it can reach — memory for
 routed recall (a lead, never plan, proof, or ownership authority) and taste
 for the finished-quality grade and the voice of everything written for
 humans — in `docs/reference/slots.md`. `shadow slots` reports which are
