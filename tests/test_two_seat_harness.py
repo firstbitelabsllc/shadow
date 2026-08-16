@@ -521,7 +521,33 @@ class LiveTwoSeatProof(unittest.TestCase):
             },
             timeout=max(30, timeout_seconds + 15),
         )
+        self._skip_if_host_starved(result, context)
         return context, root, fixture, marker, drained, result
+
+    def _skip_if_host_starved(self, result, context) -> None:
+        """Machine contention is not a product failure.
+
+        The harness itself reports ``status: inconclusive`` when a spawned
+        host cannot start or drain — it refuses to call that outcome either
+        pass or fail. Asserting rc 0 over it turns a busy machine into a
+        product red: measured 2026-08-16, two full-suite runs failed here
+        while an agent fleet held host capacity, and both passed in ~15s
+        isolated at the same ref. A determinate receipt is still asserted by
+        every caller; only the harness's own inconclusive verdict skips.
+        """
+        if result.returncode == 0:
+            return
+        try:
+            data = json.loads(result.stdout)
+        except (json.JSONDecodeError, ValueError):
+            return
+        if data.get("status") != "inconclusive":
+            return
+        failure = data.get("failure")
+        if failure not in {"host_failed", "timeout"}:
+            return
+        context.cleanup()
+        self.skipTest(f"live host starved under load: harness reported {failure}")
 
     def test_two_stable_seats_complete_disjoint_rows_with_one_shared_identity(self) -> None:
         context, root, fixture, marker, _, result = self._run()
@@ -804,6 +830,66 @@ class CommandSurfaceIsFailClosed(unittest.TestCase):
                     self.assertEqual(data["goal_sha256"], "0" * 64)
                     self.assertEqual(result.stderr, "")
                     assert_closed_receipt(self, data, [str(root), GOAL])
+
+
+
+class StarvationGuardOnlySwallowsInconclusive(unittest.TestCase):
+    """The guard must skip a starved host and never a real failure.
+
+    Added with the guard 2026-08-16: a skip helper that swallowed determinate
+    failures would convert every product break in this file into a green run,
+    which is a worse defect than the flake it fixes. Mutation-proven — making
+    the guard swallow any failure reds test_a_determinate_failure_never_skips.
+    """
+
+    class _Result:
+        def __init__(self, returncode: int, stdout: str) -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = ""
+
+    class _Context:
+        def __init__(self) -> None:
+            self.cleaned = False
+
+        def cleanup(self) -> None:
+            self.cleaned = True
+
+    def _probe(self, payload: str, returncode: int = 1):
+        case = LiveTwoSeatProof("test_two_stable_seats_complete_disjoint_rows_with_one_shared_identity")
+        context = self._Context()
+        raised = None
+        try:
+            case._skip_if_host_starved(self._Result(returncode, payload), context)
+        except unittest.SkipTest as exc:
+            raised = str(exc)
+        return raised, context
+
+    def test_an_inconclusive_host_failure_skips_and_cleans_up(self) -> None:
+        raised, context = self._probe(json.dumps({"status": "inconclusive", "failure": "host_failed"}))
+        self.assertIsNotNone(raised, "a starved host must skip")
+        self.assertIn("host_failed", raised)
+        self.assertTrue(context.cleaned, "the temp dir must be released before skipping")
+
+    def test_an_inconclusive_timeout_skips(self) -> None:
+        raised, _ = self._probe(json.dumps({"status": "inconclusive", "failure": "timeout"}))
+        self.assertIsNotNone(raised)
+
+    def test_a_determinate_failure_never_skips(self) -> None:
+        for payload in (
+            json.dumps({"status": "fail", "failure": "host_failed"}),
+            json.dumps({"status": "inconclusive", "failure": "board_drift"}),
+            json.dumps({"status": "pass"}),
+            "not json at all",
+        ):
+            with self.subTest(payload=payload[:40]):
+                raised, context = self._probe(payload)
+                self.assertIsNone(raised, "a determinate outcome must still fail the caller")
+                self.assertFalse(context.cleaned)
+
+    def test_success_returns_immediately(self) -> None:
+        raised, _ = self._probe(json.dumps({"status": "inconclusive", "failure": "host_failed"}), returncode=0)
+        self.assertIsNone(raised, "rc 0 is never a skip")
 
 
 if __name__ == "__main__":
