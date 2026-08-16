@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The one-release-train buckets compat is gone: no `shadow buckets` alias, no
+  `SHADOW_BUCKET_*` fallback, no docs pointer stub, and no dead pack resolver.
+
 ## 1.1.1 — 2026-08-16 — the release artifact stops carrying host-private runtime
 
 - 1.1.0 was tagged before two fixes merged, so its tarball still shipped

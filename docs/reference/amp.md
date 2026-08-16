@@ -108,6 +108,5 @@ or refused-leaf invocations are removed from the projected `TOOLS:` line.
 The pack root is configured by `SHADOW_AMP_PACK_ROOT` (an absolute path, or
 `off` to disable pack inspection). This is amp-core configuration, not a slot
 binding: no slot named superpowers exists, and no `SHADOW_SLOT_*` key exists
-for a name outside the slot set. The shipped legacy name
-`SHADOW_BUCKET_SUPERPOWERS` is honored behind it for one release train, then
-dies.
+for a name outside the slot set. The retired `SHADOW_BUCKET_SUPERPOWERS`
+name is no longer read.
