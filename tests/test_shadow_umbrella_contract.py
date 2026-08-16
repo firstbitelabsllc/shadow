@@ -36,6 +36,13 @@ class ShadowUmbrellaContractTests(unittest.TestCase):
             self.assertNotIn(heading, text)
         self.assertNotIn("A/B/C", text)
 
+    def test_protected_action_gate_needs_clear_confirmation_not_magic_words(self) -> None:
+        text = SKILL.read_text(encoding="utf-8").lower()
+        normalized = " ".join(text.split())
+        self.assertIn("clear confirmation", normalized)
+        self.assertNotIn("exact reply", text)
+        self.assertIn("never require a magic phrase", normalized)
+
     def test_router_is_honest_when_the_live_board_is_unavailable(self) -> None:
         text = SKILL.read_text(encoding="utf-8").lower()
         self.assertIn("coach mode", text)
