@@ -43,5 +43,5 @@ than inventing confidence.
 
 When several streams genuinely interact, a small diagram can make the
 relationship clearer. Otherwise use prose. The useful outcome is that the person can
-tell what matters, what has actually changed, what is blocked, and what he can
+tell what matters, what has actually changed, what is blocked, and what they can
 do next—without having to decode a report.

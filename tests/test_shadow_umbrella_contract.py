@@ -18,7 +18,10 @@ class ShadowUmbrellaContractTests(unittest.TestCase):
         self.assertIn("fixed response template", text)
 
     def test_router_is_portable_and_not_personally_identifying(self) -> None:
-        self.assertNotIn("leo", SKILL.read_text(encoding="utf-8").lower())
+        text = SKILL.read_text(encoding="utf-8").lower()
+        normalized = " ".join(text.split())
+        self.assertNotIn("leo", text)
+        self.assertNotIn("what he can do next", normalized)
 
     def test_router_does_not_recreate_the_old_status_card(self) -> None:
         text = SKILL.read_text(encoding="utf-8").upper()
