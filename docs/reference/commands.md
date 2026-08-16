@@ -20,7 +20,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow browse --root PATH` | Start the loopback briefing UI. |
 | `shadow host probe --host HOST` | Check a native host without using it. |
 | `shadow host run …` | Run a claimed task in its clean worktree; invoke again for path-disjoint lanes. |
-| `shadow buckets` | Report which extension buckets are filled. Absent is a WARN and exits 0; a wrong binding FAILs. No bucket reads tooling Shadow does not itself call. |
+| `shadow slots` | Report which extension slots are filled. Absent is a WARN and exits 0; a wrong binding FAILs. No slot reads tooling Shadow does not itself call. |
 | `shadow doctor` | Check installation, skill mounts, native hosts, and whether each host carries the current standing goal. |
 
 ## Remote coordination boundary

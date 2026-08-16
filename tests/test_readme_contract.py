@@ -22,7 +22,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "shadow accept",
             "shadow doctor",
             "install.sh",
-            "--branch shadow-v1.0.2",
+            "--branch shadow-v1.1.0",
         )
         for phrase in required:
             self.assertIn(phrase, text)
@@ -78,7 +78,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
     def test_public_help_is_quiet_and_advertises_supported_flags(self) -> None:
         verbs = (
             "browse", "status", "init", "lint", "goal", "amp", "throw",
-            "return", "priority", "accept", "lifecycle", "host", "buckets",
+            "return", "priority", "accept", "lifecycle", "host", "slots",
             "doctor",
         )
         for verb in verbs:

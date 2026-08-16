@@ -89,6 +89,20 @@ Both were still running, and both finished with real findings. Everything the
 recovery needed — what was dispatched, what it should return — existed only in
 a chat that had already moved on.
 
+## Your own methods beside the block
+
+The managed block carries Shadow and nothing else — the same text for every
+person, every host, every day. Your own top-level working methods (a release
+discipline, a review doctrine, a personal style contract) live **beside** the
+block in the same agent file, byte-for-byte untouched by `shadow goal
+--install` and `--remove`. Add them as their own sections; the installer's
+markers bound only Shadow's text. Nothing about your methods enters
+`shadow.yaml` — that file stays the two-key repo dial it is.
+
+Cursor has no reviewed user-level file for cold directives, so nothing is
+written there. Paste `shadow goal` output into Cursor's User Rules yourself,
+or into a repo-root `AGENTS.md`, which Cursor reads.
+
 ## 3. What "activate shadow" means in a session
 
 1. Pick one stable public seat name and run `shadow status --by <seat>` from
