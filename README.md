@@ -5,10 +5,9 @@
 **Shadow is you, one step down.** Say what you want in any wired AI coding
 host — Claude Code, Codex, Cursor — and Shadow keeps the work durable: one
 board per computer, one `PLAN.md` per project, a proof receipt on every
-finished step. Kill any chat at
-any time; the next session resumes exactly where the last one stopped.
+finished step. Kill any chat; the next session resumes where it stopped.
 
-Six words carry the whole system:
+Six words carry the system:
 
 | word | meaning |
 |---|---|
@@ -53,27 +52,28 @@ Quote row ids (`'~a1b2'`) and use the id status printed. `shadow status
 
 All configuration is deliberately small, and stress-tested that way:
 
-- **Buckets** — optional capability slots (`shadow buckets`): superpowers,
+- **Slots** — optional capability slots (`shadow slots`): superpowers,
   taste, future, explain. Every one may be empty; none ever gates a cycle.
-  Rebind or opt out per machine with `SHADOW_BUCKET_<NAME>=<abs path>|off` —
-  don't want superpowers? `SHADOW_BUCKET_SUPERPOWERS=off` and everything runs.
-- **`shadow.yaml`** — one optional repo-root file with exactly two keys
+  Rebind or opt out per machine with `SHADOW_SLOT_<NAME>=<abs path>|off` —
+  don't want superpowers? `SHADOW_SLOT_SUPERPOWERS=off` and everything runs.
+- **`shadow.yaml`** — one optional repo-root file with two keys
   (`version`, `adversarial-lenses`). That's the whole config file, by law:
   a dial may exist only where a wrong value costs quality, never truth.
-- **Environment** — `SHADOW_ROOT`, `SHADOW_PORTFOLIO_ROOT`, host binary
-  overrides, and the bucket bindings above — full table:
-  [Config](https://firstbitelabsllc.github.io/shadow/reference/config).
+- **Environment** — `SHADOW_ROOT`, host binary overrides, the slot bindings —
+  table: [Config](https://firstbitelabsllc.github.io/shadow/reference/config).
+- **Standing goal** — `shadow goal --install` owns one marked block in your
+  agent file; your methods live beside it, untouched. Cursor: paste
+  `shadow goal` output into User Rules ([how](https://firstbitelabsllc.github.io/shadow/reference/host-integration)).
 
 When your branch tracks a configured `origin`, `shadow throw` also takes one
 Git coordination lock under `refs/heads/shadow/claims/v1/<entity>/<row>`: it
-carries no task or proof text, never becomes authority, and leaves the tracked
-branch untouched. With no such upstream the same flow stays local-only.
+carries no task or proof text and never becomes authority. With no upstream
+the same flow stays local-only.
 Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
 
 ## Docs
 
-The full contract lives at **[the docs site](https://firstbitelabsllc.github.io/shadow/)** —
-install detail, the claim/proof loop, every verb and flag, plan grammar,
-buckets, privacy. Developing Shadow itself starts at [`AGENT.md`](AGENT.md).
+The full contract — every verb, plan grammar, slots, privacy — lives at
+**[the docs site](https://firstbitelabsllc.github.io/shadow/)**; developing Shadow starts at [`AGENT.md`](AGENT.md).
 
 MIT License.

@@ -1,6 +1,6 @@
-"""Extension buckets: a declaration that resolves, never a store that drifts.
+"""Extension slots: a declaration that resolves, never a store that drifts.
 
-The owner's ask was "shadow will have buckets and the method open for
+The owner's ask (2026-08-11) was "shadow will have buckets and the method open for
 superpowers... and the repo on install will default to these and mark them as
 dependencies."
 
@@ -8,9 +8,11 @@ The npm-shaped reading of that dies on a shipped fact these tests pin: M6
 deleted the package manager on purpose, so an install-that-fetches reverses a
 shipped decision.
 
-So a bucket declares what the method assumes it can reach, and doctor derives
-the answer at read time. Nothing is fetched, stamped, or cached — and no bucket
-asserts anything about tooling Shadow does not itself call.
+So a slot declares what the method assumes it can reach, and doctor derives
+the answer at read time. Nothing is fetched, stamped, or cached — and no slot
+asserts anything about tooling Shadow does not itself call. Renamed bucket →
+slot 2026-08-15 by owner verdict; the buckets alias and SHADOW_BUCKET_ env
+fallback live for exactly one release train.
 """
 
 from __future__ import annotations
@@ -24,13 +26,13 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "shadow-buckets.py"
+SCRIPT = ROOT / "scripts" / "shadow-slots.py"
 SHADOW = ROOT / "bin" / "shadow"
 
-_SPEC = importlib.util.spec_from_file_location("shadow_buckets", SCRIPT)
-buckets = importlib.util.module_from_spec(_SPEC)
-sys.modules["shadow_buckets"] = buckets
-_SPEC.loader.exec_module(buckets)
+_SPEC = importlib.util.spec_from_file_location("shadow_slots", SCRIPT)
+slots = importlib.util.module_from_spec(_SPEC)
+sys.modules["shadow_slots"] = slots
+_SPEC.loader.exec_module(slots)
 
 
 def plugin(home: Path, name: str, version: str, manifest_name: str | None = None) -> None:
@@ -48,22 +50,22 @@ def skill(home: Path, name: str) -> None:
 
 class TheDeclaration(unittest.TestCase):
     def test_every_line_parses_in_fixed_order(self) -> None:
-        found = buckets.declared()
-        self.assertTrue(found, "no buckets parsed from docs/reference/buckets.md")
-        for bucket in found:
-            self.assertIn(bucket["kind"], buckets.KINDS)
+        found = slots.declared()
+        self.assertTrue(found, "no slots parsed from docs/reference/slots.md")
+        for slot in found:
+            self.assertIn(slot["kind"], slots.KINDS)
             for field in ("name", "default", "fills", "absent"):
-                self.assertTrue(bucket[field].strip(), f"{bucket['name']}: empty {field}")
+                self.assertTrue(slot[field].strip(), f"{slot['name']}: empty {field}")
 
-    def test_the_four_named_buckets_ship(self) -> None:
+    def test_the_four_named_slots_ship(self) -> None:
         # Dropping one becomes a deliberate test edit, never a silent removal.
         # explain added 2026-08-14: the Brief contract already demanded the
         # before/after pair and the small diagram; show-me names the filler.
-        names = {b["name"] for b in buckets.declared()}
+        names = {s["name"] for s in slots.declared()}
         self.assertEqual(names, {"superpowers", "taste", "future", "explain"})
 
     def test_names_are_unique(self) -> None:
-        names = [b["name"] for b in buckets.declared()]
+        names = [s["name"] for s in slots.declared()]
         self.assertEqual(len(names), len(set(names)))
 
     def test_nothing_stores_resolved_state(self) -> None:
@@ -76,60 +78,60 @@ class TheDeclaration(unittest.TestCase):
         # file flagged its own explanation — a guard that fires on the sentence
         # describing the rule is noise, not enforcement.
         lines = [
-            line for line in (ROOT / "docs" / "reference" / "buckets.md")
+            line for line in (ROOT / "docs" / "reference" / "slots.md")
             .read_text(encoding="utf-8").splitlines()
-            if line.startswith("- bucket ")
+            if line.startswith("- slot ")
         ]
         self.assertTrue(lines)
         for line in lines:
             for stamped in ("installed:", "last_checked", "installedAt", "lastUpdated",
                             "version:", "resolved:"):
-                self.assertNotIn(stamped, line, f"a bucket line stores resolved state: {line[:60]}")
+                self.assertNotIn(stamped, line, f"a slot line stores resolved state: {line[:60]}")
 
 
-class FutureIsADeclaredBucket(unittest.TestCase):
+class FutureIsADeclaredSlot(unittest.TestCase):
     def test_future_is_an_optional_skill_never_a_stored_result(self) -> None:
-        future = next(b for b in buckets.declared() if b["name"] == "future")
+        future = next(s for s in slots.declared() if s["name"] == "future")
         self.assertEqual(future["kind"], "skill")
         self.assertEqual(future["default"], "future")
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            self.assertEqual(buckets.resolve(future, home)[0], "warn")
+            self.assertEqual(slots.resolve(future, home)[0], "warn")
             skill(home, "future")
-            self.assertEqual(buckets.resolve(future, home)[0], "pass")
+            self.assertEqual(slots.resolve(future, home)[0], "pass")
 
 
 class AbsentNeverFails(unittest.TestCase):
     """~w1re's DoD runs `shadow doctor` under a scratch HOME and expects exit 0.
 
-    A required tier would fail the very milestone that introduces buckets, so
-    every shipped bucket is optional and absence is always a warning.
+    A required tier would fail the very milestone that introduces slots, so
+    every shipped slot is optional and absence is always a warning.
     """
 
     def test_an_empty_home_warns_and_the_command_exits_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
                 [sys.executable, str(SCRIPT)], capture_output=True, text=True,
-                check=False, env={**buckets.os.environ, "HOME": tmp},
+                check=False, env={**slots.os.environ, "HOME": tmp},
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("[WARN] bucket: superpowers", result.stdout)
-            self.assertIn("[WARN] bucket: taste", result.stdout)
+            self.assertIn("[WARN] slot: superpowers", result.stdout)
+            self.assertIn("[WARN] slot: taste", result.stdout)
             self.assertNotIn("[FAIL]", result.stdout)
 
     def test_every_warning_carries_its_next_move(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            for check, declaration in zip(buckets.checks(home), buckets.declared()):
+            for check, declaration in zip(slots.checks(home), slots.declared()):
                 if check["state"] == "warn":
                     self.assertIn(declaration["absent"], check["detail"])
 
 
 class KindIsTheCheck(unittest.TestCase):
     def _state(self, name: str, home: Path) -> tuple[str, str]:
-        bucket = next(b for b in buckets.declared() if b["name"] == name)
-        return buckets.resolve(bucket, home)
+        slot = next(s for s in slots.declared() if s["name"] == name)
+        return slots.resolve(slot, home)
 
     def test_a_present_pack_reports_its_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -149,7 +151,7 @@ class KindIsTheCheck(unittest.TestCase):
 
     def test_a_stale_install_sorted_first_does_not_hide_a_good_one(self) -> None:
         # The scan reads every candidate before answering. An older or broken
-        # install that sorts first must not turn a filled bucket into a hard
+        # install that sorts first must not turn a filled slot into a hard
         # failure that `shadow doctor` then reports.
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -166,8 +168,8 @@ class KindIsTheCheck(unittest.TestCase):
             self.assertEqual(self._state("taste", home)[0], "pass")
 
 
-class NoBucketPolicesUnrelatedUserTooling(unittest.TestCase):
-    """A bucket asks only whether Shadow can reach a capability it uses.
+class NoSlotPolicesUnrelatedUserTooling(unittest.TestCase):
+    """A slot asks only whether Shadow can reach a capability it uses.
 
     A `builtin` kind once carried a standing ruling that nothing named honcho
     should ever be installed, and failed doctor when it found one. That check
@@ -184,10 +186,10 @@ class NoBucketPolicesUnrelatedUserTooling(unittest.TestCase):
     NAMES = ("honcho", "mem0", "letta")
 
     def _all_states(self, home: Path) -> list[str]:
-        return [buckets.resolve(b, home)[0] for b in buckets.declared()]
+        return [slots.resolve(s, home)[0] for s in slots.declared()]
 
-    def test_no_bucket_is_named_for_tooling_shadow_does_not_use(self) -> None:
-        self.assertEqual({b["name"] for b in buckets.declared()} & set(self.NAMES), set())
+    def test_no_slot_is_named_for_tooling_shadow_does_not_use(self) -> None:
+        self.assertEqual({s["name"] for s in slots.declared()} & set(self.NAMES), set())
 
     def test_an_installed_namesake_directory_does_not_make_shadow_red(self) -> None:
         for name in self.NAMES:
@@ -198,7 +200,7 @@ class NoBucketPolicesUnrelatedUserTooling(unittest.TestCase):
 
     def test_a_bare_namesake_file_does_not_make_shadow_red(self) -> None:
         # The measured shape of the old defect: `.exists()`, not `.is_dir()`.
-        for root in buckets.SKILL_ROOTS:
+        for root in slots.SKILL_ROOTS:
             for name in self.NAMES:
                 with self.subTest(root=root, name=name), tempfile.TemporaryDirectory() as tmp:
                     home = Path(tmp)
@@ -216,52 +218,99 @@ class NoBucketPolicesUnrelatedUserTooling(unittest.TestCase):
 
 class Overrides(unittest.TestCase):
     def _with(self, variable: str, value: str, name: str) -> tuple[str, str]:
-        bucket = next(b for b in buckets.declared() if b["name"] == name)
-        buckets.os.environ[variable] = value
+        slot = next(s for s in slots.declared() if s["name"] == name)
+        slots.os.environ[variable] = value
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                return buckets.resolve(bucket, Path(tmp))
+                return slots.resolve(slot, Path(tmp))
         finally:
-            del buckets.os.environ[variable]
+            del slots.os.environ[variable]
 
     def test_off_is_a_deliberate_emptiness_not_a_warning(self) -> None:
-        state, detail = self._with("SHADOW_BUCKET_TASTE", "off", "taste")
+        state, detail = self._with("SHADOW_SLOT_TASTE", "off", "taste")
         self.assertEqual(state, "pass")
         self.assertIn("deliberate", detail)
 
     def test_a_path_that_exists_binds(self) -> None:
         with tempfile.TemporaryDirectory() as real:
-            self.assertEqual(self._with("SHADOW_BUCKET_TASTE", real, "taste")[0], "pass")
+            self.assertEqual(self._with("SHADOW_SLOT_TASTE", real, "taste")[0], "pass")
 
     def test_a_path_that_does_not_exist_fails_loudly(self) -> None:
-        state, _ = self._with("SHADOW_BUCKET_TASTE", "/nowhere/at/all", "taste")
+        state, _ = self._with("SHADOW_SLOT_TASTE", "/nowhere/at/all", "taste")
         self.assertEqual(state, "fail")
 
 
 class WiredIntoTheProduct(unittest.TestCase):
-    def test_doctor_reports_one_check_per_bucket(self) -> None:
+    def test_doctor_reports_one_check_per_slot(self) -> None:
         result = subprocess.run([str(SHADOW), "doctor", "--json"],
                                 capture_output=True, text=True, check=False)
         names = {c["name"] for c in json.loads(result.stdout)["checks"]}
-        for bucket in buckets.declared():
-            self.assertIn(f"bucket: {bucket['name']}", names)
+        for slot in slots.declared():
+            self.assertIn(f"slot: {slot['name']}", names)
 
     def test_the_verb_and_its_help_exist(self) -> None:
-        for argv in (["buckets"], ["help", "buckets"]):
+        for argv in (["slots"], ["help", "slots"]):
             result = subprocess.run([str(SHADOW), *argv], capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(result.stdout.strip())
 
     def test_only_amp_reads_the_declaration_and_never_as_coordination(self) -> None:
-        # A bucket holds no rows, claims, proof, or status. Amp may resolve a
+        # A slot holds no rows, claims, proof, or status. Amp may resolve a
         # milestone's explicit tools into an optional handoff annotation; the
         # coordination verbs must never treat the declaration as a queue.
         for name in ("shadow-throw.py", "shadow-accept.py", "shadow-status.py"):
             source = (ROOT / "scripts" / name).read_text(encoding="utf-8")
-            self.assertNotIn("buckets", source, f"{name} reads the bucket declaration")
+            self.assertNotIn("slots", source, f"{name} reads the slot declaration")
+            # Branch B window: the retired string must not creep back either.
+            self.assertNotIn("buckets", source, f"{name} reads the retired bucket declaration")
         amp_source = (ROOT / "scripts" / "shadow-amp.py").read_text(encoding="utf-8")
         self.assertIn("capability_block", amp_source)
         self.assertNotIn("write_text", amp_source)
+
+
+
+class DeprecatedBucketCompat(unittest.TestCase):
+    """One-release-train compat (Branch B, 2026-08-15): the buckets verb alias
+    and the SHADOW_BUCKET_ env fallback. Both die next train with this class.
+    """
+
+    def test_the_old_verb_warns_once_and_still_works(self) -> None:
+        result = subprocess.run([str(SHADOW), "buckets"], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("buckets is now slots", result.stderr)
+        self.assertTrue(result.stdout.strip())
+
+    def test_the_old_help_form_stays_quiet(self) -> None:
+        result = subprocess.run([str(SHADOW), "help", "buckets"], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertTrue(result.stdout.strip())
+
+    def test_the_old_env_name_still_binds_with_a_deprecation_note(self) -> None:
+        slot = next(s for s in slots.declared() if s["name"] == "taste")
+        slots.os.environ["SHADOW_BUCKET_TASTE"] = "off"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                state, detail = slots.resolve(slot, Path(tmp))
+        finally:
+            del slots.os.environ["SHADOW_BUCKET_TASTE"]
+        self.assertEqual(state, "pass")
+        self.assertIn("deprecated env name", detail)
+
+    def test_the_new_env_name_wins_when_both_are_set(self) -> None:
+        slot = next(s for s in slots.declared() if s["name"] == "taste")
+        slots.os.environ["SHADOW_BUCKET_TASTE"] = "/nowhere/legacy"
+        slots.os.environ["SHADOW_SLOT_TASTE"] = "off"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                state, detail = slots.resolve(slot, Path(tmp))
+        finally:
+            del slots.os.environ["SHADOW_BUCKET_TASTE"]
+            del slots.os.environ["SHADOW_SLOT_TASTE"]
+        self.assertEqual(state, "pass")
+        self.assertIn("SHADOW_SLOT_TASTE", detail)
+        self.assertNotIn("deprecated", detail)
+
 
 
 if __name__ == "__main__":

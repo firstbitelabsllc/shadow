@@ -572,12 +572,12 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             def declared(self) -> list[dict[str, str]]:
                 raise RuntimeError("machine-specific detail must not leak")
 
-        with mock.patch.object(amp, "_bucket_api", return_value=BrokenDeclaration()):
+        with mock.patch.object(amp, "_slot_api", return_value=BrokenDeclaration()):
             first = amp.capability_block("superpowers for discipline", Path("/tmp"))
             second = amp.capability_block("superpowers for discipline", Path("/tmp"))
 
         self.assertEqual(first, second)
-        self.assertIn("extension-buckets | result: warning", first)
+        self.assertIn("extension-slots | result: warning", first)
         self.assertIn("selected: native host + Shadow Method", first)
         self.assertIn("resolver unavailable (RuntimeError)", first)
         self.assertNotIn("machine-specific detail", first)
@@ -600,7 +600,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             def resolve(self, _bucket: dict[str, str], _home: Path) -> tuple[str, str]:
                 raise OSError("machine-specific detail must not leak")
 
-        with mock.patch.object(amp, "_bucket_api", return_value=BrokenResolution()):
+        with mock.patch.object(amp, "_slot_api", return_value=BrokenResolution()):
             block = amp.capability_block("superpowers for discipline", Path("/tmp"))
 
         self.assertIn("superpowers | result: warning", block)
@@ -686,10 +686,10 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             def declared(self) -> list[None]:
                 return [None]
 
-        with mock.patch.object(amp, "_bucket_api", return_value=MalformedDeclaration()):
+        with mock.patch.object(amp, "_slot_api", return_value=MalformedDeclaration()):
             block = amp.capability_block("superpowers for verification", Path("/tmp"))
 
-        self.assertIn("extension-buckets | result: warning", block)
+        self.assertIn("extension-slots | result: warning", block)
         self.assertIn("returned malformed data", block)
         self.assertIn("selected: native host + Shadow Method", block)
 
@@ -709,7 +709,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             def resolve(self, _bucket: dict[str, str], _home: Path) -> tuple[str, None]:
                 return "pass", None
 
-        with mock.patch.object(amp, "_bucket_api", return_value=MalformedResolution()):
+        with mock.patch.object(amp, "_slot_api", return_value=MalformedResolution()):
             block = amp.capability_block("superpowers for verification", Path("/tmp"))
 
         self.assertIn("superpowers | result: warning", block)
@@ -717,16 +717,16 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
         self.assertIn("selected: native host + Shadow Method", block)
 
     def test_optional_resolver_import_exception_also_becomes_a_warning(self) -> None:
-        with mock.patch.object(amp, "_BUCKETS", None), mock.patch.object(
-            amp, "_BUCKETS_TRIED", False
-        ), mock.patch.object(amp, "_BUCKETS_ERROR", None), mock.patch.object(
+        with mock.patch.object(amp, "_SLOTS", None), mock.patch.object(
+            amp, "_SLOTS_TRIED", False
+        ), mock.patch.object(amp, "_SLOTS_ERROR", None), mock.patch.object(
             amp.importlib.util,
             "spec_from_file_location",
             side_effect=SyntaxError("machine-specific detail must not leak"),
         ):
             block = amp.capability_block("/craft for UI", Path("/tmp"))
 
-        self.assertIn("extension-buckets | result: warning", block)
+        self.assertIn("extension-slots | result: warning", block)
         self.assertIn("resolver unavailable (SyntaxError)", block)
         self.assertNotIn("machine-specific detail", block)
 

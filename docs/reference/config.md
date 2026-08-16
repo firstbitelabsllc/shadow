@@ -46,7 +46,7 @@ Every dial that exists, is plausible, or has been refused, classified by name:
 | hot-plan budgets | plan bloat, or a premature archive | candidate |
 | the three proof classes (`cmd`, `read`, `gate`) | a completion nobody proved | **fixed** |
 | `shadow accept` as the only cmd-proof flip path | the same, one step earlier | **fixed** |
-| bucket bindings | a capability silently resolving to the wrong thing | **fixed — environment only.** `SHADOW_BUCKET_*` is evaluated fresh; a committed file asserting presence can drift. See [buckets.md](buckets.md), which states there is no bucket configuration file |
+| slot bindings | a capability silently resolving to the wrong thing | **fixed — environment only.** `SHADOW_SLOT_*` is evaluated fresh; a committed file asserting presence can drift. See [slots.md](slots.md), which states there is no slot configuration file |
 | a memory or recall binding | recall mistaken for authority | **refused (~noks).** Which recall or memory tooling a person runs is their own configuration; Shadow neither reads it nor asserts anything about it |
 | provider, model, account, or credential | the same class as a memory binding, plus a leak surface | **refused (~noks)** — see the closing rule below |
 

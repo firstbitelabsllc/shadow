@@ -64,11 +64,11 @@ def _write_local_plan(home: Path, slug: str, project: str, *, bytes_over: int = 
 
 
 class DoctorBucketsDegradeToOneFailRow(unittest.TestCase):
-    def test_buckets_machinery_exception_is_one_fail_row_not_a_traceback(self) -> None:
+    def test_slots_machinery_exception_is_one_fail_row_not_a_traceback(self) -> None:
         crashes = (
-            ImportError("cannot import buckets machinery"),
-            ValueError("buckets.md exploded"),
-            OSError("buckets.md unreadable"),
+            ImportError("cannot import slots machinery"),
+            ValueError("slots.md exploded"),
+            OSError("slots.md unreadable"),
         )
         for boom in crashes:
             with self.subTest(error=type(boom).__name__):
@@ -76,9 +76,9 @@ class DoctorBucketsDegradeToOneFailRow(unittest.TestCase):
                 spec.loader.exec_module.side_effect = boom
                 with mock.patch("importlib.util.spec_from_file_location", return_value=spec):
                     try:
-                        rows = doctor.bucket_checks()
+                        rows = doctor.slot_checks()
                     except Exception as exc:  # noqa: BLE001 — the bug is a leaked exception
-                        self.fail(f"buckets machinery leaked {exc!r}")
+                        self.fail(f"slots machinery leaked {exc!r}")
                 self.assertEqual(len(rows), 1, rows)
                 self.assertEqual(rows[0]["state"], "fail")
                 self.assertIn(str(boom), rows[0]["detail"])

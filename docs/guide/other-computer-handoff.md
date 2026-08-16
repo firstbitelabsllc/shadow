@@ -50,10 +50,10 @@ transcripts, provider payloads, or absolute private paths in it.
 
 `shadow amp` is a CLI subcommand, not a mounted skill: it projects a
 paste-ready resume block for a checkpoint the seat already claimed — see
-[amp](../reference/amp.md). Four optional extension buckets
+[amp](../reference/amp.md). Four optional extension slots
 (`superpowers`, `taste`, `future`, `explain`) fill process, quality,
 pre-mortem, and diagram capabilities when mounted — see
-[extension buckets](../reference/buckets.md).
+[extension slots](../reference/slots.md).
 
 Use native Codex, Claude Code, or Cursor for execution. Provider-specific
 helpers are adapters; none becomes the plan authority or stores credentials.

@@ -41,7 +41,7 @@ starting pointer, never the Outcome's scope or stopping condition.
    the budget is a hard error pointing back at READ-FIT. The char count
    prints to stderr on every run.
 7. **Deterministic.** No LLM, no network, no resolved-state write. Same plan,
-   local board revision, capability mounts, bucket bindings, and PATH produce
+   local board revision, capability mounts, slot bindings, and PATH produce
    the same block. Model
    judgment stays in the native hosts, per the platform boundary.
 8. **The pointer never lies about the ref.** amp reads the working tree, so
@@ -80,7 +80,7 @@ budget; `2` no plan/entity or invalid usage.
 - It does not call a model. Sharpening prose is a host's job; amp's job is
   that the pointer, resume, proof, and rails are exact.
 - It does not hand planning, delegation, or review dispatch to an extension
-  pack. A `superpowers` bucket request never selects the pack root. Because one
+  pack. A `superpowers` slot request never selects the pack root. Because one
   packet can resume on Claude, Codex, or Cursor, a leaf found only in Claude's
   plugin cache is source evidence, not a cross-host invocation. Amp records
   only a concrete installed whole leaf compatible with Shadow's boundary —

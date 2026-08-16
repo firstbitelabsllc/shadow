@@ -62,7 +62,7 @@ REQUIRED_FILES = {
     "scripts/shadow_board_import.py",
     "scripts/shadow_root_board.py",
     "scripts/shadow-host-directives.py",
-    "scripts/shadow-buckets.py",
+    "scripts/shadow-slots.py",
     "scripts/shadow_config.py",
     "scripts/shadow-verify-host.sh",
     "scripts/shadow-verify-two-seat.py",
