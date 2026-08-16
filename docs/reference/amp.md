@@ -80,17 +80,10 @@ budget; `2` no plan/entity or invalid usage.
 - It does not call a model. Sharpening prose is a host's job; amp's job is
   that the pointer, resume, proof, and rails are exact.
 - It does not hand planning, delegation, or review dispatch to an extension
-  pack. A `superpowers` pack request never selects the pack root. Because one
-  packet can resume on Claude, Codex, or Cursor, a leaf found only in Claude's
-  plugin cache is source evidence, not a cross-host invocation. Amp records
-  only a concrete installed whole leaf compatible with Shadow's boundary —
-  verification-before-completion, test-driven-development,
-  systematic-debugging, or receiving-code-review — and selects the
-  host-neutral Shadow Method adaptation. Brainstorm and
-  request-review ideas are adapted disciplines inside Shadow Method, not
-  selected plugin leaves. If no compatible whole leaf is installed, or the
-  optional resolver fails, the packet records a warning and uses the native
-  host plus Shadow Method.
+  pack. Because one packet can resume on Claude, Codex, or Cursor, a leaf
+  found only in Claude's plugin cache is source evidence, not a cross-host
+  invocation. The complete pack-leaf law — compatible set, refusals,
+  fallback, pack-root configuration — is the section below, stated once.
 - It never repeats an unsafe pack invocation from `- tools:`. `/superpowers`
   and every non-compatible Superpowers leaf are projected as Shadow Method
   intent or fallback; ordinary project tools such as `/craft` remain byte-for-

@@ -462,14 +462,7 @@ def _read_superpowers_snapshot(
     unless Shadow's compatibility set explicitly adopts it.
     """
     roots: list[tuple[Path, str]] = []
-    # Amp-core pack-root configuration, not a slot: the superpowers slot is
-    # gone (2026-08-15 owner verdict) while the delegation guard stays core.
-    # Legacy slot/bucket names honored for one release train.
-    override = (
-        os.environ.get("SHADOW_AMP_PACK_ROOT")
-        or os.environ.get("SHADOW_SLOT_SUPERPOWERS")
-        or os.environ.get("SHADOW_BUCKET_SUPERPOWERS", "")
-    ).strip()
+    _, override = _pack_root_override()
     if override and override.lower() != "off":
         bound = Path(override)
         roots.append((bound, "explicit binding"))
@@ -513,6 +506,24 @@ def _read_superpowers_snapshot(
     return found, frozenset(catalog)
 
 
+
+def _pack_root_override() -> tuple[str, str]:
+    """(variable, value) for the strongest set pack-root override.
+
+    Amp-core configuration — the superpowers slot is gone (2026-08-15) while
+    the delegation guard stays core. Legacy names honored one release train.
+    Whitespace-only values fall through instead of masking a set legacy name.
+    """
+    for variable in (
+        "SHADOW_AMP_PACK_ROOT",
+        "SHADOW_SLOT_SUPERPOWERS",
+        "SHADOW_BUCKET_SUPERPOWERS",
+    ):
+        value = os.environ.get(variable, "").strip()
+        if value:
+            return variable, value
+    return "SHADOW_AMP_PACK_ROOT", ""
+
 def _superpowers_snapshot(
     home: Path,
 ) -> tuple[dict[str, str], frozenset[str], str | None]:
@@ -546,14 +557,8 @@ def _resolve_capability(
     superpowers: tuple[dict[str, str], frozenset[str], str | None] | None = None,
 ) -> tuple[str, str]:
     leaves, catalog, _snapshot_error = superpowers or _superpowers_snapshot(home)
-    superpowers_off = (
-        (
-            os.environ.get("SHADOW_AMP_PACK_ROOT")
-            or os.environ.get("SHADOW_SLOT_SUPERPOWERS")
-            or os.environ.get("SHADOW_BUCKET_SUPERPOWERS", "")
-        ).strip().lower()
-        == "off"
-    )
+    pack_variable, pack_value = _pack_root_override()
+    superpowers_off = pack_value.lower() == "off"
     if superpowers_off and (
         name == "superpowers"
         or name in SUPERPOWERS_KNOWN_LEAVES
@@ -561,7 +566,7 @@ def _resolve_capability(
     ):
         return (
             "off",
-            "off by SHADOW_BUCKET_SUPERPOWERS — the emptiness is deliberate",
+            f"off by {pack_variable} — the emptiness is deliberate",
         )
     if name in SUPERPOWERS_FORBIDDEN_LEAVES or (
         name in catalog and name not in SUPERPOWERS_COMPATIBLE_LEAVES

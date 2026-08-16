@@ -68,6 +68,7 @@ These environment variables provide runtime defaults:
 | `SHADOW_CLAUDE_CODE_BIN` | Optional Claude Code executable override. |
 | `SHADOW_CURSOR_BIN` | Optional Cursor executable override. |
 | `SHADOW_TELEMETRY` | Set exactly to `local` to append closed, local-only lifecycle events beneath the current project's `.shadow/evidence/`; unset and every other value write nothing. |
+| `SHADOW_AMP_PACK_ROOT` | Amp-core pack-root override (absolute path, or `off` to disable pack inspection) — not a slot binding; the legacy `SHADOW_SLOT_SUPERPOWERS`/`SHADOW_BUCKET_SUPERPOWERS` names are honored behind it for one release train. See [amp.md](amp.md). |
 
 Provider logins remain in their native tools.
 

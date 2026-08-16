@@ -63,7 +63,7 @@ def _write_local_plan(home: Path, slug: str, project: str, *, bytes_over: int = 
     return path
 
 
-class DoctorBucketsDegradeToOneFailRow(unittest.TestCase):
+class DoctorSlotsDegradeToOneFailRow(unittest.TestCase):
     def test_slots_machinery_exception_is_one_fail_row_not_a_traceback(self) -> None:
         crashes = (
             ImportError("cannot import slots machinery"),

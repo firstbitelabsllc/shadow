@@ -20,6 +20,7 @@ there is no slot configuration file.
 
 - slot memory | kind: skill | default: memory | fills: routed recall — the routing file that delegates where to look things up (static docs, semantic vectors, graph — per person); recall is a lead, never plan, proof, or ownership authority; re-verify at the attributed source | absent: mount a skill named memory in one of the three skill roots, or set SHADOW_SLOT_MEMORY=off
 - slot taste | kind: skill | default: taste | fills: the finished-quality grade on a human-visible surface and the voice of everything written or shown for humans — prose, briefs, PR text, explanation visuals — after it works and before anyone calls it done | absent: mount a skill named taste in one of the three skill roots, or set SHADOW_SLOT_TASTE=off
+
 ## How each kind resolves
 
 **pack** — a multi-skill plugin installed by a host's own plugin system (no
