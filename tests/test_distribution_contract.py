@@ -58,7 +58,7 @@ class DistributionContractTests(unittest.TestCase):
         forbidden_names = {"server.json", "mcp.json"}
         distributed = {
             path.name
-            for root in (ROOT / "plugins", ROOT / "distribution")
+            for root in (ROOT / "ai", ROOT / "distribution")
             for path in root.rglob("*")
             if path.is_file()
         }
