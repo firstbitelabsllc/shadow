@@ -20,9 +20,9 @@ def read_json(relative: str) -> dict:
 class DistributionContractTests(unittest.TestCase):
     def test_portable_manifests_share_one_identity_and_version(self) -> None:
         for relative in (
-            "plugins/shadow/plugin.json",
-            "plugins/shadow/.codex-plugin/plugin.json",
-            "plugins/shadow/.claude-plugin/plugin.json",
+            "ai/plugin.json",
+            "ai/.codex-plugin/plugin.json",
+            "ai/.claude-plugin/plugin.json",
         ):
             manifest = read_json(relative)
             self.assertEqual(manifest["name"], "shadow", relative)
@@ -31,25 +31,28 @@ class DistributionContractTests(unittest.TestCase):
     def test_marketplaces_resolve_to_the_portable_package(self) -> None:
         codex = read_json(".agents/plugins/marketplace.json")
         codex_path = codex["plugins"][0]["source"]["path"]
-        self.assertEqual(PurePosixPath(codex_path).as_posix(), "plugins/shadow")
+        self.assertEqual(PurePosixPath(codex_path).as_posix(), "ai")
         self.assertTrue((ROOT / codex_path).is_dir())
 
         claude = read_json(".claude-plugin/marketplace.json")
         claude_path = claude["plugins"][0]["source"]
-        self.assertEqual(PurePosixPath(claude_path).as_posix(), "plugins/shadow")
+        self.assertEqual(PurePosixPath(claude_path).as_posix(), "ai")
         self.assertTrue((ROOT / claude_path).is_dir())
+
+        self.assertFalse((ROOT / "plugins/shadow/plugin.json").exists())
+        self.assertFalse((ROOT / "plugins/shadow/skills/shadow/SKILL.md").exists())
 
     def test_hosted_coach_never_claims_local_authority(self) -> None:
         coach = (ROOT / "distribution/custom-gpt/instructions.md").read_text(
             encoding="utf-8"
         ).lower()
-        portable = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
+        portable = (ROOT / "ai/skills/shadow/SKILL.md").read_text(
             encoding="utf-8"
         ).lower()
         self.assertIn("cannot see the person's local shadow board", coach)
         self.assertIn("do not add an action or app", coach)
         self.assertIn("coach mode", portable)
-        self.assertIn("never create a second task list", portable)
+        self.assertIn("parallel task list", portable)
 
     def test_distribution_does_not_publish_a_placeholder_transport(self) -> None:
         forbidden_names = {"server.json", "mcp.json"}
@@ -62,17 +65,17 @@ class DistributionContractTests(unittest.TestCase):
         self.assertTrue(forbidden_names.isdisjoint(distributed))
 
     def test_human_brief_hides_machine_detail_until_requested(self) -> None:
-        skill = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
+        skill = (ROOT / "ai/skills/shadow/SKILL.md").read_text(
             encoding="utf-8"
         )
         normalized = " ".join(skill.split())
         for phrase in (
-            "What are we trying to change for a person?",
-            "What is already moving, including work happening in parallel?",
-            "technical evidence on demand",
-            "Distinguish the next evidence checkpoint from product",
-            "not progress unless the number changes a human decision",
-            "confidence never exceeds observed evidence",
+            "Talk to the person like a warm, candid teammate.",
+            "Keep routing, rows, receipts, and tool mechanics backstage",
+            "never a fixed response template",
+            "canned status cards, approval menus",
+            "Any clear, informed approval is enough",
+            "rather than inventing confidence",
         ):
             self.assertIn(phrase, normalized)
 

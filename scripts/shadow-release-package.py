@@ -105,10 +105,10 @@ REQUIRED_FILES = {
     "scripts/shadow-public-ready-grep-gate.py",
     "install.sh",
     "skills/goal/references/amplify.md",
-    "plugins/shadow/plugin.json",
-    "plugins/shadow/.codex-plugin/plugin.json",
-    "plugins/shadow/.claude-plugin/plugin.json",
-    "plugins/shadow/skills/shadow/SKILL.md",
+    "ai/plugin.json",
+    "ai/.codex-plugin/plugin.json",
+    "ai/.claude-plugin/plugin.json",
+    "ai/skills/shadow/SKILL.md",
     "scripts/shadow-python.sh",
     "scripts/shadow-release-package.py",
     "scripts/shadow-status.py",
@@ -223,7 +223,7 @@ def validate_release_candidate(
     if blocked:
         errors.append("archived artifact contains forbidden files: " + ", ".join(blocked))
     skills = sorted(path for path in files if PurePosixPath(path).name == "SKILL.md")
-    expected_skills = ["SKILL.md", "plugins/shadow/skills/shadow/SKILL.md", "skills/goal/SKILL.md"]
+    expected_skills = ["SKILL.md", "ai/skills/shadow/SKILL.md", "skills/goal/SKILL.md"]
     if skills != expected_skills:
         errors.append("archived artifact must contain exactly the native, portable, and goal skills")
     untracked = sorted(files - tracked)

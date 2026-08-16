@@ -157,6 +157,20 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertTrue(any("native, portable, and goal skills" in error for error in errors))
         self.assertTrue(any("forbidden" in error for error in errors))
 
+    def test_native_release_archive_has_one_portable_router(self) -> None:
+        """The generic source is the portable package, not a second shipped skill."""
+        with tempfile.TemporaryDirectory() as dirname:
+            manifest, _, _ = mod.pack(ROOT, Path(dirname))
+        archived_skills = sorted(
+            item["path"]
+            for item in manifest["files"]
+            if Path(item["path"]).name == "SKILL.md"
+        )
+        self.assertEqual(
+            archived_skills,
+            ["SKILL.md", "ai/skills/shadow/SKILL.md", "skills/goal/SKILL.md"],
+        )
+
     def test_dirty_bytes_require_explicit_development_mode(self) -> None:
         plugin, pack, tracked = baseline()
         errors = self.errors(plugin, pack, tracked, dirty_paths={"README.md"})
@@ -200,9 +214,9 @@ class CurrentReleaseCandidate(unittest.TestCase):
         expected = "1.1.0"
         manifests = (
             ".claude-plugin/plugin.json",
-            "plugins/shadow/plugin.json",
-            "plugins/shadow/.codex-plugin/plugin.json",
-            "plugins/shadow/.claude-plugin/plugin.json",
+            "ai/plugin.json",
+            "ai/.codex-plugin/plugin.json",
+            "ai/.claude-plugin/plugin.json",
         )
 
         self.assertEqual(mod.source_version(ROOT), expected)

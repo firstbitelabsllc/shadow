@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "shadow",
-      "source": "./plugins/shadow"
+      "source": "./ai"
     }
   ]
 }

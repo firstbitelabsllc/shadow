@@ -17,7 +17,7 @@ flowchart LR
 
 | Surface | What people get | Authority boundary |
 | --- | --- | --- |
-| ChatGPT and Codex | The `plugins/shadow/.codex-plugin` package and repo marketplace expose the same Shadow skill and goal shaper. | Full status and action require a local host that can read the board and run Shadow. A hosted chat is a coach only. |
+| ChatGPT and Codex | The `ai/.codex-plugin` package and repo marketplace expose the same Shadow coach skill. | Full status and action require a local host that can read the board and run Shadow. A hosted chat is a coach only. |
 | Claude Code | The existing `.claude-plugin` package installs the same source skill. | Local board access follows the existing install and host rules. |
 | Cursor | The checked-in skill works through Cursor's local skill/plugin support. | Cursor can act only where the local checkout and host integration are available. |
 | Custom GPT | The skill prose can seed a friendly “Shadow Coach” for goal shaping and explanation. | A Custom GPT is not real Shadow until a reviewed remote bridge exists. It must say that it cannot see the local board. |

@@ -8,7 +8,7 @@
       "name": "shadow",
       "source": {
         "source": "local",
-        "path": "./plugins/shadow"
+        "path": "./ai"
       },
       "policy": {
         "installation": "AVAILABLE",
