@@ -11,8 +11,8 @@ shipped decision.
 So a slot declares what the method assumes it can reach, and doctor derives
 the answer at read time. Nothing is fetched, stamped, or cached — and no slot
 asserts anything about tooling Shadow does not itself call. Renamed bucket →
-slot 2026-08-15 by owner verdict; the buckets alias and SHADOW_BUCKET_ env
-fallback live for exactly one release train.
+slot 2026-08-15 by owner verdict. The one-train buckets alias and
+SHADOW_BUCKET_ fallback were deleted in ~nx01.
 """
 
 from __future__ import annotations
@@ -123,9 +123,8 @@ class KindIsTheCheck(unittest.TestCase):
         slot = next(s for s in slots.declared() if s["name"] == name)
         return slots.resolve(slot, home)
 
-    # Pack-kind resolution tests (present-version, impostor, stale-first)
-    # died with the superpowers row on 2026-08-15; _resolve_pack removal is a
-    # named next-train follow-up (MIGRATION Lane 5).
+    # Pack-kind resolution died with the superpowers row; ~nx01 removed
+    # the leftover _resolve_pack.
 
     def test_a_mounted_skill_resolves(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,24 +246,13 @@ class WiredIntoTheProduct(unittest.TestCase):
 
 
 
-class DeprecatedBucketCompat(unittest.TestCase):
-    """One-release-train compat (Branch B, 2026-08-15): the buckets verb alias
-    and the SHADOW_BUCKET_ env fallback. Both die next train with this class.
-    """
-
-    def test_the_old_verb_warns_once_and_still_works(self) -> None:
+class RetiredBucketCompatIsGone(unittest.TestCase):
+    def test_the_old_verb_is_unknown(self) -> None:
         result = subprocess.run([str(SHADOW), "buckets"], capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("buckets is now slots", result.stderr)
-        self.assertTrue(result.stdout.strip())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("buckets is now slots", result.stderr)
 
-    def test_the_old_help_form_stays_quiet(self) -> None:
-        result = subprocess.run([str(SHADOW), "help", "buckets"], capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stderr, "")
-        self.assertTrue(result.stdout.strip())
-
-    def test_the_old_env_name_still_binds_with_a_deprecation_note(self) -> None:
+    def test_the_old_env_name_does_not_bind(self) -> None:
         slot = next(s for s in slots.declared() if s["name"] == "taste")
         slots.os.environ["SHADOW_BUCKET_TASTE"] = "off"
         try:
@@ -272,23 +260,8 @@ class DeprecatedBucketCompat(unittest.TestCase):
                 state, detail = slots.resolve(slot, Path(tmp))
         finally:
             del slots.os.environ["SHADOW_BUCKET_TASTE"]
-        self.assertEqual(state, "pass")
-        self.assertIn("deprecated env name", detail)
-
-    def test_the_new_env_name_wins_when_both_are_set(self) -> None:
-        slot = next(s for s in slots.declared() if s["name"] == "taste")
-        slots.os.environ["SHADOW_BUCKET_TASTE"] = "/nowhere/legacy"
-        slots.os.environ["SHADOW_SLOT_TASTE"] = "off"
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                state, detail = slots.resolve(slot, Path(tmp))
-        finally:
-            del slots.os.environ["SHADOW_BUCKET_TASTE"]
-            del slots.os.environ["SHADOW_SLOT_TASTE"]
-        self.assertEqual(state, "pass")
-        self.assertIn("SHADOW_SLOT_TASTE", detail)
-        self.assertNotIn("deprecated", detail)
-
+        self.assertEqual(state, "warn")
+        self.assertNotIn("SHADOW_BUCKET_TASTE", detail)
 
 
 if __name__ == "__main__":
