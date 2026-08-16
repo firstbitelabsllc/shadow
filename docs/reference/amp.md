@@ -80,7 +80,7 @@ budget; `2` no plan/entity or invalid usage.
 - It does not call a model. Sharpening prose is a host's job; amp's job is
   that the pointer, resume, proof, and rails are exact.
 - It does not hand planning, delegation, or review dispatch to an extension
-  pack. A `superpowers` slot request never selects the pack root. Because one
+  pack. A `superpowers` pack request never selects the pack root. Because one
   packet can resume on Claude, Codex, or Cursor, a leaf found only in Claude's
   plugin cache is source evidence, not a cross-host invocation. Amp records
   only a concrete installed whole leaf compatible with Shadow's boundary —
@@ -95,3 +95,23 @@ budget; `2` no plan/entity or invalid usage.
   and every non-compatible Superpowers leaf are projected as Shadow Method
   intent or fallback; ordinary project tools such as `/craft` remain byte-for-
   byte intact.
+
+## The pack-leaf law (amp core, relocated from the retired superpowers slot)
+
+The delegation guard never lived in a slot declaration; it is amp core and
+survives the 2026-08-15 slot-set change. Amp may name only a concrete
+installed whole leaf from the compatible set: `verification-before-completion`,
+`test-driven-development`, `systematic-debugging`, `receiving-code-review`.
+`writing-plans`, `executing-plans`, `dispatching-parallel-agents`,
+`subagent-driven-development`, `using-superpowers`, `brainstorming`, and
+`requesting-code-review` are refused even when explicitly requested, and the
+same default-deny covers every uncatalogued leaf: the computer board, entity
+plan, and Shadow host-run keep those jobs. A pack with no compatible whole
+leaf falls back to the native host plus Shadow Method, and raw `/superpowers`
+or refused-leaf invocations are removed from the projected `TOOLS:` line.
+
+The pack root is configured by `SHADOW_AMP_PACK_ROOT` (an absolute path, or
+`off` to disable pack inspection). This is amp-core configuration, not a slot
+binding: no slot named superpowers exists. The legacy names
+`SHADOW_SLOT_SUPERPOWERS` and `SHADOW_BUCKET_SUPERPOWERS` are honored behind
+it for one release train, then die.

@@ -57,12 +57,15 @@ class TheDeclaration(unittest.TestCase):
             for field in ("name", "default", "fills", "absent"):
                 self.assertTrue(slot[field].strip(), f"{slot['name']}: empty {field}")
 
-    def test_the_four_named_slots_ship(self) -> None:
-        # Dropping one becomes a deliberate test edit, never a silent removal.
-        # explain added 2026-08-14: the Brief contract already demanded the
-        # before/after pair and the small diagram; show-me names the filler.
+    def test_the_two_named_slots_ship(self) -> None:
+        # Dropping or adding one becomes a deliberate test edit, never a
+        # silent removal. Set cut to {memory, taste} 2026-08-15 by owner
+        # verdict: superpowers' delegation guard is amp core and never
+        # depended on the declaration; future's pre-mortem timing is
+        # deliberately gone; explain's remit moved into the taste binding;
+        # memory added as routed recall — a lead, never authority.
         names = {s["name"] for s in slots.declared()}
-        self.assertEqual(names, {"superpowers", "taste", "future", "explain"})
+        self.assertEqual(names, {"memory", "taste"})
 
     def test_names_are_unique(self) -> None:
         names = [s["name"] for s in slots.declared()]
@@ -89,19 +92,6 @@ class TheDeclaration(unittest.TestCase):
                 self.assertNotIn(stamped, line, f"a slot line stores resolved state: {line[:60]}")
 
 
-class FutureIsADeclaredSlot(unittest.TestCase):
-    def test_future_is_an_optional_skill_never_a_stored_result(self) -> None:
-        future = next(s for s in slots.declared() if s["name"] == "future")
-        self.assertEqual(future["kind"], "skill")
-        self.assertEqual(future["default"], "future")
-
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            self.assertEqual(slots.resolve(future, home)[0], "warn")
-            skill(home, "future")
-            self.assertEqual(slots.resolve(future, home)[0], "pass")
-
-
 class AbsentNeverFails(unittest.TestCase):
     """~w1re's DoD runs `shadow doctor` under a scratch HOME and expects exit 0.
 
@@ -116,7 +106,7 @@ class AbsentNeverFails(unittest.TestCase):
                 check=False, env={**slots.os.environ, "HOME": tmp},
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("[WARN] slot: superpowers", result.stdout)
+            self.assertIn("[WARN] slot: memory", result.stdout)
             self.assertIn("[WARN] slot: taste", result.stdout)
             self.assertNotIn("[FAIL]", result.stdout)
 
@@ -133,39 +123,23 @@ class KindIsTheCheck(unittest.TestCase):
         slot = next(s for s in slots.declared() if s["name"] == name)
         return slots.resolve(slot, home)
 
-    def test_a_present_pack_reports_its_version(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            plugin(home, "superpowers", "9.9.9")
-            state, detail = self._state("superpowers", home)
-            self.assertEqual(state, "pass")
-            self.assertIn("9.9.9", detail)
-
-    def test_a_pack_answering_to_another_name_is_stale(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            plugin(home, "superpowers", "1.0.0", manifest_name="notsuperpowers")
-            state, detail = self._state("superpowers", home)
-            self.assertEqual(state, "fail")
-            self.assertIn("notsuperpowers", detail)
-
-    def test_a_stale_install_sorted_first_does_not_hide_a_good_one(self) -> None:
-        # The scan reads every candidate before answering. An older or broken
-        # install that sorts first must not turn a filled slot into a hard
-        # failure that `shadow doctor` then reports.
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            plugin(home, "superpowers", "0.9.0", manifest_name="notsuperpowers")
-            plugin(home, "superpowers", "6.2.0")
-            state, detail = self._state("superpowers", home)
-            self.assertEqual(state, "pass", detail)
-            self.assertIn("6.2.0", detail)
+    # Pack-kind resolution tests (present-version, impostor, stale-first)
+    # died with the superpowers row on 2026-08-15; _resolve_pack removal is a
+    # named next-train follow-up (MIGRATION Lane 5).
 
     def test_a_mounted_skill_resolves(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             skill(home, "taste")
             self.assertEqual(self._state("taste", home)[0], "pass")
+
+    def test_the_memory_routing_file_is_an_ordinary_skill_mount(self) -> None:
+        # The routing file IS the mounted skill; existence-only, no schema.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(self._state("memory", home)[0], "warn")
+            skill(home, "memory")
+            self.assertEqual(self._state("memory", home)[0], "pass")
 
 
 class NoSlotPolicesUnrelatedUserTooling(unittest.TestCase):
@@ -188,8 +162,12 @@ class NoSlotPolicesUnrelatedUserTooling(unittest.TestCase):
     def _all_states(self, home: Path) -> list[str]:
         return [slots.resolve(s, home)[0] for s in slots.declared()]
 
-    def test_no_slot_is_named_for_tooling_shadow_does_not_use(self) -> None:
-        self.assertEqual({s["name"] for s in slots.declared()} & set(self.NAMES), set())
+    def test_no_slot_is_named_for_a_vendor(self) -> None:
+        # memory is a capability Shadow reaches for (2026-08-15 owner
+        # verdict); a vendor name (honcho, mem0, letta, ...) as a slot name
+        # would be Shadow policing or endorsing software it does not use.
+        names = {s["name"] for s in slots.declared()}
+        self.assertFalse(names & set(self.NAMES))
 
     def test_an_installed_namesake_directory_does_not_make_shadow_red(self) -> None:
         for name in self.NAMES:

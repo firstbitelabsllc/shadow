@@ -416,6 +416,11 @@ def _capability_requests(tools: str, declared: list[dict[str, str]]) -> list[str
     ]
     for slot in declared:
         name = slot["name"]
+        if name == "memory":
+            # Ratified 2026-08-15: 'memory' is a common English word
+            # ("profile memory usage" would false-trigger), so the memory
+            # slot answers to its slash form only.
+            continue
         for match in re.finditer(rf"(?<![0-9A-Za-z_-]){re.escape(name)}\b", tools):
             found.append((match.start(), name))
     result: list[str] = []
@@ -457,8 +462,12 @@ def _read_superpowers_snapshot(
     unless Shadow's compatibility set explicitly adopts it.
     """
     roots: list[tuple[Path, str]] = []
+    # Amp-core pack-root configuration, not a slot: the superpowers slot is
+    # gone (2026-08-15 owner verdict) while the delegation guard stays core.
+    # Legacy slot/bucket names honored for one release train.
     override = (
-        os.environ.get("SHADOW_SLOT_SUPERPOWERS")
+        os.environ.get("SHADOW_AMP_PACK_ROOT")
+        or os.environ.get("SHADOW_SLOT_SUPERPOWERS")
         or os.environ.get("SHADOW_BUCKET_SUPERPOWERS", "")
     ).strip()
     if override and override.lower() != "off":
@@ -539,7 +548,8 @@ def _resolve_capability(
     leaves, catalog, _snapshot_error = superpowers or _superpowers_snapshot(home)
     superpowers_off = (
         (
-            os.environ.get("SHADOW_SLOT_SUPERPOWERS")
+            os.environ.get("SHADOW_AMP_PACK_ROOT")
+            or os.environ.get("SHADOW_SLOT_SUPERPOWERS")
             or os.environ.get("SHADOW_BUCKET_SUPERPOWERS", "")
         ).strip().lower()
         == "off"
@@ -701,6 +711,13 @@ def capability_block(
             scope = (
                 " | adapted discipline: brainstorm and request-review ideas stay in "
                 "Shadow Method; Shadow keeps planning and delegation"
+            )
+        elif name == "memory":
+            # The lead-not-authority law rides the packet itself, mirroring
+            # the superpowers scope suffix (SPEC §3, 2026-08-15).
+            scope = (
+                " | scope: lead only — recalled content re-verified at its "
+                "attributed source"
             )
         elif name in SUPERPOWERS_COMPATIBLE_LEAVES and state == "present" and (
             name in superpowers_leaves

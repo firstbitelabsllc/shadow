@@ -50,10 +50,13 @@ transcripts, provider payloads, or absolute private paths in it.
 
 `shadow amp` is a CLI subcommand, not a mounted skill: it projects a
 paste-ready resume block for a checkpoint the seat already claimed — see
-[amp](../reference/amp.md). Four optional extension slots
-(`superpowers`, `taste`, `future`, `explain`) fill process, quality,
-pre-mortem, and diagram capabilities when mounted — see
-[extension slots](../reference/slots.md).
+[amp](../reference/amp.md). Two optional extension slots fill routed recall
+(`memory`) and finish-quality-plus-voice (`taste`) when mounted — see
+[extension slots](../reference/slots.md). The pre-mortem slot is gone: its
+pre-commit timing has no shipped mechanism (a repo may declare an
+adversarial-lens slug — post-work review, a different moment — or a person
+may delegate foresight to their own method). Diagrams stay Brief-contract
+law, no slot involved.
 
 Use native Codex, Claude Code, or Cursor for execution. Provider-specific
 helpers are adapters; none becomes the plan authority or stores credentials.

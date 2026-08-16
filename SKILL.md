@@ -166,14 +166,15 @@ becomes authority.
 
 ## Extension slots
 
-Shadow declares named slots its method assumes it can reach — superpowers for
-how each claimed lane is worked, taste for the finished-quality grade, future
-for a receipt-grounded pre-mortem — in `docs/reference/slots.md`.
-`shadow slots` reports which are filled. Shadow runs correctly with every one
-empty: a slot never gates a cycle, claims a row, or carries proof, and no plan
-verb reads it. No slot asserts anything about tooling Shadow does not call:
-which recall or memory tooling you run is your own configuration, the same
-boundary `config.md` draws around which provider a native host uses.
+Shadow declares named slots its method assumes it can reach — memory for
+routed recall (a lead, never plan, proof, or ownership authority) and taste
+for the finished-quality grade and the voice of everything written for
+humans — in `docs/reference/slots.md`. `shadow slots` reports which are
+filled. Shadow runs correctly with every one empty: a slot never gates a
+cycle, claims a row, or carries proof, and no plan verb reads it. No slot
+asserts anything about tooling Shadow does not call: which memory backend
+you run is your own configuration, the same boundary `config.md` draws
+around which provider a native host uses.
 
 ## Boundaries
 

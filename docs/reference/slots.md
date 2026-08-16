@@ -18,34 +18,13 @@ there is no slot configuration file.
 
 ## The slots
 
-- slot superpowers | kind: pack | default: superpowers | fills: the process discipline inside every applicable claimed lane — brainstorm before building, test first, review, and verify before claiming done. Shadow owns the durable plan and keeps the full Outcome moving | absent: install superpowers from the claude-plugins-official marketplace, or set SHADOW_SLOT_SUPERPOWERS=off
-- slot taste | kind: skill | default: taste | fills: the finished-quality grade on a human-visible surface, after it works and before anyone calls it done | absent: mount a skill named taste in one of the three skill roots, or set SHADOW_SLOT_TASTE=off
-- slot future | kind: skill | default: future | fills: receipt-grounded pre-mortem questions before a plan commits to risky work, seeded by the entity plan's own lessons and decisions rather than another memory store | absent: mount a skill named future in one of the three skill roots, or set SHADOW_SLOT_FUTURE=off
-- slot explain | kind: skill | default: show-me | fills: the visual form of every human brief — the before/after pair, the small diagram, the code-shape sketch the Brief contract already demands; when filled, briefs reach for it whenever a change, flow, or comparison needs explaining | absent: mount a skill named show-me in one of the three skill roots, or set SHADOW_SLOT_EXPLAIN=off
-
-The `superpowers` binding is leaf-only. The pack root is never selected. Shadow
-may name only a concrete installed whole leaf from this compatible set:
-`verification-before-completion`, `test-driven-development`,
-`systematic-debugging`, and `receiving-code-review`. Brainstorm and
-request-review ideas are adapted disciplines inside Shadow Method, not partial
-or selected plugin leaves. `writing-plans`, `executing-plans`,
-`dispatching-parallel-agents`, `subagent-driven-development`,
-`using-superpowers`, `brainstorming`, and `requesting-code-review` are refused
-even when explicitly requested. The same default-deny applies to every other
-pack leaf not in the compatible set, including `using-git-worktrees`,
-`finishing-a-development-branch`, and `writing-skills`: the computer board,
-entity plan, and Shadow host-run keep those jobs. A pack with no compatible
-whole leaf falls back to the native host plus Shadow Method. A generic pack
-request also falls back; the milestone tools line must name matching TDD,
-debugging, receiving-review, or verification intent before amp records that
-installed leaf as source for a host-neutral Shadow Method adaptation. A
-Claude-cache leaf is never printed as if Codex or Cursor could invoke it.
-Raw `/superpowers` and refused leaf invocations are also removed from the
-projected `TOOLS:` line; unrelated project tools remain unchanged.
-
+- slot memory | kind: skill | default: memory | fills: routed recall — the routing file that delegates where to look things up (static docs, semantic vectors, graph — per person); recall is a lead, never plan, proof, or ownership authority; re-verify at the attributed source | absent: mount a skill named memory in one of the three skill roots, or set SHADOW_SLOT_MEMORY=off
+- slot taste | kind: skill | default: taste | fills: the finished-quality grade on a human-visible surface and the voice of everything written or shown for humans — prose, briefs, PR text, explanation visuals — after it works and before anyone calls it done | absent: mount a skill named taste in one of the three skill roots, or set SHADOW_SLOT_TASTE=off
 ## How each kind resolves
 
-**pack** — a multi-skill plugin installed by a host's own plugin system. Read
+**pack** — a multi-skill plugin installed by a host's own plugin system (no
+shipped slot uses this kind today; the machinery retires next train if none
+appears). Read
 `~/.claude/plugins/cache/*/<default>/*/.claude-plugin/plugin.json` and compare
 its `name`. Present when it matches, and the detail is that manifest's
 `version`. One host surface only: Codex and Cursor plugin roots are not
@@ -56,9 +35,10 @@ path there would invent a convention.
 `<root>/<default>/SKILL.md`. Present when at least one resolves.
 
 A slot names only a capability Shadow itself reaches for. It never asserts
-anything about the rest of a machine: which recall, memory, or model tooling a
+anything about the rest of a machine: which memory backend or model tooling a
 person runs is their own configuration, and a check that failed over it would be
-Shadow policing software it does not use.
+Shadow policing software it does not use. The memory slot reaches only for the
+routing file it names — never the backend behind it.
 
 ## What doctor reports
 

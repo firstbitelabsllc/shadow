@@ -355,7 +355,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             self._installed_home(home)
-            tools = "/craft for UI, superpowers for verification, /ghost if available"
+            tools = "/craft for UI, /superpowers for verification, /ghost if available"
             with mock.patch.dict(
                 os.environ,
                 {"PATH": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
@@ -413,11 +413,14 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
                 {"PATH": "", "SHADOW_BUCKET_SUPERPOWERS": ""},
                 clear=False,
             ):
-                block = amp.capability_block("superpowers for discipline", home)
+                block = amp.capability_block("/superpowers for discipline", home)
 
-        self.assertIn("superpowers | result: warning", block)
+        # 2026-08-15: with the superpowers slot deleted, pack presence is no
+        # longer resolved, so an unusable pack reads absent (named quality
+        # loss, SPEC §1); the guard itself — nothing selected, native
+        # fallback — is what these pins keep.
+        self.assertIn("superpowers | result: absent", block)
         self.assertIn("selected: native host + Shadow Method", block)
-        self.assertIn("no compatible whole leaf installed", block)
         self.assertNotIn("selected: superpowers", block)
 
     def test_superpowers_intent_selects_the_matching_installed_whole_leaf(self) -> None:
@@ -439,10 +442,10 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
                 leaf.mkdir(parents=True, exist_ok=True)
                 (leaf / "SKILL.md").write_text(f"# {name}\n", encoding="utf-8")
             intents = {
-                "superpowers for debugging": "systematic-debugging",
-                "superpowers for TDD": "test-driven-development",
-                "superpowers for receiving code review": "receiving-code-review",
-                "superpowers for verification": "verification-before-completion",
+                "/superpowers for debugging": "systematic-debugging",
+                "/superpowers for TDD": "test-driven-development",
+                "/superpowers for receiving code review": "receiving-code-review",
+                "/superpowers for verification": "verification-before-completion",
             }
             with mock.patch.dict(
                 os.environ,
@@ -454,7 +457,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
                     for intent in intents
                 }
                 generic = amp.capability_block(
-                    "superpowers for generic discipline", home
+                    "/superpowers for generic discipline", home
                 )
 
         for intent, leaf in intents.items():
@@ -556,7 +559,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
                 clear=False,
             ):
                 block = amp.capability_block(
-                    "superpowers for verification, /verification-before-completion",
+                    "/superpowers for verification, /verification-before-completion",
                     home,
                 )
 
@@ -630,10 +633,12 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
                 clear=False,
             ):
                 block = amp.capability_block(
-                    "superpowers for verification", home
+                    "/superpowers for verification", home
                 )
 
-        self.assertIn("superpowers | result: warning", block)
+        # 2026-08-15: absent, not warning — see the dated comment above; the
+        # malformed manifest must neither crash the block nor select anything.
+        self.assertIn("superpowers | result: absent", block)
         self.assertIn("selected: native host + Shadow Method", block)
         self.assertNotIn("selected: superpowers:", block)
 
@@ -668,7 +673,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
                 clear=False,
             ):
                 block = amp.capability_block(
-                    "superpowers for verification", home
+                    "/superpowers for verification", home
                 )
 
         self.assertIn("- superpowers | result: present", block)
@@ -733,7 +738,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
     def test_absence_and_off_never_gate_the_required_packet(self) -> None:
         text = PLAN.replace(
             "/craft for UI, /xbq for builds — simulator proof is the bar",
-            "/ghost for optional review, superpowers for discipline",
+            "/ghost for optional review, /superpowers for discipline",
         )
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
@@ -975,6 +980,34 @@ class AmpCli(unittest.TestCase):
             self.assertIn("not registered on this computer", projected.stderr)
             self.assertIn("run shadow status", projected.stderr)
             self.assertNotIn("the ready row ~dd44", projected.stdout)
+
+
+
+class MemorySlotIsRoutedRecall(unittest.TestCase):
+    """The 2026-08-15 memory slot: slash-form only, and the packet itself
+    carries the lead-not-authority law as a scope suffix (SPEC §3)."""
+
+    def test_the_memory_row_carries_the_lead_only_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with mock.patch.dict(os.environ, {"PATH": ""}, clear=False):
+                block = amp.capability_block("/memory for recall", home)
+        self.assertIsNotNone(block)
+        self.assertIn("- memory | result: absent", block)
+        self.assertIn(
+            "scope: lead only — recalled content re-verified at its "
+            "attributed source",
+            block,
+        )
+
+    def test_bare_memory_prose_never_triggers_the_slot(self) -> None:
+        # Ratified 2026-08-15 with measured false triggers ("profile memory
+        # usage"): the common word must not conjure a capability row.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with mock.patch.dict(os.environ, {"PATH": ""}, clear=False):
+                block = amp.capability_block("profile memory usage in the loop", home)
+        self.assertIsNone(block)
 
 
 if __name__ == "__main__":

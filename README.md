@@ -52,10 +52,10 @@ Quote row ids (`'~a1b2'`) and use the id status printed. `shadow status
 
 All configuration is deliberately small, and stress-tested that way:
 
-- **Slots** — optional capability slots (`shadow slots`): superpowers,
-  taste, future, explain. Every one may be empty; none ever gates a cycle.
-  Rebind or opt out per machine with `SHADOW_SLOT_<NAME>=<abs path>|off` —
-  don't want superpowers? `SHADOW_SLOT_SUPERPOWERS=off` and everything runs.
+- **Slots** — optional capability slots (`shadow slots`): memory, taste.
+  Every one may be empty; none ever gates a cycle. Rebind or opt out per
+  machine with `SHADOW_SLOT_<NAME>=<abs path>|off` — don't want routed
+  recall? `SHADOW_SLOT_MEMORY=off` and everything runs.
 - **`shadow.yaml`** — one optional repo-root file with two keys
   (`version`, `adversarial-lenses`). That's the whole config file, by law:
   a dial may exist only where a wrong value costs quality, never truth.
