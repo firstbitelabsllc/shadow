@@ -25,7 +25,6 @@ the routing file it names — never the backend behind it.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 import re
@@ -34,13 +33,12 @@ from typing import Any, Final
 
 ROOT: Final = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 DOC: Final = ROOT / "docs" / "reference" / "slots.md"
-KINDS: Final = ("pack", "skill")
+KINDS: Final = ("skill",)
 LINE_RE: Final = re.compile(
     r"^- slot (?P<name>[a-z][a-z0-9-]{0,31}) \| kind: (?P<kind>[a-z]+) \| "
     r"default: (?P<default>[^|]+?) \| fills: (?P<fills>[^|]+?) \| absent: (?P<absent>.+)$"
 )
 SKILL_ROOTS: Final = (".claude/skills", ".agents/skills", ".cursor/skills")
-PLUGIN_CACHE: Final = ".claude/plugins/cache"
 
 
 def declared(doc: Path | None = None) -> list[dict[str, str]]:
@@ -58,28 +56,6 @@ def declared(doc: Path | None = None) -> list[dict[str, str]]:
     return out
 
 
-def _resolve_pack(slot: dict[str, str], home: Path) -> tuple[str, str]:
-    cache = home / PLUGIN_CACHE
-    wanted = slot["default"]
-    impostor: str | None = None
-    if cache.is_dir():
-        # Every candidate is read before answering: one stale or broken install
-        # sorted first must not mask a good one under another version or
-        # marketplace. A mismatch is only reported when no match exists at all.
-        for manifest in sorted(cache.glob(f"*/{wanted}/*/.claude-plugin/plugin.json")):
-            try:
-                data = json.loads(manifest.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if data.get("name") == wanted:
-                return "pass", f"pack {data.get('version', '?')}"
-            if impostor is None:
-                impostor = f"{data.get('name')!r}"
-    if impostor is not None:
-        return "fail", f"a plugin at {wanted} answers to {impostor}, not {wanted!r}"
-    return "warn", f"absent; {slot['absent']}"
-
-
 def _resolve_skill(slot: dict[str, str], home: Path) -> tuple[str, str]:
     for root in SKILL_ROOTS:
         if (home / root / slot["default"] / "SKILL.md").is_file():
@@ -87,22 +63,12 @@ def _resolve_skill(slot: dict[str, str], home: Path) -> tuple[str, str]:
     return "warn", f"absent; {slot['absent']}"
 
 
-def _override(name: str) -> tuple[str, str, str] | None:
-    """(variable, value, detail-suffix) for the strongest set env override.
-
-    `SHADOW_SLOT_<NAME>` wins; `SHADOW_BUCKET_<NAME>` is honored as a
-    deprecated fallback for exactly one release train (Branch B compat,
-    2026-08-15), then dies.
-    """
-    suffix = name.upper().replace("-", "_")
-    current = f"SHADOW_SLOT_{suffix}"
+def _override(name: str) -> tuple[str, str] | None:
+    """(variable, value) for a set SHADOW_SLOT_<NAME> override."""
+    current = f"SHADOW_SLOT_{name.upper().replace('-', '_')}"
     value = os.environ.get(current)
     if value:
-        return current, value, ""
-    legacy = f"SHADOW_BUCKET_{suffix}"
-    value = os.environ.get(legacy)
-    if value:
-        return legacy, value, " (deprecated env name; use SHADOW_SLOT_)"
+        return current, value
     return None
 
 
@@ -111,12 +77,12 @@ def resolve(slot: dict[str, str], home: Path | None = None) -> tuple[str, str]:
     home = home or Path.home()
     override = _override(slot["name"])
     if override:
-        variable, value, deprecated = override
+        variable, value = override
         if value.strip().lower() == "off":
-            return "pass", f"off by {variable} — the emptiness is deliberate{deprecated}"
-        return ("pass", f"bound by {variable}{deprecated}") if Path(value).exists() else (
-            "fail", f"{variable} points at nothing{deprecated}")
-    return {"pack": _resolve_pack, "skill": _resolve_skill}[slot["kind"]](slot, home)
+            return "pass", f"off by {variable} — the emptiness is deliberate"
+        return ("pass", f"bound by {variable}") if Path(value).exists() else (
+            "fail", f"{variable} points at nothing")
+    return {"skill": _resolve_skill}[slot["kind"]](slot, home)
 
 
 def checks(home: Path | None = None) -> list[dict[str, Any]]:
