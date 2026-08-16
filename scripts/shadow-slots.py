@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Resolve the extension buckets declared in docs/reference/buckets.md.
+"""Resolve the extension slots declared in docs/reference/slots.md.
 
-A bucket is a named capability the method assumes it can reach. This reads the
-declaration and answers, per bucket, one of: present, absent, stale, off.
+A slot is a named capability the method assumes it can reach. This reads the
+declaration and answers, per slot, one of: present, absent, stale, off.
 
 Three rules keep it from becoming the thing Boundaries ban:
 
@@ -15,10 +15,11 @@ Three rules keep it from becoming the thing Boundaries ban:
    code, exactly as a `proof:`'s class determines its machinery. A prose
    predicate here would be a doc that drifts from what runs.
 
-Every check asks only whether a capability Shadow reaches for is reachable. No
-bucket asserts anything about tooling Shadow does not use: which recall,
-memory, or model tooling a person runs is their own configuration, and a check
-that failed over it would be Shadow policing a machine it does not own.
+A slot names only a capability Shadow itself reaches for. It never asserts
+anything about the rest of a machine: which memory backend or model tooling a
+person runs is their own configuration, and a check that failed over it would
+be Shadow policing software it does not use. The memory slot reaches only for
+the routing file it names — never the backend behind it.
 """
 
 from __future__ import annotations
@@ -32,10 +33,10 @@ import sys
 from typing import Any, Final
 
 ROOT: Final = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
-DOC: Final = ROOT / "docs" / "reference" / "buckets.md"
+DOC: Final = ROOT / "docs" / "reference" / "slots.md"
 KINDS: Final = ("pack", "skill")
 LINE_RE: Final = re.compile(
-    r"^- bucket (?P<name>[a-z][a-z0-9-]{0,31}) \| kind: (?P<kind>[a-z]+) \| "
+    r"^- slot (?P<name>[a-z][a-z0-9-]{0,31}) \| kind: (?P<kind>[a-z]+) \| "
     r"default: (?P<default>[^|]+?) \| fills: (?P<fills>[^|]+?) \| absent: (?P<absent>.+)$"
 )
 SKILL_ROOTS: Final = (".claude/skills", ".agents/skills", ".cursor/skills")
@@ -57,9 +58,9 @@ def declared(doc: Path | None = None) -> list[dict[str, str]]:
     return out
 
 
-def _resolve_pack(bucket: dict[str, str], home: Path) -> tuple[str, str]:
+def _resolve_pack(slot: dict[str, str], home: Path) -> tuple[str, str]:
     cache = home / PLUGIN_CACHE
-    wanted = bucket["default"]
+    wanted = slot["default"]
     impostor: str | None = None
     if cache.is_dir():
         # Every candidate is read before answering: one stale or broken install
@@ -76,50 +77,69 @@ def _resolve_pack(bucket: dict[str, str], home: Path) -> tuple[str, str]:
                 impostor = f"{data.get('name')!r}"
     if impostor is not None:
         return "fail", f"a plugin at {wanted} answers to {impostor}, not {wanted!r}"
-    return "warn", f"absent; {bucket['absent']}"
+    return "warn", f"absent; {slot['absent']}"
 
 
-def _resolve_skill(bucket: dict[str, str], home: Path) -> tuple[str, str]:
+def _resolve_skill(slot: dict[str, str], home: Path) -> tuple[str, str]:
     for root in SKILL_ROOTS:
-        if (home / root / bucket["default"] / "SKILL.md").is_file():
+        if (home / root / slot["default"] / "SKILL.md").is_file():
             return "pass", f"skill mounted in {root}"
-    return "warn", f"absent; {bucket['absent']}"
+    return "warn", f"absent; {slot['absent']}"
 
 
-def resolve(bucket: dict[str, str], home: Path | None = None) -> tuple[str, str]:
-    """(state, detail) for one bucket. Never writes anything."""
+def _override(name: str) -> tuple[str, str, str] | None:
+    """(variable, value, detail-suffix) for the strongest set env override.
+
+    `SHADOW_SLOT_<NAME>` wins; `SHADOW_BUCKET_<NAME>` is honored as a
+    deprecated fallback for exactly one release train (Branch B compat,
+    2026-08-15), then dies.
+    """
+    suffix = name.upper().replace("-", "_")
+    current = f"SHADOW_SLOT_{suffix}"
+    value = os.environ.get(current)
+    if value:
+        return current, value, ""
+    legacy = f"SHADOW_BUCKET_{suffix}"
+    value = os.environ.get(legacy)
+    if value:
+        return legacy, value, " (deprecated env name; use SHADOW_SLOT_)"
+    return None
+
+
+def resolve(slot: dict[str, str], home: Path | None = None) -> tuple[str, str]:
+    """(state, detail) for one slot. Never writes anything."""
     home = home or Path.home()
-    override = os.environ.get(f"SHADOW_BUCKET_{bucket['name'].upper().replace('-', '_')}")
+    override = _override(slot["name"])
     if override:
-        variable = f"SHADOW_BUCKET_{bucket['name'].upper().replace('-', '_')}"
-        if override.strip().lower() == "off":
-            return "pass", f"off by {variable} — the emptiness is deliberate"
-        return ("pass", f"bound by {variable}") if Path(override).exists() else (
-            "fail", f"{variable} points at nothing")
-    return {"pack": _resolve_pack, "skill": _resolve_skill}[bucket["kind"]](bucket, home)
+        variable, value, deprecated = override
+        if value.strip().lower() == "off":
+            return "pass", f"off by {variable} — the emptiness is deliberate{deprecated}"
+        return ("pass", f"bound by {variable}{deprecated}") if Path(value).exists() else (
+            "fail", f"{variable} points at nothing{deprecated}")
+    return {"pack": _resolve_pack, "skill": _resolve_skill}[slot["kind"]](slot, home)
 
 
 def checks(home: Path | None = None) -> list[dict[str, Any]]:
     results = []
-    for bucket in declared():
-        state, detail = resolve(bucket, home)
-        results.append({"name": f"bucket: {bucket['name']}", "state": state, "detail": detail})
+    for slot in declared():
+        state, detail = resolve(slot, home)
+        results.append({"name": f"slot: {slot['name']}", "state": state, "detail": detail})
     return results
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="shadow buckets",
-        description="Report which extension buckets are filled on this machine.",
+        prog="shadow slots",
+        description="Report which extension slots are filled on this machine.",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     results = checks()
     if not results:
-        print("shadow buckets: no buckets declared in docs/reference/buckets.md", file=sys.stderr)
+        print("shadow slots: no slots declared in docs/reference/slots.md", file=sys.stderr)
         return 1
     if args.json:
-        print(json.dumps({"schema": "shadow.buckets.v1", "checks": results}, indent=2))
+        print(json.dumps({"schema": "shadow.slots.v1", "checks": results}, indent=2))
     else:
         for check in results:
             print(f"[{check['state'].upper():4}] {check['name']}: {check['detail']}")

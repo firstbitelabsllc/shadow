@@ -381,41 +381,46 @@ def _pointer(repo: Path, plan_path: Path) -> tuple[str, bool, bool]:
     return f"{rel}{at} in {where}", dirty, local
 
 
-_BUCKETS: object | None = None
-_BUCKETS_TRIED = False
-_BUCKETS_ERROR: str | None = None
+_SLOTS: object | None = None
+_SLOTS_TRIED = False
+_SLOTS_ERROR: str | None = None
 
 
-def _bucket_api() -> object | None:
-    """Load the read-only bucket resolver without making amp a package manager."""
-    global _BUCKETS, _BUCKETS_ERROR, _BUCKETS_TRIED
-    if _BUCKETS_TRIED:
-        return _BUCKETS
-    _BUCKETS_TRIED = True
+def _slot_api() -> object | None:
+    """Load the read-only slot resolver without making amp a package manager."""
+    global _SLOTS, _SLOTS_ERROR, _SLOTS_TRIED
+    if _SLOTS_TRIED:
+        return _SLOTS
+    _SLOTS_TRIED = True
     try:
         spec = importlib.util.spec_from_file_location(
-            "shadow_buckets_for_amp", ROOT / "scripts" / "shadow-buckets.py"
+            "shadow_slots_for_amp", ROOT / "scripts" / "shadow-slots.py"
         )
         if spec is None or spec.loader is None:
-            _BUCKETS_ERROR = "module loader unavailable"
+            _SLOTS_ERROR = "module loader unavailable"
             return None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        _BUCKETS = module
-        _BUCKETS_ERROR = None
+        _SLOTS = module
+        _SLOTS_ERROR = None
     except Exception as error:  # optional resolver defects never gate amp
-        _BUCKETS = None
-        _BUCKETS_ERROR = type(error).__name__
-    return _BUCKETS
+        _SLOTS = None
+        _SLOTS_ERROR = type(error).__name__
+    return _SLOTS
 
 
 def _capability_requests(tools: str, declared: list[dict[str, str]]) -> list[str]:
-    """Explicit slash skills and named buckets, in declaration-text order."""
+    """Explicit slash skills and named slots, in declaration-text order."""
     found: list[tuple[int, str]] = [
         (match.start(), match.group(1)) for match in CAPABILITY_RE.finditer(tools)
     ]
-    for bucket in declared:
-        name = bucket["name"]
+    for slot in declared:
+        name = slot["name"]
+        if name == "memory":
+            # Ratified 2026-08-15: 'memory' is a common English word
+            # ("profile memory usage" would false-trigger), so the memory
+            # slot answers to its slash form only.
+            continue
         for match in re.finditer(rf"(?<![0-9A-Za-z_-]){re.escape(name)}\b", tools):
             found.append((match.start(), name))
     result: list[str] = []
@@ -457,7 +462,7 @@ def _read_superpowers_snapshot(
     unless Shadow's compatibility set explicitly adopts it.
     """
     roots: list[tuple[Path, str]] = []
-    override = os.environ.get("SHADOW_BUCKET_SUPERPOWERS", "").strip()
+    _, override = _pack_root_override()
     if override and override.lower() != "off":
         bound = Path(override)
         roots.append((bound, "explicit binding"))
@@ -501,6 +506,23 @@ def _read_superpowers_snapshot(
     return found, frozenset(catalog)
 
 
+
+def _pack_root_override() -> tuple[str, str]:
+    """(variable, value) for the strongest set pack-root override.
+
+    Amp-core configuration — the superpowers slot is gone (2026-08-15) while
+    the delegation guard stays core. Legacy names honored one release train.
+    Whitespace-only values fall through instead of masking a set legacy name.
+    """
+    for variable in (
+        "SHADOW_AMP_PACK_ROOT",
+        "SHADOW_BUCKET_SUPERPOWERS",
+    ):
+        value = os.environ.get(variable, "").strip()
+        if value:
+            return variable, value
+    return "SHADOW_AMP_PACK_ROOT", ""
+
 def _superpowers_snapshot(
     home: Path,
 ) -> tuple[dict[str, str], frozenset[str], str | None]:
@@ -534,9 +556,8 @@ def _resolve_capability(
     superpowers: tuple[dict[str, str], frozenset[str], str | None] | None = None,
 ) -> tuple[str, str]:
     leaves, catalog, _snapshot_error = superpowers or _superpowers_snapshot(home)
-    superpowers_off = (
-        os.environ.get("SHADOW_BUCKET_SUPERPOWERS", "").strip().lower() == "off"
-    )
+    pack_variable, pack_value = _pack_root_override()
+    superpowers_off = pack_value.lower() == "off"
     if superpowers_off and (
         name == "superpowers"
         or name in SUPERPOWERS_KNOWN_LEAVES
@@ -544,7 +565,7 @@ def _resolve_capability(
     ):
         return (
             "off",
-            "off by SHADOW_BUCKET_SUPERPOWERS — the emptiness is deliberate",
+            f"off by {pack_variable} — the emptiness is deliberate",
         )
     if name in SUPERPOWERS_FORBIDDEN_LEAVES or (
         name in catalog and name not in SUPERPOWERS_COMPATIBLE_LEAVES
@@ -560,17 +581,17 @@ def _resolve_capability(
     if name == "superpowers" and leaves:
         return "present", "compatible whole Superpowers leaf installed"
 
-    bucket = next(
+    slot = next(
         (item for item in declared if name in {item["name"], item["default"]}),
         None,
     )
-    if bucket is not None and api is not None:
+    if slot is not None and api is not None:
         try:
-            resolved = api.resolve(bucket, home)
+            resolved = api.resolve(slot, home)
         except Exception as error:  # an optional extension can never abort amp
             return (
                 "warning",
-                f"optional bucket resolver unavailable ({type(error).__name__})",
+                f"optional slot resolver unavailable ({type(error).__name__})",
             )
         if (
             not isinstance(resolved, tuple)
@@ -578,7 +599,7 @@ def _resolve_capability(
             or resolved[0] not in {"pass", "warn", "fail"}
             or not isinstance(resolved[1], str)
         ):
-            return "warning", "optional bucket resolver returned a malformed result"
+            return "warning", "optional slot resolver returned a malformed result"
         state, detail = resolved
         if "off by " in detail:
             return "off", detail
@@ -598,7 +619,7 @@ def _resolve_capability(
     command = shutil.which(name, path=os.environ.get("PATH"))
     if command:
         return "present", f"command on PATH ({Path(command).name})"
-    return "absent", "no mounted skill, declared bucket, or command on PATH"
+    return "absent", "no mounted skill, declared slot, or command on PATH"
 
 
 def capability_block(
@@ -607,19 +628,19 @@ def capability_block(
     superpowers: tuple[dict[str, str], frozenset[str], str | None] | None = None,
 ) -> str | None:
     """Resolve milestone-declared capabilities. Pure read; absence never gates."""
-    api = _bucket_api()
+    api = _slot_api()
     declaration_warning: str | None = None
     if api is None:
         declared = []
-        suffix = f" ({_BUCKETS_ERROR})" if _BUCKETS_ERROR else ""
-        declaration_warning = f"optional bucket declaration resolver unavailable{suffix}"
+        suffix = f" ({_SLOTS_ERROR})" if _SLOTS_ERROR else ""
+        declaration_warning = f"optional slot declaration resolver unavailable{suffix}"
     else:
         try:
             raw_declarations = list(api.declared())
         except Exception as error:  # declaration failure is advisory, not a packet gate
             declared = []
             declaration_warning = (
-                f"optional bucket declaration resolver unavailable "
+                f"optional slot declaration resolver unavailable "
                 f"({type(error).__name__})"
             )
         else:
@@ -637,12 +658,12 @@ def capability_block(
             except Exception as error:
                 declared = []
                 declaration_warning = (
-                    f"optional bucket declaration resolver unavailable "
+                    f"optional slot declaration resolver unavailable "
                     f"({type(error).__name__})"
                 )
             if malformed and declaration_warning is None:
                 declaration_warning = (
-                    "optional bucket declaration resolver returned malformed data"
+                    "optional slot declaration resolver returned malformed data"
                 )
     requests = _capability_requests(tools, declared)
     if not requests and declaration_warning is None:
@@ -655,7 +676,7 @@ def capability_block(
     lines = ["CAPABILITIES:"]
     if declaration_warning is not None:
         lines.append(
-            "- extension-buckets | result: warning | selected: native host + "
+            "- extension-slots | result: warning | selected: native host + "
             f"Shadow Method | detail: {declaration_warning} | reason: {reason} | "
             "fallback: native host + Shadow Method"
         )
@@ -694,6 +715,13 @@ def capability_block(
             scope = (
                 " | adapted discipline: brainstorm and request-review ideas stay in "
                 "Shadow Method; Shadow keeps planning and delegation"
+            )
+        elif name == "memory":
+            # The lead-not-authority law rides the packet itself, mirroring
+            # the superpowers scope suffix (SPEC §3, 2026-08-15).
+            scope = (
+                " | scope: lead only — recalled content re-verified at its "
+                "attributed source"
             )
         elif name in SUPERPOWERS_COMPATIBLE_LEAVES and state == "present" and (
             name in superpowers_leaves

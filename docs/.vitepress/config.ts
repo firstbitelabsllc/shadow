@@ -46,7 +46,7 @@ export default defineConfig({
           text: 'Extending',
           collapsed: true,
           items: [
-            { text: 'Extension buckets', link: '/reference/buckets' },
+            { text: 'Extension slots', link: '/reference/slots' },
             { text: 'Config', link: '/reference/config' },
           ],
         },

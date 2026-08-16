@@ -8,7 +8,8 @@ most pages under `docs/reference/` are contracts that code and tests pin.
 - NEVER reword, summarize, or restructure these files — they are frozen law
   whose exact phrasing is load-bearing (tests and scripts grep them):
   `docs/reference/grammar.md`, `docs/reference/privacy.md`,
-  `docs/reference/buckets.md`, `AGENT.md`, `SKILL.md`, `skills/goal/**`.
+  `docs/reference/slots.md`, `docs/reference/amp.md`, `AGENT.md`,
+  `SKILL.md`, `skills/goal/**`.
   Structure, navigation, and links may point AT them; their bodies are
   read-only.
 - Never invent a verb, flag, or config key. The CLI surface is exactly what
@@ -32,7 +33,7 @@ most pages under `docs/reference/` are contracts that code and tests pin.
 
 - `docs/index.md` is a VitePress home page and stays one screen.
 - `docs/guide/` = doing (install, first run, handoff). `docs/reference/` =
-  law (verbs, grammar, buckets, privacy). Do not blur the two.
+  law (verbs, grammar, slots, privacy). Do not blur the two.
 - The README stays out of scope for claudux entirely.
 - `docs/plan-archive/` and `docs/superpowers/` are historical record, not the
   docs site. Never rewrite, restructure, delete, or add nav entries for them.
