@@ -249,21 +249,21 @@ def host_goal_checks() -> list[dict[str, Any]]:
     return results
 
 
-def bucket_checks() -> list[dict[str, Any]]:
-    """Which extension buckets are filled. Read-only, derived, never stored."""
+def slot_checks() -> list[dict[str, Any]]:
+    """Which extension slots are filled. Read-only, derived, never stored."""
     import importlib.util
 
     try:
         spec = importlib.util.spec_from_file_location(
-            "shadow_buckets", ROOT / "scripts" / "shadow-buckets.py"
+            "shadow_slots", ROOT / "scripts" / "shadow-slots.py"
         )
         if spec is None or spec.loader is None:
-            raise RuntimeError("extension buckets machinery could not be loaded")
+            raise RuntimeError("extension slots machinery could not be loaded")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module.checks()
     except Exception as exc:
-        return [check("extension buckets", "fail", str(exc))]
+        return [check("extension slots", "fail", str(exc))]
 
 
 def collect() -> dict[str, Any]:
@@ -279,7 +279,7 @@ def collect() -> dict[str, Any]:
         *host_checks(),
         *mount_checks(),
         *host_goal_checks(),
-        *bucket_checks(),
+        *slot_checks(),
     ]
     failed = sum(item["state"] == "fail" for item in checks)
     warned = sum(item["state"] == "warn" for item in checks)

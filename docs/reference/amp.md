@@ -41,7 +41,7 @@ starting pointer, never the Outcome's scope or stopping condition.
    the budget is a hard error pointing back at READ-FIT. The char count
    prints to stderr on every run.
 7. **Deterministic.** No LLM, no network, no resolved-state write. Same plan,
-   local board revision, capability mounts, bucket bindings, and PATH produce
+   local board revision, capability mounts, slot bindings, and PATH produce
    the same block. Model
    judgment stays in the native hosts, per the platform boundary.
 8. **The pointer never lies about the ref.** amp reads the working tree, so
@@ -80,18 +80,34 @@ budget; `2` no plan/entity or invalid usage.
 - It does not call a model. Sharpening prose is a host's job; amp's job is
   that the pointer, resume, proof, and rails are exact.
 - It does not hand planning, delegation, or review dispatch to an extension
-  pack. A `superpowers` bucket request never selects the pack root. Because one
-  packet can resume on Claude, Codex, or Cursor, a leaf found only in Claude's
-  plugin cache is source evidence, not a cross-host invocation. Amp records
-  only a concrete installed whole leaf compatible with Shadow's boundary —
-  verification-before-completion, test-driven-development,
-  systematic-debugging, or receiving-code-review — and selects the
-  host-neutral Shadow Method adaptation. Brainstorm and
-  request-review ideas are adapted disciplines inside Shadow Method, not
-  selected plugin leaves. If no compatible whole leaf is installed, or the
-  optional resolver fails, the packet records a warning and uses the native
-  host plus Shadow Method.
+  pack. Because one packet can resume on Claude, Codex, or Cursor, a leaf
+  found only in Claude's plugin cache is source evidence, not a cross-host
+  invocation. The complete pack-leaf law — compatible set, refusals,
+  fallback, pack-root configuration — is the section below, stated once.
 - It never repeats an unsafe pack invocation from `- tools:`. `/superpowers`
   and every non-compatible Superpowers leaf are projected as Shadow Method
   intent or fallback; ordinary project tools such as `/craft` remain byte-for-
   byte intact.
+
+## The pack-leaf law (amp core, relocated from the retired superpowers slot)
+
+The delegation guard never lived in a slot declaration; it is amp core and
+survives the 2026-08-15 slot-set change. Amp may name only a concrete
+installed whole leaf from the compatible set: `verification-before-completion`,
+`test-driven-development`, `systematic-debugging`, `receiving-code-review`.
+A `superpowers` request never selects the pack root — presence, mounted or
+packed, only ever yields the host-neutral adaptation or the fallback.
+`writing-plans`, `executing-plans`, `dispatching-parallel-agents`,
+`subagent-driven-development`, `using-superpowers`, `brainstorming`, and
+`requesting-code-review` are refused even when explicitly requested, and the
+same default-deny covers every uncatalogued leaf: the computer board, entity
+plan, and Shadow host-run keep those jobs. A pack with no compatible whole
+leaf falls back to the native host plus Shadow Method, and raw `/superpowers`
+or refused-leaf invocations are removed from the projected `TOOLS:` line.
+
+The pack root is configured by `SHADOW_AMP_PACK_ROOT` (an absolute path, or
+`off` to disable pack inspection). This is amp-core configuration, not a slot
+binding: no slot named superpowers exists, and no `SHADOW_SLOT_*` key exists
+for a name outside the slot set. The shipped legacy name
+`SHADOW_BUCKET_SUPERPOWERS` is honored behind it for one release train, then
+dies.

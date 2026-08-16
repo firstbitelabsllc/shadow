@@ -134,8 +134,8 @@ Lead with:
 
 Explain every term in the same message that uses it. A change gets a
 before/after pair; a flow gets a small diagram; a fact gets one line —
-and when the `explain` bucket is filled (default: the mounted `show-me`
-skill), render these through it rather than improvising the format. In a
+the Brief contract itself demands these; when the `taste` slot is filled,
+its binding names the visual owner rather than improvising the format. In a
 terminal host, a fenced mermaid block is source code, not an explanation —
 anything denser than a text tree or diff renders as one focused HTML file
 opened for the person:
@@ -164,16 +164,17 @@ Hide implementation detail unless it changes the decision. The browser is a
 loopback projection of the computer board joined to entity plans; it never
 becomes authority.
 
-## Extension buckets
+## Extension slots
 
-Shadow declares named slots its method assumes it can reach — superpowers for
-how each claimed lane is worked, taste for the finished-quality grade, future
-for a receipt-grounded pre-mortem — in `docs/reference/buckets.md`.
-`shadow buckets` reports which are filled. Shadow runs correctly with every one
-empty: a bucket never gates a cycle, claims a row, or carries proof, and no plan
-verb reads it. No bucket asserts anything about tooling Shadow does not call:
-which recall or memory tooling you run is your own configuration, the same
-boundary `config.md` draws around which provider a native host uses.
+Shadow declares named slots its method assumes it can reach — memory for
+routed recall (a lead, never plan, proof, or ownership authority) and taste
+for the finished-quality grade and the voice of everything written for
+humans — in `docs/reference/slots.md`. `shadow slots` reports which are
+filled. Shadow runs correctly with every one empty: a slot never gates a
+cycle, claims a row, or carries proof, and no plan verb reads it. No slot
+asserts anything about tooling Shadow does not call: which memory backend
+you run is your own configuration, the same boundary `config.md` draws
+around which provider a native host uses.
 
 ## Boundaries
 

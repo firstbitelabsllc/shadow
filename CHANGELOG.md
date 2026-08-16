@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 — 2026-08-15 — slots: the extension surface, owner-shaped
+
+- The term is `slot` everywhere: verb `shadow slots`, env `SHADOW_SLOT_<NAME>`,
+  registry `docs/reference/slots.md`, JSON schema `shadow.slots.v1` (was
+  `shadow.buckets.v1`, no shim). The `buckets` verb aliases with one stderr
+  line and `SHADOW_BUCKET_<NAME>` is read as a deprecated fallback — both die
+  next release train.
+- The slot set is `{memory, taste}`. `memory` is routed recall: the mounted
+  SKILL.md IS the per-person routing file; recall is a lead, never plan,
+  proof, or ownership authority. `taste` absorbs the explain remit. The
+  superpowers slot is deleted while the pack-leaf delegation guard stays amp
+  core, configured by `SHADOW_AMP_PACK_ROOT`; the future slot is deleted and
+  its pre-mortem timing is deliberately gone.
+- Installers: host-integration documents your-methods-beside-the-block and
+  the Cursor manual-paste route.
+
 ## 1.0.1 — 2026-08-11 — specific goals start with the right skills
 
 - The one standing Shadow goal remains unchanged and skill-free.

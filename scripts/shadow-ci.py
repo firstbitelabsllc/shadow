@@ -80,7 +80,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("scripts/shadow-release-package.py", ".gitattributes", "VERSION", ".claude-plugin/"), (
         "tests.test_release_package", "tests.test_grammar_contract", "tests.test_standing_goal",
     )),
-    (("scripts/shadow-buckets.py",), ("tests.test_extension_buckets", "tests.test_amp")),
+    (("scripts/shadow-slots.py",), ("tests.test_extension_slots", "tests.test_amp")),
     (("scripts/shadow-outcome-validate.py", "browser/outcome_source.py", "browser/decision_mode.py"), (
         "tests.test_outcome_source", "tests.test_outcome_choice", "tests.test_decision_mode",
     )),
@@ -441,7 +441,7 @@ def run_gauntlet(scratch_root: Path) -> None:
             "tests.test_shadow_accept",
         ]),
         ("capability-and-rotation", [
-            sys.executable, "-m", "unittest", "tests.test_amp", "tests.test_extension_buckets",
+            sys.executable, "-m", "unittest", "tests.test_amp", "tests.test_extension_slots",
             "tests.test_status_focus", "tests.test_browser",
         ]),
         ("rollback-and-upgrade", [
