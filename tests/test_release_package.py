@@ -197,7 +197,7 @@ class ReleasePackageTests(unittest.TestCase):
 
 class CurrentReleaseCandidate(unittest.TestCase):
     def test_every_shipped_identity_reports_current_release(self) -> None:
-        expected = "1.1.0"
+        expected = "1.1.1"
         manifests = (
             ".claude-plugin/plugin.json",
             "plugins/shadow/plugin.json",
