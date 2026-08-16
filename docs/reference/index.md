@@ -14,7 +14,7 @@
 - [Configuration](config.md)
 - [Privacy](privacy.md)
 - [Local event vocabulary](telemetry.md) — closed local events; no network transport
-- [Extension slots](slots.md) — the named capabilities the Method plugs into
+- [Extensions](slots.md) — the optional capabilities the Method plugs into
 
 Ordered roughly by how soon you need it. Everything below Browser is either a
 narrower surface or a ruling you only need when you go looking for it.

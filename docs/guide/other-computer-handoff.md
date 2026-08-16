@@ -50,9 +50,9 @@ transcripts, provider payloads, or absolute private paths in it.
 
 `shadow amp` is a CLI subcommand, not a mounted skill: it projects a
 paste-ready resume block for a checkpoint the seat already claimed — see
-[amp](../reference/amp.md). Two optional extension slots fill routed recall
+[amp](../reference/amp.md). Two optional extensions fill routed recall
 (`memory`) and finish-quality-plus-voice (`taste`) when mounted — see
-[extension slots](../reference/slots.md). The pre-mortem slot is gone: its
+[extensions](../reference/slots.md). The pre-mortem extension is gone: its
 pre-commit timing has no shipped mechanism (a repo may declare an
 adversarial-lens slug — post-work review, a different moment — or a person
 may delegate foresight to their own method). Diagrams stay Brief-contract
