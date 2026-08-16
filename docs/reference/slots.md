@@ -1,4 +1,4 @@
-# Extension slots — the named capabilities the Method plugs into
+# Extensions — the optional capabilities the Method plugs into
 
 A **slot** is a named capability Shadow's method assumes it can reach, plus
 the default thing that fills it. This file is a declaration, never a record:

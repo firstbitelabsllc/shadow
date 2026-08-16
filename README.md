@@ -52,7 +52,7 @@ Quote row ids (`'~a1b2'`) and use the id status printed. `shadow status
 
 All configuration is deliberately small, and stress-tested that way:
 
-- **Slots** — optional capability slots (`shadow slots`): memory, taste.
+- **Extensions** — optional capabilities (`shadow slots`): memory, taste.
   Every one may be empty; none ever gates a cycle. Rebind or opt out per
   machine with `SHADOW_SLOT_<NAME>=<abs path>|off` — don't want routed
   recall? `SHADOW_SLOT_MEMORY=off` and everything runs.
@@ -73,7 +73,7 @@ Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
 
 ## Docs
 
-The full contract — every verb, plan grammar, slots, privacy — lives at
+The full contract — every verb, plan grammar, extensions, privacy — lives at
 **[the docs site](https://firstbitelabsllc.github.io/shadow/)**; developing Shadow starts at [`AGENT.md`](AGENT.md).
 
 MIT License.
