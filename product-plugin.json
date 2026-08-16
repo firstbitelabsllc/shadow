@@ -2,7 +2,7 @@
   "schema": "leo.product-plugin.v1",
   "plugin": {
     "name": "shadow",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "description": "A warm, candid front door for understanding work, making sound calls, and knowing what is actually true.",
     "display_name": "Shadow",
     "author": { "name": "First Bite Labs" },
@@ -12,7 +12,7 @@
   },
   "source": {
     "mode": "git",
-    "commit": "eea7a9558c9ad269a82105352c2f87072a6542d3"
+    "commit": "8ed1fc31f9470f8e111fe4b6c9b1a04218dd9f45"
   },
   "skills": [
     {
