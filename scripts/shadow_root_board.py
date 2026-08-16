@@ -1635,10 +1635,11 @@ def reconcile(
                 # Quarantine, never blank the board: the entity registers
                 # unhealthy and every claim and plan-write path still
                 # enforces the budget at its own gate.
+                # Constant text only: the scanner treats seed-derived values
+                # as sensitive, and status names the broken plan regardless.
                 print(
-                    "shadow: local plan "
-                    + Path(seed["plan"]).name
-                    + " enters the board over its hot-plan budget; run shadow lint",
+                    "shadow: one local plan enters the board over its "
+                    "hot-plan budget; shadow status names it as broken",
                     file=sys.stderr,
                 )
             if seed["expected_size"] is not None and (
