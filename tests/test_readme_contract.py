@@ -33,19 +33,15 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertNotIn("npm test", text)
         self.assertNotIn("/Users/", text)
 
-        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("Every Shadow chat response ends with a compact `Ongoing tasks` projection", skill)
-        self.assertIn("shadow status --in-flight --json", skill)
-
-    def test_the_footer_projection_contract_stays_written_down(self) -> None:
-        """The README sends detail to the docs site, so the host-facing footer
-        contract must stay stated where hosts and strangers actually read it."""
+    def test_status_projection_is_explicit_not_an_automatic_footer(self) -> None:
+        """Recovery status must not leak unrelated portfolio work into replies."""
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         quickstart = (ROOT / "docs" / "guide" / "quickstart.md").read_text(encoding="utf-8")
-        for text in (skill, quickstart):
-            self.assertIn("shadow status --in-flight --json", text)
-            self.assertIn("Ongoing tasks", text)
-            self.assertIn("Active tasks: none", text)
+        self.assertNotIn("Every Shadow chat response ends", skill)
+        self.assertNotIn("Ongoing tasks", skill)
+        self.assertIn("shadow status --in-flight --json", quickstart)
+        self.assertIn("explicitly asks for board status", quickstart)
+        self.assertIn("do not append unrelated portfolio state", quickstart)
 
     def test_the_two_seat_harness_stays_written_down(self) -> None:
         commands = (ROOT / "docs" / "reference" / "commands.md").read_text(encoding="utf-8")

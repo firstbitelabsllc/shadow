@@ -96,11 +96,9 @@ shadow return --repo . --row '~ab12' --by your-seat
 shadow status --in-flight --json
 ```
 
-At the end of the chat, render an **Ongoing tasks** footer from that fresh
-in-flight projection: claims first, then the current seat's reachable and
-waiting rows, with owner, state, proof, and wake. Print `Active tasks: none`
-only when the board has no ongoing work. This is a view of `~/.shadow`, never a
-second queue.
+Use the in-flight projection when recovering interrupted work or when the
+person explicitly asks for board status. Ordinary task replies stay scoped to
+the task at hand and do not append unrelated portfolio state.
 
 ## Next references
 
