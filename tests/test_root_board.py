@@ -3251,6 +3251,8 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
         source_exists: bool,
         source_claimed: bool,
         declared_source: bool = True,
+        source_resume: str = "~aa11",
+        destination_resume: str = "~aa11",
     ):
         root = home.parent
         source = root / "former-source" / "PLAN.md"
@@ -3260,7 +3262,9 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
         destination = home / ".shadow" / "plans" / "ai-leo" / "PLAN.md"
         destination.parent.mkdir(parents=True)
         destination.write_text(
-            "# Private authority\n\n- [pending] resume row ~aa11\n",
+            "# Private authority\n\n"
+            "- [pending] resume row ~aa11\n"
+            "- [pending] later row ~bb22\n",
             encoding="utf-8",
         )
         # Only a stored id that reproduces from a declared local-only origin
@@ -3281,13 +3285,13 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
                     "id": source_id,
                     "project": "ai-leo",
                     "plan": str(source),
-                    "resume": "~aa11",
+                    "resume": source_resume,
                 },
                 {
                     "id": destination_id,
                     "project": "ai-leo",
                     "plan": str(destination),
-                    "resume": "~aa11",
+                    "resume": destination_resume,
                 },
             ]
             payload["claims"] = [
@@ -3358,6 +3362,66 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
             self.assertEqual(payload["claims"][0]["entity"], destination_id)
             self.assertEqual(payload["claims"][0]["owner"], "stable-seat")
             self.assertEqual(payload["entities"][0]["resume"], "~aa11")
+
+    def test_discards_a_missing_alias_after_the_private_resume_moved_on(self):
+        """A dead locator must retire even once the survivor advanced past it.
+
+        Measured 2026-08-16: a ghost entity pointing at a deleted worktree kept
+        a second project of the same name registered for days, refusing every
+        lifecycle successor with "duplicate logical entity", purely because the
+        surviving plan had moved to a later resume row. Reachability is the
+        honest predicate; equality only holds inside a window where nothing
+        progressed.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            module = self._module()
+            source_id, destination_id = self._seed(
+                module,
+                home,
+                source_exists=False,
+                source_claimed=False,
+                destination_resume="~bb22",
+            )
+
+            self.assertEqual(self._discard(module, home), 1)
+
+            payload = module.snapshot(home=home)
+            self.assertEqual(
+                [entity["id"] for entity in payload["entities"]], [destination_id]
+            )
+            self.assertEqual(payload["entities"][0]["resume"], "~bb22")
+            self.assertNotIn(
+                source_id, [claim["entity"] for claim in payload["claims"]]
+            )
+
+    def test_never_discards_an_alias_whose_resume_left_the_private_plan(self):
+        """Reachability is the surviving predicate: no row, no discard."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            module = self._module()
+            source_id, destination_id = self._seed(
+                module,
+                home,
+                source_exists=False,
+                source_claimed=False,
+                source_resume="~cc33",
+                destination_resume="~bb22",
+            )
+            before = (home / ".shadow" / "board.json").read_bytes()
+
+            self.assertEqual(self._discard(module, home), 0)
+
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+            payload = module.snapshot(home=home)
+            self.assertEqual(
+                {entity["id"] for entity in payload["entities"]},
+                {source_id, destination_id},
+            )
 
     def test_never_discards_a_present_source_or_a_source_that_owns_a_claim(self):
         for source_exists, source_claimed in ((True, False), (False, True)):
