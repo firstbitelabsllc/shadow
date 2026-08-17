@@ -314,12 +314,24 @@ def validate_milestone(
     return ids, selected, shared
 
 
-def fold_dependencies(line: str, archived_ids: set[str]) -> tuple[str, int]:
+def fold_dependencies(
+    line: str, archived_ids: set[str], *, in_tasks: bool = True,
+) -> tuple[str, int]:
     ending = "\n" if line.endswith("\n") else ""
     raw = line.rstrip("\r\n")
     match = ROW_RE.match(raw)
     if not match:
-        if "needs:" in raw and archived_ids.intersection(HASH_RE.findall(raw)):
+        # A live dependency can only exist in a task row, so this guard belongs
+        # under `## Tasks` and nowhere else. It used to scan every line, and
+        # `## Progress` is an append-only receipt log that names row ids by
+        # design and uses "needs:" as ordinary English. That stranded every
+        # milestone its own history mentioned, permanently, and worsened with
+        # each receipt appended. Measured 2026-08-17 on Shadow's own plan:
+        # three Progress sentences — one of them literally discussing the token
+        # `needs:` — held M4, M15, M25, M26 and M27 unarchivable while the plan
+        # sat within 4 KiB of its ceiling. Removing only those three flipped
+        # exactly those five to eligible and changed nothing else.
+        if in_tasks and "needs:" in raw and archived_ids.intersection(HASH_RE.findall(raw)):
             raise LifecycleError("a malformed live dependency points at the milestone")
         return line, 0
     fields = FIELD_RE.findall(match.group("tail") or "")
@@ -426,12 +438,16 @@ def archive_candidate(
         removed.update(range(start, end))
     output: list[str] = []
     dependency_folds = 0
+    in_tasks = False
     for index, line in enumerate(lines):
+        heading = line.rstrip("\r\n")
+        if heading.startswith("## "):
+            in_tasks = heading[3:].strip().startswith("Tasks")
         if index == milestone.start:
             output.append(tombstone)
         if index in removed:
             continue
-        rewritten, count = fold_dependencies(line, archived_ids)
+        rewritten, count = fold_dependencies(line, archived_ids, in_tasks=in_tasks)
         dependency_folds += count
         output.append(rewritten)
     compacted_plan, successor = append_rotation_receipt("".join(output), slug)
