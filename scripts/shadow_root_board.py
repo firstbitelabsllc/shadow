@@ -2501,8 +2501,16 @@ def discard_missing_unclaimed_aliases(
             )
             if destination is None or destination["project"] != source["project"]:
                 continue
-            if destination["resume"] != resume:
-                continue
+            # Reachability, never agreement. The surviving authority keeps
+            # working, so its resume row moves on while a dead alias keeps
+            # whatever row it pointed at the day its checkout vanished.
+            # Requiring the two to still match made this repair fire only
+            # inside the window where nothing had progressed, and left every
+            # later phantom registered forever — measured 2026-08-16, a ghost
+            # entity duplicated a project name for days and refused every
+            # lifecycle successor. What must hold is that discarding the alias
+            # loses no reachable state: its own resume row still exists in the
+            # plan that survives it, which the check below proves.
             try:
                 rows = set(_grammar.HASH_RE.findall(
                     read_plan_bytes(destination_path).decode("utf-8")
