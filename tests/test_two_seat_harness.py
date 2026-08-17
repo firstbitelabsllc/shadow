@@ -501,7 +501,7 @@ class ThreeSeatsCoordinateOffline(unittest.TestCase):
 
 
 class LiveTwoSeatProof(unittest.TestCase):
-    def _run(self, mode: str = "complete", timeout_seconds: int = 30):
+    def _run(self, mode: str = "complete", timeout_seconds: int = 30, *, expected_failure: str | None = None):
         context = tempfile.TemporaryDirectory()
         root = Path(context.name).resolve()
         fixture = Fixture(root)
@@ -521,10 +521,10 @@ class LiveTwoSeatProof(unittest.TestCase):
             },
             timeout=max(30, timeout_seconds + 15),
         )
-        self._skip_if_host_starved(result, context)
+        self._skip_if_host_starved(result, context, expected_failure=expected_failure)
         return context, root, fixture, marker, drained, result
 
-    def _skip_if_host_starved(self, result, context) -> None:
+    def _skip_if_host_starved(self, result, context, *, expected_failure: str | None = None) -> None:
         """Machine contention is not a product failure.
 
         The harness itself reports ``status: inconclusive`` when a spawned
@@ -532,8 +532,23 @@ class LiveTwoSeatProof(unittest.TestCase):
         pass or fail. Asserting rc 0 over it turns a busy machine into a
         product red: measured 2026-08-16, two full-suite runs failed here
         while an agent fleet held host capacity, and both passed in ~15s
-        isolated at the same ref. A determinate receipt is still asserted by
-        every caller; only the harness's own inconclusive verdict skips.
+        isolated at the same ref.
+
+        ``expected_failure`` is what the CALLER's fixture asked the host to
+        do. A fixture's own outcome is that test's assertion, never
+        contention, so it is never swallowed. Without this, the first version
+        of this guard skipped
+        ``test_nonzero_identity_drift_and_partial_completion_never_turn_green``
+        on every run from 2026-08-16 to 2026-08-17: ``mode="nonzero"`` asks
+        the fake host to exit nonzero, which yields exactly the
+        ``inconclusive``/``host_failed`` pair the guard watched for, and the
+        guard runs before any assertion. The proof that a failing host never
+        turns green was disabled by the guard meant to protect it.
+
+        The guarded values must be ones the harness actually emits:
+        ``host_failed`` and ``host_timeout``. The first version watched for a
+        bare ``timeout`` that no code path produces, so timeout starvation was
+        never protected while its own test passed on a fabricated payload.
         """
         if result.returncode == 0:
             return
@@ -544,7 +559,9 @@ class LiveTwoSeatProof(unittest.TestCase):
         if data.get("status") != "inconclusive":
             return
         failure = data.get("failure")
-        if failure not in {"host_failed", "timeout"}:
+        if failure not in {"host_failed", "host_timeout"}:
+            return
+        if failure == expected_failure:
             return
         context.cleanup()
         self.skipTest(f"live host starved under load: harness reported {failure}")
@@ -766,7 +783,9 @@ class LiveTwoSeatProof(unittest.TestCase):
             fixture.assert_operator_state_untouched(self)
 
     def test_timeout_is_inconclusive_and_drains_the_entire_host_group(self) -> None:
-        context, _, fixture, _, drained, result = self._run("timeout", timeout_seconds=1)
+        context, _, fixture, _, drained, result = self._run(
+            "timeout", timeout_seconds=1, expected_failure="host_timeout",
+        )
         with context:
             self.assertNotEqual(result.returncode, 0)
             data = receipt(result)
@@ -787,7 +806,7 @@ class LiveTwoSeatProof(unittest.TestCase):
         }
         for mode, failure in expectations.items():
             with self.subTest(mode=mode):
-                context, root, fixture, _, _, result = self._run(mode)
+                context, root, fixture, _, _, result = self._run(mode, expected_failure=failure)
                 with context:
                     self.assertNotEqual(result.returncode, 0)
                     data = receipt(result)
@@ -855,12 +874,14 @@ class StarvationGuardOnlySwallowsInconclusive(unittest.TestCase):
         def cleanup(self) -> None:
             self.cleaned = True
 
-    def _probe(self, payload: str, returncode: int = 1):
+    def _probe(self, payload: str, returncode: int = 1, expected_failure: str | None = None):
         case = LiveTwoSeatProof("test_two_stable_seats_complete_disjoint_rows_with_one_shared_identity")
         context = self._Context()
         raised = None
         try:
-            case._skip_if_host_starved(self._Result(returncode, payload), context)
+            case._skip_if_host_starved(
+                self._Result(returncode, payload), context, expected_failure=expected_failure,
+            )
         except unittest.SkipTest as exc:
             raised = str(exc)
         return raised, context
@@ -871,9 +892,42 @@ class StarvationGuardOnlySwallowsInconclusive(unittest.TestCase):
         self.assertIn("host_failed", raised)
         self.assertTrue(context.cleaned, "the temp dir must be released before skipping")
 
-    def test_an_inconclusive_timeout_skips(self) -> None:
-        raised, _ = self._probe(json.dumps({"status": "inconclusive", "failure": "timeout"}))
-        self.assertIsNotNone(raised)
+    def test_the_harness_timeout_value_skips(self) -> None:
+        """The guarded literal must be one production actually emits.
+
+        The first guard watched for a bare ``timeout``. No path emits that:
+        ``shadow-verify-two-seat.py`` and ``shadow-host.py`` emit
+        ``host_timeout``. So the timeout half of the guard was dead and real
+        timeout starvation — the case it existed for — stayed unprotected,
+        while its own test passed against a payload production never produces.
+        """
+        raised, _ = self._probe(json.dumps({"status": "inconclusive", "failure": "host_timeout"}))
+        self.assertIsNotNone(raised, "a timed-out host must skip")
+
+    def test_a_failure_the_caller_expects_is_never_swallowed(self) -> None:
+        """A fixture's own expected outcome is its assertion, never contention.
+
+        ``mode="nonzero"`` asks the fake host to exit nonzero, so
+        ``host_failed`` is precisely what that test asserts. The guard ran
+        inside the shared ``_run`` before any assertion, so it skipped
+        ``test_nonzero_identity_drift_and_partial_completion_never_turn_green``
+        on every run from 2026-08-16 until this fix: the proof that a failing
+        host never turns green never executed.
+        """
+        raised, context = self._probe(
+            json.dumps({"status": "inconclusive", "failure": "host_failed"}),
+            expected_failure="host_failed",
+        )
+        self.assertIsNone(raised, "the caller's own expected failure is its assertion")
+        self.assertFalse(context.cleaned, "an executing test keeps its temp dir")
+
+    def test_expecting_one_failure_still_guards_against_a_different_one(self) -> None:
+        """Declaring an expectation must not disable starvation protection."""
+        raised, _ = self._probe(
+            json.dumps({"status": "inconclusive", "failure": "host_failed"}),
+            expected_failure="identity_mismatch",
+        )
+        self.assertIsNotNone(raised, "an unexpected starved host must still skip")
 
     def test_a_determinate_failure_never_skips(self) -> None:
         for payload in (
