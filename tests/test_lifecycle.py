@@ -433,6 +433,66 @@ class ASharedReceiptStaysLiveInsteadOfBlockingTheArchive(unittest.TestCase):
             self.assertNotIn("Receipts left in the live plan", archive)
 
 
+class ProgressProseNeverStrandsAMilestone(unittest.TestCase):
+    """`## Progress` is an append-only receipt log, not a dependency graph.
+
+    `fold_dependencies` scanned EVERY line for the substring `needs:` and
+    refused the whole archive when a non-row line carrying it also named an
+    archiving id. Receipts name row ids by design, and English uses the word
+    freely, so the guard strands every milestone its own history mentions —
+    permanently, and monotonically as receipts accumulate.
+
+    Measured 2026-08-17 on Shadow's own plan: three `## Progress` sentences
+    (one of them literally discussing the token `needs:`) held M4, M15, M25,
+    M26 and M27 unarchivable while the plan sat within 4 KiB of its ceiling.
+    Deleting only those three lines flipped exactly those five to eligible and
+    changed nothing else. A live dependency can only live in a task row, so
+    the guard belongs under `## Tasks` and nowhere else.
+    """
+
+    # The sentence must name a LIVE row as well as an archiving one. A receipt
+    # naming only archiving ids is exclusive: it moves out with the milestone
+    # and never reaches the guard. Every real offender named rows from several
+    # milestones at once, so it stayed live and hit the check.
+    PROSE_PLAN = PLAN.replace(
+        "- 2026-08-10T00:02:00Z NOTE unrelated history remains live\n",
+        "- 2026-08-10T00:02:00Z NOTE one lane blocked on the other's needs: ~aa11 landed before ~cc33\n"
+        "- 2026-08-10T00:03:00Z NOTE unrelated history remains live\n",
+    )
+
+    def test_a_progress_sentence_using_the_word_needs_does_not_block(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, self.PROSE_PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            self.assertEqual(preview.get("action"), "would_archive", preview)
+
+    def test_the_prose_receipt_survives_the_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, self.PROSE_PLAN)
+            _, preview = run(repo, "--milestone", "Finished work")
+            applied = run(repo, "--milestone", "Finished work", "--apply",
+                          "--expect", preview["cas"], "--by", "seat-a")[1]
+            self.assertEqual(applied.get("action"), "archived", applied)
+
+    def test_a_malformed_task_row_carrying_needs_still_refuses(self) -> None:
+        """The guard must survive exactly where a live dependency can exist.
+
+        Without this, scoping the check to `## Tasks` would be indistinguishable
+        from deleting it.
+        """
+        malformed = PLAN.replace(
+            "- [pending] next result starts ~cc33 | proof: cmd true | needs: ~bb22\n",
+            "- [pending next result starts ~cc33 | proof: cmd true | needs: ~aa11\n",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, malformed)
+            _, out = run(repo, "--milestone", "Finished work")
+            self.assertNotEqual(out.get("action"), "would_archive", out)
+
+
 class TestsNeverWriteToTheOperatorsBoard(unittest.TestCase):
     """A lifecycle verb that claims or registers writes to $HOME/.shadow. If a
     test inherits the operator's real HOME, its fixture claims land on the
