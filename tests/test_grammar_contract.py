@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AGENT = ROOT / "AGENT.md"
 GRAMMAR = ROOT / "docs" / "reference" / "grammar.md"
 SKILL = ROOT / "SKILL.md"
-GOAL_SKILL = ROOT / "skills" / "goal" / "SKILL.md"
+AMPLIFY_SKILL = ROOT / "skills" / "amplify" / "SKILL.md"
 
 
 class GrammarContractTests(unittest.TestCase):
@@ -64,10 +64,10 @@ class GrammarContractTests(unittest.TestCase):
 
     def test_goal_compiler_keeps_launchers_bounded_and_plan_owned(self) -> None:
         root_skill = SKILL.read_text(encoding="utf-8")
-        goal_skill = GOAL_SKILL.read_text(encoding="utf-8")
-        normalized_goal = " ".join(goal_skill.split())
+        amplify_skill = AMPLIFY_SKILL.read_text(encoding="utf-8")
+        normalized_goal = " ".join(amplify_skill.split())
 
-        self.assertIn("`skills/goal/SKILL.md` owns goal shaping", root_skill)
+        self.assertIn("`skills/amplify/SKILL.md` owns goal shaping", root_skill)
         self.assertNotIn("Outcome: <plain result>", root_skill)
         for anchor in (
             "A goal is a pointer, not a plan",
@@ -87,10 +87,10 @@ class GrammarContractTests(unittest.TestCase):
             "without mistaking activity for completion",
         ):
             self.assertIn(anchor, normalized_goal, anchor)
-        self.assertNotIn("100-200 word", root_skill + goal_skill)
-        self.assertNotIn("60-100 word", root_skill + goal_skill)
-        self.assertNotIn("do not touch <prohibited paths>", goal_skill)
-        self.assertNotIn("Authority: <refreshed computer board>", goal_skill)
+        self.assertNotIn("100-200 word", root_skill + amplify_skill)
+        self.assertNotIn("60-100 word", root_skill + amplify_skill)
+        self.assertNotIn("do not touch <prohibited paths>", amplify_skill)
+        self.assertNotIn("Authority: <refreshed computer board>", amplify_skill)
 
     def test_only_shadow_is_an_invented_name(self) -> None:
         # Standard vocabulary only: the old fun terms must not resurface in law.
