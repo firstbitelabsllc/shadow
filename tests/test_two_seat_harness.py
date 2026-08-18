@@ -514,14 +514,27 @@ class ThreeSeatsCoordinateOffline(unittest.TestCase):
             }),
             stderr="",
         )
-        real = globals()["run_harness"]
+        class _StubFixture:
+            # The real Fixture builds a git checkout whose background
+            # maintenance raced Linux rmtree during the with-block teardown a
+            # SkipTest unwinds through (CI 2026-08-18: OSError Directory not
+            # empty: '.git' converted the clean skip into an error). The pin
+            # exercises the WIRING, not fixture construction, so it needs only
+            # the three attributes read before the guard fires.
+            def __init__(self, root: Path) -> None:
+                self.script = root / "unused-script"
+                self.operator_home = root / "unused-home"
+                self.goal = root / "unused-goal"
+
+        real = globals()["run_harness"], globals()["Fixture"]
         globals()["run_harness"] = lambda *a, **k: canned
+        globals()["Fixture"] = _StubFixture
         try:
             case = ThreeSeatsCoordinateOffline("test_three_offline_seats_complete_three_disjoint_rows")
             outcome = unittest.TestResult()
             case.run(outcome)
         finally:
-            globals()["run_harness"] = real
+            globals()["run_harness"], globals()["Fixture"] = real
         self.assertEqual(len(outcome.skipped), 1, (outcome.failures, outcome.errors))
         self.assertEqual(outcome.failures, [])
         self.assertEqual(outcome.errors, [])
