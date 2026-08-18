@@ -2518,5 +2518,66 @@ class LifecycleClaimsReachableSuccessor(unittest.TestCase):
             self.assertEqual(git(repo, "rev-parse", "HEAD"), head_before)
 
 
+class EveryMilestoneHeldOpenByAPersonGatedRow(unittest.TestCase):
+    """A hot-plan over budget with no completed milestone must still name a path.
+
+    Measured 2026-08-17 on Shadow's own plan: 26 bytes of headroom, six open
+    milestones, each held open by exactly one person-gated row. The documented
+    remedy was "archive one proven milestone", which could not exist. The gate
+    must name that shape, not send the operator to an archive that will refuse.
+    """
+
+    if str(ROOT / "scripts") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts"))
+    import shadow_root_board as board
+
+    def _person_gated_plan(self, milestones: int = 6) -> str:
+        blocks: list[str] = []
+        receipts: list[str] = []
+        for index in range(milestones):
+            done = f"~c{index:03d}"
+            gate = f"~g{index:03d}"
+            blocks.append(
+                f"### Held open {index}\n"
+                f"- [completed] earlier result exists {done} | proof: cmd true\n"
+                f"- [pending] owner must look {gate} (DoD) | "
+                f"proof: gate owner resume: date >= 2026-09-01 | needs: {done}\n"
+            )
+            receipts.append(
+                f"- 2026-08-10T00:{index:02d}:00Z {done} PROOF true -> pass\n"
+            )
+        return (
+            "# Demo\n\n## Brief\n\n- Project: demo\n- Mode: ship\n\n"
+            "## Tasks\n\n"
+            + "\n".join(blocks)
+            + "\n## Progress\n\n"
+            + "".join(receipts)
+        )
+
+    def test_the_remedy_names_the_person_gated_shape(self) -> None:
+        text = self._person_gated_plan()
+        self.assertTrue(self.board._milestones_held_only_by_person_gates(text))
+        self.assertFalse(self.board._has_archive_eligible_milestone(text))
+        remedy = self.board.hot_plan_budget_remedy(text.encode("utf-8"))
+        self.assertIn("person-gated", remedy)
+        self.assertNotIn("archive one proven milestone", remedy)
+
+    def test_a_completed_milestone_still_names_archive(self) -> None:
+        text = PLAN
+        self.assertFalse(self.board._milestones_held_only_by_person_gates(text))
+        self.assertTrue(self.board._has_archive_eligible_milestone(text))
+        self.assertEqual(
+            self.board.hot_plan_budget_remedy(text.encode("utf-8")),
+            "archive one proven milestone with shadow lifecycle",
+        )
+
+    def test_lifecycle_refuses_the_person_gated_milestone(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve(), self._person_gated_plan())
+            result, preview = run(repo, "--milestone", "Held open 0")
+            self.assertNotEqual(result.returncode, 0, preview)
+            self.assertNotEqual(preview.get("action"), "would_archive", preview)
+
+
 if __name__ == "__main__":
     unittest.main()
