@@ -430,6 +430,53 @@ def hot_plan_budget(content: bytes) -> dict:
     }
 
 
+def _milestones_held_only_by_person_gates(text: str) -> bool:
+    """True when every open milestone is held open solely by ``gate`` rows.
+
+    Archive needs a fully completed milestone. When each open milestone is
+    kept open by a person-gated row, that remedy does not exist. The budget
+    gate must name this shape instead of telling the operator to archive.
+    """
+    in_tasks = False
+    open_rows: list[str] = []
+    open_milestones = 0
+    person_held = 0
+
+    def close_milestone() -> None:
+        nonlocal open_milestones, person_held
+        if not open_rows:
+            return
+        open_milestones += 1
+        if all(proof.startswith("gate ") for proof in open_rows):
+            person_held += 1
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if in_tasks:
+                close_milestone()
+            heading = line[3:].strip()
+            in_tasks = heading == "Tasks" or heading.startswith("Tasks ")
+            open_rows = []
+            continue
+        if not in_tasks:
+            continue
+        if line.startswith("### "):
+            close_milestone()
+            open_rows = []
+            continue
+        match = _grammar.ROW_RE.fullmatch(line)
+        if match is None or match.group("state") == "completed":
+            continue
+        fields = {
+            key: value.strip()
+            for key, value in _grammar.FIELD_RE.findall(match.group("tail") or "")
+        }
+        open_rows.append(fields.get("proof", ""))
+    if in_tasks:
+        close_milestone()
+    return open_milestones >= 1 and open_milestones == person_held
+
+
 def _has_archive_eligible_milestone(text: str) -> bool:
     """Whether lifecycle can archive at least one milestone from this frozen text."""
     import importlib.util
@@ -463,6 +510,12 @@ def hot_plan_budget_remedy(content: bytes) -> str:
         return "no archive-eligible milestone; trim or relocate plan text (migration is lossless and does not shrink it)"
     if _has_archive_eligible_milestone(text):
         return "archive one proven milestone with shadow lifecycle"
+    if _milestones_held_only_by_person_gates(text):
+        return (
+            "every open milestone is held only by a person-gated row; "
+            "archive cannot run; trim or relocate plan text "
+            "(migration is lossless and does not shrink it)"
+        )
     return "no archive-eligible milestone; trim or relocate plan text (migration is lossless and does not shrink it)"
 
 
