@@ -458,6 +458,13 @@ class OfflineDefaultIsSealed(unittest.TestCase):
             fixture.assert_operator_state_untouched(self)
 
 
+class _NoCleanup:
+    """Cleanup handle for guard callers whose with-block owns teardown."""
+
+    def cleanup(self) -> None:
+        return
+
+
 class ThreeSeatsCoordinateOffline(unittest.TestCase):
     """The multi-seat regime is single-vs-multi, not two (owner law,
     2026-08-11): three seats on one board must claim disjoint rows, all
@@ -476,6 +483,12 @@ class ThreeSeatsCoordinateOffline(unittest.TestCase):
                 "--goal-file", str(fixture.goal), "--seats", "3", "--json",
                 timeout=120,
             )
+            # Same starvation law as the live tier: this walk spawns three seat
+            # threads whose CLI subprocesses must all reach a 20-second barrier,
+            # so fleet load can produce inconclusive/partial_completion with an
+            # empty board before any seat claims (measured 2026-08-18, 2-in-4
+            # under a takeoff shake). The harness refuses to grade that; so do we.
+            LiveTwoSeatProof._skip_if_host_starved(self, result, _NoCleanup())
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             data = receipt(result)
             self.assertEqual(data["status"], "pass")
@@ -486,6 +499,32 @@ class ThreeSeatsCoordinateOffline(unittest.TestCase):
             self.assertEqual(data["board"]["claims"], 0)
             fixture.assert_operator_state_untouched(self)
             assert_closed_receipt(self, data, [str(root), GOAL, "fixture source"])
+
+    def test_a_starved_offline_walk_skips_instead_of_failing(self) -> None:
+        """The wiring itself, pinned behaviorally: feed the offline test a
+        canned starved receipt and the test method must SKIP, not fail."""
+        canned = subprocess.CompletedProcess(
+            args=[], returncode=1,
+            stdout=json.dumps({
+                "status": "inconclusive", "failure": "partial_completion",
+                "mode": "offline", "goal_sha256": "0" * 64, "origin_main": "0" * 40,
+                "schema": "shadow.two-seat-verification.v1",
+                "seats": [], "board": {"claims": 0, "completed": 0,
+                                        "final_revision": 0, "initial_revision": 0},
+            }),
+            stderr="",
+        )
+        real = globals()["run_harness"]
+        globals()["run_harness"] = lambda *a, **k: canned
+        try:
+            case = ThreeSeatsCoordinateOffline("test_three_offline_seats_complete_three_disjoint_rows")
+            outcome = unittest.TestResult()
+            case.run(outcome)
+        finally:
+            globals()["run_harness"] = real
+        self.assertEqual(len(outcome.skipped), 1, (outcome.failures, outcome.errors))
+        self.assertEqual(outcome.failures, [])
+        self.assertEqual(outcome.errors, [])
 
     def test_live_refuses_any_seat_count_but_the_minimal_pair(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -559,7 +598,7 @@ class LiveTwoSeatProof(unittest.TestCase):
         if data.get("status") != "inconclusive":
             return
         failure = data.get("failure")
-        if failure not in {"host_failed", "host_timeout"}:
+        if failure not in {"host_failed", "host_timeout", "partial_completion"}:
             return
         if failure == expected_failure:
             return
@@ -920,6 +959,32 @@ class StarvationGuardOnlySwallowsInconclusive(unittest.TestCase):
         )
         self.assertIsNone(raised, "the caller's own expected failure is its assertion")
         self.assertFalse(context.cleaned, "an executing test keeps its temp dir")
+
+    def test_an_unexpected_inconclusive_partial_completion_skips(self) -> None:
+        """Startup starvation wears a third coat: partial_completion.
+
+        Measured 2026-08-18 during a takeoff shake, 2 failures in 4 runs of
+        this module under fleet load: the offline three-seat walk died at the
+        harness's 20-second seat barrier (`barrier.wait(timeout=20)` ->
+        BrokenBarrierError -> partial_completion) with ZERO claims and ZERO
+        revisions in the receipt — the seats were still starting. The harness
+        itself said `inconclusive`; the test asserted rc 0 and read contention
+        as a product red, exactly the class the guard exists for. The
+        `expected_failure` thread keeps the deliberate `partial` fixture's
+        assertion alive, so adding this value cannot re-create the nx05 bug.
+        """
+        raised, _ = self._probe(
+            json.dumps({"status": "inconclusive", "failure": "partial_completion"}),
+        )
+        self.assertIsNotNone(raised, "an unexpected starved partial_completion must skip")
+
+    def test_an_expected_partial_completion_is_never_swallowed(self) -> None:
+        raised, context = self._probe(
+            json.dumps({"status": "inconclusive", "failure": "partial_completion"}),
+            expected_failure="partial_completion",
+        )
+        self.assertIsNone(raised, "the partial fixture's own outcome is its assertion")
+        self.assertFalse(context.cleaned)
 
     def test_expecting_one_failure_still_guards_against_a_different_one(self) -> None:
         """Declaring an expectation must not disable starvation protection."""
