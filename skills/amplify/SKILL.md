@@ -1,5 +1,5 @@
 ---
-name: goal
+name: amplify
 description: "Use when loose or broad intent needs one durable Shadow PLAN and a bounded launcher. Do not use for a one-step request with no handoff or to create a second task list."
 ---
 
