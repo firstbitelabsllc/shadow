@@ -106,14 +106,46 @@ def refuse_lint_blocked_plan(
     plan_path: Path,
     *,
     proof_root: Path | None = None,
+    row_id: str | None = None,
 ) -> None:
+    """Refuse a plan the lint would block, saying WHICH row and WHICH root.
+
+    Measured 2026-08-17: accepting `~nx05` refused with `PROOF-ARGV0 on line
+    26`. Line 26 was `~gskl`, a row completed weeks earlier and untouched by
+    the flip, and nothing said that `--repo` names the root where proofs RUN
+    rather than where the plan lives. Re-running with the source checkout
+    worked immediately. The message was true and unusable; a refusal that
+    cannot be acted on is a defect even when its verdict is right.
+    """
     finding = blocking_lint_finding(text, plan_path, proof_root=proof_root)
-    if finding is not None:
-        raise AcceptError(
-            "the completed plan would fail shadow lint "
-            f"({finding['check']} on line {finding['line']}: {finding['detail']}); "
-            "nothing was changed"
+    if finding is None:
+        return
+    blocking_row = row_id_at_line(text, finding["line"])
+    where = f"line {finding['line']}"
+    if blocking_row:
+        where = f"{blocking_row} (line {finding['line']})"
+        if row_id and blocking_row != row_id:
+            where += f" — not the row you are accepting, {row_id}"
+    remedy = ""
+    if finding["check"] == "PROOF-ARGV0" and "/" in finding["detail"]:
+        remedy = (
+            "; --repo is the root where proofs RUN, not where the plan lives — "
+            "for a machine-local plan pass the source checkout its proofs name"
         )
+    raise AcceptError(
+        "the completed plan would fail shadow lint "
+        f"({finding['check']} on {where}: {finding['detail']}){remedy}; "
+        "nothing was changed"
+    )
+
+
+def row_id_at_line(text: str, line: int) -> str | None:
+    """The row id on a 1-indexed plan line, when that line is a task row."""
+    lines = text.splitlines()
+    if not 1 <= line <= len(lines):
+        return None
+    match = ROW_LINE_RE.match(lines[line - 1].rstrip())
+    return match.group("id") if match else None
 
 
 def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -401,7 +433,7 @@ def accept_local_plan(
         argv = proof_argv(proof[4:])
         if not _board.has_accept_proof_receipt(plan_text, row_id, argv):
             raise AcceptError("the local row is completed without a matching accept proof")
-        refuse_lint_blocked_plan(plan_text, plan_path, proof_root=repo)
+        refuse_lint_blocked_plan(plan_text, plan_path, proof_root=repo, row_id=row_id)
         if claim is not None:
             parsed = _amp._parse(plan_text)
             parsed["claimed"] = set()
@@ -468,7 +500,7 @@ def accept_local_plan(
             raise AcceptError("the local row is no longer ready; nothing was changed")
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         updated = completed_plan_text(fresh_text, row_id, argv, stamp)
-        refuse_lint_blocked_plan(updated, plan_path, proof_root=repo)
+        refuse_lint_blocked_plan(updated, plan_path, proof_root=repo, row_id=row_id)
         claim_token = _board.reserve_completion(
             plan_path,
             row_id,
@@ -1168,7 +1200,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_text, row_id, completed_argv
             ):
                 raise AcceptError("the row is completed without a matching accept proof")
-            refuse_lint_blocked_plan(plan_text, plan_path)
+            refuse_lint_blocked_plan(plan_text, plan_path, row_id=row_id)
             if claim is not None:
                 parsed = _amp._parse(plan_text)
                 parsed["claimed"] = set()
@@ -1302,7 +1334,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         updated = completed_plan_text(plan_text, row_id, argv_proof, stamp)
-        refuse_lint_blocked_plan(updated, plan_path)
+        refuse_lint_blocked_plan(updated, plan_path, row_id=row_id)
         completed_plan = _amp._parse(updated)
         completed_plan["claimed"] = set()
         resumes = _amp._candidate_ids(completed_plan)
