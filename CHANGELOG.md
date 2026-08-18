@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The `goal` skill is `amplify`. `shadow goal` is the native cross-host verb
+  that writes the standing goal into a Claude, Codex, or Grok instruction
+  file; a skill named `goal` squatted that name on Claude alone, so typing
+  `/goal` reached a launcher compiler instead of the standing goal. The skill
+  keeps its whole method and its `references/amplify.md`; only the name moves.
 - The one-release-train buckets compat is gone: no `shadow buckets` alias, no
   `SHADOW_BUCKET_*` fallback, no docs pointer stub, and no dead pack resolver.
 

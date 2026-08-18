@@ -9,7 +9,7 @@ most pages under `docs/reference/` are contracts that code and tests pin.
   whose exact phrasing is load-bearing (tests and scripts grep them):
   `docs/reference/grammar.md`, `docs/reference/privacy.md`,
   `docs/reference/slots.md`, `docs/reference/amp.md`, `AGENT.md`,
-  `SKILL.md`, `skills/goal/**`.
+  `SKILL.md`, `skills/amplify/**`.
   Structure, navigation, and links may point AT them; their bodies are
   read-only.
 - Never invent a verb, flag, or config key. The CLI surface is exactly what
