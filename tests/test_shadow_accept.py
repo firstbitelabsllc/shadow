@@ -2249,3 +2249,54 @@ class AcceptNeverCommitsAPlanLintBlocks(unittest.TestCase):
             self.assertEqual(board_path.read_bytes(), board_before)
             self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
             self.assertEqual(plan.read_text(encoding="utf-8"), completed)
+
+
+FOREIGN_PROOF_PLAN = PLAN.replace(
+    "### M — file speaks\n",
+    "### M — file speaks\n"
+    "- [completed] an older row named a source tool ~ef56 | proof: cmd scripts/shadow-python.sh -m unittest tests.test_x\n",
+).replace(
+    "- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command\n",
+    "- 2026-08-06T09:00:00Z ~ef56 PROOF scripts/shadow-python.sh -m unittest tests.test_x -> pass\n"
+    "- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command\n",
+)
+
+
+class ProofRootIsResolvedOrNamed(unittest.TestCase):
+    """A refusal must name the row it is about and the root it wants.
+
+    `--repo` is where proofs RUN, not where the plan lives. For a machine-local
+    plan under `~/.shadow/plans/<slug>/` whose proofs name a source checkout,
+    passing the plan directory makes every such proof unresolvable.
+
+    Measured 2026-08-17: `shadow accept --repo ~/.shadow/plans/shadow --row
+    '~nx05'` refused with `PROOF-ARGV0 on line 26` — line 26 was `~gskl`, an
+    unrelated row completed weeks earlier. The message was true and unusable:
+    it named a line number in a row the seat was not touching, and never said
+    that passing the source checkout as `--repo` was the fix. Re-running with
+    the source checkout succeeded immediately.
+
+    So the refusal must say three things: WHICH row is blocking, that it is not
+    the row being accepted, and that `--repo` is the proof root.
+    """
+
+    def _refusal(self) -> str:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root)
+            (repo / "PLAN.md").write_text(FOREIGN_PROOF_PLAN, encoding="utf-8")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-qm", "foreign proof")
+            result = run_accept(repo, "~ab12")
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            return result.stdout + result.stderr
+
+    def test_the_refusal_names_the_blocking_row(self) -> None:
+        self.assertIn("~ef56", self._refusal())
+
+    def test_the_refusal_says_the_blocking_row_is_not_the_one_being_accepted(self) -> None:
+        text = self._refusal()
+        self.assertIn("not the row", text.lower())
+
+    def test_the_refusal_names_repo_as_the_proof_root(self) -> None:
+        self.assertIn("--repo", self._refusal())
