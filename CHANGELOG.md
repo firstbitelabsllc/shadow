@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 1.2.0 — 2026-08-18 — the test layer stops lying, and the plan cannot strand itself
+
+- The starvation guard no longer disables the tests it protects: a caller's
+  own expected failure is its assertion (`expected_failure` threads through
+  every live two-seat call site), the guarded values are ones the harness
+  actually emits (`host_failed`, `host_timeout`, and now
+  `partial_completion`), and the offline three-seat walk routes the same law
+  instead of reading a broken 20-second seat barrier as a product red.
+- `shadow lifecycle` treats `## Progress` as a receipt log, not a dependency
+  graph: prose using the word `needs:` can no longer strand a milestone
+  (five were unarchivable on the reference plan; archive-eligible went 3 to 8).
+- The completeness law has its brake test: archiving a milestone holding any
+  open row refuses, pinned per open state with the exact message — a takeoff
+  gate mutation found the law unpinned.
+- `shadow status` states what its focused view omits ("Omitted here: N
+  completed milestone(s), M checkpoint(s)"), so a partial view can no longer
+  read as the whole plan.
+- `shadow accept` refusals name the blocking row, say when it is not the row
+  being accepted, and name `--repo` as the root where proofs run.
 - The `goal` skill is `amplify`. `shadow goal` is the native cross-host verb
   that writes the standing goal into a Claude, Codex, or Grok instruction
   file; a skill named `goal` squatted that name on Claude alone, so typing
