@@ -114,6 +114,101 @@ V4_PLAN = """# Demo v4
 """
 
 
+OMISSION_PLAN = """# Demo omissions
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### Finished long ago
+- [completed] first result exists ~aa11 | proof: cmd true
+- [completed] finished result is accepted ~bb22 (DoD) | proof: cmd true
+
+### Also finished
+- [completed] second result exists ~ee55 | proof: cmd true
+- [completed] second result is accepted ~ff66 (DoD) | proof: cmd true
+
+### Current work
+- [pending] next result starts ~cc33 | proof: cmd true
+- [pending] next result is accepted ~dd44 (DoD) | proof: cmd true | needs: ~cc33
+
+## Progress
+
+- 2026-08-10T00:00:00Z ~aa11 PROOF true -> pass
+- 2026-08-10T00:01:00Z ~bb22 PROOF true -> pass
+- 2026-08-10T00:02:00Z ~ee55 PROOF true -> pass
+- 2026-08-10T00:03:00Z ~ff66 PROOF true -> pass
+"""
+
+
+class OmittedRowsAreCounted(StatusTests):
+    """A surface that hides work must say how much it hid.
+
+    `milestone_rotation` drops every completed row, and then drops a milestone
+    entirely once nothing is left to show. That focus is correct — but it was
+    silent, and silence reads as completeness.
+
+    Measured 2026-08-17: on Shadow's own plan `shadow status` showed 6 of 18
+    milestones with no count anywhere in the output. A seat looking for an
+    archive target read the 6, concluded no milestone was eligible, and
+    diagnosed the byte-budget gate as advertising an unreachable remedy. Five
+    of the twelve hidden milestones were eligible the whole time. The report
+    was not wrong about what it showed; it was wrong about what it implied.
+    """
+
+    def _payload(self, root: Path) -> dict:
+        (root / "PLAN.md").write_text(OMISSION_PLAN, encoding="utf-8")
+        result = self.run_status(root, "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def _plan(self, payload: dict) -> dict:
+        plans = payload.get("v4_plans") or []
+        self.assertTrue(plans, payload)
+        return plans[0]
+
+    def test_a_fully_completed_milestone_is_counted_where_it_is_hidden(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            plan = self._plan(self._payload(Path(dirname)))
+        omitted = plan.get("omitted")
+        self.assertIsNotNone(omitted, plan)
+        # 2 hidden milestones vs 1 shown: the numbers must differ, or a
+        # mutation reporting SHOWN instead of OMITTED would pass unnoticed.
+        self.assertEqual(omitted.get("milestones"), 2, omitted)
+        self.assertEqual(omitted.get("checkpoints"), 4, omitted)
+
+    def test_the_shown_rotation_still_carries_only_live_work(self) -> None:
+        """The count is additive: focus itself must not change."""
+        with tempfile.TemporaryDirectory() as dirname:
+            plan = self._plan(self._payload(Path(dirname)))
+        titles = [m["title"] for m in plan["milestones"]]
+        self.assertEqual(titles, ["Current work"], titles)
+
+    def test_a_plan_hiding_nothing_reports_no_omissions(self) -> None:
+        """No false alarm: a plan with nothing hidden must not claim omissions."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            result = self.run_status(root, "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = self._plan(json.loads(result.stdout))
+        # V4_PLAN's single milestone is live, so its completed row is the only
+        # thing hidden and the milestone itself is not.
+        omitted = plan.get("omitted") or {}
+        self.assertEqual(omitted.get("milestones", 0), 0, omitted)
+
+    def test_the_human_render_states_the_omission(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(OMISSION_PLAN, encoding="utf-8")
+            result = self.run_status(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("omitted", result.stdout.lower(), result.stdout)
+
+
 class StatusV4Tests(StatusTests):
     def test_partitioned_plan_renders_the_same_v4_brief(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

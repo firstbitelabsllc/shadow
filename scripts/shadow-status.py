@@ -127,6 +127,20 @@ def v4_brief(
         claims or [],
         hide_internal=hide_internal,
     )
+    # Focus hides completed rows and then whole milestones. That is correct,
+    # and it was silent — so the view read as the whole plan. Measured
+    # 2026-08-17: this surface showed 6 of Shadow's 18 milestones with no count
+    # anywhere, a seat hunting an archive target read the 6, and concluded the
+    # byte-budget gate named an unreachable remedy. Five of the twelve hidden
+    # milestones were eligible. Say what was left out; never change what is shown.
+    shown_rows = sum(len(m["checkpoints"]) for m in record["milestones"])
+    total_rows = sum(len(m["rows"]) for m in plan["milestones"])
+    omitted = {
+        "milestones": len(plan["milestones"]) - len(record["milestones"]),
+        "checkpoints": total_rows - shown_rows,
+    }
+    if omitted["milestones"] or omitted["checkpoints"]:
+        record["omitted"] = omitted
     if selected:
         _, row = selected
         record["resume"] = f"[{row['state']}] {row['text']} {row['id']}"
@@ -254,6 +268,17 @@ def render_v4(record: dict, seat: str | None = None) -> str:
                     f"      [{checkpoint['state']}/{checkpoint['availability']}] "
                     f"{checkpoint['text']}{checkpoint_owner}"
                 )
+    omitted = record.get("omitted")
+    if omitted:
+        parts = [
+            f"{omitted[key]} completed {label}"
+            for key, label in (("milestones", "milestone(s)"), ("checkpoints", "checkpoint(s)"))
+            if omitted[key]
+        ]
+        lines.append(
+            f"  Omitted here: {', '.join(parts)} — this view is live work only; "
+            "read the plan for the rest"
+        )
     lines.append(f"  Resume: {record.get('resume_human', record['resume'])}")
     live_claims = sorted(
         record.get("live_claims", []),
