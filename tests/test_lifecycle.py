@@ -433,6 +433,45 @@ class ASharedReceiptStaysLiveInsteadOfBlockingTheArchive(unittest.TestCase):
             self.assertNotIn("Receipts left in the live plan", archive)
 
 
+class CompactionRefusesAMilestoneHoldingAnyOpenRow(unittest.TestCase):
+    """The brake behind every receipt: an open row may never be archived.
+
+    Found by a takeoff mutation on 2026-08-18: deleting validate_milestone's
+    "milestone is not fully completed" refusal left tests.test_lifecycle AND
+    tests.test_root_board fully green — the one law the M32 goal ordered
+    preserved ("compaction still refuses a milestone holding any open row")
+    had no pin anywhere in tests/. A gate that stays green under its own
+    violation is not a gate. Each open state is pinned separately so a future
+    partial loosening (e.g. allowing blocked rows) cannot hide inside a loop.
+    """
+
+    def _refusal(self, state: str) -> dict:
+        plan = PLAN.replace(
+            "- [completed] first result exists ~aa11 | proof: cmd true\n",
+            f"- [{state}] first result exists ~aa11 | proof: cmd true\n",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, plan)
+            _, preview = run(repo, "--milestone", "Finished work")
+            return preview
+
+    def test_a_pending_row_refuses(self) -> None:
+        out = self._refusal("pending")
+        self.assertEqual(out.get("action"), "refused", out)
+        self.assertIn("not fully completed", out.get("error", ""), out)
+
+    def test_an_in_progress_row_refuses(self) -> None:
+        out = self._refusal("in_progress")
+        self.assertEqual(out.get("action"), "refused", out)
+        self.assertIn("not fully completed", out.get("error", ""), out)
+
+    def test_a_blocked_row_refuses(self) -> None:
+        out = self._refusal("blocked")
+        self.assertEqual(out.get("action"), "refused", out)
+        self.assertIn("not fully completed", out.get("error", ""), out)
+
+
 class ProgressProseNeverStrandsAMilestone(unittest.TestCase):
     """`## Progress` is an append-only receipt log, not a dependency graph.
 
