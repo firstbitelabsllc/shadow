@@ -1669,8 +1669,18 @@ def reconcile(
                 **locator_fields,
             }
         )
-    if len({seed["id"] for seed in prepared}) != len(prepared):
-        raise BoardError("bounded discovery returned a duplicate logical entity")
+    seed_ids = [seed["id"] for seed in prepared]
+    duplicated = {identity for identity in seed_ids if seed_ids.count(identity) > 1}
+    if duplicated:
+        # Name the colliding seeds: a reader spent a day on the bare message
+        # (2026-08-18) because it could not say WHICH two paths one identity
+        # arrived from.
+        colliding = ", ".join(
+            seed["plan"] for seed in prepared if seed["id"] in duplicated
+        )
+        raise BoardError(
+            f"bounded discovery returned a duplicate logical entity: {colliding}"
+        )
     if retired_ids.intersection(seed["id"] for seed in prepared):
         raise BoardError("bounded discovery marked one entity both live and retired")
 

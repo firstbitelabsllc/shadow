@@ -415,13 +415,26 @@ def reconcile_portfolio(
             return False
         return True
 
+    # The explicit local authorities, by PATH as well as by origin slug: a
+    # board repo with no `origin` remote yields a `local-plan:` identity the
+    # origin allowlist cannot match, so when discovery's root is the plan's
+    # own directory (the lifecycle successor-claim path) the same file arrived
+    # once as a discovered record and once as the explicit seed below — one
+    # plan, two seeds, one identity, and every archive apply printed
+    # `duplicate logical entity` on a board with none (measured 2026-08-18).
+    explicit_local = {
+        path.resolve() for path in _local_operational_plans(home)
+    }
     for record in records:
         relative = record.get("path")
         if not relative:
             continue
         plan_path = Path(os.path.abspath(root / relative))
         identity = record.get("_logical_entity") or board.entity_id(plan_path)
-        if _local_only_slug(plan_path) is not None:
+        if (
+            _local_only_slug(plan_path) is not None
+            or plan_path.resolve() in explicit_local
+        ):
             # Explicit local plans below are the only authority for these
             # coordination repositories.
             continue

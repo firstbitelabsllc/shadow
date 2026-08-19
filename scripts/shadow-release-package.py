@@ -137,6 +137,27 @@ def source_version(root: Path) -> str:
     return read_version(root)
 
 
+def release_notes(root: Path, version: str) -> str:
+    """The tagged CHANGELOG section for `version`, refusing empty or absent.
+
+    Measured 2026-08-18: shadow-v1.2.0 published with an EMPTY body because
+    notes were hand-sliced from a checkout predating the release commit.
+    Conduct generates notes from the checkout being released; an empty or
+    missing section is a refusal, never a blank page.
+    """
+    text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    marker = f"\n## {version}"
+    start = text.find(marker)
+    if start < 0:
+        raise ValueError(f"CHANGELOG.md has no section for {version}")
+    body_start = text.index("\n", start + 1) + 1
+    next_heading = text.find("\n## ", body_start)
+    body = text[body_start : next_heading if next_heading >= 0 else len(text)]
+    if len(body.strip()) < 40:
+        raise ValueError(f"CHANGELOG.md section for {version} is empty")
+    return body.strip() + "\n"
+
+
 def changelog_version(root: Path) -> str:
     text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     match = re.search(r"^## ([0-9]+\.[0-9]+\.[0-9]+)\b", text, re.MULTILINE)
@@ -526,6 +547,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--expect-version")
+    parser.add_argument(
+        "--notes",
+        action="store_true",
+        help="print the CHANGELOG section for the source version and exit; "
+        "an empty or missing section exits nonzero",
+    )
     parser.add_argument("--allow-dirty", action="store_true", help="allow a non-publishable development receipt")
     parser.add_argument(
         "--public-release",
@@ -534,6 +561,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.notes:
+        try:
+            sys.stdout.write(release_notes(args.root, source_version(args.root)))
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"release notes refused: {exc}", file=sys.stderr)
+            return 1
+        return 0
     try:
         report = verify(
             args.root.resolve(),
