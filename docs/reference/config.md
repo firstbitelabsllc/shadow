@@ -67,6 +67,7 @@ These environment variables provide runtime defaults:
 | `SHADOW_CODEX_BIN` | Optional Codex executable override. |
 | `SHADOW_CLAUDE_CODE_BIN` | Optional Claude Code executable override. |
 | `SHADOW_CURSOR_BIN` | Optional Cursor executable override. |
+| `SHADOW_GROK_BIN` | Optional Grok executable override. |
 | `SHADOW_TELEMETRY` | Set exactly to `local` to append closed, local-only lifecycle events beneath the current project's `.shadow/evidence/`; unset and every other value write nothing. |
 | `SHADOW_AMP_PACK_ROOT` | Amp-core pack-root override (absolute path, or `off` to disable pack inspection) — not a slot binding. See [amp.md](amp.md). |
 

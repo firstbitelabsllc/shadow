@@ -4,7 +4,7 @@ Requirements: Git, Bash, Python 3.10+, and one supported native coding host.
 No Node, no npm, no package manager — the stable release clone *is* the install.
 
 ```bash
-git clone --branch shadow-v1.0.1 --depth 1 \
+git clone --branch shadow-v1.2.0 --depth 1 \
   https://github.com/firstbitelabsllc/shadow.git
 cd shadow
 bash install.sh
@@ -17,7 +17,7 @@ only when you deliberately want moving development source.
 
 `install.sh` links `bin/shadow` into `~/.local/bin` and mounts the skill in
 every host root that already exists (`~/.claude/skills`, `~/.agents/skills`,
-`~/.cursor/skills`). Two flags change that:
+`~/.cursor/skills`, `~/.grok/skills`). Two flags change that:
 
 ```bash
 bash install.sh --bin-dir /usr/local/bin   # put the command somewhere else
@@ -39,5 +39,5 @@ Shadow shipped under a different name before 0.1.0. Its compatibility path is
 gone: evidence lives in `.shadow/`, and a repository still carrying the
 pre-rename evidence directory shows as dirty until that directory is renamed
 to `.shadow/` or deleted. Remove the old global install and its mounts, then
-re-run `bash install.sh` so `~/.claude/skills`, `~/.agents/skills`, and
-`~/.cursor/skills` point at this checkout.
+re-run `bash install.sh` so `~/.claude/skills`, `~/.agents/skills`,
+`~/.cursor/skills`, and `~/.grok/skills` point at this checkout.

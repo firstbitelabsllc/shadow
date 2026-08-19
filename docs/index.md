@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Shadow
   text: Your coding chief of staff
-  tagline: Understand the work, choose what happens next, and safely use Codex, Claude Code, or Cursor.
+  tagline: Understand the work, choose what happens next, and safely use Codex, Claude Code, Cursor, or Grok.
   actions:
     - theme: brand
       text: Start in five minutes

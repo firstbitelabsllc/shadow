@@ -319,7 +319,8 @@ shard before an answer is returned.
 Index pages MUST be at most 16 KiB, data shards at most 32 KiB, and the
 `PLAN.md` root at most 8 KiB. Tree pages have at most 64 children. A single
 grammar item that cannot fit a data shard MUST refuse migration rather than be
-split mid-item. These budgets replace the 256 KiB monolith ceiling; active row
+split mid-item. These budgets bound each stored object; the 256 KiB
+logical ceiling still applies to the materialized hot plan, and active row
 and milestone budgets remain unchanged. Historical growth adds immutable
 shards and logarithmic catalog pages without enlarging the active context.
 

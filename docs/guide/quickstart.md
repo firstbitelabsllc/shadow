@@ -80,6 +80,8 @@ For a passing `cmd` proof, use the only flip path:
 
 ```bash
 shadow accept --repo . --row '~ab12' --by your-seat
+# --repo is where proofs RUN (the product checkout); a machine-local
+# plan's own directory also works when its proof argv cds there itself
 ```
 
 For a remotely coordinated claim, ordinary accept publishes the completed

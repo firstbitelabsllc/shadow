@@ -5,7 +5,7 @@ This is the portable starting point for Shadow on another Mac.
 ## Bootstrap
 
 ```bash
-git clone --branch shadow-v1.0.1 --depth 1 \
+git clone --branch shadow-v1.2.0 --depth 1 \
   https://github.com/firstbitelabsllc/shadow.git
 cd shadow
 bash install.sh
@@ -13,7 +13,7 @@ shadow doctor
 ```
 
 `install.sh` links the command and mounts the same skill in each native host
-root that exists (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`).
+root that exists (`~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills`, `~/.grok/skills`).
 Pass `--no-skills` to link the command alone.
 
 Expected result: `shadow doctor` reports product identity, command, and the
@@ -47,6 +47,7 @@ transcripts, provider payloads, or absolute private paths in it.
 | Surface | Use it for |
 | --- | --- |
 | `/shadow` | Start/resume work, read the Outcome, drain reachable lanes, and leave proof plus successors. |
+| `/amplify` | Shape a loose intent into one durable PLAN plus a four-line goal launcher. The native `shadow goal` verb prints the standing goal; this skill (renamed from `goal` in 1.2.0) is the shaper. |
 
 `shadow amp` is a CLI subcommand, not a mounted skill: it projects a
 paste-ready resume block for a checkpoint the seat already claimed — see
@@ -58,7 +59,7 @@ adversarial-lens slug — post-work review, a different moment — or a person
 may delegate foresight to their own method). Diagrams stay Brief-contract
 law, no slot involved.
 
-Use native Codex, Claude Code, or Cursor for execution. Provider-specific
+Use native Codex, Claude Code, Cursor, or Grok for execution. Provider-specific
 helpers are adapters; none becomes the plan authority or stores credentials.
 
 ## Read the public state
