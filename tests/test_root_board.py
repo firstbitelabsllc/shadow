@@ -3533,3 +3533,79 @@ if __name__ == "__main__":
 
 
     unittest.main()
+
+
+class BoundedDiscoveryNamesItsDuplicateSeeds(unittest.TestCase):
+    """The duplicate-entity refusal must not fire on one plan seen twice.
+
+    Measured 2026-08-18: every `shadow lifecycle --apply` printed
+    `Successor: refused — bounded discovery returned a duplicate logical
+    entity` on a board with 11 entities and zero duplicate ids. Mechanism:
+    lifecycle reconciles with the PLAN'S OWN DIRECTORY as the discovery root,
+    so the machine-local plan is discovered as a record; the records loop
+    skips local-only plans by ORIGIN slug, but a board repo with no `origin`
+    remote yields a `local-plan:` identity that is not in the allowlist, so
+    the record survives — and `_local_operational_plans` then appends the
+    same file as the explicit seed. One plan, two seeds, one identity.
+
+    Two pins: the same-path double-seed reconciles instead of refusing, and
+    a REAL duplicate's refusal names both seed paths so the next reader does
+    not spend a day guessing.
+    """
+
+    def _amp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "cw02_amp", Path(__file__).resolve().parent.parent / "scripts" / "shadow-amp.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("cw02_amp", module)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_local_plan_discovered_from_its_own_directory_is_one_seed(self) -> None:
+        import shadow_board_import as imp
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "home"
+            slug_dir = home / ".shadow" / "plans" / "shadow"
+            slug_dir.mkdir(parents=True)
+            plan = slug_dir / "PLAN.md"
+            plan.write_text(
+                "# P\n\n## Brief\n\n- Project: shadow\n- Mode: ship\n\n"
+                "## Tasks\n\n### M\n- [pending] a ~aa11 | proof: cmd true\n"
+                "- [pending] b ~bb22 (DoD) | proof: cmd true | needs: ~aa11\n",
+                encoding="utf-8",
+            )
+            # The failing shape verbatim: discovery root IS the plan directory.
+            result = imp.reconcile_portfolio(slug_dir, self._amp(), home=home)
+            self.assertIsInstance(result, dict)
+
+    def test_a_real_duplicate_refusal_names_both_seed_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "home"
+            (home / ".shadow").mkdir(parents=True)
+            a = home / "a" / "PLAN.md"
+            a.parent.mkdir(parents=True)
+            a.write_text("# P\n", encoding="utf-8")
+            seed = {
+                "project": "demo",
+                "priority": 3,
+                "candidates": [],
+                "rows": [],
+                "expected_size": None,
+                "expected_sha256": None,
+            }
+            # The SAME file seeded twice is the only honest way to one id:
+            # different paths hash to different logical identities.
+            with self.assertRaises(board_api.BoardError) as caught:
+                board_api.reconcile(
+                    [
+                        {**seed, "plan": str(a)},
+                        {**seed, "plan": str(a)},
+                    ],
+                    [],
+                    home=home,
+                )
+            message = str(caught.exception)
+            self.assertIn("duplicate logical entity", message)
+            self.assertIn(str(a), message)
