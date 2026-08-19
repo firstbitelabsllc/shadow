@@ -1,11 +1,11 @@
-<p align="center"><img src="assets/shadow-banner.svg" alt="Shadow's loop: read the plan, choose the next checkpoint, act, verify, and leave a resumable checkpoint." width="100%" /></p>
+<p align="center"><img src="assets/shadow-banner.svg" alt="The Shadow loop — board, claim, work, prove, accept — orbiting one glowing checkpoint labeled resume here." width="100%" /></p>
 
 # Shadow
 
 **Shadow is you, one step down.** Say what you want in any wired AI coding
-host — Claude Code, Codex, Cursor — and Shadow keeps the work durable: one
-board per computer, one `PLAN.md` per project, a proof receipt on every
-finished step. Kill any chat; the next session resumes where it stopped.
+host — Claude Code, Codex, Cursor, Grok — and Shadow keeps the work
+durable: one board per computer, one `PLAN.md` per project, a proof receipt
+on every finished step. Kill any chat; the next session resumes where it stopped.
 
 Six words carry the system:
 
@@ -29,8 +29,8 @@ cd shadow && bash install.sh && shadow doctor
 
 Git, Bash, Python 3.10+, and a supported host. No Node, no daemon, no
 transcript store. The clone is the install; to upgrade, check out the
-newer `shadow-v*` tag and rerun `install.sh`. If `shadow` is not found,
-add `~/.local/bin` to your PATH.
+newer `shadow-v*` tag and rerun `install.sh`. Missing `shadow`? Add
+`~/.local/bin` to PATH.
 
 ## First run
 
@@ -74,6 +74,8 @@ Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
 ## Docs
 
 The full contract — every verb, plan grammar, extensions, privacy — lives at
-**[the docs site](https://firstbitelabsllc.github.io/shadow/)**; developing Shadow starts at [`AGENT.md`](AGENT.md).
+**[the docs site](https://firstbitelabsllc.github.io/shadow/)**; developing starts at
+[`AGENT.md`](AGENT.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md) — external
+PRs are closed.
 
-MIT License.
+[MIT License](LICENSE).
