@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Docs truth sweep: the guide pages no longer pin the never-tagged
+  `shadow-v1.0.1` (install tags are now contract-tested against `VERSION`);
+  Grok joins every host enumeration, the doctor/amp help text, and the config
+  table; the lint inventory names all 32 real checks (`PLAN-SECRET`, not
+  `PROOF-SECRET`; blocking `PROOF-ARGV0` documented); accept's `--repo` rule,
+  the 262144-byte refusal paths with their three remedies, and archive
+  eligibility are documented; two orphaned docs assets deleted;
+  `scripts/shadow_version.py` joins the packaging contract.
+
 ## 1.2.0 — 2026-08-18 — the test layer stops lying, and the plan cannot strand itself
 
 - The starvation guard no longer disables the tests it protects: a caller's
