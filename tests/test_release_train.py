@@ -210,3 +210,52 @@ class ReleasePressureUsesTheShadowEpoch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublishedNotesMatchTheTaggedChangelog(unittest.TestCase):
+    """Release notes come from the tagged CHANGELOG, never a hand cut.
+
+    Measured 2026-08-18: shadow-v1.2.0 published with an EMPTY body because
+    the notes were sliced with sed from a checkout that predated the release
+    commit — rc was 0, the URL printed, and only reading the body length back
+    caught it. The conduct path now generates notes from the checkout being
+    released and refuses an empty or missing section outright.
+    """
+
+    def _module(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "cw01_release_package",
+            Path(__file__).resolve().parent.parent / "scripts" / "shadow-release-package.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("cw01_release_package", module)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_current_version_section_is_extracted_non_empty(self) -> None:
+        module = self._module()
+        root = Path(__file__).resolve().parent.parent
+        version = module.source_version(root)
+        notes = module.release_notes(root, version)
+        self.assertGreater(len(notes.strip()), 100, notes)
+        self.assertNotIn("## Unreleased", notes)
+        # The section body, not the heading wrapper.
+        self.assertNotIn(f"\n## {version}", notes)
+
+    def test_a_missing_version_section_refuses(self) -> None:
+        module = self._module()
+        root = Path(__file__).resolve().parent.parent
+        with self.assertRaises(ValueError):
+            module.release_notes(root, "9.9.9")
+
+    def test_an_empty_section_refuses(self) -> None:
+        module = self._module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## 3.0.0 — empty on purpose\n\n## 2.9.9 — prior\n\n- real entry\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                self._module().release_notes(root, "3.0.0")
