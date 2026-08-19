@@ -37,6 +37,23 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertIn("Every Shadow chat response ends with a compact `Ongoing tasks` projection", skill)
         self.assertIn("shadow status --in-flight --json", skill)
 
+    def test_every_shipped_install_tag_tracks_version(self) -> None:
+        """The guide pages pinned shadow-v1.0.1 — a tag that never existed —
+        for two releases because only the README's tag was contract-tested.
+        Every install tag in the shipped doc set must name the current
+        VERSION; historical dev docs (plan-archive, superpowers) are exempt."""
+        import re as _re
+
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        expected = f"shadow-v{version}"
+        shipped = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+        for path in shipped:
+            relative = path.relative_to(ROOT).as_posix()
+            if relative.startswith(("docs/plan-archive/", "docs/superpowers/")):
+                continue
+            for tag in _re.findall(r"--branch (shadow-v[0-9][0-9.]*)", path.read_text(encoding="utf-8")):
+                self.assertEqual(tag, expected, f"{relative} pins {tag}, VERSION is {version}")
+
     def test_the_footer_projection_contract_stays_written_down(self) -> None:
         """The README sends detail to the docs site, so the host-facing footer
         contract must stay stated where hosts and strangers actually read it."""

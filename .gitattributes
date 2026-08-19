@@ -11,7 +11,6 @@ PLAN.md             export-ignore
 SOURCE_REF          export-subst
 docs/plan-archive/ export-ignore
 scripts/shadow-brief.py export-ignore
-docs/assets/brief-decision.png export-ignore
 docs/superpowers/ export-ignore
 # Docs authoring surface: claudux preferences and the local VitePress preview
 # scaffold. The shipped product is the Markdown under docs/, never the Node
