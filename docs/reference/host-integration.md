@@ -10,7 +10,7 @@ user-rule surface; Shadow does not invent `~/.cursor/rules`.
 ## 1. Install once
 
 ```bash
-git clone --branch shadow-v1.0.1 --depth 1 \
+git clone --branch shadow-v1.2.0 --depth 1 \
   https://github.com/firstbitelabsllc/shadow.git && cd shadow
 bash install.sh
 shadow doctor

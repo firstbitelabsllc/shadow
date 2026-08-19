@@ -20,6 +20,7 @@ flowchart LR
 | ChatGPT and Codex | The `plugins/shadow/.codex-plugin` package and repo marketplace expose the same Shadow skill and goal shaper. | Full status and action require a local host that can read the board and run Shadow. A hosted chat is a coach only. |
 | Claude Code | The existing `.claude-plugin` package installs the same source skill. | Local board access follows the existing install and host rules. |
 | Cursor | The checked-in skill works through Cursor's local skill/plugin support. | Cursor can act only where the local checkout and host integration are available. |
+| Grok | `install.sh` mounts `~/.grok/skills` and `shadow goal --install` writes `~/.grok/AGENTS.md`. | Grok acts only through the sealed native host runner on a local checkout. |
 | Custom GPT | The skill prose can seed a friendly “Shadow Coach” for goal shaping and explanation. | A Custom GPT is not real Shadow until a reviewed remote bridge exists. It must say that it cannot see the local board. |
 | MCP directories | A future remote adapter could expose a privacy-safe brief and typed intent return. | No server is published today. The local board remains authority; a remote service may not copy the queue, credentials, or transcripts. |
 

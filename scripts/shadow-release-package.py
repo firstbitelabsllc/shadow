@@ -50,6 +50,7 @@ REQUIRED_FILES = {
     "skills/amplify/SKILL.md",
     "VERSION",
     "bin/shadow",
+    "scripts/shadow_version.py",
     "bin/shadow-browse",
     # Deleting either of these left the gate reporting publishable while
     # `shadow amp` and `shadow throw` exited 2 with "can't open file".

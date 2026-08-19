@@ -266,6 +266,24 @@ by default. A budget-only over-limit report exits non-zero; a preview that
 proves one legal monotonic repair exits zero so its CAS can be applied. Limits
 are product law, not environment knobs.
 
+The byte limit an operator sees in refusals is the literal `262144`
+(`HOT-PLAN-BYTES`). Two verbs refuse differently at that wall: `shadow throw`
+refuses the claim ("hot plan exceeds the checked-in bytes budget"), and
+`shadow accept` refuses through lint ("the completed plan would fail shadow
+lint (HOT-PLAN-BYTES ...); nothing was changed"). The report names one of
+three remedies: archive one proven milestone with `shadow lifecycle`; or —
+when every open milestone is held open only by a person-gated row — archive
+cannot run and the remedy is to trim or relocate plan text; or the same trim
+when no archive-eligible milestone exists. Migration is lossless and does not
+shrink the plan.
+
+Archive eligibility, rechecked per milestone at apply time: 2-7 well-formed
+task rows; exactly one `(DoD)` row; every row completed; every row's proof
+matches a typed class ("<id> has no typed proof" otherwise); ids unique
+within the milestone, and no duplicate task id anywhere in the plan ("plan
+has duplicate task ids" — a duplicate would let the dependency fold strip a
+still-live `needs:`).
+
 `shadow lifecycle --repo <entity-directory> --milestone '<exact heading>'`
 makes no change and emits a content CAS. Repeating that command with
 `--apply --expect <cas> --by <seat>`
@@ -295,7 +313,7 @@ marker-preserving tampering refuses.
 
 Apply refuses a dirty plan or target archive, symlinks, an existing archive
 with different provenance, a malformed or unproven milestone, and a non-Git
-plan. Normal lint, portfolio import, and claim paths enforce the same hot-plan
+plan. Normal lint, accept, portfolio import, and claim paths enforce the same hot-plan
 limits before mutating the computer board; lifecycle is the repair door.
 
 Worktree and snapshot deletion use the strict
@@ -321,12 +339,15 @@ replaced, broad, or provenance-bearing targets refuse without mutation.
 ## LINT
 
 `scripts/shadow-lint.py`, exit non-zero on blocking findings; deterministic
-across reruns. Checks: task shape; ID-DUP; NEEDS-DANGLE; NEEDS-SHAPE;
-PROOF-MISSING / PROOF-CLASS / PROOF-SECRET; DOD-COUNT; DOD-EARLY;
-DEFER-NO-WAKE; MODE-ILLEGAL (legacy `Spike|Defer|Challenge|Broad|Close`
-values included); TS-ORDER (warning); READ-FIT (warning, lines over 2,000
-chars); HOT-PLAN-BYTES; HOT-PLAN-ROWS; HOT-PLAN-MILESTONES;
-SECTION-MISSING (warning); SPIKE-NO-END; SPIKE-DUP;
+across reruns. Checks: ROW-SHAPE; ROWS-WITHOUT-TASKS; ID-DUP; NEEDS-DANGLE;
+NEEDS-SHAPE; NEEDS-CYCLE; PROOF-MISSING / PROOF-CLASS / PROOF-UNPARSEABLE /
+PROOF-SCRIPT / PROOF-SHELL-OPERATOR / PROOF-RECEIPT-SHAPE; PROOF-ARGV0
+(blocking for a path operand, warning for a bare name); PLAN-SECRET;
+COMPLETED-NO-PROOF; CONFLICT-MARKER; DOD-COUNT; DOD-EARLY; DEFER-NO-WAKE;
+MODE-ILLEGAL (legacy `Spike|Defer|Challenge|Broad|Close` values included);
+TS-ORDER (warning); READ-FIT (warning, lines over 2,000 chars);
+HOT-PLAN-BYTES; HOT-PLAN-ROWS; HOT-PLAN-MILESTONES; SECTION-MISSING
+(warning); SECTION-ORDER; SPIKE-NO-END; SPIKE-DUP;
 SPIKE-EXPIRED-NO-DECISION; SHIP-OVER-OPEN-SPIKE; ORPHAN-DECISION (warning).
 
 ## BOARD
