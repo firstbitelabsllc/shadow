@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Rerun one owned checkpoint's proof in a clean checkout, then flip it.
 
-This is the only code path that flips a `cmd`-proven checkpoint to completed. It parses
-the repo's PLAN.md, finds the row by its ~hash id, reruns a ``cmd``-classed
-proof inside a detached clean worktree of HEAD, and — only on success —
-rewrites the row's state and appends the paired PROOF Progress line in one
-commit. ``read`` and ``gate`` proofs are person/agent judgments and are
-refused here on purpose.
+This is the only code path that flips a `cmd`-proven checkpoint to completed.
+It parses the project PLAN.md, finds the row by its ~hash id, reruns a
+``cmd``-classed proof inside a detached clean worktree of HEAD, and — only on
+success — rewrites the row's state and appends the paired PROOF Progress line
+in one commit. Its path-free ``--entity`` form also reconciles an authenticated,
+published ``cmd`` completion whose remote journal remains acquired. ``read`` and
+``gate`` proofs are person/agent judgments and are refused here on purpose.
 """
 
 from __future__ import annotations
@@ -1122,14 +1123,18 @@ def finalize_completed_retry_without_local_claim(
 def main(argv: list[str] | None = None) -> int:
     _remote_claim.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow accept", description=__doc__)
-    parser.add_argument("--repo", required=True, type=Path)
+    location = parser.add_mutually_exclusive_group(required=True)
+    location.add_argument("--repo", type=Path)
+    location.add_argument(
+        "--entity",
+        help="computer-board entity id for path-free completed-claim recovery",
+    )
     parser.add_argument("--row", required=True)
     parser.add_argument("--by", required=True, help="stable owner of the existing claim")
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--no-push", action="store_true",
                         help="commit without pushing (an unpushed flip is invisible to other seats)")
     args = parser.parse_args(argv)
-    repo = args.repo.resolve()
     row_id = args.row.strip()
     try:
         if ROW_ID_RE.fullmatch(row_id) is None:
@@ -1139,34 +1144,47 @@ def main(argv: list[str] | None = None) -> int:
         except _board.BoardError as exc:
             raise AcceptError(f"--by is unsafe: {exc}") from exc
         try:
-            source_top = git_completed(repo, "rev-parse", "--show-toplevel")
-            if source_top.returncode or not source_top.stdout.strip():
-                raise AcceptError("--repo must name a Git source checkout")
-            requested_plan = repo / "PLAN.md"
-            source_root = Path(source_top.stdout.strip()).resolve()
-            # A machine-local authority deliberately supersedes the source
-            # checkout's PLAN.md. Worktrees do not necessarily share the
-            # canonical repository directory name, so resolve through the
-            # registered origin identity before treating a present source
-            # plan as the entity authority.
-            local_plan = (
-                _board.local_plan_for_repo(repo)
-                or _board.local_plan_for_repo(source_root)
-            )
-            if local_plan is not None:
-                local_state = _board.entity_state(local_plan)
-                owned_claim(local_state, row_id, owner)
-                return accept_local_plan(
-                    source_root,
-                    local_plan,
-                    row_id,
-                    owner,
-                    args.timeout_seconds,
+            if args.entity:
+                resolved = _board.resolve_entity(args.entity)
+                if resolved is None or resolved["plan"] is None:
+                    raise _board.BoardError(
+                        "this entity is not registered on the computer board"
+                    )
+                plan_path = resolved["plan"]
+                if _board.is_local_plan(plan_path):
+                    raise _board.BoardError(
+                        "--entity recovery requires a Git-backed project plan"
+                    )
+            else:
+                repo = args.repo.resolve()
+                source_top = git_completed(repo, "rev-parse", "--show-toplevel")
+                if source_top.returncode or not source_top.stdout.strip():
+                    raise AcceptError("--repo must name a Git source checkout")
+                requested_plan = repo / "PLAN.md"
+                source_root = Path(source_top.stdout.strip()).resolve()
+                # A machine-local authority deliberately supersedes the source
+                # checkout's PLAN.md. Worktrees do not necessarily share the
+                # canonical repository directory name, so resolve through the
+                # registered origin identity before treating a present source
+                # plan as the entity authority.
+                local_plan = (
+                    _board.local_plan_for_repo(repo)
+                    or _board.local_plan_for_repo(source_root)
                 )
-            state = _board.entity_state(requested_plan)
-            owned_claim(state, row_id, owner)
-            plan_path = _board.canonical_plan(requested_plan, repair_missing=True)
-            state = _board.entity_state(plan_path)
+                if local_plan is not None:
+                    local_state = _board.entity_state(local_plan)
+                    owned_claim(local_state, row_id, owner)
+                    return accept_local_plan(
+                        source_root,
+                        local_plan,
+                        row_id,
+                        owner,
+                        args.timeout_seconds,
+                    )
+                state = _board.entity_state(requested_plan)
+                owned_claim(state, row_id, owner)
+                plan_path = _board.canonical_plan(requested_plan, repair_missing=True)
+                state = _board.entity_state(plan_path)
         except _board.BoardError as exc:
             raise AcceptError(f"the computer board's project pointer is unusable: {exc}") from exc
         top = git_completed(plan_path.parent, "rev-parse", "--show-toplevel")

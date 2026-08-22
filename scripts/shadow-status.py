@@ -305,8 +305,17 @@ def render_v4(record: dict, seat: str | None = None) -> str:
             and claim["owner"] == seat
             and claim["state"] in {"blocked", "completed"}
         ):
+            verb = (
+                "accept"
+                if (
+                    claim["state"] == "completed"
+                    and claim.get("remote")
+                    and claim.get("proof_class") == "cmd"
+                )
+                else "return"
+            )
             lines.append(
-                f"  Recover: shadow return --entity {record['entity']} "
+                f"  Recover: shadow {verb} --entity {record['entity']} "
                 f"--row {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
             )
     claimable = record.get("next_unclaimed")
@@ -504,6 +513,11 @@ def board_records(payload: dict) -> list[dict]:
                 "owner": claim["owner"],
                 "state": rows.get(claim["row"], {}).get("state", "unknown"),
                 "text": rows.get(claim["row"], {}).get("text", "UNKNOWN — row missing"),
+                "proof_class": rows.get(claim["row"], {})
+                .get("fields", {})
+                .get("proof", "")
+                .partition(" ")[0],
+                "remote": bool(claim.get("remote")),
             }
             for claim in claims
         ]
