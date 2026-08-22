@@ -771,11 +771,9 @@ def transition(
         and current["claim"] == desired["claim"]
     ):
         return desired
-    if (
-        current["state"] != "acquired"
-        or current["owner"] != owner
-        or current["claim"] != desired["claim"]
-    ):
+    if current["state"] != "acquired":
+        return _result(desired, "lost", winner=current["owner"], failure="claim_terminal")
+    if current["owner"] != owner or current["claim"] != desired["claim"]:
         return _result(desired, "lost", winner=current["owner"], failure="claim_changed")
     commit_id = _commit_receipt(repo, desired, claim["claimed_at"], previous)
     if commit_id is not None and _push(repo, ref, commit_id, previous):
