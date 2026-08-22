@@ -63,31 +63,6 @@ def main(argv: list[str] | None = None) -> int:
             plan_token, plan_bytes = board.frozen_plan_snapshot(plan_path)
             plan_text = plan_bytes.decode("utf-8")
             parsed = amp._parse(plan_text)
-            rows = [
-                row
-                for milestone in parsed["milestones"]
-                for row in milestone["rows"]
-                if row["id"] == args.row
-            ]
-            if not rows:
-                print(f"shadow return: no task carries {args.row}", file=sys.stderr)
-                return 1
-            if len(rows) != 1:
-                raise board.BoardError(f"task id {args.row} is duplicated in the project plan")
-            unclean = amp.unclean_note(parsed)
-            if unclean:
-                raise board.BoardError(f"project plan cannot return a claim: {unclean}")
-            row = rows[0]
-            reason = (
-                "completed"
-                if row["state"] == "completed"
-                else "blocked"
-                if row["state"] == "blocked"
-                else "handback"
-            )
-            # Resume arbitration needs the full reachable order, including rows
-            # currently claimed by other seats. The board removes this row itself.
-            parsed["claimed"] = set()
             current = board.entity_state(plan_path, exact_on_conflict=True)
             claim = next(
                 (
@@ -96,6 +71,34 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 None,
             )
+            rows = [
+                row
+                for milestone in parsed["milestones"]
+                for row in milestone["rows"]
+                if row["id"] == args.row
+            ]
+            if not rows:
+                if claim is None:
+                    print(f"shadow return: no task carries {args.row}", file=sys.stderr)
+                    return 1
+                reason = "orphan"
+            elif len(rows) != 1:
+                raise board.BoardError(f"task id {args.row} is duplicated in the project plan")
+            else:
+                row = rows[0]
+                reason = (
+                    "completed"
+                    if row["state"] == "completed"
+                    else "blocked"
+                    if row["state"] == "blocked"
+                    else "handback"
+                )
+            unclean = amp.unclean_note(parsed)
+            if unclean:
+                raise board.BoardError(f"project plan cannot return a claim: {unclean}")
+            # Resume arbitration needs the full reachable order, including rows
+            # currently claimed by other seats. The board removes this row itself.
+            parsed["claimed"] = set()
             if claim is not None and not board.is_local_plan(plan_path):
                 repo = Path(plan_token["repo"])
                 remote = remote_claim.transition(
