@@ -60,7 +60,7 @@ class DistributionContractTests(unittest.TestCase):
         self.assertIn("cannot see the person's local shadow board", coach)
         self.assertIn("do not add an action or app", coach)
         self.assertIn("coach mode", portable)
-        self.assertIn("never create a second task list", portable)
+        self.assertIn("do not create a parallel task list", portable)
 
     def test_distribution_does_not_publish_a_placeholder_transport(self) -> None:
         forbidden_names = {"server.json", "mcp.json"}
@@ -72,20 +72,25 @@ class DistributionContractTests(unittest.TestCase):
         }
         self.assertTrue(forbidden_names.isdisjoint(distributed))
 
-    def test_human_brief_hides_machine_detail_until_requested(self) -> None:
+    def test_front_door_keeps_machinery_backstage_and_never_templates(self) -> None:
+        # The portable skill talks like a teammate: machinery stays backstage,
+        # no fixed response shape, protected moves pause conversationally,
+        # and a done claim is separated from the next useful proof.
         skill = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
             encoding="utf-8"
         )
         normalized = " ".join(skill.split())
         for phrase in (
-            "What are we trying to change for a person?",
-            "What is already moving, including work happening in parallel?",
-            "technical evidence on demand",
-            "Distinguish the next evidence checkpoint from product",
-            "not progress unless the number changes a human decision",
-            "confidence never exceeds observed evidence",
+            "Keep routing, rows, receipts, and tool mechanics backstage",
+            "never a fixed response template",
+            "one durable board per computer",
+            "the exact reply that unlocks it",
+            "Do not make them pick from a ritualized menu",
+            "Separate a useful next proof from a claim that the work is done",
         ):
             self.assertIn(phrase, normalized)
+        for template_tell in ("1. What are we trying to change", "status card template"):
+            self.assertNotIn(template_tell, normalized)
 
 
 if __name__ == "__main__":
