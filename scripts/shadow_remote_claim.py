@@ -162,8 +162,49 @@ def _origin_default(repo: Path) -> tuple[str, str]:
     return default_ref, default_tip
 
 
-def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None:
-    """Read the bounded current PLAN only when default authority contains its head."""
+def published_file_bytes(repo: Path, default_tip: str, relative: str) -> bytes | None:
+    """Read one bounded public file from an already-authenticated default tip."""
+    try:
+        relative_bytes = relative.encode("utf-8")
+    except (AttributeError, UnicodeEncodeError):
+        return None
+    if (
+        HEX_OBJECT.fullmatch(default_tip) is None
+        or not relative
+        or len(relative_bytes) > MAX_RELATIVE_BYTES
+        or not relative.isprintable()
+        or relative.startswith("/")
+        or "\\" in relative
+        or any(part in {"", ".", ".."} for part in relative.split("/"))
+        or PRIVATE_PATH_RE.search(relative)
+        or SECRET_SHAPE_RE.search(relative)
+    ):
+        return None
+    located = _git(repo, "rev-parse", f"{default_tip}:{relative}")
+    object_id = located.stdout.decode("ascii", errors="ignore").strip()
+    if located.returncode or HEX_OBJECT.fullmatch(object_id) is None:
+        return None
+    kind = _git(repo, "cat-file", "-t", object_id)
+    if kind.returncode or kind.stdout.strip() != b"blob":
+        raise RemoteClaimError("published completion file is not a regular Git blob")
+    measured = _git(repo, "cat-file", "-s", object_id)
+    try:
+        size = int(measured.stdout.decode("ascii").strip())
+    except (UnicodeError, ValueError) as exc:
+        raise RemoteClaimError("published completion file size is invalid") from exc
+    if measured.returncode or size < 0 or size > MAX_PLAN_BYTES:
+        raise RemoteClaimError("published completion file exceeds its bounded size")
+    content = _git(repo, "cat-file", "blob", object_id)
+    if content.returncode or len(content.stdout) != size:
+        raise RemoteClaimError("published completion file could not be authenticated")
+    return content.stdout
+
+
+def published_plan_snapshot(
+    repo: Path,
+    plan_token: dict[str, str],
+) -> tuple[bytes, str] | None:
+    """Read the bounded current PLAN and retain its authenticated default tip."""
     if not public_safe_plan_token(plan_token):
         return None
     head = plan_token["head"]
@@ -188,24 +229,14 @@ def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None
         raise RemoteClaimError("published completion changed during authentication")
     if _git(repo, "merge-base", "--is-ancestor", head, default_tip).returncode:
         return None
-    located = _git(repo, "rev-parse", f"{default_tip}:{plan_token['relative']}")
-    object_id = located.stdout.decode("ascii", errors="ignore").strip()
-    if located.returncode or HEX_OBJECT.fullmatch(object_id) is None:
-        return None
-    kind = _git(repo, "cat-file", "-t", object_id)
-    if kind.returncode or kind.stdout.strip() != b"blob":
-        raise RemoteClaimError("published completion PLAN is not a regular Git blob")
-    measured = _git(repo, "cat-file", "-s", object_id)
-    try:
-        size = int(measured.stdout.decode("ascii").strip())
-    except (UnicodeError, ValueError) as exc:
-        raise RemoteClaimError("published completion PLAN size is invalid") from exc
-    if measured.returncode or size < 0 or size > MAX_PLAN_BYTES:
-        raise RemoteClaimError("published completion PLAN exceeds its bounded size")
-    content = _git(repo, "cat-file", "blob", object_id)
-    if content.returncode or len(content.stdout) != size:
-        raise RemoteClaimError("published completion PLAN could not be authenticated")
-    return content.stdout
+    content = published_file_bytes(repo, default_tip, plan_token["relative"])
+    return (content, default_tip) if content is not None else None
+
+
+def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None:
+    """Read the bounded current PLAN only when default authority contains its head."""
+    snapshot = published_plan_snapshot(repo, plan_token)
+    return snapshot[0] if snapshot is not None else None
 
 
 def managed_repo_for_plan(plan: Path) -> Path | None:
