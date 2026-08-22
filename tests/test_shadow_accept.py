@@ -1649,6 +1649,70 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"], [])
 
+    def test_completed_retry_authenticates_origin_before_pushing_a_behind_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, receipt = self.fixture(root)
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._board,
+                    "COMPLETION_RESERVATION_MINUTES",
+                    24 * 60,
+                ),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            completed_head = git(repo, "rev-parse", "HEAD")
+            self.assertEqual(git(remote, "rev-parse", "main"), completed_head)
+
+            advanced = root / "advanced"
+            subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            git(advanced, "config", "user.email", "t@example.invalid")
+            git(advanced, "config", "user.name", "T")
+            (advanced / "AFTER.txt").write_text("after completion\n", encoding="utf-8")
+            git(advanced, "add", "AFTER.txt")
+            git(advanced, "commit", "-qm", "advance published authority")
+            git(advanced, "push", "-q", "origin", "HEAD:main")
+            self.assertNotEqual(git(remote, "rev-parse", "main"), completed_head)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), completed_head)
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("remote claim completed", retry.stdout)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), completed_head)
+            completed_tip = git(remote, "rev-parse", receipt["ref"])
+            stored = json.loads(git(remote, "show", f"{completed_tip}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+
     def test_completion_reservation_refuses_identity_drift_or_an_earlier_local_lease(self) -> None:
         remote = {
             "entity": "a" * 64,

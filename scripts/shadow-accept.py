@@ -960,16 +960,20 @@ def ensure_completion_published(
     summary: str,
 ) -> int | None:
     """Publish on a tracking branch or authenticate an already-merged retry."""
-    if _remote_claim.uses_origin_upstream(repo):
-        result = publish_completion(repo, row_id, False, summary, announce=False)
-        return result or None
+    tracking = _remote_claim.uses_origin_upstream(repo)
     try:
         published_bytes = _remote_claim.published_plan_bytes(repo, plan_token)
     except _remote_claim.RemoteClaimError as exc:
+        if tracking:
+            result = publish_completion(repo, row_id, False, summary, announce=False)
+            return result or None
         raise AcceptError(
             "completion publication could not be authenticated; remote claim retained"
         ) from exc
     if published_bytes is None:
+        if tracking:
+            result = publish_completion(repo, row_id, False, summary, announce=False)
+            return result or None
         raise AcceptError(
             "completion is not published on the configured origin; remote claim retained"
         )
