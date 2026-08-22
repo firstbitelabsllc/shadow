@@ -1622,6 +1622,65 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"], [])
 
+    def test_local_completion_reservation_can_outlive_the_matching_remote_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
+            original = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._board,
+                    "COMPLETION_RESERVATION_MINUTES",
+                    24 * 60,
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                result = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+
+            self.assertEqual(result, 0, output.getvalue())
+            completed_tip = git(remote, "rev-parse", receipt["ref"])
+            stored = json.loads(git(remote, "show", f"{completed_tip}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            self.assertEqual(stored["claim"], original["claim"])
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+
+    def test_completion_reservation_refuses_identity_drift_or_an_earlier_local_lease(self) -> None:
+        remote = {
+            "entity": "a" * 64,
+            "row": "~ab12",
+            "owner": "seat-a",
+            "claimed_at": "2026-08-22T02:55:23Z",
+            "return_by": "2026-08-22T10:55:23Z",
+            "recovery": "probe-proof-then-adopt-park-or-close",
+        }
+        local = {**remote, "return_by": "2026-08-22T14:17:10Z"}
+
+        self.assertTrue(accept.completion_reservation_matches(local, remote))
+        self.assertTrue(accept.completion_reservation_matches(remote, remote))
+        self.assertFalse(
+            accept.completion_reservation_matches(
+                {key: value for key, value in local.items() if key != "return_by"},
+                remote,
+            )
+        )
+        for key, changed in (
+            ("entity", "b" * 64),
+            ("row", "~cd34"),
+            ("owner", "seat-b"),
+            ("claimed_at", "2026-08-22T02:55:24Z"),
+            ("recovery", "changed"),
+            ("return_by", "2026-08-22T10:55:22Z"),
+        ):
+            with self.subTest(key=key):
+                self.assertFalse(
+                    accept.completion_reservation_matches({**local, key: changed}, remote)
+                )
+
     def test_no_push_keeps_both_remote_and_local_claim_acquired(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
