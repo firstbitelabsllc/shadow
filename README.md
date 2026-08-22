@@ -23,7 +23,7 @@ The loop every seat runs: **claim → work → prove → accept → next**.
 ## Install
 
 ```bash
-git clone --branch shadow-v1.2.0 --depth 1 https://github.com/firstbitelabsllc/shadow.git
+git clone --branch shadow-v1.3.0 --depth 1 https://github.com/firstbitelabsllc/shadow.git
 cd shadow && bash install.sh && shadow doctor
 ```
 
