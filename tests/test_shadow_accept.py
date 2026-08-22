@@ -1725,6 +1725,110 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"], [])
 
+    def test_status_command_recovers_a_published_remote_only_completion_idempotently(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home_a, receipt = self.fixture(root)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home_a)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+
+            second = root / "second"
+            subprocess.run(
+                ["git", "clone", "-q", str(remote), str(second)],
+                check=True,
+            )
+            git(second, "config", "user.email", "t@example.invalid")
+            git(second, "config", "user.name", "T")
+            home_b = root / "home-b"
+            home_b.mkdir()
+
+            observed = run_shadow(
+                second,
+                home_b,
+                "status",
+                "--root",
+                str(second),
+                "--by",
+                "seat-a",
+            )
+
+            self.assertEqual(observed.returncode, 0, observed.stderr)
+            board = json.loads((home_b / ".shadow" / "board.json").read_text())
+            entity = board["entities"][0]["id"]
+            recovery_line = next(
+                line.strip()
+                for line in observed.stdout.splitlines()
+                if line.strip().startswith("Recover:")
+            )
+            self.assertEqual(
+                recovery_line,
+                f"Recover: shadow accept --entity {entity} --row '~ab12' --by seat-a",
+            )
+            recovery_argv = shlex.split(recovery_line.removeprefix("Recover: "))
+
+            recovered = subprocess.run(
+                [str(CLI), *recovery_argv[1:]],
+                cwd=second,
+                env={**os.environ, "HOME": str(home_b)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(recovered.returncode, 0, recovered.stdout + recovered.stderr)
+            self.assertIn("remote claim completed", recovered.stdout)
+            completed_tip = git(remote, "rev-parse", receipt["ref"])
+            stored = json.loads(git(remote, "show", f"{completed_tip}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            self.assertEqual(stored["entity"], entity)
+            self.assertEqual(stored["project"], "demo")
+            self.assertEqual(stored["owner"], "seat-a")
+            self.assertEqual(stored["row"], "~ab12")
+            self.assertEqual(
+                json.loads((home_b / ".shadow" / "board.json").read_text())["claims"],
+                [],
+            )
+
+            repeated = subprocess.run(
+                [str(CLI), *recovery_argv[1:]],
+                cwd=second,
+                env={**os.environ, "HOME": str(home_b)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+            self.assertEqual(git(remote, "rev-parse", receipt["ref"]), completed_tip)
+            after = run_shadow(
+                second,
+                home_b,
+                "status",
+                "--root",
+                str(second),
+                "--by",
+                "seat-a",
+            )
+            self.assertEqual(after.returncode, 0, after.stderr)
+            self.assertNotIn("Recover:", after.stdout)
+
     def test_detached_unpublished_completion_keeps_both_claims_acquired(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, remote, home, receipt = self.fixture(Path(dirname).resolve())
