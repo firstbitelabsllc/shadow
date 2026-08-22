@@ -307,7 +307,11 @@ def render_v4(record: dict, seat: str | None = None) -> str:
         ):
             verb = (
                 "accept"
-                if claim["state"] == "completed" and claim.get("remote")
+                if (
+                    claim["state"] == "completed"
+                    and claim.get("remote")
+                    and claim.get("proof", "").startswith("cmd ")
+                )
                 else "return"
             )
             lines.append(
@@ -509,6 +513,7 @@ def board_records(payload: dict) -> list[dict]:
                 "owner": claim["owner"],
                 "state": rows.get(claim["row"], {}).get("state", "unknown"),
                 "text": rows.get(claim["row"], {}).get("text", "UNKNOWN — row missing"),
+                "proof": rows.get(claim["row"], {}).get("fields", {}).get("proof", ""),
                 "remote": bool(claim.get("remote")),
             }
             for claim in claims

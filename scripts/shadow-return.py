@@ -22,6 +22,109 @@ sys.modules.setdefault("shadow_return_amp", amp)
 SPEC.loader.exec_module(amp)
 
 
+def _claim_from_remote_receipt(receipt: dict) -> dict:
+    return {
+        "entity": receipt["entity"],
+        "row": receipt["row"],
+        "owner": receipt["owner"],
+        **receipt["claim"],
+    }
+
+
+def _remote_only_manual_completion(
+    plan_path: Path,
+    plan_token: dict[str, str],
+    row: dict,
+    row_id: str,
+    owner: str,
+    current: dict,
+) -> dict | None:
+    """Authenticate one published read/gate completion with no local claim."""
+    repo = Path(plan_token["repo"])
+    if board.is_local_plan(plan_path):
+        return None
+    entity = current.get("entity") if current else None
+    project = current.get("project") if current else None
+    if entity is None or project is None:
+        raise board.BoardError("remote claim recovery cannot resolve its board identity")
+    try:
+        active = remote_claim.discover_active(
+            repo,
+            entity=entity["id"],
+            project=project["id"],
+            rows=[row_id],
+            relative=plan_token["relative"],
+            recover_detached=True,
+        )
+    except remote_claim.RemoteClaimError as exc:
+        raise board.BoardError(
+            "the completed row's remote claim could not be authenticated; "
+            "remote claim retained"
+        ) from exc
+    if not active:
+        return None
+    if len(active) != 1:
+        raise board.BoardError("the completed row has conflicting remote claims")
+    receipt = active[0]
+    if receipt["owner"] != owner:
+        raise board.BoardError(
+            f"{row_id} has a remote claim owned by {receipt['owner']}, not {owner}"
+        )
+    local_proof = row["fields"].get("proof", "")
+    if not local_proof.startswith(("read ", "gate ")):
+        raise board.BoardError(
+            "remote-only return requires a completed read or gate proof; "
+            "use shadow accept for a cmd proof"
+        )
+    try:
+        published_bytes = remote_claim.published_plan_bytes(repo, plan_token)
+    except remote_claim.RemoteClaimError as exc:
+        raise board.BoardError(
+            "completion publication could not be authenticated; remote claim retained"
+        ) from exc
+    if published_bytes is None:
+        raise board.BoardError(
+            "completed manual proof is not published on the configured origin; "
+            "remote claim retained"
+        )
+    try:
+        published_text = published_bytes.decode("utf-8")
+    except UnicodeError as exc:
+        raise board.BoardError(
+            "the current published project plan is not UTF-8; remote claim retained"
+        ) from exc
+    published = amp._parse(published_text)
+    unclean = amp.unclean_note(published)
+    if unclean:
+        raise board.BoardError(
+            f"the current published project plan cannot close a remote claim: {unclean}"
+        )
+    matches = [
+        candidate
+        for milestone in published["milestones"]
+        for candidate in milestone["rows"]
+        if candidate["id"] == row_id
+    ]
+    if len(matches) != 1:
+        raise board.BoardError(
+            "current origin default PLAN no longer carries exactly one completed row; "
+            "remote claim retained"
+        )
+    published_row = matches[0]
+    published_proof = published_row["fields"].get("proof", "")
+    if (
+        published_row["state"] != "completed"
+        or published_proof != local_proof
+        or not published_proof.startswith(("read ", "gate "))
+        or not board.progress_proof_receipts(published_text, row_id)
+    ):
+        raise board.BoardError(
+            "current origin default PLAN no longer carries the completed manual proof "
+            "and its receipt; remote claim retained"
+        )
+    return _claim_from_remote_receipt(receipt)
+
+
 def main(argv: list[str] | None = None) -> int:
     remote_claim.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow return", description=__doc__)
@@ -99,22 +202,34 @@ def main(argv: list[str] | None = None) -> int:
             # Resume arbitration needs the full reachable order, including rows
             # currently claimed by other seats. The board removes this row itself.
             parsed["claimed"] = set()
-            if claim is not None and not board.is_local_plan(plan_path):
+            remote_only_claim = None
+            if claim is None and reason == "completed":
+                remote_only_claim = _remote_only_manual_completion(
+                    plan_path,
+                    plan_token,
+                    row,
+                    args.row,
+                    args.by,
+                    current,
+                )
+            transition_claim = claim or remote_only_claim
+            if transition_claim is not None and not board.is_local_plan(plan_path):
                 repo = Path(plan_token["repo"])
                 remote = remote_claim.transition(
                     repo,
-                    entity=claim["entity"],
+                    entity=transition_claim["entity"],
                     row=args.row,
                     owner=args.by,
                     project=current["project"]["id"],
                     plan_token=plan_token,
-                    claim=claim,
+                    claim=transition_claim,
                     state="completed" if reason == "completed" else "released",
                     reason=reason,
+                    recover_detached=remote_only_claim is not None,
                 )
                 if remote is not None and remote["status"] != "acquired":
                     raise board.BoardError(
-                        "remote claim transition was not confirmed; exact local claim retained"
+                        "remote claim transition was not confirmed; exact claim retained"
                     )
             result = board.release(
                 plan_path,
@@ -134,6 +249,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     payload, changed = result
     if not changed:
+        if remote_only_claim is not None:
+            print(
+                f"returned {args.row} (completed); remote claim completed; "
+                f"local claim already absent at revision {payload['revision']}"
+            )
+            return 0
         print(f"{args.row} already absent; root board unchanged at revision {payload['revision']}")
         return 0
     print(f"returned {args.row} ({reason}); root board revision {payload['revision']}")
