@@ -2081,9 +2081,13 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
         if match is not None and match.group("id") == row:
             row_matches.append(match)
     if not row_matches:
+        if reason == "orphan":
+            return
         raise BoardError("claim return row is missing from the project plan")
     if len(row_matches) != 1:
         raise BoardError("claim return row id is duplicated in the project plan")
+    if reason == "orphan":
+        raise BoardError("orphan return requires the claim row to be absent")
     row_match = row_matches[0]
     state = row_match.group(1)
     if reason == "handback":

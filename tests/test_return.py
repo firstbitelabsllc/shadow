@@ -365,6 +365,41 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
             self.assertIn("returned ~aa11 (completed)", recovered.stdout)
             self.assertEqual(payload(home)["claims"], [])
 
+    def test_retired_row_orphan_is_released_by_exact_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            claimed = run(
+                env, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            entity = payload(home)["entities"][0]["id"]
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "- [pending] inspect the result ~aa11 | proof: read artifact -> correct\n",
+                    "",
+                ).replace(" | needs: ~aa11", ""),
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "retire claimed row")
+
+            recovered = run(
+                env,
+                "return",
+                "--entity",
+                entity,
+                "--row",
+                "~aa11",
+                "--by",
+                "seat-a",
+                cwd=home,
+            )
+
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertIn("returned ~aa11 (orphan)", recovered.stdout)
+            self.assertEqual(payload(home)["claims"], [])
+
 
 class BlockedReturnsNeedOneDurableWake(unittest.TestCase):
     def test_deferred_wake_for_another_row_cannot_close_this_claim_by_substring(self) -> None:
