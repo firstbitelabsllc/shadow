@@ -1010,6 +1010,20 @@ def claim_from_remote_receipt(receipt: dict) -> dict:
     }
 
 
+def completion_reservation_matches(local: dict, remote: dict) -> bool:
+    """Allow only the bounded local lease extension made while accepting."""
+    identity = ("entity", "row", "owner", "claimed_at", "recovery")
+    fields = (*identity, "return_by")
+    return (
+        all(
+            isinstance(local.get(key), str) and isinstance(remote.get(key), str)
+            for key in fields
+        )
+        and all(local.get(key) == remote.get(key) for key in identity)
+        and local.get("return_by", "") >= remote.get("return_by", "")
+    )
+
+
 def transition_remote_completion(
     repo: Path,
     plan_path: Path,
@@ -1062,10 +1076,7 @@ def finalize_completion(
         if published:
             return published
         remote_claim = claim_from_remote_receipt(receipt) if receipt is not None else claim
-        if receipt is not None and any(
-            claim.get(key) != remote_claim.get(key)
-            for key in ("claimed_at", "return_by", "recovery")
-        ):
+        if receipt is not None and not completion_reservation_matches(claim, remote_claim):
             raise AcceptError(
                 "local and remote completion claims disagree; exact local claim retained"
             )
