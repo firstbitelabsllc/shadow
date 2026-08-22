@@ -39,6 +39,17 @@ class DistributionContractTests(unittest.TestCase):
         self.assertEqual(PurePosixPath(claude_path).as_posix(), "plugins/shadow")
         self.assertTrue((ROOT / claude_path).is_dir())
 
+    def test_portable_package_ships_the_front_door_and_the_goal_compiler(self) -> None:
+        # One install of the shadow plugin carries both skills; the goal
+        # compiler is not a second package or a loose mount.
+        skills_root = ROOT / "plugins/shadow/skills"
+        skills = sorted(
+            path.relative_to(skills_root).as_posix()
+            for path in skills_root.rglob("SKILL.md")
+        )
+        self.assertEqual(skills, ["amplify/SKILL.md", "shadow/SKILL.md"])
+        self.assertTrue((skills_root / "amplify/references/amplify.md").is_file())
+
     def test_hosted_coach_never_claims_local_authority(self) -> None:
         coach = (ROOT / "distribution/custom-gpt/instructions.md").read_text(
             encoding="utf-8"
