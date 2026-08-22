@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Return one local claim after completion, parking, or an explicit handback."""
+"""Return one owned claim, including a published remote-only manual completion."""
 
 from __future__ import annotations
 

@@ -6,7 +6,7 @@ It parses the project PLAN.md, finds the row by its ~hash id, reruns a
 ``cmd``-classed proof inside a detached clean worktree of HEAD, and — only on
 success — rewrites the row's state and appends the paired PROOF Progress line
 in one commit. Its path-free ``--entity`` form also reconciles an authenticated,
-published completion whose remote journal remains acquired. ``read`` and
+published ``cmd`` completion whose remote journal remains acquired. ``read`` and
 ``gate`` proofs are person/agent judgments and are refused here on purpose.
 """
 
