@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
+import hashlib
 import io
 import json
 import os
@@ -1709,6 +1710,116 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             self.assertEqual(git(repo, "rev-parse", "HEAD"), completed_head)
             completed_tip = git(remote, "rev-parse", receipt["ref"])
             stored = json.loads(git(remote, "show", f"{completed_tip}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(payload["claims"], [])
+
+    def test_completed_retry_authenticates_a_current_lifecycle_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, receipt = self.fixture(root)
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+
+            completed_head = git(remote, "rev-parse", "main")
+            completed_blob = git(remote, "rev-parse", f"{completed_head}:PLAN.md")
+            completed_plan = git(remote, "show", "main:PLAN.md") + "\n"
+            row_line = next(
+                line for line in completed_plan.splitlines()
+                if "[completed]" in line and "~ab12" in line
+            )
+            receipt_line = next(
+                line for line in completed_plan.splitlines()
+                if "~ab12 PROOF" in line and "pass (accept)" in line
+            )
+            archive_body = (
+                "# Archived milestone: demo\n\n"
+                "Source: `PLAN.md`\n\n"
+                "## Exact milestone block\n\n"
+                f"{row_line}\n"
+                "## Exact Progress receipts\n\n"
+                f"{receipt_line}\n"
+            )
+            digest = hashlib.sha256(archive_body.encode("utf-8")).hexdigest()
+            cas = "1" * 64
+            marker = (
+                "- Archived milestone: [demo](docs/plan-archive/demo.md) "
+                f"<!-- shadow:lifecycle:demo:sha256:{digest}:cas:{cas}:"
+                f"head:{completed_head}:blob:{completed_blob}:successor:~cd34 -->"
+            )
+            archive = (
+                f"<!-- shadow:archive:v1:demo:sha256:{digest}:cas:{cas}:"
+                f"head:{completed_head}:blob:{completed_blob}:successor:~cd34 -->\n"
+                f"{archive_body}"
+            )
+            compacted = "\n".join(
+                line for line in completed_plan.splitlines()
+                if line not in {row_line, receipt_line}
+            ).replace("## Tasks\n", f"## Tasks\n\n{marker}\n", 1) + "\n"
+
+            advanced = root / "advanced"
+            subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            git(advanced, "config", "user.email", "t@example.invalid")
+            git(advanced, "config", "user.name", "T")
+            (advanced / "PLAN.md").write_text(compacted, encoding="utf-8")
+            archived = advanced / "docs" / "plan-archive" / "demo.md"
+            archived.parent.mkdir(parents=True)
+            archived.write_text(archive, encoding="utf-8")
+            git(advanced, "add", "PLAN.md", "docs/plan-archive/demo.md")
+            git(advanced, "commit", "-qm", "shadow: archive milestone demo")
+            git(advanced, "push", "-q", "origin", "HEAD:main")
+
+            snapshot = accept._remote_claim.published_plan_snapshot(repo, receipt["plan"])
+            self.assertIsNotNone(snapshot)
+            published_bytes, default_tip = snapshot
+            self.assertIn(marker, published_bytes.decode("utf-8"))
+            _, _, _, local_proof, _ = accept.find_row(
+                (repo / "PLAN.md").read_text(encoding="utf-8"), "~ab12"
+            )
+            self.assertTrue(
+                accept.completion_matches_lifecycle_archive(
+                    repo,
+                    published_bytes.decode("utf-8"),
+                    receipt["plan"],
+                    default_tip,
+                    "~ab12",
+                    local_proof,
+                )
+            )
+
+            retry = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("remote claim completed", retry.stdout)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
             self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"], [])
