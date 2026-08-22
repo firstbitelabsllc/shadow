@@ -7,6 +7,12 @@
   carries both the front door and `amplify`. Content is byte-identical; the
   root `SKILL.md`, `claudux.md`, the release manifest, and the tests point at
   the new path, and the distribution contract now pins the plugin's skill set.
+- The portable `shadow` skill speaks in the product voice: the installed
+  1.1.4 text (built from the closed lane `codex/shadow-portable-v111` at
+  `8ed1fc31`) replaces the numbered-brief text on trunk, so the front door
+  people have used since 2026-08-16 is the one the release ships. The
+  distribution contract now pins the backstage/no-template phrases instead
+  of the three brief questions.
 - Docs truth sweep: the guide pages no longer pin the never-tagged
   `shadow-v1.0.1` (install tags are now contract-tested against `VERSION`);
   Grok joins every host enumeration, the doctor/amp help text, and the config
