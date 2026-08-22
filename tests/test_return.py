@@ -520,6 +520,76 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
             self.assertEqual(retry.returncode, 0, retry.stderr)
             self.assertEqual(payload(home)["claims"], [])
 
+    def test_terminal_remote_from_an_older_claim_allows_local_orphan_handback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = fixture(root)
+            remote = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            git(repo, "remote", "add", "origin", str(remote))
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            self.assertEqual(run(env, "status", "--json", cwd=repo).returncode, 0)
+            entity = payload(home)["entities"][0]["id"]
+            plan_token, _ = board.committed_plan_snapshot(repo / "PLAN.md")
+            old_claim = {
+                "claimed_at": "2026-08-10T00:00:00Z",
+                "return_by": "2026-08-10T01:00:00Z",
+                "recovery": board.RECOVERY_ACTION,
+            }
+            acquired = remote_claim.acquire(
+                repo,
+                entity=entity,
+                row="~aa11",
+                owner="seat-old",
+                project="return-fixture",
+                plan_token=plan_token,
+                **old_claim,
+            )
+            self.assertEqual(acquired["status"], "acquired")
+            released = remote_claim.transition(
+                repo,
+                entity=entity,
+                row="~aa11",
+                owner="seat-old",
+                project="return-fixture",
+                plan_token=plan_token,
+                claim=old_claim,
+                state="released",
+                reason="handback",
+            )
+            self.assertEqual(released["status"], "acquired")
+            ref = remote_claim.claim_ref(entity, "~aa11")
+            terminal_tip = subprocess.run(
+                ["git", "-C", str(remote), "rev-parse", ref],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            board.claim(
+                repo / "PLAN.md",
+                "~aa11",
+                "seat-new",
+                project="return-fixture",
+                priority=2,
+                home=home,
+            )
+
+            returned = run(
+                env, "return", "--repo", str(repo), "--row", "~aa11", "--by", "seat-new"
+            )
+
+            self.assertEqual(returned.returncode, 0, returned.stdout + returned.stderr)
+            self.assertEqual(payload(home)["claims"], [])
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(remote), "rev-parse", ref],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                terminal_tip,
+            )
+
     def test_wrong_owner_cannot_close_and_right_owner_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))

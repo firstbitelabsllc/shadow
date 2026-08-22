@@ -229,7 +229,13 @@ def main(argv: list[str] | None = None) -> int:
                     reason=reason,
                     recover_detached=remote_only_claim is not None,
                 )
-                if remote is not None and remote["status"] != "acquired":
+                terminal_handback = (
+                    remote is not None
+                    and reason != "completed"
+                    and remote["status"] == "lost"
+                    and remote["failure"] == "claim_terminal"
+                )
+                if remote is not None and remote["status"] != "acquired" and not terminal_handback:
                     raise board.BoardError(
                         "remote claim transition was not confirmed; exact claim retained"
                     )
