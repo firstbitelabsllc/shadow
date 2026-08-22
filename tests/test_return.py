@@ -209,6 +209,20 @@ class RemoteOnlyManualCompletionRecovery(unittest.TestCase):
                     recovery_line,
                     f"Recover: shadow return --entity {entity} --row '~aa11' --by seat-a",
                 )
+                projected = run(
+                    env_b,
+                    "status",
+                    "--json",
+                    "--root",
+                    str(second),
+                    cwd=second,
+                )
+                self.assertEqual(projected.returncode, 0, projected.stderr)
+                live_claim = json.loads(projected.stdout)["v4_plans"][0][
+                    "live_claims"
+                ][0]
+                self.assertEqual(live_claim["proof_class"], proof.partition(" ")[0])
+                self.assertNotIn("proof", live_claim)
 
                 wrong = run(
                     env_b,
@@ -374,6 +388,67 @@ class RemoteOnlyManualCompletionRecovery(unittest.TestCase):
             )
             self.assertEqual(stored["state"], "acquired")
             self.assertEqual(payload(home_b)["claims"], [])
+
+    def test_conflicting_local_owner_cannot_partially_close_the_remote_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, remote, _home_a, _env_a, receipt = remote_fixture(root)
+            complete_manual_row(repo, "read artifact -> correct")
+            git(repo, "push", "-qu", "origin", "HEAD:main")
+            second = root / "second"
+            subprocess.run(
+                ["git", "clone", "-q", str(remote), str(second)],
+                check=True,
+            )
+            git(second, "config", "user.email", "shadow-test@example.invalid")
+            git(second, "config", "user.name", "Shadow Test")
+            home_b = root / "home-b"
+            home_b.mkdir()
+            env_b = {
+                **os.environ,
+                "HOME": str(home_b),
+                "SHADOW_PORTFOLIO_ROOT": str(second),
+            }
+            entity, recovery_line = recovery_command(env_b, second)
+            board.claim(
+                second / "PLAN.md",
+                "~aa11",
+                "seat-b",
+                project="return-fixture",
+                priority=2,
+                home=home_b,
+            )
+            acquired_tip = subprocess.run(
+                ["git", "-C", str(remote), "rev-parse", receipt["ref"]],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            recovery_argv = shlex.split(recovery_line.removeprefix("Recover: "))
+
+            refused = run(env_b, *recovery_argv[1:], cwd=second)
+
+            self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+            self.assertIn("seat-b", refused.stderr)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(remote), "rev-parse", receipt["ref"]],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                acquired_tip,
+            )
+            stored = json.loads(
+                subprocess.run(
+                    ["git", "-C", str(remote), "show", f"{receipt['ref']}:claim.json"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout
+            )
+            self.assertEqual(stored["state"], "acquired")
+            self.assertEqual(payload(home_b)["claims"][0]["owner"], "seat-b")
 
 
 class ReturnRequiresTheClaimOwner(unittest.TestCase):

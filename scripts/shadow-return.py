@@ -170,10 +170,12 @@ def main(argv: list[str] | None = None) -> int:
             claim = next(
                 (
                     item for item in (current["claims"] if current else [])
-                    if item["row"] == args.row and item["owner"] == args.by
+                    if item["row"] == args.row
                 ),
                 None,
             )
+            if claim is not None and claim["owner"] != args.by:
+                raise board.BoardError(f"claim is owned by {claim['owner']}")
             rows = [
                 row
                 for milestone in parsed["milestones"]
