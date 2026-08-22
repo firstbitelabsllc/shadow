@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 — 2026-08-22 — the plugin is the umbrella: amplify ships inside it, in the product voice
 
 - The goal compiler ships inside the portable plugin: `skills/amplify/` moved
   to `plugins/shadow/skills/amplify/`, so one install of the `shadow` plugin
