@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 import os
 import re
@@ -21,7 +22,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +58,14 @@ ROW_LINE_RE = _grammar.ROW_RE
 # the receipts` is a Progress section to the enforcer, so an exact-string match
 # here would refuse to append the PROOF line after a proof that already passed.
 PROGRESS_HEADING_RE = re.compile(r"^## Progress(?: [^\n]*)?$", re.MULTILINE)
+LIFECYCLE_ARCHIVE_RE = re.compile(
+    r"^- Archived milestone: \[(?P<slug>[a-z0-9][a-z0-9-]*)\]"
+    r"\((?P<path>[^)]+)\) "
+    r"<!-- shadow:lifecycle:(?P=slug):sha256:(?P<digest>[0-9a-f]{64}):"
+    r"cas:(?P<cas>[0-9a-f]{64}):head:(?P<head>[0-9a-f]{40}):"
+    r"blob:(?P<blob>[0-9a-f]{40}):"
+    r"successor:(?P<successor>~[0-9a-z]{4}|none) -->$"
+)
 
 
 _shell_script_index = _grammar.shell_script_index
@@ -962,7 +971,7 @@ def ensure_completion_published(
     """Publish on a tracking branch or authenticate an already-merged retry."""
     tracking = _remote_claim.uses_origin_upstream(repo)
     try:
-        published_bytes = _remote_claim.published_plan_bytes(repo, plan_token)
+        snapshot = _remote_claim.published_plan_snapshot(repo, plan_token)
     except _remote_claim.RemoteClaimError as exc:
         if tracking:
             result = publish_completion(repo, row_id, False, summary, announce=False)
@@ -970,39 +979,152 @@ def ensure_completion_published(
         raise AcceptError(
             "completion publication could not be authenticated; remote claim retained"
         ) from exc
-    if published_bytes is None:
+    if snapshot is None:
         if tracking:
             result = publish_completion(repo, row_id, False, summary, announce=False)
             return result or None
         raise AcceptError(
             "completion is not published on the configured origin; remote claim retained"
         )
+    published_bytes, default_tip = snapshot
     try:
         published_text = published_bytes.decode("utf-8")
         _, _, local_state, local_proof, _ = find_row(plan_text, row_id)
-        _, _, published_state, published_proof, _ = find_row(published_text, row_id)
-        if not published_proof.startswith("cmd "):
-            raise AcceptError("published completion proof is not command-classed")
-        published_argv = proof_argv(published_proof[4:])
     except (UnicodeError, AcceptError) as exc:
         raise AcceptError(
             "current origin default PLAN no longer carries the completed row and "
             "matching accept proof; remote claim retained"
         ) from exc
-    if (
-        local_state != "completed"
-        or published_state != "completed"
-        or not local_proof.startswith("cmd ")
-        or published_proof != local_proof
-        or not _board.has_accept_proof_receipt(
-            published_text, row_id, published_argv
-        )
-    ):
+    if local_state != "completed" or not local_proof.startswith("cmd "):
         raise AcceptError(
             "current origin default PLAN no longer carries the completed row and "
             "matching accept proof; remote claim retained"
         )
-    return None
+    if completion_matches(published_text, row_id, local_proof):
+        return None
+    if any(
+        row.group("id") == row_id
+        for line in published_text.splitlines()
+        if (row := ROW_LINE_RE.match(line)) is not None
+    ):
+        raise AcceptError(
+            "current origin default PLAN carries a conflicting live row; "
+            "remote claim retained"
+        )
+    if completion_matches_lifecycle_archive(
+        repo,
+        published_text,
+        plan_token,
+        default_tip,
+        row_id,
+        local_proof,
+    ):
+        return None
+    raise AcceptError(
+        "current origin default PLAN no longer carries the completed row and "
+        "matching accept proof; remote claim retained"
+    )
+
+
+def completion_matches(
+    text: str,
+    row_id: str,
+    local_proof: str,
+    *,
+    archived: bool = False,
+) -> bool:
+    """Whether one text carries the exact accepted command completion."""
+    matching = [
+        row
+        for line in text.splitlines()
+        if (row := ROW_LINE_RE.match(line)) is not None and row.group("id") == row_id
+    ]
+    if not matching:
+        return False
+    _, _, state, proof, _ = find_row(text, row_id)
+    if not proof.startswith("cmd "):
+        raise AcceptError("published completion proof is not command-classed")
+    argv = proof_argv(proof[4:])
+    return (
+        state == "completed"
+        and proof == local_proof
+        and (
+            has_archive_accept_proof_receipt(text, row_id, argv)
+            if archived
+            else _board.has_accept_proof_receipt(text, row_id, argv)
+        )
+    )
+
+
+def has_archive_accept_proof_receipt(
+    text: str,
+    row_id: str,
+    argv: list[str],
+) -> bool:
+    """Read lifecycle's non-executable Exact Progress receipt section."""
+    active = False
+    expected = (shlex.join(argv), "pass (accept)")
+    for line in text.splitlines():
+        if line.startswith("## "):
+            active = line.strip() == "## Exact Progress receipts"
+            continue
+        if not active:
+            continue
+        receipt = _board.progress_proof_receipt(line)
+        if receipt is not None and receipt[0] == row_id and receipt[1:] == expected:
+            return True
+    return False
+
+
+def completion_matches_lifecycle_archive(
+    repo: Path,
+    published_text: str,
+    plan_token: dict[str, str],
+    default_tip: str,
+    row_id: str,
+    local_proof: str,
+) -> bool:
+    """Authenticate an accepted row moved by current Shadow lifecycle."""
+    plan_parent = PurePosixPath(plan_token["relative"]).parent
+    matches = 0
+    for line in published_text.splitlines():
+        marker = LIFECYCLE_ARCHIVE_RE.match(line)
+        if marker is None:
+            continue
+        archive_path = PurePosixPath(marker.group("path"))
+        if archive_path.is_absolute() or any(
+            part in {"", ".", ".."} for part in archive_path.parts
+        ):
+            raise AcceptError("published lifecycle archive path is unsafe")
+        relative = (plan_parent / archive_path).as_posix()
+        try:
+            archive_bytes = _remote_claim.published_file_bytes(
+                repo, default_tip, relative
+            )
+        except _remote_claim.RemoteClaimError as exc:
+            raise AcceptError("published lifecycle archive could not be authenticated") from exc
+        if archive_bytes is None:
+            raise AcceptError("published lifecycle archive is missing")
+        expected_header = (
+            f"<!-- shadow:archive:v1:{marker.group('slug')}:"
+            f"sha256:{marker.group('digest')}:cas:{marker.group('cas')}:"
+            f"head:{marker.group('head')}:blob:{marker.group('blob')}:"
+            f"successor:{marker.group('successor')} -->\n"
+        ).encode("ascii")
+        if not archive_bytes.startswith(expected_header):
+            raise AcceptError("published lifecycle archive identity does not match its marker")
+        body = archive_bytes[len(expected_header):]
+        if hashlib.sha256(body).hexdigest() != marker.group("digest"):
+            raise AcceptError("published lifecycle archive digest does not match its marker")
+        try:
+            archive_text = body.decode("utf-8")
+        except UnicodeError as exc:
+            raise AcceptError("published lifecycle archive is not valid UTF-8") from exc
+        if completion_matches(archive_text, row_id, local_proof, archived=True):
+            matches += 1
+    if matches > 1:
+        raise AcceptError("published lifecycle archives duplicate the completed row")
+    return matches == 1
 
 
 def claim_from_remote_receipt(receipt: dict) -> dict:
