@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AGENT = ROOT / "AGENT.md"
 GRAMMAR = ROOT / "docs" / "reference" / "grammar.md"
 SKILL = ROOT / "SKILL.md"
-AMPLIFY_SKILL = ROOT / "skills" / "amplify" / "SKILL.md"
+AMPLIFY_SKILL = ROOT / "plugins" / "shadow" / "skills" / "amplify" / "SKILL.md"
 
 
 class GrammarContractTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class GrammarContractTests(unittest.TestCase):
         amplify_skill = AMPLIFY_SKILL.read_text(encoding="utf-8")
         normalized_goal = " ".join(amplify_skill.split())
 
-        self.assertIn("`skills/amplify/SKILL.md` owns goal shaping", root_skill)
+        self.assertIn("`plugins/shadow/skills/amplify/SKILL.md` owns goal shaping", root_skill)
         self.assertNotIn("Outcome: <plain result>", root_skill)
         for anchor in (
             "A goal is a pointer, not a plan",

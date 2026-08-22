@@ -51,7 +51,7 @@ message, or receipt is not acceptance proof by itself.
 
 ## Shape a goal
 
-`skills/amplify/SKILL.md` owns goal shaping. The one standing Shadow goal remains
+`plugins/shadow/skills/amplify/SKILL.md` owns goal shaping. The one standing Shadow goal remains
 unchanged and skill-free. A specific goal is normally four lines and at most 80
 words: outcome, resume, proof, and `Skills:` with one to four canonical names
 resolved from the current local catalog. Broad intent compiles into the owning
@@ -70,7 +70,7 @@ owning `PLAN.md` in the same move or it did not happen.
 
 When the request is a loose steer rather than a task ("use adversaries", "dial
 in jordan mode", "focus on details"), translate it with
-`skills/amplify/references/amplify.md` — the steer-to-mechanism table, the filler
+`plugins/shadow/skills/amplify/references/amplify.md` — the steer-to-mechanism table, the filler
 test, and the rule that every mechanism gets a proof that can refuse it.
 
 `shadow goal` prints the static standing goal for a host's instruction file.

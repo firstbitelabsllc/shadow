@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The goal compiler ships inside the portable plugin: `skills/amplify/` moved
+  to `plugins/shadow/skills/amplify/`, so one install of the `shadow` plugin
+  carries both the front door and `amplify`. Content is byte-identical; the
+  root `SKILL.md`, `claudux.md`, the release manifest, and the tests point at
+  the new path, and the distribution contract now pins the plugin's skill set.
 - Docs truth sweep: the guide pages no longer pin the never-tagged
   `shadow-v1.0.1` (install tags are now contract-tested against `VERSION`);
   Grok joins every host enumeration, the doctor/amp help text, and the config
