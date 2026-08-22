@@ -1008,7 +1008,8 @@ def ensure_completion_published(
         if (row := ROW_LINE_RE.match(line)) is not None
     ):
         raise AcceptError(
-            "current origin default PLAN carries a conflicting live row; "
+            "current origin default PLAN no longer carries the accepted completion; "
+            "it carries a conflicting live row; "
             "remote claim retained"
         )
     if completion_matches_lifecycle_archive(
