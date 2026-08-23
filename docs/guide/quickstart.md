@@ -99,10 +99,12 @@ shadow status --in-flight --json
 ```
 
 At the end of the chat, render an **Ongoing tasks** footer from that fresh
-in-flight projection: claims first, then the current seat's reachable and
-waiting rows, with owner, state, proof, and wake. Print `Active tasks: none`
-only when the board has no ongoing work. This is a view of `~/.shadow`, never a
-second queue.
+in-flight projection: live claims first, with owner, state, proof, and wake.
+Read `shadow status --by <seat>` for one bounded next move when the seat owns no
+claim. This bounded footer does not enumerate every reachable or waiting row,
+so it must not imply that unseen work is absent. Print `Active tasks: none`
+only when the fresh in-flight projection has no live claims. This is a view of
+`~/.shadow`, never a second queue.
 
 ## Next references
 

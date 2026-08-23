@@ -604,6 +604,36 @@ printf '%s\n' 'The fixture project is shipping its cold activation verifier from
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn("described its current work", result.stdout)
 
+    def test_the_cold_host_cannot_load_the_full_json_portfolio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            path = self._fake_host(
+                home,
+                "claude",
+                """if shadow status --json >/dev/null 2>&1; then
+  exit 41
+fi
+printf '%s\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'""",
+            )
+            result = run(home, path=path, live=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+
+    def test_the_cold_host_can_read_compact_in_flight_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            path = self._fake_host(
+                home,
+                "claude",
+                """shadow status --in-flight --json | grep -q 'shadow.in-flight.v1'
+printf '%s\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'""",
+            )
+            result = run(home, path=path, live=True)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+
     def test_a_nonzero_host_exit_fails_distinctly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

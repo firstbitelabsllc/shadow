@@ -63,6 +63,9 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             self.assertIn("shadow status --in-flight --json", text)
             self.assertIn("Ongoing tasks", text)
             self.assertIn("Active tasks: none", text)
+            self.assertIn("one bounded next move", text)
+            self.assertIn("does not enumerate every reachable or waiting row", text)
+        self.assertNotIn("group other reachable or waiting work", skill)
 
     def test_the_two_seat_harness_stays_written_down(self) -> None:
         commands = (ROOT / "docs" / "reference" / "commands.md").read_text(encoding="utf-8")
