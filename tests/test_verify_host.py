@@ -92,6 +92,48 @@ def wired(home: Path, host: str = "claude-code") -> None:
         path.write_text(f"# my rules\n\nkeep these\n\n{block}\n", encoding="utf-8")
 
 
+def add_dirty_managed_plan(home: Path) -> None:
+    """Add one unrelated Git plan whose remote-claim health is unavailable."""
+    repo = home / "portfolio" / "unrelated"
+    repo.mkdir(parents=True)
+    plan = repo / "PLAN.md"
+    plan.write_text(
+        PLAN.replace("# Fixture", "# Unrelated")
+        .replace("- Project: fixture", "- Project: unrelated")
+        .replace("~aa11", "~bb11"),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "PLAN.md"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Verifier Test",
+            "-c",
+            "user.email=verifier@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "fixture",
+        ],
+        check=True,
+    )
+    remote = home / "unrelated.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", str(remote)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "-q", "-u", "origin", "main"],
+        check=True,
+    )
+    plan.write_text(plan.read_text(encoding="utf-8") + "\n<!-- dirty -->\n")
+
+
 class AWiredHostPasses(unittest.TestCase):
     def test_the_happy_path_is_green(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -305,44 +347,7 @@ class EveryCheckCanFail(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             wired(home)
-            repo = home / "portfolio" / "unrelated"
-            repo.mkdir(parents=True)
-            plan = repo / "PLAN.md"
-            plan.write_text(
-                PLAN.replace("# Fixture", "# Unrelated")
-                .replace("- Project: fixture", "- Project: unrelated")
-                .replace("~aa11", "~bb11"),
-                encoding="utf-8",
-            )
-            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
-            subprocess.run(["git", "-C", str(repo), "add", "PLAN.md"], check=True)
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repo),
-                    "-c",
-                    "user.name=Verifier Test",
-                    "-c",
-                    "user.email=verifier@example.invalid",
-                    "commit",
-                    "-q",
-                    "-m",
-                    "fixture",
-                ],
-                check=True,
-            )
-            remote = home / "unrelated.git"
-            subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
-            subprocess.run(
-                ["git", "-C", str(repo), "remote", "add", "origin", str(remote)],
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-C", str(repo), "push", "-q", "-u", "origin", "main"],
-                check=True,
-            )
-            plan.write_text(plan.read_text(encoding="utf-8") + "\n<!-- dirty -->\n")
+            add_dirty_managed_plan(home)
 
             result = run(home)
 
@@ -417,6 +422,23 @@ printf '%s\n' 'For fixture, I am finishing the verifier that activates cold host
             self.assertIn("--no-session-persistence", asked)
             self.assertIn("--permission-mode plan", asked)
             self.assertNotEqual(cwd.read_text(encoding="utf-8").strip(), str(ROOT))
+
+    def test_unrelated_plan_health_does_not_block_the_live_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            add_dirty_managed_plan(home)
+            path = self._fake_host(
+                home,
+                "claude",
+                "printf '%s\\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'",
+            )
+
+            result = run(home, path=path, live=True)
+
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("unrelated plan health", result.stdout)
+            self.assertIn("described its current work", result.stdout)
 
     def test_the_named_seats_claim_outranks_another_projects_global_resume(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
