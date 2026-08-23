@@ -210,6 +210,44 @@ class OmittedRowsAreCounted(StatusTests):
 
 
 class StatusV4Tests(StatusTests):
+    def test_by_focuses_the_human_view_on_the_seats_next_entity(self) -> None:
+        # A cold seat needs every claim it owns or one exact next claim, not a
+        # transcript-sized rendering of every open checkpoint on the machine.
+        # The unscoped human view remains the full portfolio for inspection.
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            alpha = root / "alpha"
+            beta = root / "beta"
+            alpha.mkdir()
+            beta.mkdir()
+            alpha.joinpath("PLAN.md").write_text(
+                V4_PLAN.replace("# Demo v4", "# Alpha")
+                .replace("Project: demo", "Project: alpha")
+                .replace("the ready row", "the alpha cold-start row"),
+                encoding="utf-8",
+            )
+            beta.joinpath("PLAN.md").write_text(
+                V4_PLAN.replace("# Demo v4", "# Beta")
+                .replace("Project: demo", "Project: beta")
+                .replace("the ready row", "the beta portfolio-only row"),
+                encoding="utf-8",
+            )
+
+            focused = self.run_status(root, "--by", "cold-seat")
+            full = self.run_status(root)
+
+        self.assertEqual(focused.returncode, 0, focused.stderr)
+        self.assertIn("Portfolio: 2 entities", focused.stdout)
+        self.assertIn("alpha —", focused.stdout)
+        self.assertIn("the alpha cold-start row", focused.stdout)
+        self.assertIn("--by cold-seat", focused.stdout)
+        self.assertNotIn("Milestone rotation:", focused.stdout)
+        self.assertNotIn("beta —", focused.stdout)
+        self.assertNotIn("the beta portfolio-only row", focused.stdout)
+        self.assertLess(len(focused.stdout), len(full.stdout))
+        self.assertIn("beta —", full.stdout)
+        self.assertIn("the beta portfolio-only row", full.stdout)
+
     def test_partitioned_plan_renders_the_same_v4_brief(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
