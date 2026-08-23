@@ -394,6 +394,45 @@ class SymlinkedPlansNeverBecomeAuthority(unittest.TestCase):
 
 
 class ColdSeatsResumeThroughBoardEntityIds(unittest.TestCase):
+    def test_status_by_keeps_every_entity_owned_by_the_seat(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            alpha = project(root, name="alpha", priority=2)
+            beta = project(root, name="beta", priority=3)
+            project(root, name="unowned", priority=1)
+            registered = run(home, "status", "--root", str(root))
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            for repo in (alpha, beta):
+                claimed = run(
+                    home,
+                    "throw",
+                    "--repo",
+                    str(repo),
+                    "--task",
+                    "~aa11",
+                    "--by",
+                    "cold-seat",
+                )
+                self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+            observed = run(
+                home,
+                "status",
+                "--root",
+                str(root),
+                "--by",
+                "cold-seat",
+            )
+
+            self.assertEqual(observed.returncode, 0, observed.stderr)
+            self.assertIn("Portfolio: 3 entities", observed.stdout)
+            self.assertIn("alpha —", observed.stdout)
+            self.assertIn("beta —", observed.stdout)
+            self.assertNotIn("unowned —", observed.stdout)
+            self.assertEqual(observed.stdout.count("Continue:"), 2)
+
     def test_restart_resumes_owned_row_and_two_seats_take_disjoint_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
