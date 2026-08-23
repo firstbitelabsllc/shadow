@@ -234,6 +234,62 @@ def milestone_rotation(
     return rotation
 
 
+def claimable_row(record: dict) -> str | None:
+    claimable = record.get("next_unclaimed")
+    if not claimable and not record.get("owner"):
+        claimable = record.get("board_resume")
+    return claimable
+
+
+def append_live_work(lines: list[str], record: dict, seat: str | None) -> None:
+    """Append the claims and exact executable move for one entity."""
+    live_claims = sorted(
+        record.get("live_claims", []),
+        key=lambda claim: (claim["owner"] != seat if seat else False, claim["row"]),
+    )
+    for claim in live_claims:
+        lines.append(
+            f"  In flight: [{claim['state']}] {claim['text']} "
+            f"| Owner: {claim['owner']}"
+        )
+        if (
+            record.get("entity")
+            and seat is not None
+            and claim["owner"] == seat
+            and claim["state"] in {"pending", "in_progress"}
+        ):
+            lines.append(
+                f"  Continue: shadow amp --entity {record['entity']} "
+                f"--task {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
+            )
+        elif (
+            record.get("entity")
+            and seat is not None
+            and claim["owner"] == seat
+            and claim["state"] in {"blocked", "completed"}
+        ):
+            verb = (
+                "accept"
+                if (
+                    claim["state"] == "completed"
+                    and claim.get("remote")
+                    and claim.get("proof_class") == "cmd"
+                )
+                else "return"
+            )
+            lines.append(
+                f"  Recover: shadow {verb} --entity {record['entity']} "
+                f"--row {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
+            )
+    claimable = claimable_row(record)
+    if record.get("entity") and claimable and not record.get("broken"):
+        owner = shlex.quote(seat) if seat else "YOUR-STABLE-SEAT"
+        lines.append(
+            f"  Claim: shadow throw --entity {record['entity']} "
+            f"--task {shlex.quote(claimable)} --by {owner}"
+        )
+
+
 def render_v4(record: dict, seat: str | None = None) -> str:
     lines = [
         f"{record['project'].replace('-', ' ')} — {record.get('entity_name', record['project'])}",
@@ -280,53 +336,57 @@ def render_v4(record: dict, seat: str | None = None) -> str:
             "read the plan for the rest"
         )
     lines.append(f"  Resume: {record.get('resume_human', record['resume'])}")
-    live_claims = sorted(
-        record.get("live_claims", []),
-        key=lambda claim: (claim["owner"] != seat if seat else False, claim["row"]),
+    append_live_work(lines, record, seat)
+    if record.get("proof"):
+        lines.append(f"  Proof: {record['proof']}")
+    if record.get("unclean"):
+        lines.append(f"  Plan health: {record['unclean']}")
+    if record.get("contradictions_open"):
+        lines.append(f"  Contradictions open: {record['contradictions_open']}")
+    return "\n".join(lines)
+
+
+def seat_focus(records: list[dict], seat: str) -> list[dict]:
+    """Return every entity owned by a seat, or its one highest-priority move."""
+    owned = [
+        record
+        for record in records
+        if any(claim["owner"] == seat for claim in record.get("live_claims", []))
+    ]
+    if owned:
+        return owned
+    claimable = next(
+        (
+            record
+            for record in records
+            if record.get("entity")
+            and not record.get("broken")
+            and claimable_row(record)
+        ),
+        None,
     )
-    for claim in live_claims:
-        lines.append(
-            f"  In flight: [{claim['state']}] {claim['text']} "
-            f"| Owner: {claim['owner']}"
-        )
-        if (
-            record.get("entity")
-            and seat is not None
-            and claim["owner"] == seat
-            and claim["state"] in {"pending", "in_progress"}
-        ):
-            lines.append(
-                f"  Continue: shadow amp --entity {record['entity']} "
-                f"--task {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
-            )
-        elif (
-            record.get("entity")
-            and seat is not None
-            and claim["owner"] == seat
-            and claim["state"] in {"blocked", "completed"}
-        ):
-            verb = (
-                "accept"
-                if (
-                    claim["state"] == "completed"
-                    and claim.get("remote")
-                    and claim.get("proof_class") == "cmd"
-                )
-                else "return"
-            )
-            lines.append(
-                f"  Recover: shadow {verb} --entity {record['entity']} "
-                f"--row {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
-            )
-    claimable = record.get("next_unclaimed")
-    if not claimable and not record.get("owner"):
-        claimable = record.get("board_resume")
-    if record.get("entity") and claimable and not record.get("broken"):
-        owner = shlex.quote(seat) if seat else "YOUR-STABLE-SEAT"
-        lines.append(
-            f"  Claim: shadow throw --entity {record['entity']} "
-            f"--task {shlex.quote(claimable)} --by {owner}"
-        )
+    if claimable:
+        return [claimable]
+    # Do not turn a stalled or unhealthy computer into an empty success. The
+    # first record is already priority-sorted and gives the seat one exact
+    # place to inspect when no checkpoint can safely be claimed.
+    return records[:1]
+
+
+def render_seat_v4(record: dict, seat: str) -> str:
+    """Render the cold-resume facts without replaying the plan transcript."""
+    lines = [
+        f"{record['project'].replace('-', ' ')} — {record.get('entity_name', record['project'])}",
+        f"  Entity plan: {record['path']}",
+        f"  Mode: {record['mode']}"
+        + (f" | Priority: {record['priority']}" if record.get("priority") else ""),
+    ]
+    if record.get("milestone_human"):
+        lines.append(f"  Current outcome: {record['milestone_human']}")
+    elif record.get("milestone"):
+        lines.append(f"  Milestone: {record['milestone']}")
+    lines.append(f"  Resume: {record.get('resume_human', record['resume'])}")
+    append_live_work(lines, record, seat)
     if record.get("proof"):
         lines.append(f"  Proof: {record['proof']}")
     if record.get("unclean"):
@@ -693,7 +753,11 @@ def parser() -> argparse.ArgumentParser:
     default_root = os.environ.get("SHADOW_DEV_ROOT") or str(Path.cwd())
     result.add_argument("--root", type=Path, default=default_root, help="directory to scan")
     result.add_argument("--json", action="store_true", help="print bounded JSON")
-    result.add_argument("--by", default=None, help="stable seat name for executable next moves")
+    result.add_argument(
+        "--by",
+        default=None,
+        help="stable seat name; human output focuses its owned work or one next move",
+    )
     result.add_argument(
         "--shadowed",
         action="store_true",
@@ -807,7 +871,23 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         blocks = [f"This computer — root board revision {root_board['revision']}"]
-        blocks.extend(render_v4(record, args.by) for record in v4_records)
+        if args.by:
+            focused = seat_focus(v4_records, args.by)
+            owned = sum(
+                any(
+                    claim["owner"] == args.by
+                    for claim in record.get("live_claims", [])
+                )
+                for record in v4_records
+            )
+            unhealthy = sum(bool(record.get("broken")) for record in v4_records)
+            blocks.append(
+                f"Portfolio: {len(v4_records)} entities | Seat: {args.by} | "
+                f"Focused: {len(focused)} | Owned: {owned} | Unhealthy: {unhealthy}"
+            )
+            blocks.extend(render_seat_v4(record, args.by) for record in focused)
+        else:
+            blocks.extend(render_v4(record) for record in v4_records)
         if not v4_records:
             blocks.append("No registered Shadow entities on this computer.")
         print("\n\n".join(blocks) + "\n", end="")
