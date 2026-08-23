@@ -62,6 +62,17 @@ class DistributionContractTests(unittest.TestCase):
         self.assertIn("coach mode", portable)
         self.assertIn("do not create a parallel task list", portable)
 
+    def test_portable_skill_keeps_cold_resume_on_the_bounded_seat_view(self) -> None:
+        portable = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("`shadow status --by <seat>`", portable)
+        self.assertIn("Do not request `--json`", portable)
+        self.assertIn("full portfolio", " ".join(portable.split()))
+        operator = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("`shadow status --by <seat>`", operator)
+        self.assertNotIn("shadow status --json --by <seat>", operator)
+
     def test_distribution_does_not_publish_a_placeholder_transport(self) -> None:
         forbidden_names = {"server.json", "mcp.json"}
         distributed = {

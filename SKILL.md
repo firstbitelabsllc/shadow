@@ -152,13 +152,17 @@ message, and never re-send an option the person has ignored — repetition means
 the framing failed, so rewrite it.
 
 Every Shadow chat response ends with a compact `Ongoing tasks` projection. Read
-`shadow status --in-flight --json` at send time, then join the current seat's
-reachable and waiting rows from `shadow status --json --by <seat>`. List active
+`shadow status --in-flight --json` at send time for live claims, then read
+`shadow status --by <seat>` for one bounded next move. Do not load the
+full-portfolio `shadow status --json` surface into the conversation. List live
 claims first with project/outcome, checkpoint, owner, state, proof, and the
-next exact wake or command; group other reachable or waiting work by project.
-Print `Active tasks: none` only when the fresh board has no ongoing work. This
-is a view of the computer board, never a second queue: do not hard-code stale
-state or expose private paths, provider/account data, or chat-only work.
+next exact wake or command. When the seat owns no claim and its bounded view
+exposes a reachable checkpoint, list exactly that checkpoint under `Next`.
+This projection does not enumerate every reachable or waiting row, so never
+imply that unseen work is absent. Print `Active tasks: none` only when the
+fresh in-flight projection has no live claims. This is a view of the computer
+board, never a second queue: do not hard-code stale state or expose private
+paths, provider/account data, or chat-only work.
 
 Hide implementation detail unless it changes the decision. The browser is a
 loopback projection of the computer board joined to entity plans; it never
