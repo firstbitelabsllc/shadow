@@ -354,13 +354,14 @@ else
   LIVE_LOG="${SCRATCH}/host-diagnostics.txt"
   BOARD_TEXT_FILE="${SCRATCH}/board.txt"
   BOARD_TEXT_ERROR="${SCRATCH}/board-text-status.err"
-  BOARD_JSON_FILE="${SCRATCH}/board.json"
+  BOARD_IN_FLIGHT_FILE="${SCRATCH}/in-flight.json"
+  BOARD_IN_FLIGHT_ERROR="${SCRATCH}/in-flight-status.err"
   READ_ONLY_BIN="${SCRATCH}/read-only-bin"
   LIVE_STATUS=0
   BOARD_TEXT_STATUS=0
   BOARD_TEXT_FAILED=0
   (cd "${SCRATCH}" && "${SHADOW_CMD}" status --by "${SEAT}" >"${BOARD_TEXT_FILE}" 2>"${BOARD_TEXT_ERROR}") || BOARD_TEXT_STATUS=$?
-  printf '%s' "${BOARD}" >"${BOARD_JSON_FILE}"
+  (cd "${SCRATCH}" && "${SHADOW_CMD}" status --in-flight --json >"${BOARD_IN_FLIGHT_FILE}" 2>"${BOARD_IN_FLIGHT_ERROR}") || true
   mkdir "${READ_ONLY_BIN}"
   cat >"${READ_ONLY_BIN}/shadow" <<'SH'
 #!/bin/sh
@@ -370,11 +371,19 @@ if [ "${1:-}" != "status" ]; then
   exit 2
 fi
 shift
+json=0
+in_flight=0
 for arg in "$@"; do
-  if [ "$arg" = "--json" ]; then
-    exec cat "$root/board.json"
-  fi
+  [ "$arg" = "--json" ] && json=1
+  [ "$arg" = "--in-flight" ] && in_flight=1
 done
+if [ "$json" -eq 1 ]; then
+  if [ "$in_flight" -eq 1 ] && [ -s "$root/in-flight.json" ]; then
+    exec cat "$root/in-flight.json"
+  fi
+  echo "shadow verifier: full portfolio JSON is unavailable in a cold session; use shadow status --by SEAT" >&2
+  exit 2
+fi
 exec cat "$root/board.txt"
 SH
   chmod 700 "${READ_ONLY_BIN}/shadow"
