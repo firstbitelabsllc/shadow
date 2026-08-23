@@ -296,6 +296,60 @@ class EveryCheckCanFail(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("board refresh fails", result.stdout)
 
+    def test_unrelated_plan_health_does_not_hide_a_reachable_checkpoint(self) -> None:
+        # `shadow status` exits 1 when any registered plan cannot authenticate
+        # remote claims. That is important portfolio health, but it is not a
+        # failed refresh when the current seat still has fresh board facts and
+        # one reachable checkpoint. The host verifier must distinguish those
+        # cases or one dirty sibling checkout disables every cold host.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            repo = home / "portfolio" / "unrelated"
+            repo.mkdir(parents=True)
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                PLAN.replace("# Fixture", "# Unrelated")
+                .replace("- Project: fixture", "- Project: unrelated")
+                .replace("~aa11", "~bb11"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "PLAN.md"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=Verifier Test",
+                    "-c",
+                    "user.email=verifier@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "fixture",
+                ],
+                check=True,
+            )
+            remote = home / "unrelated.git"
+            subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "remote", "add", "origin", str(remote)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "push", "-q", "-u", "origin", "main"],
+                check=True,
+            )
+            plan.write_text(plan.read_text(encoding="utf-8") + "\n<!-- dirty -->\n")
+
+            result = run(home)
+
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("reachable from an unrelated directory", result.stdout)
+            self.assertIn("unrelated plan health", result.stdout)
+
     def test_a_stale_standing_goal_fails(self) -> None:
         def mutate(home: Path) -> None:
             path = home / ".claude/CLAUDE.md"
