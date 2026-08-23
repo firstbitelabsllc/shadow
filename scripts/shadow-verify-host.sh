@@ -211,6 +211,42 @@ for other in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/
 done
 [[ "${SHADOWED}" -eq 0 ]] && ok "no competing 'shadow' skill in any host root"
 
+# Skills directories are not the whole loader graph. Claude and Codex also
+# give installed plugins precedence, so a cached marketplace copy can
+# win while every mount above resolves perfectly. Reuse doctor's one parser;
+# two independent config readers would eventually disagree again.
+if [[ "${HOST}" == "claude-code" || "${HOST}" == "codex" ]]; then
+  if ! PRECEDENCE_REASON="$(python3 - "${ROOT}" "${HOST}" <<'PY'
+import importlib.util
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+host = sys.argv[2]
+spec = importlib.util.spec_from_file_location(
+    "shadow_doctor_precedence", root / "scripts" / "shadow-doctor.py"
+)
+if spec is None or spec.loader is None:
+    print("could not load Shadow's skill-precedence check")
+    raise SystemExit(1)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+check = next(
+    item
+    for item in module.skill_precedence_checks()
+    if item["name"] == f"skill precedence: {host}"
+)
+print(check["detail"])
+raise SystemExit(0 if check["state"] == "pass" else 1)
+PY
+)"; then
+    [[ -n "${PRECEDENCE_REASON}" ]] || PRECEDENCE_REASON="could not evaluate installed Shadow plugin precedence"
+    bad "${PRECEDENCE_REASON}"
+  else
+    ok "${PRECEDENCE_REASON}"
+  fi
+fi
+
 # 3. The skill is loadable, not merely present. A loader that cannot parse the
 #    frontmatter drops the skill without saying so, so parse the block the way
 #    a host does: a terminated YAML mapping carrying name and description.

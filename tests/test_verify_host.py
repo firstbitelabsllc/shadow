@@ -205,6 +205,32 @@ class EveryCheckCanFail(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("one of them is stale", result.stdout)
 
+    def test_an_installed_claude_marketplace_plugin_cannot_outrank_the_mount(self) -> None:
+        def mutate(home: Path) -> None:
+            registry = home / ".claude/plugins/installed_plugins.json"
+            registry.parent.mkdir(parents=True)
+            registry.write_text(
+                '{"version":2,"plugins":{"shadow@fixture":[{"scope":"user"}]}}\n',
+                encoding="utf-8",
+            )
+
+        result = self._broken(mutate)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("claude plugin uninstall shadow@fixture", result.stdout)
+
+    def test_an_installed_codex_marketplace_plugin_cannot_outrank_the_mount(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "codex")
+            (home / ".codex/config.toml").write_text(
+                '[plugins."shadow@fixture"]\nenabled = true\n',
+                encoding="utf-8",
+            )
+            result = run(home, host="codex")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("codex plugin remove shadow@fixture", result.stdout)
+
     def test_a_skill_whose_frontmatter_a_loader_cannot_use_fails(self) -> None:
         # Opening with `---` is not the same as parsing. A block that closes
         # without a description is dropped by the loader without a word, and

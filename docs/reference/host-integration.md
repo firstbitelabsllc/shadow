@@ -25,6 +25,11 @@ Optional: `export SHADOW_PORTFOLIO_ROOT="$HOME/Development"` (that value is
 the default) — the root `shadow status` falls back to when the current
 directory has no plan, so every entry point shows the same board.
 
+The source mount and a same-name installed marketplace plugin are competing
+activation paths. On a source-installed machine, keep the mount and remove the
+installed duplicate when `shadow doctor` names one; otherwise a host can load
+cached plugin prose ahead of the checkout you just updated.
+
 ## 2. The standing goal — one installed top-level direction block
 
 The goal for any Shadow seat is **static**. It is the same text for every

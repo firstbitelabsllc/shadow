@@ -33,6 +33,15 @@ you to paste into an unverified setting; Cursor's skill mount and sealed host
 runner remain supported.
 `--no-skills` deliberately skips both mounts and host-instruction installation.
 
+On a machine with this source install, the mounted checkout is the canonical
+Shadow skill. Do not also install a marketplace plugin named
+`shadow`: Claude or Codex may give that cached copy precedence and silently
+miss a newer source change. `shadow doctor` detects the collision and prints
+the host-native removal command. Merely disabling the installed copy is not a
+reliable fix: Claude still reserves its plugin name ahead of `skills-dir`.
+This does not retire the marketplace package; it keeps portable distribution
+separate from a local source installation.
+
 ## Upgrading from the old name
 
 Shadow shipped under a different name before 0.1.0. Its compatibility path is
