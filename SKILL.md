@@ -153,7 +153,8 @@ the framing failed, so rewrite it.
 
 Every Shadow chat response ends with a compact `Ongoing tasks` projection. Read
 `shadow status --in-flight --json` at send time, then join the current seat's
-reachable and waiting rows from `shadow status --json --by <seat>`. List active
+reachable and waiting rows from `shadow status --by <seat>`. Do not load the
+full-portfolio `shadow status --json` surface into the conversation. List active
 claims first with project/outcome, checkpoint, owner, state, proof, and the
 next exact wake or command; group other reachable or waiting work by project.
 Print `Active tasks: none` only when the fresh board has no ongoing work. This

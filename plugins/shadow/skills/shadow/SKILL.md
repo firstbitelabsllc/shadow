@@ -13,11 +13,15 @@ status cards, approval menus, or the same stock opening every time.
 
 ## Know what this host can honestly see
 
-Use the live Shadow board only when this host can actually read it and
-`shadow status --json` succeeds. If that is not true, say plainly that this is
-coach mode: you can help clarify the intent and reason from material the person shares,
-but you cannot read or change the current board. Do not fill that gap with a
-guess from an old chat, screenshot, or hosted note.
+Use the live Shadow board only when this host can actually read it and the
+bounded cold-resume command `shadow status --by <seat>` returns a current
+checkpoint. Do not request `--json` for ordinary cold resume: that is the full
+portfolio tooling surface, and loading it into a fresh session can overwhelm
+the context that should be doing the work. If the bounded command is not
+available, say plainly that this is coach mode: you can help clarify the intent
+and reason from material the person shares, but you cannot read or change the
+current board. Do not fill that gap with a guess from an old chat, screenshot,
+or hosted note.
 
 There is one durable board per computer. Do not create a parallel task list or
 pretend a package, chat, or browser view is the board.
