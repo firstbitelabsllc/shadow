@@ -438,6 +438,16 @@ def root_board_view(payload: dict) -> dict:
     }
 
 
+def in_flight_root_board_view(payload: dict) -> dict:
+    """Keep the footer authority while omitting the portfolio lookup index."""
+    view = root_board_view(payload)
+    return {
+        "schema": view["schema"],
+        "revision": view["revision"],
+        "claims": view["claims"],
+    }
+
+
 def projected_claims(
     entity: dict,
     project: str,
@@ -841,7 +851,7 @@ def main(argv: list[str] | None = None) -> int:
             report = {
                 "schema": "shadow.in-flight.v1",
                 "rows": rows,
-                "root_board": root_board_view(root_board),
+                "root_board": in_flight_root_board_view(root_board),
             }
             print(json.dumps(report, indent=2, sort_keys=True))
         else:

@@ -46,6 +46,11 @@ ownership and reviewability; it is never a session, campaign, or ambition cap.
 6. Continue until the Outcome is mechanically accepted or every remaining row
    is behind an exact hard rail.
 
+A direct read-only question about the seat's current work is not an execution
+cycle. Answer from the first current bounded view, then stop: do not materialize
+the plan, call `shadow amp`, reread status for the footer, or start work unless
+the person asked to resume or act.
+
 Never overwrite unexplained work or create a second queue. A commit, worker
 message, or receipt is not acceptance proof by itself.
 
@@ -163,6 +168,10 @@ imply that unseen work is absent. Print `Active tasks: none` only when the
 fresh in-flight projection has no live claims. This is a view of the computer
 board, never a second queue: do not hard-code stale state or expose private
 paths, provider/account data, or chat-only work.
+
+The direct read-only current-work case above is the narrow exception: its first
+current bounded view is already the projection, so the concise answer ends the
+turn without another board read or a routine footer.
 
 Hide implementation detail unless it changes the decision. The browser is a
 loopback projection of the computer board joined to entity plans; it never

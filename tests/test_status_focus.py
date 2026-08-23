@@ -84,6 +84,23 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(len(payload["root_board"]["entities"]), 1)
         self.assertNotIn(dirname, result.stdout)
 
+    def test_in_flight_json_does_not_repeat_the_portfolio_index(self) -> None:
+        """The footer surface carries claim authority, not every board pointer."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(PLAN, encoding="utf-8")
+            result = self.run_status(root, "--in-flight", "--json")
+            payload = json.loads(result.stdout)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            set(payload["root_board"]),
+            {"schema", "revision", "claims"},
+            payload["root_board"],
+        )
+        self.assertEqual(payload["root_board"]["claims"], [])
+        self.assertNotIn(dirname, result.stdout)
+
     def test_invalid_root_fails_cleanly(self) -> None:
         result = self.run_status(Path("/definitely/missing/shadow-root"))
         self.assertEqual(result.returncode, 2)
