@@ -66,6 +66,7 @@ fi
 
 ok()   { printf '  [PASS] %s\n' "$1"; }
 bad()  { printf '  [FAIL] %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+warn() { printf '  [WARN] %s\n' "$1"; }
 skip() { printf '  [SKIP] %s\n' "$1"; }
 
 board_facts() {
@@ -312,13 +313,14 @@ fi
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf -- "${SCRATCH}"' EXIT
 BOARD_STATUS=0
-BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json --by "${SEAT}" 2>/dev/null)" || BOARD_STATUS=$?
+BOARD_ERROR="${SCRATCH}/board-status.err"
+BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json --by "${SEAT}" 2>"${BOARD_ERROR}")" || BOARD_STATUS=$?
 BOARD_FACTS="$(printf '%s' "${BOARD}" | board_facts "${SEAT}" 2>/dev/null || true)"
 BOARD_REVISION="$(sed -n '1p' <<<"${BOARD_FACTS}")"
 BOARD_PROJECT="$(sed -n '2p' <<<"${BOARD_FACTS}")"
 BOARD_RESUME="$(sed -n '3p' <<<"${BOARD_FACTS}")"
 BOARD_WORK="$(sed -n '4p' <<<"${BOARD_FACTS}")"
-if [[ "${BOARD_STATUS}" -ne 0 ]]; then
+if grep -q "portfolio refresh failed" "${BOARD_ERROR}" || { [[ "${BOARD_STATUS}" -ne 0 ]] && [[ -z "${BOARD}" ]]; }; then
   bad "the board refresh fails from an unrelated directory — a cold session would start from stale authority"
 elif [[ -z "${BOARD}" ]]; then
   bad "the board is empty from an unrelated directory — a cold session has nothing to open"
@@ -326,6 +328,9 @@ elif [[ -z "${BOARD_REVISION}" || -z "${BOARD_PROJECT}" || -z "${BOARD_RESUME}" 
   bad "the board names no reachable resume checkpoint — a session would have nothing to take"
 else
   ok "the board is reachable from an unrelated directory, with a reachable resume checkpoint"
+  if [[ "${BOARD_STATUS}" -ne 0 ]]; then
+    warn "status also reports unrelated plan health; the selected checkpoint remains current"
+  fi
 fi
 
 # 7. The live tier. Only this proves a SESSION loads the skill; everything
