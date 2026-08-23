@@ -353,11 +353,13 @@ else
   LIVE_OUT="${SCRATCH}/host-final.txt"
   LIVE_LOG="${SCRATCH}/host-diagnostics.txt"
   BOARD_TEXT_FILE="${SCRATCH}/board.txt"
+  BOARD_TEXT_ERROR="${SCRATCH}/board-text-status.err"
   BOARD_JSON_FILE="${SCRATCH}/board.json"
   READ_ONLY_BIN="${SCRATCH}/read-only-bin"
   LIVE_STATUS=0
   BOARD_TEXT_STATUS=0
-  (cd "${SCRATCH}" && "${SHADOW_CMD}" status --by "${SEAT}" >"${BOARD_TEXT_FILE}" 2>/dev/null) || BOARD_TEXT_STATUS=$?
+  BOARD_TEXT_FAILED=0
+  (cd "${SCRATCH}" && "${SHADOW_CMD}" status --by "${SEAT}" >"${BOARD_TEXT_FILE}" 2>"${BOARD_TEXT_ERROR}") || BOARD_TEXT_STATUS=$?
   printf '%s' "${BOARD}" >"${BOARD_JSON_FILE}"
   mkdir "${READ_ONLY_BIN}"
   cat >"${READ_ONLY_BIN}/shadow" <<'SH'
@@ -376,7 +378,8 @@ done
 exec cat "$root/board.txt"
 SH
   chmod 700 "${READ_ONLY_BIN}/shadow"
-  if [[ "${BOARD_TEXT_STATUS}" -ne 0 ]]; then
+  if grep -q "portfolio refresh failed" "${BOARD_TEXT_ERROR}" || { [[ "${BOARD_TEXT_STATUS}" -ne 0 ]] && [[ ! -s "${BOARD_TEXT_FILE}" ]]; }; then
+    BOARD_TEXT_FAILED=1
     bad "the human board view could not be frozen for the live session"
   else
     case "${HOST}" in
@@ -400,16 +403,21 @@ SH
     esac
   fi
   AFTER_STATUS=0
-  AFTER_BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json --by "${SEAT}" 2>/dev/null)" || AFTER_STATUS=$?
+  AFTER_REFRESH_FAILED=0
+  AFTER_ERROR="${SCRATCH}/after-board-status.err"
+  AFTER_BOARD="$(cd "${SCRATCH}" && "${SHADOW_CMD}" status --json --by "${SEAT}" 2>"${AFTER_ERROR}")" || AFTER_STATUS=$?
   AFTER_FACTS="$(printf '%s' "${AFTER_BOARD}" | board_facts "${SEAT}" 2>/dev/null || true)"
-  if [[ "${BOARD_TEXT_STATUS}" -ne 0 ]]; then
+  if grep -q "portfolio refresh failed" "${AFTER_ERROR}" || { [[ "${AFTER_STATUS}" -ne 0 ]] && [[ -z "${AFTER_BOARD}" ]]; }; then
+    AFTER_REFRESH_FAILED=1
+  fi
+  if [[ "${BOARD_TEXT_FAILED}" -ne 0 ]]; then
     : # The specific failure was already reported without spending host quota.
   elif [[ "${LIVE_STATUS}" -eq 124 ]]; then
     [[ "${LIVE_TIMEOUT}" -eq 1 ]] && TIME_UNIT="second" || TIME_UNIT="seconds"
     bad "the cold ${HOST} session timed out after ${LIVE_TIMEOUT} ${TIME_UNIT} — the result is inconclusive; re-run"
   elif [[ "${LIVE_STATUS}" -ne 0 ]]; then
     bad "the cold ${HOST} session invocation failed"
-  elif [[ "${AFTER_STATUS}" -ne 0 || -z "${AFTER_FACTS}" ]]; then
+  elif [[ "${AFTER_REFRESH_FAILED}" -ne 0 || -z "${AFTER_FACTS}" ]]; then
     bad "the board could not be re-observed after the live session"
   elif [[ "${AFTER_FACTS}" != "${BOARD_FACTS}" ]]; then
     bad "the root board changed during the live session — the result is inconclusive; re-run"
