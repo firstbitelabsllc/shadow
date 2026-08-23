@@ -25,6 +25,7 @@ the routing file it names — never the backend behind it.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re

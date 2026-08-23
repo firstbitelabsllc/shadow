@@ -231,6 +231,21 @@ class WiredIntoTheProduct(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(result.stdout.strip())
 
+    def test_the_json_mode_is_machine_readable(self) -> None:
+        result = subprocess.run(
+            [str(SHADOW), "slots", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["schema"], "shadow.slots.v1")
+        self.assertEqual(
+            {check["name"] for check in payload["checks"]},
+            {f"slot: {slot['name']}" for slot in slots.declared()},
+        )
+
     def test_only_amp_reads_the_declaration_and_never_as_coordination(self) -> None:
         # A slot holds no rows, claims, proof, or status. Amp may resolve a
         # milestone's explicit tools into an optional handoff annotation; the
