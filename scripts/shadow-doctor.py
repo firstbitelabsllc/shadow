@@ -120,6 +120,97 @@ def mount_checks() -> list[dict[str, Any]]:
     return results
 
 
+def _codex_installed_shadow_plugins(path: Path) -> tuple[list[str], str | None]:
+    """Read Codex's installed plugin tables without requiring Python 3.11 TOML.
+
+    Shadow supports Python 3.10, where ``tomllib`` is unavailable. The Codex
+    plugin stanza is deliberately tiny, so recognize only its exact table and
+    boolean rather than growing another configuration parser.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return [], None
+    except OSError as exc:
+        return [], str(exc)
+
+    installed: list[str] = []
+    prefix = '[plugins."'
+    suffix = '"]'
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("["):
+            current = (
+                line[len(prefix) : -len(suffix)]
+                if line.startswith(prefix) and line.endswith(suffix)
+                else None
+            )
+            if current == "shadow" or (current and current.startswith("shadow@")):
+                installed.append(current)
+    return sorted(set(installed)), None
+
+
+def _claude_installed_shadow_plugins(path: Path) -> tuple[list[str], str | None]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [], None
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], str(exc)
+    plugins = payload.get("plugins", {}) if isinstance(payload, dict) else {}
+    if not isinstance(plugins, dict):
+        return [], "plugins is not an object"
+    installed = []
+    for plugin, records in plugins.items():
+        if not isinstance(plugin, str) or not (
+            plugin == "shadow" or plugin.startswith("shadow@")
+        ):
+            continue
+        if isinstance(records, list) and any(
+            isinstance(record, dict) and record.get("scope") == "user"
+            for record in records
+        ):
+            installed.append(plugin)
+    return sorted(set(installed)), None
+
+
+def skill_precedence_checks() -> list[dict[str, Any]]:
+    """Refuse a silent second Shadow that can mask the source-mounted skill."""
+    home = Path.home()
+    sources = (
+        (
+            "codex",
+            *_codex_installed_shadow_plugins(home / ".codex" / "config.toml"),
+            "codex plugin remove",
+        ),
+        (
+            "claude-code",
+            *_claude_installed_shadow_plugins(
+                home / ".claude" / "plugins" / "installed_plugins.json"
+            ),
+            "claude plugin uninstall",
+        ),
+    )
+    results = []
+    for host, plugins, error, remove in sources:
+        name = f"skill precedence: {host}"
+        if error:
+            results.append(check(name, "fail", f"plugin settings are unreadable: {error}"))
+            continue
+        if plugins:
+            commands = "; ".join(f"{remove} {plugin}" for plugin in plugins)
+            results.append(check(
+                name,
+                "fail",
+                "installed Shadow plugin can outrank the source-mounted canonical skill; "
+                f"remove the duplicate with: {commands}",
+                plugins=plugins,
+            ))
+            continue
+        results.append(check(name, "pass", "source-mounted Shadow has no installed plugin duplicate"))
+    return results
+
+
 def standing_goal() -> str:
     """The static block, read from the doc that ships it — the same extraction
     `shadow goal` performs, so the command and this check cannot disagree."""
@@ -278,6 +369,7 @@ def collect() -> dict[str, Any]:
         cli_check(),
         *host_checks(),
         *mount_checks(),
+        *skill_precedence_checks(),
         *host_goal_checks(),
         *slot_checks(),
     ]

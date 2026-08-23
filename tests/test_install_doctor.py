@@ -130,6 +130,103 @@ class DoctorNamesEverySupportedHostThatDidNotReceiveTheDirective(unittest.TestCa
             self.assertIn("shadow goal --install", item["detail"])
 
 
+class DoctorDetectsSkillPrecedenceCollisions(unittest.TestCase):
+    def run_scratch_doctor(
+        self,
+        *,
+        codex_config: str = "",
+        claude_installed: dict[str, object] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as dirname:
+            scratch = Path(dirname)
+            home = scratch / "home"
+            bin_dir = scratch / "bin"
+            home.mkdir()
+            bin_dir.mkdir()
+            for directory in (".claude", ".codex", ".agents", ".cursor", ".grok"):
+                (home / directory).mkdir()
+            (home / ".codex" / "config.toml").write_text(codex_config, encoding="utf-8")
+            (home / ".claude" / "plugins").mkdir()
+            (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
+                json.dumps(claude_installed or {"version": 2, "plugins": {}}),
+                encoding="utf-8",
+            )
+            shadow = bin_dir / "shadow"
+            shadow.symlink_to(CLI)
+            host = bin_dir / "codex"
+            host.write_text("#!/bin/sh\necho 'codex-cli fixture'\n", encoding="utf-8")
+            host.chmod(0o755)
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "SHADOW_DOCTOR_EXPECTED_CLI": str(CLI),
+            }
+            return subprocess.run(
+                [sys.executable, str(DOCTOR), "--json"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_installed_marketplace_plugins_fail_when_the_source_mount_should_win(self) -> None:
+        result = self.run_scratch_doctor(
+            codex_config=(
+                '[plugins."shadow@firstbite-product-plugins"]\n'
+                "enabled = true\n"
+            ),
+            claude_installed={
+                "version": 2,
+                "plugins": {
+                    "shadow@firstbite-product-plugins": [{"scope": "user"}]
+                },
+            },
+        )
+
+        report = json.loads(result.stdout)
+        checks = {item["name"]: item for item in report["checks"]}
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(checks["skill precedence: codex"]["state"], "fail")
+        self.assertIn(
+            "codex plugin remove shadow@firstbite-product-plugins",
+            checks["skill precedence: codex"]["detail"],
+        )
+        self.assertEqual(checks["skill precedence: claude-code"]["state"], "fail")
+        self.assertIn(
+            "claude plugin uninstall shadow@firstbite-product-plugins",
+            checks["skill precedence: claude-code"]["detail"],
+        )
+
+    def test_disabled_but_installed_plugins_still_fail_precedence(self) -> None:
+        result = self.run_scratch_doctor(
+            codex_config=(
+                '[plugins."shadow@firstbite-product-plugins"]\n'
+                "enabled = false\n"
+            ),
+            claude_installed={
+                "version": 2,
+                "plugins": {
+                    "shadow@firstbite-product-plugins": [{"scope": "user"}]
+                },
+            },
+        )
+
+        report = json.loads(result.stdout)
+        checks = {item["name"]: item for item in report["checks"]}
+        self.assertEqual(checks["skill precedence: codex"]["state"], "fail")
+        self.assertEqual(checks["skill precedence: claude-code"]["state"], "fail")
+
+    def test_absent_marketplace_plugins_leave_the_source_mount_canonical(self) -> None:
+        result = self.run_scratch_doctor()
+
+        report = json.loads(result.stdout)
+        checks = {item["name"]: item for item in report["checks"]}
+        self.assertEqual(checks["skill precedence: codex"]["state"], "pass")
+        self.assertEqual(checks["skill precedence: claude-code"]["state"], "pass")
+
+
 class DoctorTests(unittest.TestCase):
     def run_doctor(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
