@@ -183,7 +183,7 @@ class PlanReadCliTests(unittest.TestCase):
         claimed_projection_sha = payload.pop("projection_sha256")
         encoded = store.canonical_json(payload)
         self.assertEqual(claimed_projection_sha, hashlib.sha256(encoded).hexdigest())
-        self.assertIn("— café", result.stdout)
+        self.assertIn("— prior digest baseline", result.stdout)
 
     def test_tampered_selected_shard_returns_no_partial_projection(self) -> None:
         digest = store.lookup_build(self.build, row_id="~gk12").object_sha256
