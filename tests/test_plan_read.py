@@ -336,6 +336,28 @@ class PlanReadCliTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn(str(self.root), result.stderr)
 
+    def test_argparse_refusal_does_not_echo_a_private_positional_path(self) -> None:
+        result = subprocess.run(
+            [
+                str(SHADOW), "read", "--entity", self.entity,
+                str(self.plan), "--row", "~gk12",
+            ],
+            cwd=ROOT,
+            env={
+                **os.environ,
+                "HOME": str(self.home),
+                "SHADOW_ROOT": str(ROOT),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("shadow read: invalid arguments", result.stderr)
+        self.assertNotIn(str(self.root), result.stderr)
+
     def test_selector_count_and_duplicate_selectors_are_refused(self) -> None:
         too_many: list[str] = []
         for sequence in range(9):
