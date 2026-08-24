@@ -71,6 +71,7 @@ REQUIRED_FILES = {
     "scripts/shadow_cmd_proof.py",
     "scripts/shadow_plan_grammar.py",
     "scripts/shadow-plan.py",
+    "scripts/shadow-read.py",
     "scripts/shadow_plan_store.py",
     "scripts/shadow_telemetry.py",
     "browser/chief_of_staff.py",

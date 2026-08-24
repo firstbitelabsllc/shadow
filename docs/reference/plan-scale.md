@@ -393,6 +393,14 @@ answer MUST re-read and verify every selected shard. With no cache, exact IDs,
 tags, timestamps, and ordered history remain available from the tree. Search
 results MUST say when they are discovery candidates rather than exact routes.
 
+The public machine boundary for an already-migrated tree is `shadow read`.
+Callers provide exact `--row` and zero-based `--receipt TAG:N` selectors and
+MAY bind the generation with `--expect-root`. One invocation is capped at
+eight selectors and 128 KiB of selected result bytes. It emits one JSON object
+only after every selector verifies; a legacy monolith, missing/tampered object,
+root mismatch, duplicate selector, or exceeded cap emits no partial content.
+It does not materialize the plan or resolve archive tombstones and spill paths.
+
 Every returned item carries: public entity locator, root digest, visited index
 page digests, selected shard digest and byte count, selector, logical catalog
 key, result byte range, and result digest. This is provenance—traceability to
