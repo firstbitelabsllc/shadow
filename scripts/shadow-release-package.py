@@ -393,6 +393,12 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         "throw": ("--entity ID", "--by OWNER"),
         "return": ("--entity ID", "--by OWNER"),
         "accept": ("--by OWNER", "--row '~hash'"),
+        "read": (
+            "read --entity ENTITY_ID",
+            "--row '~hash'",
+            "--receipt progress:N",
+            "--expect-root ROOT_SHA256",
+        ),
         "lifecycle": (
             "--apply",
             "--milestone 'exact heading'",

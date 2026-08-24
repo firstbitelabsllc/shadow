@@ -30,7 +30,7 @@ OBJECT_ERROR_RE: Final = re.compile(
     r"^(?P<reason>referenced object is missing|object digest mismatch): "
     r"expected digest (?P<digest>[0-9a-f]{64}) at .+$"
 )
-ABSOLUTE_PATH_RE: Final = re.compile(r"(?:^|[\s:=])/(?:[^\s]+)")
+ABSOLUTE_PATH_RE: Final = re.compile(r"(?<![A-Za-z0-9])/(?!/)(?:[^\s]+)")
 
 
 class ReadError(ValueError):
@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             receipts=args.receipt,
             expect_root=args.expect_root,
         )
-    except (ReadError, store.PlanStoreError, board.BoardError) as exc:
+    except ValueError as exc:
         print(f"shadow read: {_safe_error(exc)}", file=sys.stderr)
         return 2
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))

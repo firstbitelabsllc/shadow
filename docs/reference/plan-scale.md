@@ -398,16 +398,20 @@ Callers provide one full board-issued `--entity`, exact `--row` and zero-based
 `--receipt TAG:N` selectors, and MAY bind the generation with `--expect-root`.
 The board resolves the canonical pointer and rejects missing, stale, aliased, or
 symlinked locators. One invocation is capped at eight selectors and 128 KiB of
-selected result bytes. It emits one JSON object only after every selector
-verifies and the same entity pointer and root are re-read before emission; a
-legacy monolith, missing/tampered object, changed root, duplicate selector, or
-exceeded cap emits no partial content or private path. It does not materialize
-the plan or resolve archive tombstones and spill paths.
+selected result bytes. Selected canonical bytes are returned verbatim; private
+plan pointer and error metadata are suppressed. It emits one JSON object only
+after every selector verifies and the same entity pointer and root are re-read.
+That final re-read is the projection's linearization point; later changes belong
+to the next projection. A legacy monolith, missing/tampered object, changed root,
+duplicate selector, or exceeded cap emits no partial content. It does not
+materialize the plan or resolve archive tombstones and spill paths.
 
 Every returned item carries: public entity locator, root digest, visited index
 page digests, selected shard digest and byte count, selector, logical catalog
 key, result byte range, and result digest. This is provenance—traceability to
 canonical bytes—not telemetry, a summary, or a second status record.
+`projection_sha256` hashes the canonical logical JSON object with that field
+omitted; it does not hash the indented UTF-8 stdout representation.
 
 ### Mutation, concurrency, and recovery
 
