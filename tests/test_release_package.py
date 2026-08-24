@@ -109,6 +109,25 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("migrate /ABS/PLAN.md --dry-run", output.stdout)
         self.assertIn("rollback /ABS/PLAN.md --expect ROOT_SHA256", output.stdout)
 
+    def test_bounded_plan_read_command_ships_with_its_store(self) -> None:
+        self.assertIn("scripts/shadow-read.py", mod.REQUIRED_FILES)
+        self.assertIn("scripts/shadow_plan_store.py", mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "help", "read"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        for clause in (
+            "read /ABS/PLAN.md",
+            "--row '~hash'",
+            "--receipt progress:N",
+            "--expect-root ROOT_SHA256",
+        ):
+            self.assertIn(clause, output.stdout)
+
     def test_two_seat_harness_ships_with_its_process_boundary(self) -> None:
         self.assertIn("scripts/shadow-verify-two-seat.py", mod.REQUIRED_FILES)
         self.assertIn("scripts/shadow_process_lib.py", mod.REQUIRED_FILES)
