@@ -42,7 +42,7 @@ def source(*, archive: bool = False) -> bytes:
         else ""
     )
     progress = "".join(
-        f"- 2026-08-23T17:{minute:02d}:00Z NOTE receipt {minute}\n"
+        f"- 2026-08-23T17:{minute:02d}:00Z NOTE receipt {minute} — café\n"
         for minute in range(10)
     )
     return f"""# Assistant
@@ -69,7 +69,7 @@ def source(*, archive: bool = False) -> bytes:
 ## Progress
 
 {progress}- 2026-08-23T17:26:00Z ~gk11 S044 PASS stable obligation key personal:volt:thread:message
-- 2026-08-23T17:29:00Z ~gk11 S053 UNKNOWN prior digest baseline
+- 2026-08-23T17:29:00Z ~gk11 S053 UNKNOWN — prior digest baseline
 """.encode("utf-8")
 
 
@@ -164,7 +164,7 @@ class PlanReadCliTests(unittest.TestCase):
         combined = "".join(item["content"] for item in payload["results"])
         self.assertIn("disposition native non-passes ~gk12", combined)
         self.assertIn("S044 PASS stable obligation key", combined)
-        self.assertIn("S053 UNKNOWN prior digest baseline", combined)
+        self.assertIn("S053 UNKNOWN — prior digest baseline", combined)
         self.assertNotIn("exact wake remains", combined)
         self.assertNotIn("receipt 9", combined)
         for item in payload["results"]:
@@ -181,10 +181,9 @@ class PlanReadCliTests(unittest.TestCase):
             self.assertLessEqual(provenance["file_reads"], 10)
             self.assertLessEqual(provenance["source_bytes"], 168 * 1024)
         claimed_projection_sha = payload.pop("projection_sha256")
-        encoded = json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
+        encoded = store.canonical_json(payload)
         self.assertEqual(claimed_projection_sha, hashlib.sha256(encoded).hexdigest())
+        self.assertIn("— café", result.stdout)
 
     def test_tampered_selected_shard_returns_no_partial_projection(self) -> None:
         digest = store.lookup_build(self.build, row_id="~gk12").object_sha256
@@ -335,6 +334,51 @@ class PlanReadCliTests(unittest.TestCase):
         self.assertIn("receipt selector must be TAG:N", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn(str(self.root), result.stderr)
+
+    def test_absurd_integer_in_board_json_fails_without_traceback_or_path_leak(self) -> None:
+        board_path = self.home / ".shadow" / "board.json"
+        board_path.write_bytes(
+            b'{"schema":"shadow.root-board.v1","revision":'
+            + (b"9" * 5000)
+            + b'}'
+        )
+
+        result = self.cli("--row", "~gk12")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("board file is unreadable or malformed", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn(str(self.root), result.stderr)
+
+    def test_absurd_integer_in_plan_root_fails_without_traceback_or_path_leak(self) -> None:
+        self.plan.write_bytes(
+            store.ROOT_PREFIX
+            + b'{"schema":"shadow.plan-tree.v1","generation":'
+            + (b"9" * 5000)
+            + b'}'
+            + store.ROOT_SUFFIX
+        )
+
+        result = self.cli("--row", "~gk12")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("plan-tree root JSON is malformed", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn(str(self.root), result.stderr)
+
+    def test_quoted_absolute_path_in_error_is_sanitized(self) -> None:
+        detail = read._safe_error(
+            ValueError('wrapped "/var/folders/private-plan"'),
+            "entity@0123456789ab/PLAN.md",
+        )
+
+        self.assertEqual(
+            detail,
+            "canonical plan read failed for entity@0123456789ab/PLAN.md",
+        )
+        self.assertNotIn("/var/", detail)
 
     def test_argparse_refusal_does_not_echo_a_private_positional_path(self) -> None:
         result = subprocess.run(

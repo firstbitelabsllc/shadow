@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +94,17 @@ class PlanTreeBuildTests(unittest.TestCase):
         for digest, body in first.objects.items():
             self.assertEqual(hashlib.sha256(body).hexdigest(), digest)
             self.assertLessEqual(len(body), store.DATA_MAX_BYTES)
+
+    def test_absurd_integer_in_index_page_is_a_store_error(self) -> None:
+        content = (
+            b'{"schema":"shadow.plan-tree-page.v1","tree":"row",'
+            b'"kind":"leaf","entries":[],"number":'
+            + (b"9" * 5000)
+            + b"}"
+        )
+
+        with self.assertRaisesRegex(store.PlanStoreError, "index page is malformed"):
+            store._decode_page(content, "row")
 
     def test_row_and_tag_routes_rebuild_from_canonical_shards(self) -> None:
         build = store.build_tree(plan())
@@ -216,6 +228,55 @@ class PlanSnapshotTests(unittest.TestCase):
             store.PlanSnapshot.open(plan_path).materialize()
         self.assertIn(digest, str(ctx.exception))
         self.assertIn(str(object_path), str(ctx.exception))
+
+    def test_intermediate_bucket_swap_cannot_redirect_a_selected_shard(self) -> None:
+        source = plan().replace(
+            b"second result",
+            b"PRIVATE_EXTERNAL_SENTINEL second result",
+        )
+        build = store.build_tree(source)
+        plan_path = install_tree(self.root, source)
+        digest = store.lookup_build(build, row_id="~bb22").object_sha256
+        bucket = self.root / "PLAN.d" / "objects" / "sha256" / digest[:2]
+        shard = bucket / digest
+        external = self.root / "external-bucket"
+        external.mkdir()
+        (external / digest).write_bytes(shard.read_bytes())
+        backup = self.root / "original-bucket"
+        snapshot = store.PlanSnapshot.open(plan_path)
+        original_object_path = snapshot.object_path
+        swapped = False
+
+        def swap_after_path_check(candidate: str) -> Path:
+            nonlocal swapped
+            path = original_object_path(candidate)
+            if candidate == digest and not swapped:
+                swapped = True
+                bucket.rename(backup)
+                bucket.symlink_to(external, target_is_directory=True)
+            return path
+
+        with (
+            mock.patch.object(snapshot, "object_path", side_effect=swap_after_path_check),
+            self.assertRaisesRegex(store.PlanStoreError, "crosses a symlink"),
+        ):
+            snapshot.row("~bb22")
+
+    def test_tag_route_requires_a_complete_catalog_descriptor(self) -> None:
+        snapshot = store.PlanSnapshot.open(install_tree(self.root, plan()))
+        malformed = {"tags": ["proof"], "bytes": 1}
+
+        with (
+            mock.patch.object(
+                snapshot,
+                "_tree_lookup",
+                side_effect=["tasks/00000000", malformed],
+            ),
+            mock.patch.object(snapshot, "_read_object") as read_object,
+            self.assertRaisesRegex(store.PlanStoreError, "catalog route is malformed"),
+        ):
+            snapshot.receipt("proof", 0)
+        read_object.assert_not_called()
 
 
 class DryRunMigrationTests(unittest.TestCase):
