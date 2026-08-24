@@ -32,6 +32,11 @@ activation paths. On a source-installed machine, keep the mount and remove the
 installed duplicate when `shadow doctor` names one; otherwise a host can load
 cached plugin prose ahead of the checkout you just updated.
 
+When a source-controlled Skillbox manifest declares `[sources.shadow]`, that
+path is the explicit product-skill election. It may be a clean runtime clone
+separate from the checkout that supplies `bin/shadow`; doctor and host proof
+accept that split only when the manifest declares it.
+
 ## 2. The standing goal — one installed top-level direction block
 
 The goal for any Shadow seat is **static**. It is the same text for every

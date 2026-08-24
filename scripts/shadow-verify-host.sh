@@ -233,14 +233,41 @@ resolve_cmd() {
 
 echo "verify-host: ${HOST}"
 
-# 1. The mount resolves to THIS checkout. A mount pointing at another clone
-#    means the session reads one version's law while `shadow` runs another's.
+# 1. The mount resolves to the product source explicitly elected by Skillbox,
+#    or to this checkout on a standalone direct install. The command checkout
+#    and the clean skill-runtime clone may be separate, but an undeclared clone
+#    is still a split-brain failure.
+EXPECTED_SKILL_DIR=""
+if ! EXPECTED_SKILL_DIR="$(python3 - "${ROOT}" <<'PY' 2>&1
+import importlib.util
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location(
+    "shadow_doctor_expected_skill",
+    root / "scripts" / "shadow-doctor.py",
+)
+if spec is None or spec.loader is None:
+    raise SystemExit("doctor module is unavailable")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+expected, error = module.expected_skill_file()
+if error or expected is None:
+    raise SystemExit(error or "Shadow skill source election is unavailable")
+print(expected.parent)
+PY
+)"; then
+  bad "skill source election is unreadable: ${EXPECTED_SKILL_DIR}"
+  EXPECTED_SKILL_DIR="${ROOT}"
+fi
+
 if [[ ! -e "${MOUNT}" ]]; then
   bad "no skill mount at \$HOME/${MOUNT#"${HOME}/"} — run: bash install.sh"
-elif [[ "$(cd -P "${MOUNT}" 2>/dev/null && pwd)" != "${ROOT}" ]]; then
-  bad "skill mount resolves elsewhere — another checkout is serving this host"
+elif [[ "$(cd -P "${MOUNT}" 2>/dev/null && pwd)" != "${EXPECTED_SKILL_DIR}" ]]; then
+  bad "skill mount resolves elsewhere — another checkout is serving this host without the explicit election"
 else
-  ok "skill mount resolves to this checkout"
+  ok "skill mount resolves to the elected product source"
 fi
 
 # 2. Nothing shadows it. Host loaders take the first match, so a directory of
@@ -249,7 +276,7 @@ SHADOWED=0
 for other in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills" "${HOME}/.grok/skills"; do
   candidate="${other}/shadow"
   [[ "${candidate}" == "${MOUNT}" ]] && continue
-  if [[ -e "${candidate}" && "$(cd -P "${candidate}" 2>/dev/null && pwd)" != "${ROOT}" ]]; then
+  if [[ -e "${candidate}" && "$(cd -P "${candidate}" 2>/dev/null && pwd)" != "${EXPECTED_SKILL_DIR}" ]]; then
     bad "a different 'shadow' skill is mounted in ${other#"${HOME}/"} — one of them is stale"
     SHADOWED=1
   fi
