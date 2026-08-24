@@ -121,7 +121,7 @@ class ReleasePackageTests(unittest.TestCase):
         )
         self.assertEqual(output.returncode, 0, output.stderr)
         for clause in (
-            "read /ABS/PLAN.md",
+            "read --entity ENTITY_ID",
             "--row '~hash'",
             "--receipt progress:N",
             "--expect-root ROOT_SHA256",
