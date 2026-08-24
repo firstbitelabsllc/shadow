@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import re
 import sys
@@ -17,19 +16,44 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_plan_store as store  # noqa: E402
+import shadow_root_board as board  # noqa: E402
+from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE  # noqa: E402
 
 
 MAX_SELECTORS: Final = 8
 MAX_RESULT_BYTES: Final = 128 * 1024
 SHA256_RE: Final = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_RE: Final = re.compile(
-    r"^(?P<tag>[a-z][a-z0-9-]*):(?P<sequence>[0-9]+)$"
+    r"^(?P<tag>[a-z][a-z0-9-]*):(?P<sequence>[0-9]{1,20})$"
 )
+OBJECT_ERROR_RE: Final = re.compile(
+    r"^(?P<reason>referenced object is missing|object digest mismatch): "
+    r"expected digest (?P<digest>[0-9a-f]{64}) at .+$"
+)
+ABSOLUTE_PATH_RE: Final = re.compile(r"(?:^|[\s:=])/(?:[^\s]+)")
+
+
+class ReadError(ValueError):
+    """The requested projection cannot be proven without leaking its pointer."""
+
+
+class SafeArgumentParser(argparse.ArgumentParser):
+    """Refuse malformed argv without reflecting a private path or secret."""
+
+    def error(self, message: str) -> None:
+        del message
+        self.print_usage(sys.stderr)
+        self.exit(2, "shadow read: invalid arguments; run `shadow help read`\n")
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("plan", type=Path, help="absolute path to one PLAN.md tree root")
+    result = SafeArgumentParser(description=__doc__)
+    result.add_argument(
+        "--entity",
+        required=True,
+        metavar="ENTITY_ID",
+        help="full logical entity id already registered on this computer's board",
+    )
     result.add_argument(
         "--row",
         action="append",
@@ -81,8 +105,15 @@ def _selector_specs(
     return selectors
 
 
-def _provenance(value: store.PlanProvenance) -> dict[str, Any]:
+def _provenance(
+    value: store.PlanProvenance,
+    *,
+    entity_id: str,
+    entity_locator: str,
+) -> dict[str, Any]:
     return {
+        "entity_id": entity_id,
+        "entity_locator": entity_locator,
         "selector": value.selector,
         "root_sha256": value.root_sha256,
         "index_sha256": list(value.index_sha256),
@@ -97,20 +128,56 @@ def _provenance(value: store.PlanProvenance) -> dict[str, Any]:
     }
 
 
+def _safe_error(exc: Exception, entity_locator: str | None = None) -> str:
+    """Keep a useful reason while never exporting a machine-private pointer."""
+    detail = str(exc)
+    matched = OBJECT_ERROR_RE.fullmatch(detail)
+    if matched is not None:
+        location = entity_locator or "the requested entity"
+        return (
+            f"{matched.group('reason')}: expected digest "
+            f"{matched.group('digest')} in {location}"
+        )
+    if (
+        PRIVATE_PATH_RE.search(detail)
+        or SECRET_SHAPE_RE.search(detail)
+        or ABSOLUTE_PATH_RE.search(detail)
+    ):
+        return f"canonical plan read failed for {entity_locator or 'the requested entity'}"
+    return detail
+
+
+def _resolve_entity(entity: str) -> tuple[Path, int, str]:
+    if board.ENTITY_ID.fullmatch(entity) is None:
+        raise ReadError("entity id must be one full lowercase SHA-256 digest")
+    locator = board.public_entity_locator(entity)
+    try:
+        resolved = board.resolve_entity(entity)
+    except board.BoardError as exc:
+        raise ReadError(_safe_error(exc, locator)) from None
+    if resolved is None:
+        raise ReadError("this computer has no Shadow board yet")
+    if resolved["plan"] is None:
+        raise ReadError(f"{locator} is not registered on this computer")
+    return resolved["plan"], resolved["state"]["revision"], locator
+
+
 def project(
-    plan: Path,
     *,
+    entity: str,
     rows: list[str],
     receipts: list[str],
     expect_root: str | None,
 ) -> dict[str, Any]:
     selectors = _selector_specs(rows, receipts)
-    if not plan.is_absolute():
-        raise store.PlanStoreError("plan path must be absolute")
     if expect_root is not None and SHA256_RE.fullmatch(expect_root) is None:
         raise store.PlanStoreError("expected root must be one lowercase SHA-256 digest")
 
-    snapshot = store.PlanSnapshot.open(Path(os.path.abspath(plan)))
+    plan, board_revision, entity_locator = _resolve_entity(entity)
+    try:
+        snapshot = board.open_plan(plan)
+    except (board.BoardError, store.PlanStoreError) as exc:
+        raise ReadError(_safe_error(exc, entity_locator)) from None
     if not snapshot.is_tree:
         raise store.PlanStoreError(
             "bounded projection requires a shadow.plan-tree.v1 root; migrate first"
@@ -121,11 +188,14 @@ def project(
     results: list[dict[str, Any]] = []
     result_bytes = 0
     for selector, value, sequence in selectors:
-        selected = (
-            snapshot.row(value)
-            if sequence is None
-            else snapshot.receipt(value, sequence)
-        )
+        try:
+            selected = (
+                snapshot.row(value)
+                if sequence is None
+                else snapshot.receipt(value, sequence)
+            )
+        except store.PlanStoreError as exc:
+            raise ReadError(_safe_error(exc, entity_locator)) from None
         if selected.provenance.selector != selector:
             raise store.PlanStoreError("selected result provenance does not match request")
         result_bytes += len(selected.content)
@@ -141,14 +211,35 @@ def project(
             {
                 "selector": selector,
                 "content": content,
-                "provenance": _provenance(selected.provenance),
+                "provenance": _provenance(
+                    selected.provenance,
+                    entity_id=entity,
+                    entity_locator=entity_locator,
+                ),
             }
         )
+
+    try:
+        verified = board.resolve_entity(entity)
+        if verified is None or verified["plan"] is None:
+            raise ReadError(f"{entity_locator} is no longer registered")
+        if verified["plan"] != plan:
+            raise ReadError("registered entity pointer changed during projection")
+        current = board.open_plan(plan)
+    except ReadError:
+        raise
+    except (board.BoardError, store.PlanStoreError) as exc:
+        raise ReadError(_safe_error(exc, entity_locator)) from None
+    if current.root_bytes != snapshot.root_bytes:
+        raise ReadError("plan root changed during projection; retry")
 
     assert snapshot.root is not None
     payload: dict[str, Any] = {
         "schema": "shadow.plan-projection.v1",
-        "plan": "PLAN.md",
+        "plan": entity_locator,
+        "entity_id": entity,
+        "board_revision": board_revision,
+        "board_revision_verified": verified["state"]["revision"],
         "root_sha256": snapshot.root_sha256,
         "logical_sha256": snapshot.root["logical_sha256"],
         "generation": snapshot.root["generation"],
@@ -174,13 +265,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         payload = project(
-            args.plan,
+            entity=args.entity,
             rows=args.row,
             receipts=args.receipt,
             expect_root=args.expect_root,
         )
-    except store.PlanStoreError as exc:
-        print(f"shadow read: {exc}", file=sys.stderr)
+    except (ReadError, store.PlanStoreError, board.BoardError) as exc:
+        print(f"shadow read: {_safe_error(exc)}", file=sys.stderr)
         return 2
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
