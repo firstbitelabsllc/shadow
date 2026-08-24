@@ -25,6 +25,10 @@ bash install.sh --no-skills                # command only, skip the host mounts
 ```
 
 The mount points at the same repository; it does not copy state or credentials.
+On a Skillbox-managed machine, `[sources.shadow]` may instead elect a separate
+clean runtime clone of Shadow's product-owned skill. `shadow doctor` and the
+host verifier honor that explicit election while still refusing an undeclared
+checkout; the CLI checkout and skill checkout need not be the same worktree.
 The default install also writes Shadow's marker-delimited standing block into
 Claude and Codex host instructions without replacing surrounding text. Cold
 Cursor directive activation is unsupported because Cursor exposes no
