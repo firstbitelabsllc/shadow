@@ -445,6 +445,10 @@ printf '%s\n' 'For fixture, I am finishing the verifier that activates cold host
             self.assertNotIn("fixture", asked)
             self.assertNotIn("~aa11", asked)
             self.assertIn("seat claude", asked)
+            self.assertIn("which project or projects", asked)
+            self.assertIn("one concise answer", asked)
+            self.assertIn("then stop", asked)
+            self.assertIn("does not need deeper inspection", asked)
             self.assertIn("--no-session-persistence", asked)
             self.assertIn("--permission-mode plan", asked)
             self.assertNotEqual(cwd.read_text(encoding="utf-8").strip(), str(ROOT))
@@ -512,6 +516,74 @@ printf '%s\n' 'For fixture, I am finishing the verifier that activates cold host
                 "printf '%s\\n' 'The zeta project is finishing the seat owned zeta verifier.'",
             )
             result = run(home, path=path, live=True, by="worker")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("described its current work", result.stdout)
+
+    def test_any_one_of_the_named_seats_owned_claims_is_current_work(self) -> None:
+        """A multi-claim seat is not wrong for naming its second owned row."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            repos = []
+            for project_name, work in (
+                ("alpha", "prepare the owned alpha activation report"),
+                ("zeta", "finish the owned zeta transport verifier"),
+            ):
+                repo = home / "portfolio" / project_name
+                repo.mkdir(parents=True)
+                repo.joinpath("PLAN.md").write_text(
+                    PLAN.replace("Project: fixture", f"Project: {project_name}").replace(
+                        "ship the cold activation verifier from a clean clone", work
+                    ),
+                    encoding="utf-8",
+                )
+                subprocess.run(["git", "init", "-q", str(repo)], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "config", "user.name", "Fixture"],
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "-C", str(repo), "config", "user.email", "fixture@example.invalid"],
+                    check=True,
+                )
+                subprocess.run(["git", "-C", str(repo), "add", "--", "PLAN.md"], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "commit", "-qm", "seed"], check=True
+                )
+                repos.append(repo)
+
+            environment = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{ROOT / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+                "SHADOW_PORTFOLIO_ROOT": str(home / "portfolio"),
+            }
+            for repo in repos:
+                claim = subprocess.run(
+                    [
+                        str(ROOT / "bin" / "shadow"),
+                        "throw",
+                        "--repo",
+                        str(repo),
+                        "--task",
+                        "~aa11",
+                        "--by",
+                        "worker",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env=environment,
+                )
+                self.assertEqual(claim.returncode, 0, claim.stdout + claim.stderr)
+
+            path = self._fake_host(
+                home,
+                "claude",
+                "printf '%s\\n' 'The zeta project is finishing its owned transport verifier.'",
+            )
+            result = run(home, path=path, live=True, by="worker")
+
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn("described its current work", result.stdout)
 
