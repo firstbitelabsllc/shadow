@@ -72,6 +72,11 @@ class DistributionContractTests(unittest.TestCase):
         operator = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("`shadow status --by <seat>`", operator)
         self.assertNotIn("shadow status --json --by <seat>", operator)
+        for skill in (portable, operator):
+            normalized = " ".join(skill.split()).lower()
+            self.assertIn("direct read-only", normalized)
+            self.assertIn("first current bounded view", normalized)
+            self.assertIn("then stop", normalized)
 
     def test_distribution_does_not_publish_a_placeholder_transport(self) -> None:
         forbidden_names = {"server.json", "mcp.json"}
