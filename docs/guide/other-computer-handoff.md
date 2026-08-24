@@ -18,8 +18,10 @@ Pass `--no-skills` to link the command alone.
 
 Expected result: `shadow doctor` reports product identity, command, and the
 host/mount checks that exist on that computer. Missing optional hosts or mounts
-are warnings; Cursor cold directive activation is an explicit unsupported
-surface. Authentication stays inside the native host on that computer.
+are warnings; Cursor global cold directive activation is an explicit
+unsupported surface, while a tracked repository-root `AGENTS.md` or `CLAUDE.md`
+can be proved with `scripts/shadow-verify-host.sh --host cursor --repo /path/to/repo
+--live`. Authentication stays inside the native host on that computer.
 
 ## The normal loop
 
