@@ -43,6 +43,7 @@ PLAN = """# Fixture
 
 def run(home: Path, host: str = "claude-code", path: str | None = None,
         live: bool = False, by: str | None = None,
+        repo: Path | None = None,
         timeout_seconds: int | None = None,
         extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     # A scratch HOME has no ~/Development, so the board check would fail for a
@@ -61,6 +62,8 @@ def run(home: Path, host: str = "claude-code", path: str | None = None,
         command.append("--live")
     if by:
         command.extend(["--by", by])
+    if repo is not None:
+        command.extend(["--repo", str(repo)])
     if timeout_seconds is not None:
         command.extend(["--timeout-seconds", str(timeout_seconds)])
     env = {**os.environ, "HOME": str(home), "PATH": path,
@@ -90,6 +93,38 @@ def wired(home: Path, host: str = "claude-code") -> None:
         block = subprocess.run([str(ROOT / "bin" / "shadow"), "goal"],
                                capture_output=True, text=True, check=True).stdout.strip()
         path.write_text(f"# my rules\n\nkeep these\n\n{block}\n", encoding="utf-8")
+
+
+def cursor_repo(home: Path, *, instructions: bool = True,
+                tracked: bool = True, name: str = "workspace") -> Path:
+    """One repository root Cursor can be asked to load without global rules."""
+    repo = home / name
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    if instructions:
+        (repo / "AGENTS.md").write_text(
+            "# Fixture host instructions\n\nUse the mounted Shadow skill.\n",
+            encoding="utf-8",
+        )
+        if tracked:
+            subprocess.run(["git", "-C", str(repo), "add", "AGENTS.md"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=Verifier Test",
+                    "-c",
+                    "user.email=verifier@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "fixture instructions",
+                ],
+                check=True,
+            )
+    return repo
 
 
 def add_dirty_managed_plan(home: Path) -> None:
@@ -405,6 +440,34 @@ class CursorIsHonestAboutWhatItCannotCheck(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn("cold directive activation is unsupported", result.stdout)
             self.assertNotIn(".cursor/rules", result.stdout)
+
+    def test_cursor_repo_must_be_an_existing_git_root_with_root_instructions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "cursor")
+            missing = home / "missing"
+            not_a_repo = home / "not-a-repo"
+            not_a_repo.mkdir()
+            (not_a_repo / "AGENTS.md").write_text("# Rules\n", encoding="utf-8")
+            no_instructions = cursor_repo(home, instructions=False)
+            untracked_instructions = cursor_repo(
+                home, tracked=False, name="untracked-workspace"
+            )
+
+            for repo in (missing, not_a_repo, no_instructions, untracked_instructions):
+                with self.subTest(repo=repo):
+                    result = run(home, "cursor", repo=repo)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("repository root", result.stdout)
+
+    def test_repo_scope_is_cursor_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            repo = cursor_repo(home)
+            result = run(home, repo=repo)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("only valid for --host cursor", result.stderr)
 
 
 class LiveSessionEvidenceIsDynamicAndUncoached(unittest.TestCase):
@@ -760,6 +823,71 @@ printf '%s\n' 'For fixture, I am finishing the verifier that activates cold host
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn("described its current work", result.stdout)
 
+    def test_cursor_live_runs_against_an_explicit_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "cursor")
+            repo = cursor_repo(home)
+            path = self._fake_host(
+                home,
+                "cursor-agent",
+                "printf '%s\\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'",
+            )
+            result = run(home, host="cursor", path=path, live=True, repo=repo)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("described its current work", result.stdout)
+            self.assertNotIn("live session check is unsupported", result.stdout)
+
+    def test_cursor_live_uses_read_only_repo_scoped_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "cursor")
+            repo = cursor_repo(home)
+            argv = home / "cursor-argv.txt"
+            path = self._fake_host(
+                home,
+                "cursor-agent",
+                """printf '%s\n' "$*" > "$SHADOW_TEST_ARGV"
+printf '%s\n' 'For fixture, I am finishing the verifier that activates cold hosts from a fresh checkout.'""",
+            )
+            result = run(
+                home,
+                host="cursor",
+                path=path,
+                live=True,
+                repo=repo,
+                extra_env={"SHADOW_TEST_ARGV": str(argv)},
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            args = argv.read_text(encoding="utf-8")
+            self.assertIn("--print --mode ask", args)
+            self.assertIn(f"--workspace {repo.resolve()}", args)
+            self.assertNotIn("--model", args)
+            self.assertNotIn("--force", args)
+            self.assertNotIn("--yolo", args)
+
+    def test_cursor_board_drift_during_the_host_run_is_inconclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "cursor")
+            repo = cursor_repo(home)
+            path = self._fake_host(
+                home,
+                "cursor-agent",
+                """"$SHADOW_TEST_REAL" priority --repo "$SHADOW_PORTFOLIO_ROOT/project" --value 2 >/dev/null
+printf '%s\n' 'The fixture project is shipping its cold activation verifier from a fresh checkout.'""",
+            )
+            result = run(
+                home,
+                host="cursor",
+                path=path,
+                live=True,
+                repo=repo,
+                extra_env={"SHADOW_TEST_REAL": str(ROOT / "bin" / "shadow")},
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("result is inconclusive", result.stdout)
+
     def test_cursor_live_is_an_explicit_skip_not_a_fake_session_proof(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -782,6 +910,7 @@ class TheScriptItself(unittest.TestCase):
         self.assertIn("offline", result.stdout)
         self.assertIn("--live", result.stdout)
         self.assertIn("--by", result.stdout)
+        self.assertIn("--repo", result.stdout)
         self.assertIn("--timeout-seconds", result.stdout)
 
 

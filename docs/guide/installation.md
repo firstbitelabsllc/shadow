@@ -29,8 +29,10 @@ The default install also writes Shadow's marker-delimited standing block into
 Claude and Codex host instructions without replacing surrounding text. Cold
 Cursor directive activation is unsupported because Cursor exposes no
 equivalent reviewed writable file. The installer does not invent a path or ask
-you to paste into an unverified setting; Cursor's skill mount and sealed host
-runner remain supported.
+you to paste into an unverified setting. Cursor's skill mount, sealed host
+runner, and source-controlled repository-root `AGENTS.md`/`CLAUDE.md` boundary
+remain supported; verify that boundary with `scripts/shadow-verify-host.sh
+--host cursor --by cursor --repo /path/to/repo --live`.
 `--no-skills` deliberately skips both mounts and host-instruction installation.
 
 On a machine with this source install, the mounted checkout is the canonical

@@ -50,6 +50,8 @@ project to attach to.
 ```bash
 scripts/shadow-verify-host.sh --host claude-code --by claude          # offline, free
 scripts/shadow-verify-host.sh --host codex --by codex --live          # one real session
+scripts/shadow-verify-host.sh --host cursor --by cursor \
+  --repo /absolute/path/to/repository --live                          # repo-scoped session
 ```
 
 The offline tier proves the mount resolves to this checkout, that nothing
@@ -66,6 +68,12 @@ board drift is inconclusive, never green. This is the only check that proves a
 **session** loads the skill, and it costs model quota, so it never runs by
 default — a skipped check says so rather than leaving a green run implying it
 happened.
+
+Cursor's live check is deliberately narrower than global activation. `--repo`
+must resolve to an actual Git repository root with a tracked root `AGENTS.md`
+or `CLAUDE.md`; the verifier invokes `cursor-agent --print --mode ask
+--workspace <root>` with no model or force selector. Omitting `--repo` keeps the
+existing explicit skip, and `--repo` is rejected for every other host.
 
 ## Verifying two seats coordinate
 

@@ -62,8 +62,9 @@ All configuration is deliberately small, and stress-tested that way:
 - **Environment** — `SHADOW_ROOT`, host binary overrides, the slot bindings —
   table: [Config](https://firstbitelabsllc.github.io/shadow/reference/config).
 - **Standing goal** — `shadow goal --install` owns one marked block in your
-  agent file; your methods live beside it, untouched. Cursor: paste
-  `shadow goal` output into User Rules ([how](https://firstbitelabsllc.github.io/shadow/reference/host-integration)).
+  agent file; your methods live beside it, untouched. Cursor: keep that block
+  in a source-controlled repository-root `AGENTS.md` or `CLAUDE.md`, then prove
+  it with the repo-scoped verifier ([how](https://firstbitelabsllc.github.io/shadow/reference/host-integration)).
 
 When your branch tracks a configured `origin`, `shadow throw` also takes one
 Git coordination lock under `refs/heads/shadow/claims/v1/<entity>/<row>`: it

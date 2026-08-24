@@ -8,10 +8,11 @@ a host.
 
 Cold directive activation is a narrower surface. Shadow manages a marker block
 in Claude Code's `CLAUDE.md`, Codex's `AGENTS.md`, and Grok's `AGENTS.md`.
-Cursor user rules live in application settings; no reviewed file/API convention
-exists, so Shadow marks Cursor cold activation **unsupported** instead of
-inventing a path and calling it installed. Cursor's skill mount and sealed
-host-run remain supported.
+Cursor user rules live in application settings; no reviewed global file/API
+convention exists, so Shadow marks global Cursor cold activation **unsupported**
+instead of inventing a path and calling it installed. Cursor's skill mount,
+sealed host-run, and source-controlled repository-root `AGENTS.md`/`CLAUDE.md`
+activation remain supported.
 
 Every run requires an exact clean Git worktree, a frozen task file, a task
 ID, and one or more exact allowed paths. Scope escape, missing receipt,
@@ -56,7 +57,7 @@ and `~/.grok/rules/` as the always-scanned home rules directory. Activation
 writes the named file so doctor and verify do not depend on Claude
 compatibility loading `~/.claude/CLAUDE.md`.
 
-**Cursor is not activated, by decision (2026-08-10).** Cursor's user-level
+**Cursor is not globally activated, by decision (2026-08-10).** Cursor's user-level
 rules live in the application's settings interface, not in a file: its own
 rules documentation (cursor.com/docs/context/rules, read 2026-08-10) documents
 project-scoped surfaces only — `.cursor/rules/*.mdc` and `AGENTS.md` in a
@@ -68,9 +69,12 @@ invent a convention and then report success for wiring that does nothing —
 the exact false-green shape this project refuses.
 
 What a Cursor user does instead: put the standing goal block in a repository's
-own `AGENTS.md`, which Cursor does read at the project root. That is a
-per-repository choice made in that repository, not an install target —
-Shadow's installer writes user-level files only.
+own root `AGENTS.md` or `CLAUDE.md`. That is a source-controlled,
+per-repository choice, not an install target — Shadow's installer writes
+user-level files only. Prove the boundary with
+`scripts/shadow-verify-host.sh --host cursor --by cursor --repo /path/to/repo
+--live`; without `--repo`, the verifier explicitly skips rather than claiming
+global activation.
 
 This decision reverses nothing and closes silently-implied support: if Cursor
 ships a documented user-level instruction file, the decision reopens with that

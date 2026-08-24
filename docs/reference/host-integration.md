@@ -2,10 +2,12 @@
 
 Shadow should work the moment a host opens, in any directory, with zero
 per-session setup: same durable board, same standing goal, proxy stance on.
-This page is the complete cold-start wiring for Claude Code, Codex, and Grok.
-Cursor's skill mount and sealed host-run are supported, but file-backed cold
-directive activation is explicitly unsupported until Cursor exposes a reviewed
-user-rule surface; Shadow does not invent `~/.cursor/rules`.
+This page is the complete global cold-start wiring for Claude Code, Codex, and
+Grok, plus Cursor's source-controlled repository boundary. Cursor's skill mount,
+sealed host-run, and repository-root `AGENTS.md`/`CLAUDE.md` activation are
+supported. File-backed global directive activation remains unsupported until
+Cursor exposes a reviewed user-rule surface; Shadow does not invent
+`~/.cursor/rules`.
 
 ## 1. Install once
 
@@ -105,8 +107,10 @@ markers bound only Shadow's text. Nothing about your methods enters
 `shadow.yaml` — that file stays the two-key repo dial it is.
 
 Cursor has no reviewed user-level file for cold directives, so nothing is
-written there. Paste `shadow goal` output into Cursor's User Rules yourself,
-or into a repo-root `AGENTS.md`, which Cursor reads.
+written there. For source-controlled activation, keep the standing goal in the
+repository-root `AGENTS.md` or `CLAUDE.md` that Cursor reads. Cursor's global
+User Rules remain manual application settings and are outside Shadow's
+file-backed installation and verification boundary.
 
 ## 3. What "activate shadow" means in a session
 
@@ -151,4 +155,12 @@ reading it.
 cd "$(mktemp -d)" && shadow status --by shadow-check
 # Run the exact Claim command status printed, then its exact Continue command.
 shadow doctor  # command, mounts, managed Claude/Codex/Grok block, and identity green
+scripts/shadow-verify-host.sh --host cursor --by cursor \
+  --repo /absolute/path/to/repository --live
 ```
+
+The Cursor proof requires an actual Git repository root with a tracked root
+`AGENTS.md` or `CLAUDE.md`. It runs `cursor-agent` in print/ask mode against
+that exact workspace through the same frozen read-only board shim used by the
+other hosts, then rejects board drift or a mismatched project/work answer. With
+no `--repo`, Cursor remains an explicit skip; no global activation is implied.
