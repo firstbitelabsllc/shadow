@@ -19,13 +19,18 @@
 #                      only thing that proves a SESSION resolves the skill, and
 #                      it costs the owner's quota, so it never runs by default.
 #
-# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor|grok [--by SEAT] [--live] [--timeout-seconds N]
+# Cursor has no file-backed global directive, so its live tier is deliberately
+# repository-scoped: pass --repo PATH only when PATH is a Git repository root
+# with tracked AGENTS.md or CLAUDE.md. Without it, Cursor remains an explicit skip.
+#
+# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor|grok [--by SEAT] [--repo PATH] [--live] [--timeout-seconds N]
 set -uo pipefail
 
 ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST=""
 LIVE=0
 SEAT=""
+REPO=""
 LIVE_TIMEOUT=120
 FAILURES=0
 
@@ -37,11 +42,14 @@ while [[ $# -gt 0 ]]; do
     --by)
       [[ $# -ge 2 ]] || { echo "verify-host: --by requires a value" >&2; exit 2; }
       SEAT="$2"; shift 2 ;;
+    --repo)
+      [[ $# -ge 2 ]] || { echo "verify-host: --repo requires a value" >&2; exit 2; }
+      REPO="$2"; shift 2 ;;
     --live) LIVE=1; shift ;;
     --timeout-seconds)
       [[ $# -ge 2 ]] || { echo "verify-host: --timeout-seconds requires a value" >&2; exit 2; }
       LIVE_TIMEOUT="$2"; shift 2 ;;
-    -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "verify-host: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -53,6 +61,11 @@ case "${HOST}" in
   grok)        MOUNT="${HOME}/.grok/skills/shadow"; DIRECTIVE="${HOME}/.grok/AGENTS.md"; BIN="grok" ;;
   *) echo "verify-host: --host must be claude-code, codex, cursor, or grok" >&2; exit 2 ;;
 esac
+
+if [[ -n "${REPO}" && "${HOST}" != "cursor" ]]; then
+  echo "verify-host: --repo is only valid for --host cursor" >&2
+  exit 2
+fi
 
 [[ -z "${SEAT}" ]] && SEAT="${HOST/claude-code/claude}"
 if [[ ! "${SEAT}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
@@ -68,6 +81,35 @@ ok()   { printf '  [PASS] %s\n' "$1"; }
 bad()  { printf '  [FAIL] %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 warn() { printf '  [WARN] %s\n' "$1"; }
 skip() { printf '  [SKIP] %s\n' "$1"; }
+
+CURSOR_REPO=""
+CURSOR_REPO_REASON=""
+CURSOR_INSTRUCTION=""
+if [[ "${HOST}" == "cursor" && -n "${REPO}" ]]; then
+  if [[ ! -d "${REPO}" ]]; then
+    CURSOR_REPO_REASON="the path does not exist or is not a directory"
+  elif ! CURSOR_REPO="$(cd -P "${REPO}" 2>/dev/null && pwd)"; then
+    CURSOR_REPO_REASON="the path cannot be resolved"
+  else
+    GIT_TOP="$(git -C "${CURSOR_REPO}" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -z "${GIT_TOP}" ]]; then
+      CURSOR_REPO_REASON="the path is not a Git repository"
+    elif [[ "$(cd -P "${GIT_TOP}" 2>/dev/null && pwd)" != "${CURSOR_REPO}" ]]; then
+      CURSOR_REPO_REASON="the path is not the Git repository root"
+    else
+      for candidate in AGENTS.md CLAUDE.md; do
+        if [[ -f "${CURSOR_REPO}/${candidate}" ]] && \
+           git -C "${CURSOR_REPO}" ls-files --error-unmatch -- "${candidate}" >/dev/null 2>&1; then
+          CURSOR_INSTRUCTION="${candidate}"
+          break
+        fi
+      done
+      if [[ -z "${CURSOR_INSTRUCTION}" ]]; then
+        CURSOR_REPO_REASON="the repository root has no source-controlled AGENTS.md or CLAUDE.md"
+      fi
+    fi
+  fi
+fi
 
 board_facts() {
   python3 -c '
@@ -299,11 +341,15 @@ fi
 
 # 4. The standing goal is present and current. `shadow doctor` owns the
 #    authoritative comparison; this reports the same fact per host.
-if [[ -z "${DIRECTIVE}" ]]; then
+if [[ "${HOST}" == "cursor" && -z "${REPO}" ]]; then
   # Cursor user rules live in application settings, not a file. Asserting a
   # path here would invent a convention and then report success for wiring
   # that does nothing.
   skip "cold directive activation is unsupported for this host; host-run and skill mount remain verifiable"
+elif [[ "${HOST}" == "cursor" && -n "${CURSOR_REPO_REASON}" ]]; then
+  bad "Cursor --repo must name a repository root with source-controlled root AGENTS.md or CLAUDE.md — ${CURSOR_REPO_REASON}"
+elif [[ "${HOST}" == "cursor" ]]; then
+  ok "the Cursor repository root exposes source-controlled ${CURSOR_INSTRUCTION}"
 elif [[ ! -f "${DIRECTIVE}" ]]; then
   bad "no instruction file — run: shadow goal --install"
 elif ! "${ROOT}/bin/shadow" goal | head -1 | grep -qF "$(head -1 <("${ROOT}/bin/shadow" goal))" 2>/dev/null; then
@@ -376,8 +422,10 @@ fi
 #    above proves the pieces are in place for it to.
 if [[ "${LIVE}" -eq 0 ]]; then
   skip "session check (costs model quota) — re-run with --live to prove a cold session resolves the skill"
-elif [[ "${HOST}" == "cursor" ]]; then
+elif [[ "${HOST}" == "cursor" && -z "${REPO}" ]]; then
   skip "live session check is unsupported for this host because it has no cold directive activation surface"
+elif [[ "${HOST}" == "cursor" && -n "${CURSOR_REPO_REASON}" ]]; then
+  skip "live session check was not run because the Cursor repository root is invalid"
 elif ! command -v "${BIN}" >/dev/null 2>&1; then
   bad "${BIN} is not installed, so the session check cannot run"
 elif [[ -z "${BOARD_REVISION}" || -z "${BOARD_PROJECT}" || -z "${BOARD_RESUME}" || -z "${BOARD_WORK}" ]]; then
@@ -449,6 +497,12 @@ SH
           run_bounded "${LIVE_LOG}" "${LIVE_LOG}.stderr" \
           "${BIN}" exec --ephemeral --skip-git-repo-check --sandbox read-only \
           --output-last-message "${LIVE_OUT}" "${PROMPT}") || LIVE_STATUS=$?
+        ;;
+      cursor)
+        (cd "${SCRATCH}" && PATH="${READ_ONLY_BIN}:${PATH}" \
+          run_bounded "${LIVE_OUT}" "${LIVE_LOG}" \
+          "${BIN}" --print --mode ask --workspace "${CURSOR_REPO}" \
+          "${PROMPT}") || LIVE_STATUS=$?
         ;;
     esac
   fi
