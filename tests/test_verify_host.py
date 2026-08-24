@@ -189,6 +189,40 @@ class AWiredHostPasses(unittest.TestCase):
             self.assertNotIn("[FAIL]", result.stdout)
             self.assertIn("standing goal is present and current", result.stdout)
 
+    def test_a_skillbox_elected_product_clone_is_green(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home)
+            canonical = home / "canonical-shadow-skill"
+            canonical.mkdir()
+            (canonical / "SKILL.md").write_text(
+                (ROOT / "plugins" / "shadow" / "skills" / "shadow" / "SKILL.md")
+                .read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            mount = home / ".claude" / "skills" / "shadow"
+            mount.unlink()
+            mount.symlink_to(canonical, target_is_directory=True)
+            manifest = home / ".skillbox" / "skills.toml"
+            manifest.parent.mkdir()
+            manifest.write_text(
+                "[roots]\n"
+                f'claude = "{home / ".claude" / "skills"}"\n'
+                "\n[sources.shadow]\n"
+                f'path = "{canonical}"\n'
+                "priority = 1\n"
+                'single_skill = "shadow"\n',
+                encoding="utf-8",
+            )
+
+            result = run(
+                home,
+                extra_env={"SKILLBOX_MANIFEST": str(manifest)},
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("skill mount resolves to the elected product source", result.stdout)
+
     def test_the_session_check_is_skipped_not_silently_passed(self) -> None:
         # It costs the owner's quota, so it must never run by default — and it
         # must say so, rather than leaving a green run implying it happened.

@@ -252,6 +252,50 @@ class DoctorTests(unittest.TestCase):
         self.assertNotIn("token permissions", names)
         self.assertNotIn("background process", names)
 
+    def test_mounts_follow_the_explicit_skillbox_source_election(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            scratch = Path(dirname)
+            home = scratch / "home"
+            canonical = scratch / "canonical-shadow-skill"
+            home.mkdir()
+            canonical.mkdir()
+            (canonical / "SKILL.md").write_text(
+                (ROOT / "plugins" / "shadow" / "skills" / "shadow" / "SKILL.md")
+                .read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            for runtime in (".claude", ".agents", ".cursor", ".grok"):
+                root = home / runtime / "skills"
+                root.mkdir(parents=True)
+                (root / "shadow").symlink_to(canonical, target_is_directory=True)
+            manifest = home / ".skillbox" / "skills.toml"
+            manifest.parent.mkdir()
+            manifest.write_text(
+                "[roots]\n"
+                f'claude = {json.dumps(str(home / ".claude" / "skills"))}\n'
+                "\n[sources.shadow]\n"
+                f"path = {json.dumps(str(canonical))}\n"
+                "priority = 1\n"
+                'single_skill = "shadow"\n',
+                encoding="utf-8",
+            )
+
+            result = self.run_doctor(
+                "--json",
+                env={"HOME": str(home), "SKILLBOX_MANIFEST": str(manifest)},
+            )
+
+        report = json.loads(result.stdout)
+        mounts = [
+            item for item in report["checks"] if item["name"].startswith("skill mount:")
+        ]
+        self.assertEqual(len(mounts), 4)
+        self.assertEqual({item["state"] for item in mounts}, {"pass"})
+        self.assertEqual(
+            {item["detail"] for item in mounts},
+            {str((canonical / "SKILL.md").resolve())},
+        )
+
     def test_bad_root_fails_identity_without_traceback(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             result = subprocess.run(

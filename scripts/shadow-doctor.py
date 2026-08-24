@@ -105,11 +105,77 @@ def host_checks() -> list[dict[str, Any]]:
     return results
 
 
+def expected_skill_file() -> tuple[Path | None, str | None]:
+    """Resolve the product skill selected by Skillbox, with direct-install fallback.
+
+    Shadow supports Python 3.10, so this deliberately reads only the exact
+    ``[sources.shadow] path = "..."`` field instead of requiring a TOML
+    dependency. A machine without a Shadow election keeps the documented
+    direct-install behavior: the CLI checkout itself owns the mounted skill.
+    """
+
+    override = os.environ.get("SHADOW_DOCTOR_EXPECTED_SKILL")
+    if override:
+        return Path(os.path.expanduser(override)).resolve(), None
+
+    configured = os.environ.get("SKILLBOX_MANIFEST")
+    manifest = Path(
+        os.path.expanduser(configured)
+        if configured
+        else Path.home() / ".skillbox" / "skills.toml"
+    )
+    if not manifest.exists():
+        if configured or manifest.is_symlink():
+            return None, f"Skillbox manifest is unreadable: {manifest}"
+        return (ROOT / "SKILL.md").resolve(), None
+
+    try:
+        lines = manifest.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return None, f"Skillbox manifest is unreadable: {exc}"
+
+    in_shadow = False
+    saw_shadow = False
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            in_shadow = line == "[sources.shadow]"
+            saw_shadow = saw_shadow or in_shadow
+            continue
+        if not in_shadow:
+            continue
+        key, separator, value = line.partition("=")
+        if not separator or key.strip() != "path":
+            continue
+        try:
+            declared = json.loads(value.strip())
+        except json.JSONDecodeError as exc:
+            return None, f"Skillbox Shadow source path is malformed: {exc}"
+        if not isinstance(declared, str) or not declared:
+            return None, "Skillbox Shadow source path must be one non-empty string"
+        return (Path(os.path.expanduser(declared)) / "SKILL.md").resolve(), None
+
+    if saw_shadow:
+        return None, "Skillbox [sources.shadow] has no path"
+    return (ROOT / "SKILL.md").resolve(), None
+
+
 def mount_checks() -> list[dict[str, Any]]:
-    expected = (ROOT / "SKILL.md").resolve()
+    expected, election_error = expected_skill_file()
     results = []
     for mount in MOUNTS:
         skill = mount / "SKILL.md"
+        if election_error or expected is None:
+            results.append(
+                check(
+                    f"skill mount: {mount.parent.parent.name}",
+                    "fail",
+                    election_error or "Shadow skill source election is unavailable",
+                )
+            )
+            continue
         if not skill.exists():
             results.append(check(f"skill mount: {mount.parent.parent.name}", "warn", f"missing {mount}"))
             continue
