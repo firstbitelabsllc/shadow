@@ -77,18 +77,14 @@ try:
     data = json.load(sys.stdin)
     seat = sys.argv[1]
     plans = data.get("v4_plans", [])
-    current = None
-    selected = None
+    targets = []
     for plan in plans:
-        claim = next(
-            (item for item in plan.get("live_claims", []) if item.get("owner") == seat),
-            None,
+        targets.extend(
+            (plan, item)
+            for item in plan.get("live_claims", [])
+            if item.get("owner") == seat
         )
-        if claim:
-            current = plan
-            selected = claim
-            break
-    if current is None:
+    if not targets:
         current = next((plan for plan in plans if plan.get("next_unclaimed")), None)
         if current is not None:
             row_id = current["next_unclaimed"]
@@ -98,21 +94,28 @@ try:
                 for checkpoint in milestone.get("checkpoints", [])
                 if checkpoint.get("id") == row_id
             )
-    if current is None or selected is None:
+            targets.append((current, selected))
+    if not targets:
         raise ValueError
     revision = data["root_board"]["revision"]
-    project = current["project"]
-    resume = selected.get("row") or selected.get("id")
-    work = selected.get("text")
-    if not isinstance(revision, int) or not project or not resume or not work:
+    if not isinstance(revision, int):
         raise ValueError
+    facts = []
+    for current, selected in targets:
+        project = current["project"]
+        resume = selected.get("row") or selected.get("id")
+        work = selected.get("text")
+        if not project or not resume or not work:
+            raise ValueError
+        facts.append((project, resume, work))
 except (KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError):
     sys.exit(1)
 
 print(revision)
-print(project)
-print(resume)
-print(work)
+for project, resume, work in facts:
+    print(project)
+    print(resume)
+    print(work)
 ' "${1}"
 }
 
@@ -384,8 +387,10 @@ else
   # let any generic session pass by following instructions; asking only what
   # the work is means the answer can arrive one way — the skill and standing
   # goal loaded, and the session went to the board on its own. It names neither
-  # the command, the evidence fields, nor any value the verifier will accept.
-  PROMPT="As seat ${SEAT}, what am I working on right now?"
+  # the command or any value the verifier will accept. It asks for project and
+  # work because those are the ordinary human answer this probe actually
+  # scores; leaving either implicit made a correct model answer fail by chance.
+  PROMPT="As seat ${SEAT}, which project or projects am I working on, and what is the current work? Give one concise answer from the first current scoped status you find, then stop; this read-only activation probe does not need deeper inspection or a routine footer."
   LIVE_OUT="${SCRATCH}/host-final.txt"
   LIVE_LOG="${SCRATCH}/host-diagnostics.txt"
   BOARD_TEXT_FILE="${SCRATCH}/board.txt"
@@ -466,16 +471,21 @@ SH
     bad "the board could not be re-observed after the live session"
   elif [[ "${AFTER_FACTS}" != "${BOARD_FACTS}" ]]; then
     bad "the root board changed during the live session — the result is inconclusive; re-run"
-  elif python3 - "${LIVE_OUT}" "${BOARD_PROJECT}" "${BOARD_WORK}" <<'PY'
+  elif python3 - "${LIVE_OUT}" "${BOARD_FACTS}" <<'PY'
 import re
 from pathlib import Path
 import sys
 
-path, project, work = sys.argv[1:]
+path, facts = sys.argv[1:]
 try:
     answer = Path(path).read_text(encoding="utf-8")
 except (OSError, UnicodeError):
     raise SystemExit(1)
+
+lines = facts.splitlines()
+if len(lines) < 4 or (len(lines) - 1) % 3:
+    raise SystemExit(1)
+targets = [tuple(lines[index:index + 3]) for index in range(1, len(lines), 3)]
 
 stop = {
     "after", "also", "and", "are", "before", "being", "blocked", "completed",
@@ -495,16 +505,20 @@ def stems(value: str) -> set[str]:
         result.add(token)
     return result
 
-project_pattern = r"[-_ ]+".join(re.escape(part) for part in project.split("-"))
-project_seen = re.search(
-    rf"(?<![A-Za-z0-9_-]){project_pattern}(?![A-Za-z0-9_-])",
-    answer,
-    re.IGNORECASE,
-)
-expected = stems(work)
-overlap = expected.intersection(stems(answer))
-needed = min(3, len(expected))
-raise SystemExit(0 if project_seen and needed and len(overlap) >= needed else 1)
+def matches(target: tuple[str, str, str]) -> bool:
+    project, _resume, work = target
+    project_pattern = r"[-_ ]+".join(re.escape(part) for part in project.split("-"))
+    project_seen = re.search(
+        rf"(?<![A-Za-z0-9_-]){project_pattern}(?![A-Za-z0-9_-])",
+        answer,
+        re.IGNORECASE,
+    )
+    expected = stems(work)
+    overlap = expected.intersection(stems(answer))
+    needed = min(3, len(expected))
+    return bool(project_seen and needed and len(overlap) >= needed)
+
+raise SystemExit(0 if any(matches(target) for target in targets) else 1)
 PY
   then
     ok "a cold ${HOST} session found the board unprompted and described its current work"

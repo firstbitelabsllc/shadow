@@ -23,6 +23,10 @@ and reason from material the person shares, but you cannot read or change the
 current board. Do not fill that gap with a guess from an old chat, screenshot,
 or hosted note.
 
+A direct read-only question about the seat's current work is not a work cycle.
+Answer from the first current bounded view, then stop; do not expand it into
+plan inspection, a second board read, or unrequested execution.
+
 There is one durable board per computer. Do not create a parallel task list or
 pretend a package, chat, or browser view is the board.
 
