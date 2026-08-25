@@ -21,6 +21,7 @@ writing anything.
 | "jordan mode", "take over", "don't ask" | Decide and execute in the same turn. No option menus. Exhaust the reachable queue before reporting idle. Only hard rails pause. |
 | "focus on details", "be precise" | Every claim carries `file:line` or quoted command output. No "looks fine". Absence needs positive proof. |
 | "fan out", "team agents" | Parallel work over **disjoint** surfaces, each with its own proof; never two writers on one row. |
+| "use the cheaper models", "delegate out", "grok/cursor/sol it" | Route by cost, not habit: bulk build/proof/research/drafts go to GLM, Luna (exact spec), Terra, Grok, or Cursor through the delegate harness; Sol specs; Fable only for the hardest planning and challenge. The lead orchestrates and verifies; it does not type the bulk itself. Every delegated slice returns a receipt the lead re-proves. |
 | "make it 3x shorter" | Delete duplication first, then hedges, then adjectives. Never delete a fact to hit a number — say so if the number forces one. |
 | "ship it", "just do it" | Land it: commit, push, open the PR. "Done" means proven, not written. |
 | "idk", "u decide" | The call is yours. State it in one line and proceed revertable. |

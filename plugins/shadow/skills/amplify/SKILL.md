@@ -23,12 +23,23 @@ outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 
 ```text
 Outcome: <finite end state and what the person stops supervising>.
-Resume: <refreshed board + PLAN.md at committed ref>; continue owned claims, then the highest-value reachable checkpoint.
+Resume: shadow status --by <seat> + PLAN.md at committed ref; continue owned claims, then the highest-value reachable checkpoint; delegate bulk to the cheaper roster.
 Proof: <mechanical finish line>; keep source, merge, install/deploy, and live distinct.
 Skills: <one to four canonical invocation names from the current session's available skill catalog>.
 ```
 
+`Resume` always names Shadow by its command and always carries the delegation
+default. The lead seat orchestrates; it does not do bulk work itself. Bulk
+build, proof, research, and drafting go to the cheapest capable roster seat
+through the installed delegate harness — GLM lanes, Luna behind an exact spec,
+Terra for bare runs and review, Grok for critique and best-of-n, Cursor for
+read-only plans and implementation. Sol writes specs and never orchestrates.
+Fable is the apex tier: hardest planning, challenge, and the slices the
+cost-router refuses to send down. The roster, effort ladder, and refusal rules
+live in the owning `PLAN.md` and the delegate harness, never in the launcher.
+
 Choose skills only after reading the checkpoint's actual verbs and surfaces.
+A launcher whose `Resume` line omits the delegation default is not compiled.
 Use the catalog's exact canonical invocation name, including a plugin-qualified
 name when supplied. Each skill must own a distinct part of execution. Never tag
 Shadow itself, this goal compiler, a merely adjacent skill, an unavailable or
