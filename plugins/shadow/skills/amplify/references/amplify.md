@@ -109,7 +109,7 @@ captured.
 
 ```text
 Outcome: every finding in <scope> is either proven with file:line or dead.
-Resume: ~/.shadow/plans/<entity>/PLAN.md on this computer; continue owned rows, then ranked reachable rows.
+Resume: shadow status --by <seat> + ~/.shadow/plans/<entity>/PLAN.md at committed ref; continue owned claims, then the highest-value reachable checkpoint; delegate refuters to the cheaper roster when a harness is installed, else native.
 Proof: each finding gets correctness, security, and reproduction refuters; two refutations kill it. Survivors require file:line or command evidence, <focused command> green, and <real surface> re-observed from fresh state.
 Skills: thermo, ponytail.
 ```
