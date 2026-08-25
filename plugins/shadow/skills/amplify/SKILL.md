@@ -23,12 +23,28 @@ outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 
 ```text
 Outcome: <finite end state and what the person stops supervising>.
-Resume: <refreshed board + PLAN.md at committed ref>; continue owned claims, then the highest-value reachable checkpoint.
+Resume: shadow status --by <seat> + PLAN.md at committed ref; continue owned claims, then the highest-value reachable checkpoint; delegate bulk to the cheaper roster when a delegate harness is installed, else run native and record the fallback.
 Proof: <mechanical finish line>; keep source, merge, install/deploy, and live distinct.
 Skills: <one to four canonical invocation names from the current session's available skill catalog>.
 ```
 
+`Resume` always names Shadow by its command and always carries the delegation
+default. The default is conditional: when a delegate harness and a model roster
+are installed on the host, the lead seat orchestrates and sends bulk build,
+proof, research, and drafting to the cheapest capable roster seat — for
+example GLM lanes, a cheap coder behind an exact spec, a bare runner for review,
+a critic for best-of-n, an editor agent for read-only plans. A spec writer
+never orchestrates; the apex tier takes only the hardest planning, challenge,
+and the slices the cost-router refuses to send down. A stock Shadow install
+ships no harness and no roster (the plugin manifest exposes `./skills/` only):
+that seat runs the work itself and records the native fallback in the owning
+`PLAN.md`, exactly as host law already requires. The roster, effort ladder, and
+refusal rules live in the owning `PLAN.md` and the harness, never in the
+launcher.
+
 Choose skills only after reading the checkpoint's actual verbs and surfaces.
+A launcher whose `Resume` line omits the delegation default — delegate when a
+harness exists, native fallback when it does not — is not compiled.
 Use the catalog's exact canonical invocation name, including a plugin-qualified
 name when supplied. Each skill must own a distinct part of execution. Never tag
 Shadow itself, this goal compiler, a merely adjacent skill, an unavailable or
