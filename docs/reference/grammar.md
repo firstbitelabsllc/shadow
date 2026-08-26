@@ -24,6 +24,7 @@ ledger. Nothing requires a database, daemon, queue, or scheduler.
 
 ## Contradictions
 - <what contradicts what> | provisional winner | opened <ts>
+- RESOLVED <ts>: <what evidence settled it> | winner: <decision>
 
 ## Progress                    append-only, newest at bottom
 - <ts> ~ab12 PROOF <check> -> <observed result>
@@ -153,6 +154,9 @@ plan.
   Progress line names its origin task.
 - Every new task answers two questions before it lands: why now, and what
   does it contradict? A live conflict becomes a Contradictions row.
+- A Contradictions bullet remains unresolved even when it says `winner:` or
+  `provisional winner:`. Only an explicit leading `RESOLVED` marker closes it;
+  every projector and the acceptance gate use that same grammar predicate.
 - A task flips completed only in the same commit as its PROOF line;
   `shadow accept --row ... --by <seat>` reruns a `cmd` proof in a clean detached checkout
   and is the only code path that flips a task.
