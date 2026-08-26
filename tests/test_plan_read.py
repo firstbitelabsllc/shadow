@@ -180,6 +180,15 @@ class PlanReadCliTests(unittest.TestCase):
             self.assertRegex(provenance["result_sha256"], r"^[0-9a-f]{64}$")
             self.assertLessEqual(provenance["file_reads"], 10)
             self.assertLessEqual(provenance["source_bytes"], 168 * 1024)
+        self.assertEqual(payload["selection_budget"]["verification_passes"], 2)
+        self.assertEqual(
+            payload["selection_budget"]["aggregate_file_reads"],
+            2 * sum(item["provenance"]["file_reads"] for item in payload["results"]),
+        )
+        self.assertEqual(
+            payload["selection_budget"]["aggregate_source_bytes"],
+            2 * sum(item["provenance"]["source_bytes"] for item in payload["results"]),
+        )
         claimed_projection_sha = payload.pop("projection_sha256")
         encoded = store.canonical_json(payload)
         self.assertEqual(claimed_projection_sha, hashlib.sha256(encoded).hexdigest())

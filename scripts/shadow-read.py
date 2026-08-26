@@ -256,30 +256,14 @@ def _resolve_entity(entity: str) -> tuple[Path, int, str]:
     return resolved["plan"], resolved["state"]["revision"], locator
 
 
-def project(
+def _select(
+    snapshot: store.PlanSnapshot,
+    selectors: list[tuple[str, str, int | None]],
     *,
     entity: str,
-    rows: list[str],
-    receipts: list[str],
-    finds: list[str],
-    expect_root: str | None,
-) -> dict[str, Any]:
-    selectors = _selector_specs(rows, receipts, finds)
-    if expect_root is not None and SHA256_RE.fullmatch(expect_root) is None:
-        raise store.PlanStoreError("expected root must be one lowercase SHA-256 digest")
-
-    plan, board_revision, entity_locator = _resolve_entity(entity)
-    try:
-        snapshot = board.open_plan(plan)
-    except (board.BoardError, store.PlanStoreError) as exc:
-        raise ReadError(_safe_error(exc, entity_locator)) from None
-    if not snapshot.is_tree:
-        raise store.PlanStoreError(
-            "bounded projection requires a shadow.plan-tree.v1 root; migrate first"
-        )
-    if expect_root is not None and snapshot.root_sha256 != expect_root:
-        raise store.PlanStoreError("plan root changed; read the new root and retry")
-
+    entity_locator: str,
+) -> tuple[list[dict[str, Any]], int]:
+    """Read and verify one bounded selector set against one root snapshot."""
     results: list[dict[str, Any]] = []
     result_bytes = 0
     for selector, value, sequence in selectors:
@@ -331,6 +315,39 @@ def project(
                 ),
             }
         )
+    return results, result_bytes
+
+
+def project(
+    *,
+    entity: str,
+    rows: list[str],
+    receipts: list[str],
+    finds: list[str],
+    expect_root: str | None,
+) -> dict[str, Any]:
+    selectors = _selector_specs(rows, receipts, finds)
+    if expect_root is not None and SHA256_RE.fullmatch(expect_root) is None:
+        raise store.PlanStoreError("expected root must be one lowercase SHA-256 digest")
+
+    plan, board_revision, entity_locator = _resolve_entity(entity)
+    try:
+        snapshot = board.open_plan(plan)
+    except (board.BoardError, store.PlanStoreError) as exc:
+        raise ReadError(_safe_error(exc, entity_locator)) from None
+    if not snapshot.is_tree:
+        raise store.PlanStoreError(
+            "bounded projection requires a shadow.plan-tree.v1 root; migrate first"
+        )
+    if expect_root is not None and snapshot.root_sha256 != expect_root:
+        raise store.PlanStoreError("plan root changed; read the new root and retry")
+
+    initial_results, result_bytes = _select(
+        snapshot,
+        selectors,
+        entity=entity,
+        entity_locator=entity_locator,
+    )
 
     try:
         verified = board.resolve_entity(entity)
@@ -345,6 +362,21 @@ def project(
         raise ReadError(_safe_error(exc, entity_locator)) from None
     if current.root_bytes != snapshot.root_bytes:
         raise ReadError("plan root changed during projection; retry")
+
+    # Content-addressed objects are immutable by contract, but a missing or
+    # tampered index/shard must still fail at the final linearization point.
+    # Re-run the bounded selectors against the re-opened root and return only
+    # that verified pass; the comparison also refuses any nondeterministic
+    # projection under identical canonical bytes.
+    results, verified_result_bytes = _select(
+        current,
+        selectors,
+        entity=entity,
+        entity_locator=entity_locator,
+    )
+    if results != initial_results or verified_result_bytes != result_bytes:
+        raise ReadError("plan objects changed during projection; retry")
+    result_bytes = verified_result_bytes
 
     assert snapshot.root is not None
     payload: dict[str, Any] = {
@@ -361,11 +393,16 @@ def project(
             "selector_limit": MAX_SELECTORS,
             "result_byte_limit": MAX_RESULT_BYTES,
             "result_bytes": result_bytes,
+            "verification_passes": 2,
             "aggregate_file_reads": sum(
-                item["provenance"]["file_reads"] for item in results
+                item["provenance"]["file_reads"]
+                for pass_results in (initial_results, results)
+                for item in pass_results
             ),
             "aggregate_source_bytes": sum(
-                item["provenance"]["source_bytes"] for item in results
+                item["provenance"]["source_bytes"]
+                for pass_results in (initial_results, results)
+                for item in pass_results
             ),
         },
         "results": results,
