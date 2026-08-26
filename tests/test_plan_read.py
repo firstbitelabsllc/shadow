@@ -327,6 +327,60 @@ class PlanReadCliTests(unittest.TestCase):
                 expect_root=self.root_sha256,
             )
 
+    def test_selected_shard_tamper_during_projection_is_refused(self) -> None:
+        original_row = read.store.PlanSnapshot.row
+        digest = store.lookup_build(self.build, row_id="~gk12").object_sha256
+        shard = self.authority / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+        mutated = False
+
+        def row_then_tamper(snapshot: object, row_id: str) -> object:
+            nonlocal mutated
+            result = original_row(snapshot, row_id)
+            if not mutated:
+                mutated = True
+                shard.write_bytes(shard.read_bytes() + b"tamper")
+            return result
+
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(self.home)}),
+            mock.patch.object(read.store.PlanSnapshot, "row", new=row_then_tamper),
+            self.assertRaisesRegex(ValueError, "object digest mismatch"),
+        ):
+            read.project(
+                entity=self.entity,
+                rows=["~gk12"],
+                receipts=[],
+                finds=[],
+                expect_root=self.root_sha256,
+            )
+
+    def test_selected_index_tamper_during_projection_is_refused(self) -> None:
+        original_row = read.store.PlanSnapshot.row
+        digest = self.build.root["row_root"]
+        index = self.authority / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+        mutated = False
+
+        def row_then_tamper(snapshot: object, row_id: str) -> object:
+            nonlocal mutated
+            result = original_row(snapshot, row_id)
+            if not mutated:
+                mutated = True
+                index.write_bytes(index.read_bytes() + b"tamper")
+            return result
+
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(self.home)}),
+            mock.patch.object(read.store.PlanSnapshot, "row", new=row_then_tamper),
+            self.assertRaisesRegex(ValueError, "object digest mismatch"),
+        ):
+            read.project(
+                entity=self.entity,
+                rows=["~gk12"],
+                receipts=[],
+                finds=[],
+                expect_root=self.root_sha256,
+            )
+
     def test_absurd_receipt_sequence_fails_without_traceback_or_path_leak(self) -> None:
         result = self.cli("--receipt", "progress:" + ("9" * 5000))
 
