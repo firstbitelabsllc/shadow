@@ -78,6 +78,7 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertEqual(output.returncode, 0, output.stderr)
         for clause in (
             "--milestone 'exact heading'",
+            "--progress-before UTC_TIMESTAMP",
             "--retirement-manifest /ABS/manifest.json",
             "--expect CAS",
             "--by SEAT",

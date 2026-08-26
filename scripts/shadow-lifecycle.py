@@ -52,6 +52,16 @@ ARCHIVE_HEADER_TEMPLATE = (
     "<!-- shadow:archive:v1:{slug}:sha256:{digest}:cas:{cas}:"
     "head:{head}:blob:{blob}:successor:{successor} -->\n"
 )
+PROGRESS_TOMBSTONE_RE_TEMPLATE = (
+    r"<!-- shadow:lifecycle-progress:{slug}:sha256:(?P<digest>[0-9a-f]{{64}}):"
+    r"cas:(?P<cas>[0-9a-f]{{64}}):head:(?P<head>(?:local:)?[0-9a-f]{{40,64}}):"
+    r"blob:(?P<blob>[0-9a-f]{{40,64}}):"
+    r"successor:(?P<successor>~[0-9a-z]{{4}}|none) -->"
+)
+PROGRESS_ARCHIVE_HEADER_TEMPLATE = (
+    "<!-- shadow:progress-archive:v1:{slug}:sha256:{digest}:cas:{cas}:"
+    "head:{head}:blob:{blob}:successor:{successor} -->\n"
+)
 MAX_ARCHIVE_BYTES = _board.MAX_PLAN_BYTES + 64 * 1024
 MAX_MANIFEST_BYTES = 64 * 1024
 RETIREMENT_SCHEMA = "shadow.retirement.v1"
@@ -274,15 +284,7 @@ def validate_milestone(
     # cannot see the live twin, so its receipt reads as exclusive and moves out
     # of the plan, and fold_dependencies strips a still-live `needs:`. Refuse the
     # whole archive while the plan is ambiguous.
-    plan_ids = [
-        match.group("id")
-        for line in lines
-        if (match := ROW_RE.match(line.rstrip("\r\n")))
-    ]
-    duplicates = sorted({row_id for row_id in plan_ids if plan_ids.count(row_id) > 1})
-    if duplicates:
-        raise LifecycleError("plan has duplicate task ids: " + ", ".join(duplicates))
-    all_ids = set(plan_ids)
+    all_ids = unique_task_ids(lines)
     selected = []
     shared: list[str] = []
     proven: set[str] = set()
@@ -312,6 +314,30 @@ def validate_milestone(
     if missing:
         raise LifecycleError("completed milestone lacks PROOF receipts: " + ", ".join(missing))
     return ids, selected, shared
+
+
+def unique_task_ids(lines: list[str]) -> set[str]:
+    plan_ids = [
+        match.group("id")
+        for line in lines
+        if (match := ROW_RE.match(line.rstrip("\r\n")))
+    ]
+    duplicates = sorted({row_id for row_id in plan_ids if plan_ids.count(row_id) > 1})
+    if duplicates:
+        raise LifecycleError("plan has duplicate task ids: " + ", ".join(duplicates))
+    return set(plan_ids)
+
+
+def eligible_milestones(text: str) -> list[str]:
+    lines = text.splitlines(keepends=True)
+    eligible: list[str] = []
+    for item in milestones(lines):
+        try:
+            validate_milestone(item, lines)
+        except LifecycleError:
+            continue
+        eligible.append(item.heading)
+    return eligible
 
 
 def fold_dependencies(
@@ -496,6 +522,111 @@ def archive_candidate(
     }
 
 
+def progress_archive_candidate(
+    text: str,
+    cutoff: str,
+    archive_link: Path,
+    source_token: dict[str, str],
+) -> dict:
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", cutoff) is None:
+        raise LifecycleError("progress cutoff must be one UTC second timestamp")
+    try:
+        datetime.strptime(cutoff, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise LifecycleError(
+            "progress cutoff must be one UTC second timestamp"
+        ) from exc
+    if eligible_milestones(text):
+        raise LifecycleError("archive eligible milestone first")
+    lines = text.splitlines(keepends=True)
+    task_ids = unique_task_ids(lines)
+    selected: list[tuple[int, int, str]] = []
+    current_kept = 0
+    for start, end, item in progress_items(lines):
+        first = item.splitlines()[0] if item.splitlines() else ""
+        if "<!-- shadow:lifecycle-progress:" in item:
+            continue
+        stamped = STAMP_RE.match(first)
+        if stamped is None or stamped.group(1) >= cutoff:
+            continue
+        if task_ids.intersection(HASH_RE.findall(item)):
+            current_kept += 1
+            continue
+        selected.append((start, end, item))
+    if not selected:
+        raise LifecycleError(
+            "no closed historical Progress receipt exists before the cutoff"
+        )
+    slug = safe_slug(f"historical-progress-before-{cutoff}")
+    receipt_text = "".join(item for _, _, item in selected)
+    archive_body = (
+        f"# Archived historical Progress: {slug}\n\n"
+        "Source: `PLAN.md`\n\n"
+        f"Cutoff: `{cutoff}` (exclusive)\n\n"
+        "## Exact Progress receipts\n\n"
+        f"{receipt_text}"
+    )
+    if not archive_body.endswith("\n"):
+        archive_body += "\n"
+    digest = hashlib.sha256(archive_body.encode("utf-8")).hexdigest()
+    marker_placeholder = "__SHADOW_PROGRESS_LIFECYCLE_OPERATION_MARKER__"
+    tombstone = (
+        f"- Archived milestone: [{slug}]({archive_link.as_posix()}) "
+        f"{marker_placeholder}\n"
+    )
+    removed: set[int] = set()
+    for start, end, _ in selected:
+        removed.update(range(start, end))
+    first_selected = selected[0][0]
+    output: list[str] = []
+    for index, line in enumerate(lines):
+        if index == first_selected:
+            output.append(tombstone)
+        if index not in removed:
+            output.append(line)
+    compacted_plan = "".join(output)
+    successor_row = first_reachable_row(compacted_plan)
+    successor_token = successor_row or "none"
+    cas = canonical_sha256(
+        {
+            "schema": "shadow.lifecycle-progress-archive.v1",
+            "relative": source_token["relative"],
+            "head": source_token["head"],
+            "blob": source_token["blob"],
+            "cutoff": cutoff,
+            "archive_sha256": digest,
+            "successor": successor_token,
+        }
+    )
+    marker = (
+        f"<!-- shadow:lifecycle-progress:{slug}:sha256:{digest}:cas:{cas}:"
+        f"head:{source_token['head']}:blob:{source_token['blob']}:"
+        f"successor:{successor_token} -->"
+    )
+    compacted_plan = compacted_plan.replace(marker_placeholder, marker, 1)
+    archive = PROGRESS_ARCHIVE_HEADER_TEMPLATE.format(
+        slug=slug,
+        digest=digest,
+        cas=cas,
+        head=source_token["head"],
+        blob=source_token["blob"],
+        successor=successor_token,
+    ) + archive_body
+    return {
+        "slug": slug,
+        "archive_link": archive_link,
+        "marker": marker,
+        "digest": digest,
+        "cas": cas,
+        "plan": compacted_plan,
+        "archive": archive,
+        "receipt_count": len(selected),
+        "current_receipts_kept": current_kept,
+        "successor_row": successor_row,
+        "cutoff": cutoff,
+    }
+
+
 def ensure_no_symlink(root: Path, relative: Path) -> None:
     current = root
     for part in relative.parts:
@@ -600,6 +731,122 @@ def assert_archive_immutable(
     return candidate
 
 
+def local_source_text(plan: Path, logical_sha256: str) -> str:
+    """Recover one exact local source generation through the plan-tree lineage."""
+    try:
+        snapshot = _board.open_plan(plan)
+        for _ in range(128):
+            materialized = snapshot.materialize()
+            if hashlib.sha256(materialized).hexdigest() == logical_sha256:
+                return materialized.decode("utf-8")
+            if snapshot.root is None:
+                break
+            previous = snapshot.root.get("previous_root")
+            if not isinstance(previous, str):
+                break
+            root_path = snapshot.object_path(previous)
+            root_bytes = read_regular_bounded(
+                root_path, _plan_store.ROOT_MAX_BYTES, "plan lineage root"
+            )
+            if hashlib.sha256(root_bytes).hexdigest() != previous:
+                raise LifecycleError("plan lineage root digest mismatch")
+            snapshot = _plan_store.snapshot_of_root(plan, root_bytes)
+    except (UnicodeError, _board.BoardError, _plan_store.PlanStoreError) as exc:
+        raise LifecycleError("local progress archive source could not be recovered") from exc
+    raise LifecycleError("local progress archive source is absent from plan lineage")
+
+
+def assert_progress_archive_immutable(
+    repo: Path,
+    *,
+    plan: Path,
+    plan_relative: Path,
+    archive_relative: Path,
+    archive_link: Path,
+    cutoff: str,
+    slug: str,
+    archive_bytes: bytes,
+    tombstone: re.Match[str],
+) -> dict:
+    if _board.is_local_plan(plan):
+        source_text = local_source_text(plan, tombstone.group("blob"))
+        source_token = {
+            "relative": plan_relative.as_posix(),
+            "head": tombstone.group("head"),
+            "blob": tombstone.group("blob"),
+        }
+        committed_plan: bytes | None = None
+    else:
+        introductions = git(
+            repo,
+            "log",
+            "--diff-filter=A",
+            "--format=%H",
+            "--",
+            archive_relative.as_posix(),
+        ).stdout.splitlines()
+        if len(introductions) != 1:
+            raise LifecycleError("progress archive has no unique lifecycle introduction")
+        commit = introductions[0]
+        parent = git(repo, "rev-parse", f"{commit}^").stdout.strip()
+        if parent != tombstone.group("head"):
+            raise LifecycleError("progress archive source HEAD does not match")
+        source_blob = git(
+            repo, "rev-parse", f"{parent}:{plan_relative.as_posix()}"
+        ).stdout.strip()
+        if source_blob != tombstone.group("blob"):
+            raise LifecycleError("progress archive source PLAN blob does not match")
+        identity = git(
+            repo, "show", "-s", "--format=%s%n%an%n%ae", commit
+        ).stdout.splitlines()
+        if identity != [
+            f"shadow: archive progress {slug}",
+            "Shadow Lifecycle",
+            "shadow-lifecycle@localhost",
+        ]:
+            raise LifecycleError("progress archive was not introduced by Shadow lifecycle")
+        if git_bytes(repo, "show", f"{commit}:{archive_relative.as_posix()}") != archive_bytes:
+            raise LifecycleError("progress archive changed after its lifecycle introduction")
+        try:
+            source_root = git_bytes(repo, "cat-file", "blob", source_blob)
+            source_text = _plan_store.snapshot_of_root(
+                plan, source_root
+            ).materialize().decode("utf-8")
+        except (UnicodeDecodeError, _plan_store.PlanStoreError):
+            raise LifecycleError("progress archive source PLAN is not valid UTF-8") from None
+        source_token = {
+            "relative": plan_relative.as_posix(),
+            "head": parent,
+            "blob": source_blob,
+        }
+        committed_root = git_bytes(
+            repo, "show", f"{commit}:{plan_relative.as_posix()}"
+        )
+        try:
+            committed_plan = _plan_store.snapshot_of_root(
+                plan, committed_root
+            ).materialize()
+        except _plan_store.PlanStoreError as exc:
+            raise LifecycleError("progress archive committed plan is invalid") from exc
+    candidate = progress_archive_candidate(
+        source_text, cutoff, archive_link, source_token
+    )
+    if (
+        candidate["cas"] != tombstone.group("cas")
+        or candidate["digest"] != tombstone.group("digest")
+        or candidate["marker"] != tombstone.group(0)
+        or candidate["archive"].encode("utf-8") != archive_bytes
+        or (
+            committed_plan is not None
+            and candidate["plan"].encode("utf-8") != committed_plan
+        )
+    ):
+        raise LifecycleError(
+            "progress archive cannot be regenerated from its recorded source"
+        )
+    return candidate
+
+
 def atomic_write(path: Path, payload: bytes, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -696,6 +943,8 @@ def commit_archive_candidate(
     plan_relative: Path,
     archive_relative: Path,
     slug: str,
+    *,
+    kind: str = "milestone",
 ) -> str:
     if _board.is_local_plan(repo / plan_relative):
         # A machine-local authority is never committed, so the archive is
@@ -731,7 +980,7 @@ def commit_archive_candidate(
         "--no-gpg-sign",
         "--only",
         "-m",
-        f"shadow: archive milestone {slug}",
+        f"shadow: archive {kind} {slug}",
         "--",
         *pathspecs,
     )
@@ -809,6 +1058,167 @@ def recover_archive_half_state(
         plan_relative,
         archive_relative,
         candidate["slug"],
+    )
+
+
+def recover_progress_half_state(
+    repo_value: Path,
+    cutoff: str,
+    expected: str,
+) -> str | None:
+    """Finish only exact progress bytes left by an interrupted apply."""
+    expanded = repo_value.expanduser()
+    if expanded.is_symlink():
+        return None
+    plan = expanded.resolve() / "PLAN.md"
+    slug = safe_slug(f"historical-progress-before-{cutoff}")
+    archive_link = Path("docs") / "plan-archive" / f"{slug}.md"
+
+    if _board.is_local_plan(plan):
+        try:
+            token, source = _board.frozen_plan_snapshot(plan)
+            source_text = source.decode("utf-8")
+            repo = Path(token["repo"]).resolve()
+            plan_relative = Path(token["relative"])
+            archive_relative = plan_relative.parent / archive_link
+            candidate = progress_archive_candidate(
+                source_text,
+                cutoff,
+                archive_link,
+                token,
+            )
+        except (LifecycleError, UnicodeDecodeError, ValueError, _board.BoardError):
+            return None
+        if candidate["cas"] != expected:
+            return None
+        archive_path = repo / archive_relative
+        ensure_no_symlink(repo, archive_relative)
+        if not os.path.lexists(archive_path):
+            return None
+        archive_bytes = read_regular_bounded(
+            archive_path,
+            MAX_ARCHIVE_BYTES,
+            "progress archive target",
+        )
+        candidate_archive = candidate["archive"].encode("utf-8")
+        if archive_bytes != candidate_archive:
+            raise LifecycleError(
+                "interrupted progress archive bytes do not match the exact lifecycle CAS; preserve and inspect them"
+            )
+        mode = stat.S_IMODE(plan.stat().st_mode)
+        replace_plan(plan, candidate["plan"].encode("utf-8"), mode)
+        return commit_archive_candidate(
+            repo,
+            plan_relative,
+            archive_relative,
+            candidate["slug"],
+            kind="progress",
+        )
+
+    try:
+        repo = Path(
+            git(expanded.resolve(), "rev-parse", "--show-toplevel").stdout.strip()
+        ).resolve()
+        plan_relative = plan.relative_to(repo)
+        head = git(repo, "rev-parse", "HEAD").stdout.strip()
+        source_blob = git(
+            repo,
+            "rev-parse",
+            f"HEAD:{plan_relative.as_posix()}",
+        ).stdout.strip()
+        source_root = git_bytes(repo, "cat-file", "blob", source_blob)
+        source_snapshot = _plan_store.snapshot_of_root(plan, source_root)
+        source_text = source_snapshot.materialize().decode("utf-8")
+        archive_relative = plan_relative.parent / archive_link
+        candidate = progress_archive_candidate(
+            source_text,
+            cutoff,
+            archive_link,
+            {
+                "relative": plan_relative.as_posix(),
+                "head": head,
+                "blob": source_blob,
+            },
+        )
+    except (
+        LifecycleError,
+        UnicodeDecodeError,
+        ValueError,
+        _plan_store.PlanStoreError,
+    ):
+        return None
+    if candidate["cas"] != expected:
+        return None
+
+    archive_path = repo / archive_relative
+    ensure_no_symlink(repo, archive_relative)
+    candidate_plan = candidate["plan"].encode("utf-8")
+    candidate_archive = candidate["archive"].encode("utf-8")
+    try:
+        working_plan = read_regular_bounded(plan, _board.MAX_PLAN_BYTES, "PLAN.md")
+        working_archive = (
+            read_regular_bounded(
+                archive_path,
+                MAX_ARCHIVE_BYTES,
+                "progress archive target",
+            )
+            if os.path.lexists(archive_path)
+            else None
+        )
+    except LifecycleError:
+        raise
+    index_plan = optional_index_bytes(repo, plan_relative)
+    index_archive = optional_index_bytes(repo, archive_relative)
+
+    def plan_state(payload: bytes | None) -> str | None:
+        if payload == source_root:
+            return "source"
+        if payload is None:
+            return None
+        try:
+            snapshot = _plan_store.snapshot_of_root(plan, payload)
+            if snapshot.materialize() != candidate_plan:
+                return None
+            source_digest = hashlib.sha256(source_root).hexdigest()
+            if (
+                snapshot.root is not None
+                and snapshot.root.get("previous_root") != source_digest
+            ):
+                return None
+        except _plan_store.PlanStoreError:
+            return None
+        return "candidate"
+
+    working_state = plan_state(working_plan)
+    index_state = plan_state(index_plan)
+    interrupted = (
+        working_state != "source"
+        or working_archive is not None
+        or index_state != "source"
+        or index_archive is not None
+    )
+    if not interrupted:
+        return None
+    if (
+        working_state not in {"source", "candidate"}
+        or working_archive not in {None, candidate_archive}
+        or index_state not in {"source", "candidate"}
+        or index_archive not in {None, candidate_archive}
+        or git(repo, "diff", "--name-only", "--diff-filter=U").stdout.strip()
+    ):
+        raise LifecycleError(
+            "interrupted progress archive bytes do not match the exact lifecycle CAS; preserve and inspect them"
+        )
+    mode = stat.S_IMODE(plan.stat().st_mode)
+    atomic_write(archive_path, candidate_archive)
+    if working_state == "source":
+        replace_plan(plan, candidate_plan, mode)
+    return commit_archive_candidate(
+        repo,
+        plan_relative,
+        archive_relative,
+        candidate["slug"],
+        kind="progress",
     )
 
 
@@ -1738,6 +2148,212 @@ def apply_retirement(
         raise LifecycleError(str(exc)) from None
 
 
+def inspect_progress(repo_value: Path, cutoff: str) -> tuple[dict, dict | None]:
+    repo, plan, token, text = committed_snapshot(repo_value)
+    before = measure(text)
+    slug = safe_slug(f"historical-progress-before-{cutoff}")
+    plan_relative = Path(token["relative"])
+    archive_link = Path("docs") / "plan-archive" / f"{slug}.md"
+    archive_relative = plan_relative.parent / archive_link
+    archive_path = repo / archive_relative
+    ensure_no_symlink(repo, archive_relative)
+    if not _board.is_local_plan(plan):
+        ensure_clean(repo, [plan_relative, archive_relative])
+    base = {
+        "schema": "shadow.lifecycle.v1",
+        "repo": str(repo),
+        "plan": str(plan),
+        "plan_relative": token["relative"],
+        "head": token["head"],
+        "budget": {"before": before, "after": before},
+        "retirement": retirement_boundary(),
+        "cutoff": cutoff,
+        "archive": str(archive_path),
+    }
+    tombstone = re.search(
+        PROGRESS_TOMBSTONE_RE_TEMPLATE.format(slug=re.escape(slug)),
+        text,
+    )
+    if archive_path.exists():
+        if tombstone is None:
+            raise LifecycleError("progress archive exists with different provenance")
+        archive_bytes = read_regular_bounded(
+            archive_path, MAX_ARCHIVE_BYTES, "progress archive target"
+        )
+        header, separator, body = archive_bytes.partition(b"\n")
+        if not separator:
+            raise LifecycleError("progress archive has incomplete provenance")
+        expected = PROGRESS_ARCHIVE_HEADER_TEMPLATE.format(
+            slug=slug,
+            digest=tombstone.group("digest"),
+            cas=tombstone.group("cas"),
+            head=tombstone.group("head"),
+            blob=tombstone.group("blob"),
+            successor=tombstone.group("successor"),
+        ).rstrip("\n").encode("ascii")
+        if header != expected or hashlib.sha256(body).hexdigest() != tombstone.group(
+            "digest"
+        ):
+            raise LifecycleError(
+                "progress archive target does not match its provenance digest"
+            )
+        regenerated = assert_progress_archive_immutable(
+            repo,
+            plan=plan,
+            plan_relative=plan_relative,
+            archive_relative=archive_relative,
+            archive_link=archive_link,
+            cutoff=cutoff,
+            slug=slug,
+            archive_bytes=archive_bytes,
+            tombstone=tombstone,
+        )
+        base.update(
+            {
+                "ok": before["within_limits"],
+                "action": "already_archived_progress",
+                "changed": False,
+                "cas": regenerated["cas"],
+                "archive_sha256": regenerated["digest"],
+                "successor_row": regenerated["successor_row"],
+            }
+        )
+        return base, None
+    if f"<!-- shadow:lifecycle-progress:{slug}:" in text:
+        raise LifecycleError("progress tombstone exists but its archive is missing")
+    candidate = progress_archive_candidate(text, cutoff, archive_link, token)
+    candidate["archive_relative"] = archive_relative
+    after = measure(candidate["plan"])
+    if after["bytes"] >= before["bytes"]:
+        raise LifecycleError("progress archive must reduce the hot plan")
+    monotonic_repair = monotonic_budget_repair(before, after)
+    base.update(
+        {
+            "ok": after["within_limits"] or monotonic_repair,
+            "action": "would_archive_progress",
+            "changed": False,
+            "receipt_count": candidate["receipt_count"],
+            "current_receipts_kept": candidate["current_receipts_kept"],
+            "successor_row": candidate["successor_row"],
+            "cas": candidate["cas"],
+            "archive_sha256": candidate["digest"],
+            "budget": {"before": before, "after": after},
+        }
+    )
+    return base, candidate
+
+
+def apply_progress(
+    repo_value: Path,
+    cutoff: str,
+    *,
+    expected: str,
+    owner: str,
+) -> dict:
+    plan = repo_value.expanduser().resolve() / "PLAN.md"
+    try:
+        with _board.project_lock(plan):
+            recovered_commit = recover_progress_half_state(
+                repo_value,
+                cutoff,
+                expected,
+            )
+            report, candidate = inspect_progress(repo_value, cutoff)
+            if report.get("cas") != expected:
+                raise LifecycleError("lifecycle dry-run CAS changed; rerun without --apply")
+            if candidate is None:
+                report["ok"] = True
+                if (
+                    report.get("action") == "already_archived_progress"
+                    and recovered_commit is not None
+                ):
+                    report.update(
+                        {
+                            "action": "archived_progress",
+                            "changed": True,
+                            "commit": recovered_commit,
+                            "head": recovered_commit,
+                        }
+                    )
+                return attach_successor(
+                    report, plan, owner, report.get("successor_row")
+                )
+            before = report["budget"]["before"]
+            after = report["budget"]["after"]
+            if not after["within_limits"] and not monotonic_budget_repair(before, after):
+                raise LifecycleError(
+                    "progress archive must monotonically reduce an over-budget hot plan"
+                )
+            repo = Path(report["repo"])
+            plan_relative = Path(report["plan_relative"])
+            archive_relative: Path = candidate["archive_relative"]
+            archive_path = repo / archive_relative
+            original = plan.read_bytes()
+            plan_mode = stat.S_IMODE(plan.stat().st_mode)
+            parent_existed = archive_path.parent.exists()
+            publication: _plan_store.PublishReceipt | None = None
+            try:
+                atomic_write(archive_path, candidate["archive"].encode("utf-8"))
+                publication = replace_plan(
+                    plan, candidate["plan"].encode("utf-8"), plan_mode
+                )
+                commit = commit_archive_candidate(
+                    repo,
+                    plan_relative,
+                    archive_relative,
+                    candidate["slug"],
+                    kind="progress",
+                )
+            except (OSError, LifecycleError):
+                restore_plan(plan, original, plan_mode, publication)
+                archive_path.unlink(missing_ok=True)
+                reset_paths = [
+                    plan_relative.as_posix(),
+                    archive_relative.as_posix(),
+                ]
+                try:
+                    if _board.open_plan(plan).is_tree:
+                        reset_paths.append(
+                            (plan_relative.parent / "PLAN.d").as_posix()
+                        )
+                except _board.BoardError:
+                    pass
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(repo),
+                        "reset",
+                        "--quiet",
+                        "HEAD",
+                        "--",
+                        *reset_paths,
+                    ],
+                    capture_output=True,
+                    check=False,
+                )
+                if not parent_existed:
+                    try:
+                        archive_path.parent.rmdir()
+                    except OSError:
+                        pass
+                raise
+            report.update(
+                {
+                    "action": "archived_progress",
+                    "changed": True,
+                    "commit": commit,
+                    "head": commit,
+                    "ok": True,
+                }
+            )
+            return attach_successor(
+                report, plan, owner, report.get("successor_row")
+            )
+    except _board.BoardError as exc:
+        raise LifecycleError(str(exc)) from None
+
+
 def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
     repo, plan, token, text = committed_snapshot(repo_value)
     before = measure(text)
@@ -2006,6 +2622,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--milestone", help="exact milestone heading to archive")
     parser.add_argument(
+        "--progress-before",
+        help="exclusive UTC cutoff for closed historical Progress compaction",
+    )
+    parser.add_argument(
         "--retirement-manifest",
         type=Path,
         help="absolute shadow.retirement.v1 manifest for one exact artifact",
@@ -2022,9 +2642,19 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.apply and args.repo is None:
             raise LifecycleError("--apply requires one explicit --repo")
-        if args.milestone and args.retirement_manifest:
-            raise LifecycleError("choose one milestone or one retirement manifest")
-        if args.apply and not (args.milestone or args.retirement_manifest):
+        selected = sum(
+            bool(value)
+            for value in (
+                args.milestone,
+                args.progress_before,
+                args.retirement_manifest,
+            )
+        )
+        if selected > 1:
+            raise LifecycleError(
+                "choose one milestone, progress cutoff, or retirement manifest"
+            )
+        if args.apply and selected != 1:
             raise LifecycleError("--apply requires one exact lifecycle operation")
         if args.apply and not args.expect:
             raise LifecycleError("--apply requires --expect from one matching dry run")
@@ -2033,7 +2663,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.by:
             _board.validate_owner(args.by)
         repo = args.repo or Path.cwd()
-        if args.retirement_manifest:
+        if args.progress_before:
+            report = (
+                apply_progress(
+                    repo,
+                    args.progress_before,
+                    expected=args.expect,
+                    owner=args.by,
+                )
+                if args.apply
+                else inspect_progress(repo, args.progress_before)[0]
+            )
+        elif args.retirement_manifest:
             report = (
                 apply_retirement(
                     repo,

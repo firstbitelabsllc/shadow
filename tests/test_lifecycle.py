@@ -75,6 +75,30 @@ RETIREMENT_PLAN = """# Disposable retirement target
 """
 
 
+PROGRESS_ONLY_PLAN = """# Progress pressure
+
+## Brief
+
+- Project: progress-pressure
+- Mode: ship
+
+## Tasks
+
+### Current work
+- [pending] current result starts ~cc33 | proof: cmd true
+- [pending] current result is accepted ~dd44 (DoD) | proof: cmd true | needs: ~cc33
+
+## Progress
+
+- 2026-08-01T00:00:00Z ~aa11 PROOF historical result -> pass
+  exact historical detail stays lossless
+  HISTORY_PADDING
+- 2026-08-02T00:00:00Z NOTE closed research with no current row
+- 2026-08-03T00:00:00Z NOTE ~cc33 current work must remain hot
+- 2026-08-20T00:00:00Z NOTE newer history remains hot
+""".replace("HISTORY_PADDING", "historical evidence " * 240)
+
+
 def many_milestone_plan(completed: int = 33) -> str:
     milestones: list[str] = []
     receipts: list[str] = []
@@ -631,6 +655,327 @@ class AnArchivedReceiptRangeStopsAtTheNextBullet(unittest.TestCase):
             # The receipt itself, and its own indented continuation, still move.
             self.assertNotIn("~bb22 PROOF true -> pass", live)
             self.assertIn("exact accepted-result detail remains attached", archive)
+
+
+class HistoricalProgressCompaction(unittest.TestCase):
+    def test_duplicate_current_task_ids_refuse_without_mutation(self) -> None:
+        duplicate = PROGRESS_ONLY_PLAN.replace(
+            "current result is accepted ~dd44 (DoD)",
+            "current result is accepted ~cc33 (DoD)",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve(), duplicate)
+            before = (repo / "PLAN.md").read_bytes()
+            head = git(repo, "rev-parse", "HEAD")
+
+            result, report = run(
+                repo, "--progress-before", "2026-08-10T00:00:00Z"
+            )
+
+            self.assertEqual(result.returncode, 1, report)
+            self.assertIn("duplicate", report["error"])
+            self.assertIn("~cc33", report["error"])
+            self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+
+    def test_progress_cutoff_rejects_an_impossible_utc_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve(), PROGRESS_ONLY_PLAN)
+
+            result, report = run(
+                repo, "--progress-before", "2026-13-40T25:61:61Z"
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(report["action"], "refused")
+            self.assertIn("UTC second timestamp", report["error"])
+
+    def test_machine_local_plan_compacts_without_git_or_second_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            home = root / "home"
+            entity = home / ".shadow" / "plans" / "progress-pressure"
+            entity.mkdir(parents=True)
+            install_plan_tree(entity, PROGRESS_ONLY_PLAN.encode("utf-8"))
+            env = {"HOME": str(home)}
+
+            _, preview = run(
+                entity,
+                "--progress-before",
+                "2026-08-10T00:00:00Z",
+                extra_env=env,
+            )
+            self.assertEqual(preview["action"], "would_archive_progress", preview)
+            applied, report, _ = apply_with_cas(
+                entity,
+                "--progress-before",
+                "2026-08-10T00:00:00Z",
+                cas=preview["cas"],
+                extra_env=env,
+            )
+            self.assertEqual(applied.returncode, 0, report)
+            self.assertEqual(report["action"], "archived_progress")
+            self.assertTrue(str(report["commit"]).startswith("local:"))
+            repeated, repeated_report = run(
+                entity,
+                "--progress-before",
+                "2026-08-10T00:00:00Z",
+                extra_env=env,
+            )
+            self.assertEqual(repeated.returncode, 0, repeated_report)
+            self.assertEqual(
+                repeated_report["action"], "already_archived_progress"
+            )
+
+    def test_exact_cas_recovers_each_progress_archive_half_state(self) -> None:
+        for crash_after in (1, 2):
+            with (
+                self.subTest(crash_after=crash_after),
+                tempfile.TemporaryDirectory() as dirname,
+            ):
+                root = Path(dirname).resolve()
+                home = root / "home"
+                home.mkdir()
+                repo = make_repo(root, PROGRESS_ONLY_PLAN)
+                cutoff = "2026-08-10T00:00:00Z"
+                with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                    preview, _ = lifecycle.inspect_progress(repo, cutoff)
+                    cas = preview["cas"]
+                    original_atomic_write = lifecycle.atomic_write
+                    calls = 0
+
+                    def crash_after_replace(
+                        path: Path,
+                        payload: bytes,
+                        mode: int = 0o644,
+                    ) -> None:
+                        nonlocal calls
+                        original_atomic_write(path, payload, mode)
+                        calls += 1
+                        if calls == crash_after:
+                            raise SystemExit("simulated progress lifecycle crash")
+
+                    with (
+                        mock.patch.object(
+                            lifecycle,
+                            "atomic_write",
+                            side_effect=crash_after_replace,
+                        ),
+                        self.assertRaisesRegex(
+                            SystemExit, "simulated progress lifecycle crash"
+                        ),
+                    ):
+                        lifecycle.apply_progress(
+                            repo,
+                            cutoff,
+                            expected=cas,
+                            owner="recovery-seat",
+                        )
+
+                result, report = run(
+                    repo,
+                    "--apply",
+                    "--expect",
+                    cas,
+                    "--by",
+                    "recovery-seat",
+                    "--progress-before",
+                    cutoff,
+                    extra_env={"HOME": str(home)},
+                )
+
+                self.assertEqual(result.returncode, 0, (result.stderr, report))
+                self.assertEqual(report["action"], "archived_progress")
+                self.assertTrue(report["changed"])
+                self.assertEqual(git(repo, "status", "--porcelain=v1"), "")
+                self.assertEqual(
+                    git(repo, "show", "-s", "--format=%s", "HEAD"),
+                    "shadow: archive progress historical-progress-before-2026-08-10t00-00-00z",
+                )
+
+    def test_failed_progress_commit_restores_worktree_and_index(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            home = root / "home"
+            home.mkdir()
+            repo = make_repo(root, PROGRESS_ONLY_PLAN)
+            cutoff = "2026-08-10T00:00:00Z"
+            before = (repo / "PLAN.md").read_bytes()
+            head = git(repo, "rev-parse", "HEAD")
+
+            def stage_then_fail(
+                repo_value: Path,
+                plan_relative: Path,
+                archive_relative: Path,
+                slug: str,
+                *,
+                kind: str = "milestone",
+            ) -> str:
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(repo_value),
+                        "add",
+                        "--",
+                        plan_relative.as_posix(),
+                        archive_relative.as_posix(),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                raise lifecycle.LifecycleError("simulated commit failure")
+
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    lifecycle,
+                    "commit_archive_candidate",
+                    side_effect=stage_then_fail,
+                ),
+                self.assertRaisesRegex(
+                    lifecycle.LifecycleError, "simulated commit failure"
+                ),
+            ):
+                preview, _ = lifecycle.inspect_progress(repo, cutoff)
+                lifecycle.apply_progress(
+                    repo,
+                    cutoff,
+                    expected=preview["cas"],
+                    owner="failure-seat",
+                )
+
+            self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+            self.assertEqual(git(repo, "status", "--porcelain=v1"), "")
+            self.assertFalse(
+                (
+                    repo
+                    / "docs"
+                    / "plan-archive"
+                    / "historical-progress-before-2026-08-10t00-00-00z.md"
+                ).exists()
+            )
+
+    def test_closed_progress_moves_losslessly_while_current_receipts_stay_hot(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, PROGRESS_ONLY_PLAN)
+            install_plan_tree(repo, PROGRESS_ONLY_PLAN.encode("utf-8"))
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+            source = lifecycle._board.open_plan(repo / "PLAN.md").materialize()
+            source_root = hashlib.sha256((repo / "PLAN.md").read_bytes()).hexdigest()
+
+            preview_result, preview = run(
+                repo, "--progress-before", "2026-08-10T00:00:00Z"
+            )
+
+            self.assertEqual(preview_result.returncode, 0, preview)
+            self.assertEqual(preview["action"], "would_archive_progress")
+            self.assertEqual(preview["receipt_count"], 2)
+            self.assertEqual(preview["current_receipts_kept"], 1)
+            self.assertLess(
+                preview["budget"]["after"]["bytes"],
+                preview["budget"]["before"]["bytes"],
+            )
+
+            applied_result, applied, _ = apply_with_cas(
+                repo,
+                "--progress-before",
+                "2026-08-10T00:00:00Z",
+                cas=preview["cas"],
+            )
+
+            self.assertEqual(applied_result.returncode, 0, applied)
+            self.assertEqual(applied["action"], "archived_progress")
+            snapshot = lifecycle._board.open_plan(repo / "PLAN.md")
+            live = snapshot.materialize().decode("utf-8")
+            self.assertIn("Archived milestone: [historical-progress-before", live)
+            self.assertNotIn("~aa11 PROOF historical result", live)
+            self.assertNotIn("closed research with no current row", live)
+            self.assertIn("~cc33 current work must remain hot", live)
+            self.assertIn("newer history remains hot", live)
+            self.assertIn(
+                "~cc33 current work must remain hot",
+                snapshot.receipt("progress", 1).content.decode("utf-8"),
+            )
+            archive = Path(applied["archive"]).read_text(encoding="utf-8")
+            self.assertIn("~aa11 PROOF historical result", archive)
+            self.assertIn("exact historical detail stays lossless", archive)
+            self.assertIn("closed research with no current row", archive)
+            self.assertNotIn("~cc33 current work must remain hot", archive)
+
+            restored = lifecycle._plan_store.rollback(
+                repo / "PLAN.md",
+                expected_root=hashlib.sha256((repo / "PLAN.md").read_bytes()).hexdigest(),
+            )
+            self.assertEqual(restored.root_sha256, source_root)
+            self.assertEqual(
+                lifecycle._board.open_plan(repo / "PLAN.md").materialize(), source
+            )
+
+    def test_progress_compaction_refuses_while_a_milestone_is_archive_eligible(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve(), PLAN)
+
+            result, report = run(
+                repo, "--progress-before", "2026-08-11T00:00:00Z"
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(report["action"], "refused")
+            self.assertIn("archive eligible milestone first", report["error"])
+
+    def test_progress_compaction_is_cas_bound_and_detects_archive_tamper(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root, PROGRESS_ONLY_PLAN)
+            _, _, cas = preview_cas(
+                repo, "--progress-before", "2026-08-10T00:00:00Z"
+            )
+            (repo / "PLAN.md").write_text(
+                PROGRESS_ONLY_PLAN.replace("newer history", "changed history"),
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "race")
+
+            stale, stale_report, _ = apply_with_cas(
+                repo,
+                "--progress-before",
+                "2026-08-10T00:00:00Z",
+                cas=cas,
+            )
+            self.assertEqual(stale.returncode, 1)
+            self.assertIn("CAS changed", stale_report["error"])
+
+            _, _, fresh_cas = preview_cas(
+                repo, "--progress-before", "2026-08-10T00:00:00Z"
+            )
+            applied, report, _ = apply_with_cas(
+                repo,
+                "--progress-before",
+                "2026-08-10T00:00:00Z",
+                cas=fresh_cas,
+            )
+            self.assertEqual(applied.returncode, 0, report)
+            archive = Path(report["archive"])
+            archive.write_text(
+                archive.read_text(encoding="utf-8") + "tamper\n",
+                encoding="utf-8",
+            )
+            git(repo, "add", str(archive.relative_to(repo)))
+            git(repo, "commit", "--quiet", "-m", "tamper archive")
+
+            repeated, repeated_report = run(
+                repo, "--progress-before", "2026-08-10T00:00:00Z"
+            )
+            self.assertEqual(repeated.returncode, 1)
+            self.assertIn(
+                "does not match its provenance digest", repeated_report["error"]
+            )
 
 
 class BudgetsAreEnforced(unittest.TestCase):
