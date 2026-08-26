@@ -50,6 +50,8 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             plan("unrelated", "~bb22", "never read this portfolio row"),
             encoding="utf-8",
         )
+        owned_id = status._board.entity_id(owned)
+        unrelated_id = status._board.entity_id(unrelated)
         payload = {
             "schema": "shadow.root-board.v1",
             "revision": 42,
@@ -59,13 +61,13 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             ],
             "entities": [
                 {
-                    "id": "a" * 64,
+                    "id": owned_id,
                     "project": "owned",
                     "plan": str(owned),
                     "resume": "~aa11",
                 },
                 {
-                    "id": "b" * 64,
+                    "id": unrelated_id,
                     "project": "unrelated",
                     "plan": str(unrelated),
                     "resume": "~bb22",
@@ -73,7 +75,7 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             ],
             "claims": [
                 {
-                    "entity": "a" * 64,
+                    "entity": owned_id,
                     "row": "~aa11",
                     "owner": "codex",
                     "claimed_at": "2026-08-26T00:00:00Z",
@@ -123,7 +125,144 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         reconcile.assert_not_called()
         self.assertEqual(reads, [owned], reads)
         self.assertNotIn(str(unrelated), [str(path) for path in reads])
-        self.assertEqual(remotes, [], remotes)
+        self.assertEqual(remotes, [payload["entities"][0]["id"]], remotes)
+
+    def test_unowned_seat_reads_only_the_highest_priority_board_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, owned, unrelated = self.fixture(root)
+            payload["claims"] = []
+            # Entity list order is not authority. The lower-priority entity is
+            # first, while the project priorities choose `owned`.
+            payload["entities"].reverse()
+            reads: list[Path] = []
+            remotes: list[str] = []
+            real_read = status._board.read_plan_text
+
+            def read(path: Path) -> str:
+                reads.append(Path(path))
+                return real_read(path)
+
+            def project(entity, project, plan_path, parsed, local_claims):
+                remotes.append(entity["id"])
+                return list(local_claims), None
+
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(
+                    status._import, "reconcile_portfolio", return_value=payload
+                ) as reconcile,
+                mock.patch.object(status._board, "read_plan_text", side_effect=read),
+                mock.patch.object(status, "projected_claims", side_effect=project),
+            ):
+                code, stdout, stderr = self.invoke(root, "--by", "cold-seat")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("continue the owned row", stdout)
+        self.assertIn("Owned: 0", stdout)
+        self.assertNotIn("never read this portfolio row", stdout)
+        reconcile.assert_not_called()
+        self.assertEqual(reads, [owned], reads)
+        self.assertEqual(remotes, [payload["entities"][1]["id"]], remotes)
+
+    def test_resume_selection_skips_an_entity_with_no_board_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, owned, _ = self.fixture(root)
+            payload["claims"] = []
+            payload["projects"][0]["priority"] = 2
+            payload["projects"][1]["priority"] = 1
+            payload["entities"][1]["resume"] = None
+            reads: list[Path] = []
+            real_read = status._board.read_plan_text
+
+            def read(path: Path) -> str:
+                reads.append(Path(path))
+                return real_read(path)
+
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(
+                    status._import, "reconcile_portfolio", return_value=payload
+                ) as reconcile,
+                mock.patch.object(status._board, "read_plan_text", side_effect=read),
+                mock.patch.object(
+                    status,
+                    "projected_claims",
+                    side_effect=lambda entity, project, path, parsed, local: (
+                        list(local),
+                        None,
+                    ),
+                ),
+            ):
+                code, stdout, stderr = self.invoke(root, "--by", "cold-seat")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("continue the owned row", stdout)
+        reconcile.assert_not_called()
+        self.assertEqual(reads, [owned], reads)
+
+    def test_selected_remote_failure_is_unknown_and_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, owned, _ = self.fixture(root)
+            reads: list[Path] = []
+            remotes: list[str] = []
+            real_read = status._board.read_plan_text
+
+            def read(path: Path) -> str:
+                reads.append(Path(path))
+                return real_read(path)
+
+            def unavailable(entity, project, plan_path, parsed, local_claims):
+                remotes.append(entity["id"])
+                return list(local_claims), "remote claim discovery is unavailable or unauthenticated"
+
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(
+                    status._import, "reconcile_portfolio", return_value=payload
+                ) as reconcile,
+                mock.patch.object(status._board, "read_plan_text", side_effect=read),
+                mock.patch.object(status, "projected_claims", side_effect=unavailable),
+            ):
+                code, stdout, stderr = self.invoke(root, "--by", "codex")
+
+        self.assertEqual(code, 1, (stdout, stderr))
+        self.assertIn("UNKNOWN — remote claim discovery is unavailable", stdout)
+        reconcile.assert_not_called()
+        self.assertEqual(reads, [owned], reads)
+        self.assertEqual(remotes, [payload["entities"][0]["id"]], remotes)
+
+    def test_changed_selected_identity_fails_before_plan_or_remote_read(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, _, _ = self.fixture(root)
+            changed_id = "c" * 64
+            payload["entities"][0]["id"] = changed_id
+            payload["claims"][0]["entity"] = changed_id
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(
+                    status._import, "reconcile_portfolio", return_value=payload
+                ) as reconcile,
+                mock.patch.object(status._board, "read_plan_text") as read,
+                mock.patch.object(
+                    status,
+                    "projected_claims",
+                    side_effect=lambda entity, project, path, parsed, local: (
+                        list(local),
+                        None,
+                    ),
+                ) as project,
+            ):
+                code, stdout, stderr = self.invoke(root, "--by", "codex")
+
+        self.assertEqual(code, 1, (stdout, stderr))
+        self.assertIn("UNKNOWN", stdout)
+        reconcile.assert_not_called()
+        read.assert_not_called()
+        project.assert_not_called()
 
     def test_exhaustive_surfaces_still_reconcile_and_fail_closed(self) -> None:
         cases = (
