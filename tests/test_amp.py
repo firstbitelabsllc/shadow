@@ -65,6 +65,16 @@ class AmpSelection(unittest.TestCase):
         self.assertEqual(row["id"], "~dd44")  # ~cc33 needs ~dd44, not done
         self.assertEqual(milestone["title"], "M2 — the live milestone")
 
+    def test_suffixed_contradictions_heading_preserves_open_items(self) -> None:
+        text = PLAN.replace(
+            "## Contradictions",
+            "## Contradictions — active review",
+        )
+        self.assertEqual(
+            amp._parse(text)["contradictions"],
+            ["- speed vs proof | provisional winner proof | opened 2026-08-07T00:00:00Z"],
+        )
+
     def test_in_progress_preferred_over_pending(self) -> None:
         text = PLAN.replace("- [pending] the ready row", "- [in_progress] the ready row")
         milestone, row = amp._select(amp._parse(text), None)

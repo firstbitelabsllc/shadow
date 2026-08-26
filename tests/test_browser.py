@@ -914,7 +914,7 @@ class AV4PlanGetsABoardBriefNotAnError(unittest.TestCase):
 
     def test_open_contradictions_are_counted_resolved_ones_are_not(self) -> None:
         with_contra = BOARD_PLAN + (
-            "\n## Contradictions\n\n- one open thing | opened 2026-08-09\n"
+            "\n## Contradictions — active review\n\n- one open thing | opened 2026-08-09\n"
             "- an argued thing | provisional winner: X\n"
             "- a decided-looking thing | winner: X\n"
             "- RESOLVED 2026-08-09 in favor of X | winner: X\n"

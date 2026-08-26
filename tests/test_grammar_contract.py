@@ -36,6 +36,9 @@ class GrammarContractTests(unittest.TestCase):
         self.assertTrue(grammar.contradiction_is_open(
             "- ~aa11 speed vs proof | winner: proof"
         ))
+        self.assertTrue(grammar.contradiction_is_open(
+            "- None of the replicas agree on the durable winner"
+        ))
 
     def test_law_files_exist_and_are_linked(self) -> None:
         self.assertTrue(AGENT.is_file(), "AGENT.md must ship at the skill root")
