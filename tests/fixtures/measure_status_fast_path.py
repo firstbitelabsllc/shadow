@@ -117,7 +117,10 @@ def main(argv: list[str] | None = None) -> int:
         output = io.StringIO()
         started = time.monotonic()
         with (
-            mock.patch.dict(os.environ, {"HOME": str(home)}),
+            mock.patch.dict(
+                os.environ,
+                {"HOME": str(home), "SHADOW_DEV_ROOT": str(root)},
+            ),
             mock.patch.object(status._board, "snapshot", return_value=payload),
             mock.patch.object(status._import, "reconcile_portfolio", side_effect=delayed_portfolio),
             mock.patch.object(status._board, "read_plan_text", side_effect=read),
@@ -125,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             redirect_stdout(output),
             redirect_stderr(output),
         ):
-            code = status.main(["--root", str(root), "--by", "codex"])
+            code = status.main(["--by", "codex"])
         elapsed = time.monotonic() - started
 
     unrelated_reads = sum(path != owned for path in reads)

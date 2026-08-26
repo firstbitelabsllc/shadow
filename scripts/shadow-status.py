@@ -848,7 +848,7 @@ def main(argv: list[str] | None = None) -> int:
     # priority-ordered resume pointer names one candidate. Only that bounded
     # set crosses plan, lint, Git-identity, and remote-authentication seams.
     # Machine JSON and recovery views continue through exhaustive reconciliation.
-    if args.by and not args.json and not args.in_flight:
+    if args.by and not args.json and not args.in_flight and not explicit_root:
         try:
             board_snapshot = _board.snapshot()
         except _board.BoardError as exc:
