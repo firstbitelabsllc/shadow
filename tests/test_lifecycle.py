@@ -793,6 +793,61 @@ class HistoricalProgressCompaction(unittest.TestCase):
                     "shadow: archive progress historical-progress-before-2026-08-10t00-00-00z",
                 )
 
+    def test_recovery_refuses_a_noncanonical_partitioned_plan_root(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            home = root / "home"
+            home.mkdir()
+            repo = make_repo(root, PROGRESS_ONLY_PLAN)
+            install_plan_tree(repo, PROGRESS_ONLY_PLAN.encode("utf-8"))
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+            cutoff = "2026-08-10T00:00:00Z"
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                preview, candidate = lifecycle.inspect_progress(repo, cutoff)
+            self.assertIsNotNone(candidate)
+            assert candidate is not None
+
+            source = lifecycle._plan_store.PlanSnapshot.open(repo / "PLAN.md")
+            built = lifecycle._plan_store.build_tree(
+                candidate["plan"].encode("utf-8")
+            )
+            noncanonical = lifecycle._plan_store._with_lineage(
+                built,
+                generation=source.root["generation"] + 9,
+                previous_root=source.root_sha256,
+            )
+            object_root = repo / "PLAN.d" / "objects" / "sha256"
+            for digest, content in noncanonical.objects.items():
+                destination = object_root / digest[:2] / digest
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(content)
+            (repo / "PLAN.md").write_bytes(noncanonical.root_bytes)
+            archive = repo / candidate["archive_relative"]
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            archive.write_text(candidate["archive"], encoding="utf-8")
+            head = git(repo, "rev-parse", "HEAD")
+            plan_bytes = (repo / "PLAN.md").read_bytes()
+            archive_bytes = archive.read_bytes()
+
+            result, report = run(
+                repo,
+                "--apply",
+                "--expect",
+                preview["cas"],
+                "--by",
+                "recovery-seat",
+                "--progress-before",
+                cutoff,
+                extra_env={"HOME": str(home)},
+            )
+
+            self.assertEqual(result.returncode, 1, report)
+            self.assertIn("exact lifecycle CAS", report["error"])
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+            self.assertEqual((repo / "PLAN.md").read_bytes(), plan_bytes)
+            self.assertEqual(archive.read_bytes(), archive_bytes)
+
     def test_failed_progress_commit_restores_worktree_and_index(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
