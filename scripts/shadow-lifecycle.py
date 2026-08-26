@@ -526,6 +526,12 @@ def progress_archive_candidate(
 ) -> dict:
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", cutoff) is None:
         raise LifecycleError("progress cutoff must be one UTC second timestamp")
+    try:
+        datetime.strptime(cutoff, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise LifecycleError(
+            "progress cutoff must be one UTC second timestamp"
+        ) from exc
     if eligible_milestones(text):
         raise LifecycleError("archive eligible milestone first")
     lines = text.splitlines(keepends=True)
