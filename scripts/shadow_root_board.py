@@ -977,7 +977,7 @@ def _decode(path: Path) -> dict:
         raise BoardError("board file must not be a symlink")
     try:
         return _validate(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         raise BoardError("board file is unreadable or malformed") from exc
 
 
@@ -1107,7 +1107,7 @@ def _transaction(home: Path | None = None) -> Iterator[tuple[Path, Path, dict]]:
                     raise BoardError("root board history exists but board.json is missing")
                 try:
                     payload = _validate(json.loads(historical.stdout))
-                except json.JSONDecodeError as exc:
+                except ValueError as exc:
                     raise BoardError("root board history contains malformed board.json") from exc
                 _write(path, payload)
                 _commit(root, "shadow board: restore missing local authority")
