@@ -30,6 +30,8 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         # a killed chat: the two claims a stranger must read before installing.
         self.assertRegex(text, r"one\s+board per computer")
         self.assertIn("durable", text)
+        self.assertIn("2-7 tasks", text)
+        self.assertNotIn("one task with its proof", text)
         self.assertNotIn("npm test", text)
         self.assertNotIn("/Users/", text)
 

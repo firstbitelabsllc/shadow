@@ -1482,12 +1482,18 @@ class ShadowAcceptTests(unittest.TestCase):
             plan_path = repo / "PLAN.md"
             plan_path.write_text(
                 PLAN.replace(
+                    "- [in_progress] x.txt says hello ~ab12 | proof: cmd python3 -c \"import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"\n"
                     "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
-                    "",
+                    "- [completed] prerequisite is proven ~cd34 | proof: cmd true\n"
+                    "- [in_progress] x.txt says hello ~ab12 (DoD) | proof: cmd python3 -c \"import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\" | needs: ~cd34\n",
+                ).replace(
+                    "## Progress\n",
+                    "## Progress\n\n"
+                    "- 2026-08-06T09:59:00Z ~cd34 PROOF true -> pass (fixture)\n",
                 ),
                 encoding="utf-8",
             )
-            git(repo, "commit", "-qam", "keep one final row")
+            git(repo, "commit", "-qam", "keep one final unresolved row")
             home = root / "home"
             home.mkdir()
             claimed = run_shadow(

@@ -38,7 +38,7 @@ From any Git project, replacing only the seat name:
 
 ```bash
 PLAN=$(shadow init --here | awk -F': ' '{print $2}')  # never overwrites a plan
-$EDITOR "$PLAN"                    # fill the Brief; one task with its proof
+$EDITOR "$PLAN"                    # fill the Brief; keep 2-7 tasks per milestone
 shadow status --by your-seat      # prints the exact throw command — run it
 # do the work, then close out:
 shadow accept --repo . --row '~a1b2' --by your-seat   # cmd proofs flip here
