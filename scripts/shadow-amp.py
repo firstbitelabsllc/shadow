@@ -103,7 +103,15 @@ def _sections(lines: list[str]) -> dict[str, list[str]]:
     current = ""
     for line in lines:
         if line.startswith("## "):
-            current = line[3:].strip()
+            heading = line[3:].strip()
+            current = next(
+                (
+                    name
+                    for name in ("Brief", "Tasks", "Contradictions", "Progress")
+                    if heading == name or heading.startswith(name + " ")
+                ),
+                heading,
+            )
             sections.setdefault(current, [])
             continue
         sections.setdefault(current, []).append(line)

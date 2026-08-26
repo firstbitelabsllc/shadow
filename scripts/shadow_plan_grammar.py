@@ -34,7 +34,10 @@ PROOF_RECEIPT_RE: Final = re.compile(
 )
 PROOF_LINE_RE: Final = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
 CONTRADICTION_RESOLVED_RE: Final = re.compile(r"^- RESOLVED(?:\s|:|$)")
-CONTRADICTION_NONE_RE: Final = re.compile(r"^- none(?:\s|[.:]|$)", re.IGNORECASE)
+CONTRADICTION_NONE_RE: Final = re.compile(
+    r"^- none(?: recorded)? yet\.?$",
+    re.IGNORECASE,
+)
 
 # `shadow accept` executes a proof with argv, never an implicit shell.  These
 # helpers are shared so lint rejects precisely the argument shapes accept would

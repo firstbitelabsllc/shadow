@@ -63,9 +63,17 @@ def _public(text: str | None) -> str | None:
 
 def _section(text: str, name: str) -> list[str]:
     lines = text.splitlines()
-    target = f"## {name}".lower()
+    target = name.lower()
     start = next(
-        (i + 1 for i, line in enumerate(lines) if line.strip().lower() == target),
+        (
+            i + 1
+            for i, line in enumerate(lines)
+            if line.startswith("## ")
+            and (
+                line[3:].strip().lower() == target
+                or line[3:].strip().lower().startswith(target + " ")
+            )
+        ),
         None,
     )
     if start is None:
