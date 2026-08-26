@@ -5,8 +5,6 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
-import json
-import os
 from pathlib import Path
 import sys
 import tempfile
