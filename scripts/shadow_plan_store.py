@@ -394,7 +394,7 @@ def _build_index(
 def _decode_page(content: bytes, tree: str) -> dict[str, Any]:
     try:
         page = json.loads(content)
-    except (UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, ValueError) as exc:
         raise PlanStoreError("index page is malformed") from exc
     if (
         not isinstance(page, dict)
@@ -633,12 +633,89 @@ def rebuild_routes(build: PlanTreeBuild) -> RebuiltRoutes:
     )
 
 
+def _root_alias_normalized(path: Path) -> Path:
+    """Expand only one root-owned alias such as macOS /var -> private/var."""
+    candidate = Path(os.path.abspath(path))
+    parts = candidate.parts
+    if len(parts) < 2:
+        return candidate
+    first = Path(parts[0]) / parts[1]
+    try:
+        metadata = os.lstat(first)
+    except OSError:
+        return candidate
+    if not stat.S_ISLNK(metadata.st_mode):
+        return candidate
+    if metadata.st_uid != 0:
+        raise PlanStoreError("plan-tree source path crosses a symlink")
+    try:
+        target = Path(os.readlink(first))
+    except OSError as exc:
+        raise PlanStoreError("plan-tree source path is unavailable") from exc
+    if not target.is_absolute():
+        target = Path(parts[0]) / target
+    normalized = Path(os.path.normpath(target))
+    return normalized.joinpath(*parts[2:])
+
+
+def _is_symlink_at(parent_descriptor: int, component: str) -> bool:
+    try:
+        metadata = os.stat(
+            component,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError:
+        return False
+    return stat.S_ISLNK(metadata.st_mode)
+
+
 def _safe_read(path: Path, limit: int) -> bytes:
-    """Read one stable regular file without following its leaf symlink."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    """Read one stable regular file without following any path symlink."""
+    candidate = _root_alias_normalized(path)
+    parts = candidate.parts
+    if not candidate.is_absolute() or len(parts) < 2:
+        raise PlanStoreError("plan-tree source path is unavailable")
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    parent_descriptor = -1
     descriptor = -1
     try:
-        descriptor = os.open(path, flags)
+        parent_descriptor = os.open(parts[0], directory_flags)
+        for component in parts[1:-1]:
+            try:
+                child = os.open(
+                    component,
+                    directory_flags,
+                    dir_fd=parent_descriptor,
+                )
+            except OSError as exc:
+                if _is_symlink_at(parent_descriptor, component):
+                    raise PlanStoreError(
+                        "plan-tree source path crosses a symlink"
+                    ) from exc
+                raise
+            os.close(parent_descriptor)
+            parent_descriptor = child
+        try:
+            descriptor = os.open(
+                parts[-1],
+                file_flags,
+                dir_fd=parent_descriptor,
+            )
+        except OSError as exc:
+            if _is_symlink_at(parent_descriptor, parts[-1]):
+                raise PlanStoreError("plan-tree source path crosses a symlink") from exc
+            raise
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise PlanStoreError("plan-tree source is not a regular file")
@@ -647,15 +724,16 @@ def _safe_read(path: Path, limit: int) -> bytes:
             content = stream.read(limit + 1)
             after = os.fstat(stream.fileno())
     except PlanStoreError:
-        if descriptor >= 0:
-            os.close(descriptor)
         raise
     except OSError as exc:
-        if descriptor >= 0:
-            os.close(descriptor)
         if isinstance(exc, FileNotFoundError):
             raise PlanStoreError("referenced object is missing") from exc
         raise PlanStoreError("plan-tree source is unreadable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
     before_state = (
         before.st_mode,
         before.st_size,
@@ -688,7 +766,7 @@ def _parse_root(content: bytes) -> dict[str, Any] | None:
     encoded = content[len(ROOT_PREFIX):-len(ROOT_SUFFIX)]
     try:
         payload = json.loads(encoded)
-    except (UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, ValueError) as exc:
         raise PlanStoreError("plan-tree root JSON is malformed") from exc
     if not isinstance(payload, dict) or payload.get("schema") != ROOT_SCHEMA:
         raise PlanStoreError("plan-tree root schema is not supported")
@@ -862,8 +940,12 @@ class PlanSnapshot:
         return self._legacy_build
 
     def materialize(self) -> bytes:
+        return self.materialize_with_metrics()[0]
+
+    def materialize_with_metrics(self) -> tuple[bytes, int, int]:
+        """Return the verified logical plan plus physical read/byte receipts."""
         if self.root is None:
-            return self.root_bytes
+            return self.root_bytes, 1, len(self.root_bytes)
         counters = [1, len(self.root_bytes)]
         visited: list[str] = []
         parts: list[bytes] = []
@@ -887,7 +969,7 @@ class PlanSnapshot:
             raise PlanStoreError("materialized byte count mismatch")
         if digest_bytes(materialized) != self.root["logical_sha256"]:
             raise PlanStoreError("materialized digest mismatch")
-        return materialized
+        return materialized, counters[0], counters[1]
 
     def row(self, row_id: str) -> PlanResult:
         if _grammar.ROW_ID_RE.fullmatch(row_id) is None:
@@ -983,9 +1065,20 @@ class PlanSnapshot:
         descriptor = self._tree_lookup(
             "catalog", self.root["catalog_root"], catalog_key, counters, visited
         )
-        if not isinstance(descriptor, dict) or tag not in descriptor.get("tags", []):
+        if (
+            not isinstance(descriptor, dict)
+            or not isinstance(descriptor.get("object"), str)
+            or type(descriptor.get("bytes")) is not int
+            or descriptor["bytes"] < 0
+            or not isinstance(descriptor.get("tags"), list)
+            or any(not isinstance(value, str) for value in descriptor["tags"])
+        ):
+            raise PlanStoreError("catalog route is malformed")
+        if tag not in descriptor["tags"]:
             raise PlanStoreError("tag route does not match canonical shard")
         content = self._read_object(descriptor["object"], DATA_MAX_BYTES, counters)
+        if len(content) != descriptor["bytes"]:
+            raise PlanStoreError("catalog byte count mismatch")
         return PlanResult(
             content,
             PlanProvenance(
@@ -1430,7 +1523,7 @@ def _board_context(board: Path | None, plan: Path) -> tuple[bytes | None, int | 
     content = _safe_read(board, 1_000_000)
     try:
         payload = json.loads(content)
-    except (UnicodeError, json.JSONDecodeError) as exc:
+    except (UnicodeError, ValueError) as exc:
         raise PlanStoreError("board is malformed") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("revision"), int):
         raise PlanStoreError("board revision is missing")
@@ -1491,7 +1584,7 @@ def dry_run_migration(plan: Path, *, board: Path | None) -> MigrationReport:
     for body in build.objects.values():
         try:
             payload = json.loads(body)
-        except (UnicodeError, json.JSONDecodeError):
+        except (UnicodeError, ValueError):
             data_sizes.append(len(body))
             continue
         if isinstance(payload, dict) and payload.get("schema") == PAGE_SCHEMA:

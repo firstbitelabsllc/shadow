@@ -71,6 +71,7 @@ REQUIRED_FILES = {
     "scripts/shadow_cmd_proof.py",
     "scripts/shadow_plan_grammar.py",
     "scripts/shadow-plan.py",
+    "scripts/shadow-read.py",
     "scripts/shadow_plan_store.py",
     "scripts/shadow_telemetry.py",
     "browser/chief_of_staff.py",
@@ -392,6 +393,12 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         "throw": ("--entity ID", "--by OWNER"),
         "return": ("--entity ID", "--by OWNER"),
         "accept": ("--by OWNER", "--row '~hash'"),
+        "read": (
+            "read --entity ENTITY_ID",
+            "--row '~hash'",
+            "--receipt progress:N",
+            "--expect-root ROOT_SHA256",
+        ),
         "lifecycle": (
             "--apply",
             "--milestone 'exact heading'",
