@@ -69,6 +69,7 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         selected = ci.select_paths(["scripts/shadow-status.py"])
         self.assertFalse(selected.run_all)
         self.assertIn("tests.test_status_focus", selected.modules)
+        self.assertIn("tests.test_status_fast_path", selected.modules)
         self.assertIn("tests.test_throw", selected.modules)
 
     def test_unknown_or_empty_changes_fall_back_to_full(self) -> None:
