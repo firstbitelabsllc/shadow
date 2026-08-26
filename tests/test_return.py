@@ -803,7 +803,7 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
             plan.write_text(
                 plan.read_text(encoding="utf-8").replace(
                     "- [pending] inspect the result ~aa11 | proof: read artifact -> correct\n",
-                    "",
+                    "- [pending] preserve the surviving milestone ~cc33 | proof: cmd true\n",
                 ).replace(" | needs: ~aa11", ""),
                 encoding="utf-8",
             )
