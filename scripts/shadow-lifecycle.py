@@ -1154,6 +1154,14 @@ def recover_progress_half_state(
     ensure_no_symlink(repo, archive_relative)
     candidate_plan = candidate["plan"].encode("utf-8")
     candidate_archive = candidate["archive"].encode("utf-8")
+    candidate_root = candidate_plan
+    if source_snapshot.root is not None:
+        candidate_tree = _plan_store._with_lineage(
+            _plan_store.build_tree(candidate_plan),
+            generation=source_snapshot.root["generation"] + 1,
+            previous_root=source_snapshot.root_sha256,
+        )
+        candidate_root = candidate_tree.root_bytes
     try:
         working_plan = read_regular_bounded(plan, _board.MAX_PLAN_BYTES, "PLAN.md")
         working_archive = (
@@ -1173,17 +1181,11 @@ def recover_progress_half_state(
     def plan_state(payload: bytes | None) -> str | None:
         if payload == source_root:
             return "source"
-        if payload is None:
+        if payload != candidate_root:
             return None
         try:
             snapshot = _plan_store.snapshot_of_root(plan, payload)
             if snapshot.materialize() != candidate_plan:
-                return None
-            source_digest = hashlib.sha256(source_root).hexdigest()
-            if (
-                snapshot.root is not None
-                and snapshot.root.get("previous_root") != source_digest
-            ):
                 return None
         except _plan_store.PlanStoreError:
             return None
