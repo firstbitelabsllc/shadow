@@ -158,7 +158,7 @@ def _first_contradiction(text: str) -> str:
     return next(
         (
             line for line in _board.section_lines(text, "Contradictions")
-            if line.startswith("- ")
+            if _grammar.contradiction_is_open(line)
         ),
         "",
     )
@@ -166,6 +166,14 @@ def _first_contradiction(text: str) -> str:
 
 def _first_list_line(text: str) -> str:
     return next((line for line in text.splitlines() if line.startswith("- ")), "")
+
+
+def _first_open_contradiction_item(text: str) -> str:
+    """Select an unresolved bullet from one routed contradiction shard."""
+    return next(
+        (line for line in text.splitlines() if _grammar.contradiction_is_open(line)),
+        "",
+    )
 
 
 def _archive_paths(text: str) -> list[str]:
@@ -253,7 +261,7 @@ def _profile_plan(entity: dict[str, Any], repeats: int) -> dict[str, Any]:
         "progress_lines": sum(
             1 for line in _board.section_lines(text, "Progress") if line.startswith("- ")
         ),
-        "contradictions": len(parsed["contradictions"]),
+        "contradictions_unresolved": len(parsed["contradictions"]),
         "archive_links": len(archive_paths),
         "missing_archive_links": len(archive_paths) - archive_present,
         "resume": entity.get("resume"),
@@ -575,11 +583,16 @@ def benchmark_cold_trees(
             return run
 
         def contradiction(snapshot=snapshot, entity=entity):
-            try:
-                routed = snapshot.receipt("contradiction", 0)
-            except _store.PlanStoreError:
-                return "", 0, 0, []
-            return _cold_result(entity, routed, _first_list_line(_text(routed.content)))
+            sequence = 0
+            while True:
+                try:
+                    routed = snapshot.receipt("contradiction", sequence)
+                except _store.PlanStoreError:
+                    return "", 0, 0, []
+                answer = _first_open_contradiction_item(_text(routed.content))
+                if answer:
+                    return _cold_result(entity, routed, answer)
+                sequence += 1
 
         def history(snapshot=snapshot, entity=entity):
             sequence = 0

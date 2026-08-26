@@ -150,7 +150,9 @@ def _parse(text: str) -> dict:
         current["rows"].append(row)
 
     contradictions = [
-        line for line in sections.get("Contradictions", []) if line.startswith("- ")
+        line
+        for line in sections.get("Contradictions", [])
+        if _grammar.contradiction_is_open(line)
     ]
     # Goal minting reuses the plan's append-only knowledge. Only the newest
     # entry of each kind is projected; the plan remains the authority and no
@@ -838,7 +840,8 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     if plan["contradictions"]:
         optional.append((
             "CONTRA",
-            f"CONTRADICTIONS OPEN: {len(plan['contradictions'])} — read ## Contradictions "
+            f"PLAN CONTRADICTIONS UNRESOLVED: {len(plan['contradictions'])} — "
+            "read ## Contradictions "
             "before landing any checkpoint.",
         ))
     optional.append((

@@ -287,9 +287,20 @@ class AmpBlock(unittest.TestCase):
         )
 
     def test_person_gate_and_contradictions_are_named(self) -> None:
-        block, _ = self._block()
+        text = PLAN.replace(
+            "## Progress",
+            "- speed vs proof | winner: proof\n"
+            "- RESOLVED 2026-08-08: old collision | winner: proof\n\n"
+            "## Progress",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            plan_path = _write(repo, text)
+            block, _ = amp.build_block(amp._parse(text), repo, plan_path, None, 4_000)
         self.assertIn("PERSON-GATED (do not take): owner clicks release ~ee55", block)
-        self.assertIn("CONTRADICTIONS OPEN: 1", block)
+        self.assertIn("PLAN CONTRADICTIONS UNRESOLVED: 2", block)
+        self.assertNotIn("BLOCKER", block.upper())
+        self.assertNotIn("BUG", block.upper())
 
     def test_over_budget_drops_optional_tail_never_the_resume(self) -> None:
         block, dropped = self._block(max_chars=760)

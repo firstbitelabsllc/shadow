@@ -342,7 +342,7 @@ def render_v4(record: dict, seat: str | None = None) -> str:
     if record.get("unclean"):
         lines.append(f"  Plan health: {record['unclean']}")
     if record.get("contradictions_open"):
-        lines.append(f"  Contradictions open: {record['contradictions_open']}")
+        lines.append(f"  Plan contradictions unresolved: {record['contradictions_open']}")
     return "\n".join(lines)
 
 
@@ -392,7 +392,7 @@ def render_seat_v4(record: dict, seat: str) -> str:
     if record.get("unclean"):
         lines.append(f"  Plan health: {record['unclean']}")
     if record.get("contradictions_open"):
-        lines.append(f"  Contradictions open: {record['contradictions_open']}")
+        lines.append(f"  Plan contradictions unresolved: {record['contradictions_open']}")
     return "\n".join(lines)
 
 

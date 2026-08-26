@@ -154,7 +154,7 @@ function renderBoardBriefCard(plan) {
       text: String(brief.contradictions_open),
     }));
     notice.append(el('span', {
-      text: `open contradiction${brief.contradictions_open === 1 ? '' : 's'} to read before landing work`,
+      text: `unresolved plan contradiction${brief.contradictions_open === 1 ? '' : 's'} to read before landing work`,
     }));
     card.append(notice);
   }

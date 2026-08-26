@@ -28,6 +28,7 @@ if str(_SCRIPTS) not in sys.path:  # this module is imported before server.py
     sys.path.insert(0, str(_SCRIPTS))
 
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE  # noqa: E402
+from shadow_plan_grammar import contradiction_is_open  # noqa: E402
 
 
 BOARD_SCHEMA = "shadow.board-brief.v1"
@@ -201,12 +202,10 @@ def _brief_fields(text: str) -> dict[str, str]:
 
 
 def _open_contradictions(text: str) -> int:
-    count = 0
-    for line in _section(text, "Contradictions"):
-        stripped = line.strip()
-        if stripped.startswith("- ") and not stripped.startswith("- RESOLVED"):
-            count += 1
-    return count
+    return sum(
+        contradiction_is_open(line)
+        for line in _section(text, "Contradictions")
+    )
 
 
 def _latest_progress(text: str) -> str | None:

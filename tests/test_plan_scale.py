@@ -146,6 +146,28 @@ class PlanScaleBaseline(unittest.TestCase):
             self.assertGreaterEqual(item["parse_ms"]["p95"], 0)
             self.assertGreaterEqual(item["read_parse_ms"]["p95"], 0)
 
+    def test_profiles_and_queries_count_only_unresolved_plan_contradictions(self) -> None:
+        path = self.add_entity("alpha", "a", "~aa11")
+        text = path.read_text(encoding="utf-8").replace(
+            "## Progress",
+            "- older choice | winner: monolith\n"
+            "- RESOLVED 2026-08-26: retired choice | winner: shards\n\n"
+            "## Progress",
+        )
+        path.write_text(text, encoding="utf-8")
+        self.write_board()
+
+        report = scale.benchmark_board(
+            self.board, projects=("alpha",), repeats=1
+        )
+
+        self.assertEqual(report["plans"][0]["contradictions_unresolved"], 2)
+        self.assertNotIn("contradictions", report["plans"][0])
+        contradiction = next(
+            item for item in report["queries"] if item["kind"] == "contradiction"
+        )
+        self.assertTrue(contradiction["found"])
+
     def test_query_corpus_covers_lookup_classes_and_carries_digests(self) -> None:
         self.add_entity("alpha", "a", "~aa11", owner="codex")
         self.add_entity("beta", "b", "~bb22")

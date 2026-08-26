@@ -15,8 +15,28 @@ GRAMMAR = ROOT / "docs" / "reference" / "grammar.md"
 SKILL = ROOT / "SKILL.md"
 AMPLIFY_SKILL = ROOT / "plugins" / "shadow" / "skills" / "amplify" / "SKILL.md"
 
+GRAMMAR_SPEC = importlib.util.spec_from_file_location(
+    "shadow_plan_grammar", ROOT / "scripts" / "shadow_plan_grammar.py"
+)
+assert GRAMMAR_SPEC and GRAMMAR_SPEC.loader
+grammar = importlib.util.module_from_spec(GRAMMAR_SPEC)
+GRAMMAR_SPEC.loader.exec_module(grammar)
+
 
 class GrammarContractTests(unittest.TestCase):
+    def test_one_predicate_owns_open_vs_explicitly_resolved_contradictions(self) -> None:
+        self.assertFalse(grammar.contradiction_is_open("not a list item"))
+        self.assertFalse(grammar.contradiction_is_open("- None recorded yet."))
+        self.assertFalse(grammar.contradiction_is_open(
+            "- RESOLVED 2026-08-26: ~aa11 keeps the smaller contract"
+        ))
+        self.assertTrue(grammar.contradiction_is_open(
+            "- ~aa11 speed vs proof | provisional winner: proof"
+        ))
+        self.assertTrue(grammar.contradiction_is_open(
+            "- ~aa11 speed vs proof | winner: proof"
+        ))
+
     def test_law_files_exist_and_are_linked(self) -> None:
         self.assertTrue(AGENT.is_file(), "AGENT.md must ship at the skill root")
         self.assertTrue(GRAMMAR.is_file(), "docs/reference/grammar.md must ship")
