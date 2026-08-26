@@ -388,14 +388,17 @@ lookup. Result context is only the selected canonical item plus provenance.
 Portfolio current-work lookup adds the board and one bounded lookup per entity;
 it never materializes an entity merely to find its resume row.
 
-Free-text discovery may consult a digest-bound disposable index, but the final
-answer MUST re-read and verify every selected shard. With no cache, exact IDs,
-tags, timestamps, and ordered history remain available from the tree. Search
-results MUST say when they are discovery candidates rather than exact routes.
+Bounded free-text discovery may scan one board-resolved logical plan with an
+exact literal. The scan MUST verify the complete plan generation, cap returned
+lines, and say when matches were omitted. With no cache, exact IDs, tags,
+timestamps, ordered history, and a complete one-entity literal scan remain
+available from the tree. Search results are discovery candidates rather than
+row routes; callers use a returned row id for the smaller exact projection.
 
 The public machine boundary for an already-migrated tree is `shadow read`.
 Callers provide one full board-issued `--entity`, exact `--row` and zero-based
-`--receipt TAG:N` selectors, and MAY bind the generation with `--expect-root`.
+`--receipt TAG:N` selectors or `--find LITERAL`, and MAY bind the generation
+with `--expect-root`.
 The board resolves the canonical pointer and rejects missing, stale, aliased, or
 symlinked locators. One invocation is capped at eight selectors and 128 KiB of
 selected result bytes. Selected canonical bytes are returned verbatim; private
@@ -403,13 +406,19 @@ plan pointer and error metadata are suppressed. It emits one JSON object only
 after every selector verifies and the same entity pointer and root are re-read.
 That final re-read is the projection's linearization point; later changes belong
 to the next projection. A legacy monolith, missing/tampered object, changed root,
-duplicate selector, or exceeded cap emits no partial content. It does not
-materialize the plan or resolve archive tombstones and spill paths.
+duplicate selector, or exceeded cap emits no partial content. Exact row and
+receipt routes do not materialize the plan. A literal find materializes and
+verifies only that one logical plan, returns at most 24 matching lines, and
+reports both the complete match count and truncation. Neither mode resolves
+archive tombstones or spill paths.
 
-Every returned item carries: public entity locator, root digest, visited index
+Every exact-route item carries: public entity locator, root digest, visited index
 page digests, selected shard digest and byte count, selector, logical catalog
 key, result byte range, and result digest. This is provenance—traceability to
-canonical bytes—not telemetry, a summary, or a second status record.
+canonical bytes—not telemetry, a summary, or a second status record. A find
+item instead carries the entity/root/logical digests, physical read receipt,
+complete scan byte count, total match count, returned match count, and explicit
+truncation state.
 `projection_sha256` hashes the canonical logical JSON object with that field
 omitted; it does not hash the indented UTF-8 stdout representation.
 

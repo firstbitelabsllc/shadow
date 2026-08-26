@@ -124,6 +124,7 @@ class ReleasePackageTests(unittest.TestCase):
             "read --entity ENTITY_ID",
             "--row '~hash'",
             "--receipt progress:N",
+            "--find LITERAL",
             "--expect-root ROOT_SHA256",
         ):
             self.assertIn(clause, output.stdout)

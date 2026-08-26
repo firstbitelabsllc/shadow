@@ -940,8 +940,12 @@ class PlanSnapshot:
         return self._legacy_build
 
     def materialize(self) -> bytes:
+        return self.materialize_with_metrics()[0]
+
+    def materialize_with_metrics(self) -> tuple[bytes, int, int]:
+        """Return the verified logical plan plus physical read/byte receipts."""
         if self.root is None:
-            return self.root_bytes
+            return self.root_bytes, 1, len(self.root_bytes)
         counters = [1, len(self.root_bytes)]
         visited: list[str] = []
         parts: list[bytes] = []
@@ -965,7 +969,7 @@ class PlanSnapshot:
             raise PlanStoreError("materialized byte count mismatch")
         if digest_bytes(materialized) != self.root["logical_sha256"]:
             raise PlanStoreError("materialized digest mismatch")
-        return materialized
+        return materialized, counters[0], counters[1]
 
     def row(self, row_id: str) -> PlanResult:
         if _grammar.ROW_ID_RE.fullmatch(row_id) is None:

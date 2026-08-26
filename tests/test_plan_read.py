@@ -323,6 +323,7 @@ class PlanReadCliTests(unittest.TestCase):
                 entity=self.entity,
                 rows=["~gk12"],
                 receipts=[],
+                finds=[],
                 expect_root=self.root_sha256,
             )
 
@@ -412,10 +413,105 @@ class PlanReadCliTests(unittest.TestCase):
 
         self.assertEqual(capped.returncode, 2)
         self.assertEqual(capped.stdout, "")
-        self.assertIn("at most 8 exact selectors", capped.stderr)
+        self.assertIn("at most 8 selectors", capped.stderr)
         self.assertEqual(duplicate.returncode, 2)
         self.assertEqual(duplicate.stdout, "")
         self.assertIn("duplicate selector row:~gk12", duplicate.stderr)
+
+    def test_literal_find_scans_one_complete_entity_and_returns_bounded_matches(self) -> None:
+        distractor = ("- unrelated production note " + ("x" * 180) + "\n") * 220
+        visual = (
+            "### Visual treatment\n"
+            "- Michael Girdley craft transfer: storyboard, assets, rights, and edit plan ~fx02\n\n"
+        )
+        content = source().replace(
+            b"## Tasks\n",
+            (distractor + visual + "## Tasks\n").encode("utf-8"),
+        )
+        self.plan, self.build = install_tree(self.authority, content)
+        self.root_sha256 = hashlib.sha256(self.plan.read_bytes()).hexdigest()
+
+        result = self.cli(
+            "--find", "michael girdley",
+            "--expect-root", self.root_sha256,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["result_count"], 1)
+        found = payload["results"][0]
+        self.assertEqual(found["selector"], "find:michael girdley")
+        self.assertEqual(found["kind"], "find")
+        self.assertEqual(found["match_count"], 1)
+        self.assertFalse(found["truncated"])
+        self.assertIn("Michael Girdley craft transfer", found["content"])
+        self.assertNotIn("unrelated production note", found["content"])
+        self.assertEqual(found["provenance"]["root_sha256"], self.root_sha256)
+        self.assertEqual(
+            found["provenance"]["logical_sha256"],
+            self.build.root["logical_sha256"],
+        )
+        self.assertEqual(found["provenance"]["scan_bytes"], len(content))
+        self.assertGreaterEqual(
+            payload["selection_budget"]["aggregate_source_bytes"], len(content)
+        )
+
+    def test_literal_find_proves_no_match_after_a_complete_verified_scan(self) -> None:
+        result = self.cli("--find", "Michael Girdley")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        found = payload["results"][0]
+        self.assertEqual(found["match_count"], 0)
+        self.assertEqual(found["content"], "")
+        self.assertFalse(found["truncated"])
+        self.assertTrue(found["complete_scan"])
+
+    def test_literal_find_caps_output_without_turning_omission_into_absence(self) -> None:
+        repeated = "".join(
+            f"- Michael Girdley visual direction occurrence {index:03d}\n"
+            for index in range(80)
+        )
+        content = source().replace(
+            b"## Tasks\n", (repeated + "## Tasks\n").encode("utf-8")
+        )
+        self.plan, self.build = install_tree(self.authority, content)
+
+        result = self.cli("--find", "Michael Girdley")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = json.loads(result.stdout)["results"][0]
+        self.assertEqual(found["match_count"], 80)
+        self.assertEqual(found["returned_match_count"], read.MAX_FIND_MATCHES)
+        self.assertTrue(found["truncated"])
+        self.assertTrue(found["complete_scan"])
+        self.assertIn("occurrence 000", found["content"])
+        self.assertNotIn("occurrence 079", found["content"])
+
+    def test_literal_find_detects_tamper_anywhere_and_emits_no_partial_result(self) -> None:
+        digest = store.lookup_build(self.build, tag="progress", tag_sequence=11).object_sha256
+        shard = self.authority / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+        shard.write_bytes(shard.read_bytes() + b"tamper")
+
+        result = self.cli("--find", "Assistant")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("object digest mismatch", result.stderr)
+        self.assertNotIn(str(self.root), result.stderr)
+
+    def test_literal_find_validation_is_bounded_and_private(self) -> None:
+        empty = self.cli("--find", "")
+        huge = self.cli("--find", "x" * (read.MAX_FIND_QUERY_BYTES + 1))
+        duplicate = self.cli("--find", "Girdley", "--find", "girdley")
+
+        for result in (empty, huge, duplicate):
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, "")
+            self.assertNotIn(str(self.root), result.stderr)
+        self.assertIn("find query", empty.stderr)
+        self.assertIn("find query", huge.stderr)
+        self.assertIn("duplicate selector find:girdley", duplicate.stderr)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,9 @@ from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE  # noqa: E402
 
 MAX_SELECTORS: Final = 8
 MAX_RESULT_BYTES: Final = 128 * 1024
+MAX_FIND_QUERY_BYTES: Final = 256
+MAX_FIND_MATCHES: Final = 24
+MAX_FIND_LINE_BYTES: Final = 4 * 1024
 SHA256_RE: Final = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_RE: Final = re.compile(
     r"^(?P<tag>[a-z][a-z0-9-]*):(?P<sequence>[0-9]{1,20})$"
@@ -69,6 +72,13 @@ def parser() -> argparse.ArgumentParser:
         help="exact zero-based tag receipt selector; repeatable",
     )
     result.add_argument(
+        "--find",
+        action="append",
+        default=[],
+        metavar="LITERAL",
+        help="case-insensitive literal to find in this one complete canonical plan",
+    )
+    result.add_argument(
         "--expect-root",
         metavar="ROOT_SHA256",
         help="refuse unless PLAN.md still has this exact root digest",
@@ -77,7 +87,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _selector_specs(
-    rows: list[str], receipts: list[str]
+    rows: list[str], receipts: list[str], finds: list[str]
 ) -> list[tuple[str, str, int | None]]:
     selectors: list[tuple[str, str, int | None]] = [
         (f"row:{row}", row, None) for row in rows
@@ -91,11 +101,28 @@ def _selector_specs(
         tag = match.group("tag")
         sequence = int(match.group("sequence"))
         selectors.append((f"tag:{tag}:{sequence}", tag, sequence))
+    for query in finds:
+        try:
+            encoded = query.encode("utf-8")
+        except UnicodeError as exc:
+            raise store.PlanStoreError("find query must be valid UTF-8") from exc
+        if (
+            not encoded
+            or len(encoded) > MAX_FIND_QUERY_BYTES
+            or any(character in query for character in ("\x00", "\n", "\r"))
+        ):
+            raise store.PlanStoreError(
+                f"find query must be 1-{MAX_FIND_QUERY_BYTES} UTF-8 bytes on one line"
+            )
+        normalized = query.casefold()
+        selectors.append((f"find:{normalized}", query, -1))
     if not selectors:
-        raise store.PlanStoreError("choose at least one --row or --receipt selector")
+        raise store.PlanStoreError(
+            "choose at least one --row, --receipt, or --find selector"
+        )
     if len(selectors) > MAX_SELECTORS:
         raise store.PlanStoreError(
-            f"choose at most {MAX_SELECTORS} exact selectors per projection"
+            f"choose at most {MAX_SELECTORS} selectors per projection"
         )
     seen: set[str] = set()
     for selector, _, _ in selectors:
@@ -103,6 +130,73 @@ def _selector_specs(
             raise store.PlanStoreError(f"duplicate selector {selector}")
         seen.add(selector)
     return selectors
+
+
+def _bounded_line(line: str) -> tuple[str, bool]:
+    encoded = line.encode("utf-8")
+    if len(encoded) <= MAX_FIND_LINE_BYTES:
+        return line, False
+    clipped = encoded[: MAX_FIND_LINE_BYTES - 3]
+    while True:
+        try:
+            return clipped.decode("utf-8") + "...", True
+        except UnicodeDecodeError:
+            clipped = clipped[:-1]
+
+
+def _find_result(
+    snapshot: store.PlanSnapshot,
+    *,
+    entity: str,
+    entity_locator: str,
+    selector: str,
+    query: str,
+) -> dict[str, Any]:
+    content, file_reads, source_bytes = snapshot.materialize_with_metrics()
+    try:
+        text_content = content.decode("utf-8")
+    except UnicodeError as exc:
+        raise store.PlanStoreError("canonical logical plan is not valid UTF-8") from exc
+    needle = query.casefold()
+    match_count = 0
+    returned: list[str] = []
+    line_was_clipped = False
+    for line_number, line in enumerate(text_content.splitlines(), start=1):
+        if needle not in line.casefold():
+            continue
+        match_count += 1
+        if len(returned) >= MAX_FIND_MATCHES:
+            continue
+        bounded, clipped = _bounded_line(line)
+        line_was_clipped = line_was_clipped or clipped
+        candidate = f"{line_number}:{bounded}\n"
+        current_bytes = sum(len(value.encode("utf-8")) for value in returned)
+        if current_bytes + len(candidate.encode("utf-8")) > MAX_RESULT_BYTES:
+            line_was_clipped = True
+            continue
+        returned.append(candidate)
+    rendered = "".join(returned)
+    assert snapshot.root is not None
+    return {
+        "selector": selector,
+        "kind": "find",
+        "query": query,
+        "content": rendered,
+        "match_count": match_count,
+        "returned_match_count": len(returned),
+        "truncated": match_count > len(returned) or line_was_clipped,
+        "complete_scan": True,
+        "provenance": {
+            "entity_id": entity,
+            "entity_locator": entity_locator,
+            "selector": selector,
+            "root_sha256": snapshot.root_sha256,
+            "logical_sha256": snapshot.root["logical_sha256"],
+            "scan_bytes": len(content),
+            "file_reads": file_reads,
+            "source_bytes": source_bytes,
+        },
+    }
 
 
 def _provenance(
@@ -167,9 +261,10 @@ def project(
     entity: str,
     rows: list[str],
     receipts: list[str],
+    finds: list[str],
     expect_root: str | None,
 ) -> dict[str, Any]:
-    selectors = _selector_specs(rows, receipts)
+    selectors = _selector_specs(rows, receipts, finds)
     if expect_root is not None and SHA256_RE.fullmatch(expect_root) is None:
         raise store.PlanStoreError("expected root must be one lowercase SHA-256 digest")
 
@@ -188,6 +283,24 @@ def project(
     results: list[dict[str, Any]] = []
     result_bytes = 0
     for selector, value, sequence in selectors:
+        if sequence == -1:
+            try:
+                selected_find = _find_result(
+                    snapshot,
+                    entity=entity,
+                    entity_locator=entity_locator,
+                    selector=selector,
+                    query=value,
+                )
+            except store.PlanStoreError as exc:
+                raise ReadError(_safe_error(exc, entity_locator)) from None
+            result_bytes += len(selected_find["content"].encode("utf-8"))
+            if result_bytes > MAX_RESULT_BYTES:
+                raise store.PlanStoreError(
+                    f"selected results exceed the {MAX_RESULT_BYTES}-byte projection limit"
+                )
+            results.append(selected_find)
+            continue
         try:
             selected = (
                 snapshot.row(value)
@@ -268,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
             entity=args.entity,
             rows=args.row,
             receipts=args.receipt,
+            finds=args.find,
             expect_root=args.expect_root,
         )
     except ValueError as exc:
