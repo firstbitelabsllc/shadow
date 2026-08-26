@@ -284,15 +284,7 @@ def validate_milestone(
     # cannot see the live twin, so its receipt reads as exclusive and moves out
     # of the plan, and fold_dependencies strips a still-live `needs:`. Refuse the
     # whole archive while the plan is ambiguous.
-    plan_ids = [
-        match.group("id")
-        for line in lines
-        if (match := ROW_RE.match(line.rstrip("\r\n")))
-    ]
-    duplicates = sorted({row_id for row_id in plan_ids if plan_ids.count(row_id) > 1})
-    if duplicates:
-        raise LifecycleError("plan has duplicate task ids: " + ", ".join(duplicates))
-    all_ids = set(plan_ids)
+    all_ids = unique_task_ids(lines)
     selected = []
     shared: list[str] = []
     proven: set[str] = set()
@@ -322,6 +314,18 @@ def validate_milestone(
     if missing:
         raise LifecycleError("completed milestone lacks PROOF receipts: " + ", ".join(missing))
     return ids, selected, shared
+
+
+def unique_task_ids(lines: list[str]) -> set[str]:
+    plan_ids = [
+        match.group("id")
+        for line in lines
+        if (match := ROW_RE.match(line.rstrip("\r\n")))
+    ]
+    duplicates = sorted({row_id for row_id in plan_ids if plan_ids.count(row_id) > 1})
+    if duplicates:
+        raise LifecycleError("plan has duplicate task ids: " + ", ".join(duplicates))
+    return set(plan_ids)
 
 
 def eligible_milestones(text: str) -> list[str]:
@@ -535,11 +539,7 @@ def progress_archive_candidate(
     if eligible_milestones(text):
         raise LifecycleError("archive eligible milestone first")
     lines = text.splitlines(keepends=True)
-    task_ids = {
-        match.group("id")
-        for line in lines
-        if (match := ROW_RE.match(line.rstrip("\r\n"))) is not None
-    }
+    task_ids = unique_task_ids(lines)
     selected: list[tuple[int, int, str]] = []
     current_kept = 0
     for start, end, item in progress_items(lines):
@@ -1058,6 +1058,167 @@ def recover_archive_half_state(
         plan_relative,
         archive_relative,
         candidate["slug"],
+    )
+
+
+def recover_progress_half_state(
+    repo_value: Path,
+    cutoff: str,
+    expected: str,
+) -> str | None:
+    """Finish only exact progress bytes left by an interrupted apply."""
+    expanded = repo_value.expanduser()
+    if expanded.is_symlink():
+        return None
+    plan = expanded.resolve() / "PLAN.md"
+    slug = safe_slug(f"historical-progress-before-{cutoff}")
+    archive_link = Path("docs") / "plan-archive" / f"{slug}.md"
+
+    if _board.is_local_plan(plan):
+        try:
+            token, source = _board.frozen_plan_snapshot(plan)
+            source_text = source.decode("utf-8")
+            repo = Path(token["repo"]).resolve()
+            plan_relative = Path(token["relative"])
+            archive_relative = plan_relative.parent / archive_link
+            candidate = progress_archive_candidate(
+                source_text,
+                cutoff,
+                archive_link,
+                token,
+            )
+        except (LifecycleError, UnicodeDecodeError, ValueError, _board.BoardError):
+            return None
+        if candidate["cas"] != expected:
+            return None
+        archive_path = repo / archive_relative
+        ensure_no_symlink(repo, archive_relative)
+        if not os.path.lexists(archive_path):
+            return None
+        archive_bytes = read_regular_bounded(
+            archive_path,
+            MAX_ARCHIVE_BYTES,
+            "progress archive target",
+        )
+        candidate_archive = candidate["archive"].encode("utf-8")
+        if archive_bytes != candidate_archive:
+            raise LifecycleError(
+                "interrupted progress archive bytes do not match the exact lifecycle CAS; preserve and inspect them"
+            )
+        mode = stat.S_IMODE(plan.stat().st_mode)
+        replace_plan(plan, candidate["plan"].encode("utf-8"), mode)
+        return commit_archive_candidate(
+            repo,
+            plan_relative,
+            archive_relative,
+            candidate["slug"],
+            kind="progress",
+        )
+
+    try:
+        repo = Path(
+            git(expanded.resolve(), "rev-parse", "--show-toplevel").stdout.strip()
+        ).resolve()
+        plan_relative = plan.relative_to(repo)
+        head = git(repo, "rev-parse", "HEAD").stdout.strip()
+        source_blob = git(
+            repo,
+            "rev-parse",
+            f"HEAD:{plan_relative.as_posix()}",
+        ).stdout.strip()
+        source_root = git_bytes(repo, "cat-file", "blob", source_blob)
+        source_snapshot = _plan_store.snapshot_of_root(plan, source_root)
+        source_text = source_snapshot.materialize().decode("utf-8")
+        archive_relative = plan_relative.parent / archive_link
+        candidate = progress_archive_candidate(
+            source_text,
+            cutoff,
+            archive_link,
+            {
+                "relative": plan_relative.as_posix(),
+                "head": head,
+                "blob": source_blob,
+            },
+        )
+    except (
+        LifecycleError,
+        UnicodeDecodeError,
+        ValueError,
+        _plan_store.PlanStoreError,
+    ):
+        return None
+    if candidate["cas"] != expected:
+        return None
+
+    archive_path = repo / archive_relative
+    ensure_no_symlink(repo, archive_relative)
+    candidate_plan = candidate["plan"].encode("utf-8")
+    candidate_archive = candidate["archive"].encode("utf-8")
+    try:
+        working_plan = read_regular_bounded(plan, _board.MAX_PLAN_BYTES, "PLAN.md")
+        working_archive = (
+            read_regular_bounded(
+                archive_path,
+                MAX_ARCHIVE_BYTES,
+                "progress archive target",
+            )
+            if os.path.lexists(archive_path)
+            else None
+        )
+    except LifecycleError:
+        raise
+    index_plan = optional_index_bytes(repo, plan_relative)
+    index_archive = optional_index_bytes(repo, archive_relative)
+
+    def plan_state(payload: bytes | None) -> str | None:
+        if payload == source_root:
+            return "source"
+        if payload is None:
+            return None
+        try:
+            snapshot = _plan_store.snapshot_of_root(plan, payload)
+            if snapshot.materialize() != candidate_plan:
+                return None
+            source_digest = hashlib.sha256(source_root).hexdigest()
+            if (
+                snapshot.root is not None
+                and snapshot.root.get("previous_root") != source_digest
+            ):
+                return None
+        except _plan_store.PlanStoreError:
+            return None
+        return "candidate"
+
+    working_state = plan_state(working_plan)
+    index_state = plan_state(index_plan)
+    interrupted = (
+        working_state != "source"
+        or working_archive is not None
+        or index_state != "source"
+        or index_archive is not None
+    )
+    if not interrupted:
+        return None
+    if (
+        working_state not in {"source", "candidate"}
+        or working_archive not in {None, candidate_archive}
+        or index_state not in {"source", "candidate"}
+        or index_archive not in {None, candidate_archive}
+        or git(repo, "diff", "--name-only", "--diff-filter=U").stdout.strip()
+    ):
+        raise LifecycleError(
+            "interrupted progress archive bytes do not match the exact lifecycle CAS; preserve and inspect them"
+        )
+    mode = stat.S_IMODE(plan.stat().st_mode)
+    atomic_write(archive_path, candidate_archive)
+    if working_state == "source":
+        replace_plan(plan, candidate_plan, mode)
+    return commit_archive_candidate(
+        repo,
+        plan_relative,
+        archive_relative,
+        candidate["slug"],
+        kind="progress",
     )
 
 
@@ -2092,11 +2253,28 @@ def apply_progress(
     plan = repo_value.expanduser().resolve() / "PLAN.md"
     try:
         with _board.project_lock(plan):
+            recovered_commit = recover_progress_half_state(
+                repo_value,
+                cutoff,
+                expected,
+            )
             report, candidate = inspect_progress(repo_value, cutoff)
             if report.get("cas") != expected:
                 raise LifecycleError("lifecycle dry-run CAS changed; rerun without --apply")
             if candidate is None:
                 report["ok"] = True
+                if (
+                    report.get("action") == "already_archived_progress"
+                    and recovered_commit is not None
+                ):
+                    report.update(
+                        {
+                            "action": "archived_progress",
+                            "changed": True,
+                            "commit": recovered_commit,
+                            "head": recovered_commit,
+                        }
+                    )
                 return attach_successor(
                     report, plan, owner, report.get("successor_row")
                 )
@@ -2129,6 +2307,31 @@ def apply_progress(
             except (OSError, LifecycleError):
                 restore_plan(plan, original, plan_mode, publication)
                 archive_path.unlink(missing_ok=True)
+                reset_paths = [
+                    plan_relative.as_posix(),
+                    archive_relative.as_posix(),
+                ]
+                try:
+                    if _board.open_plan(plan).is_tree:
+                        reset_paths.append(
+                            (plan_relative.parent / "PLAN.d").as_posix()
+                        )
+                except _board.BoardError:
+                    pass
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(repo),
+                        "reset",
+                        "--quiet",
+                        "HEAD",
+                        "--",
+                        *reset_paths,
+                    ],
+                    capture_output=True,
+                    check=False,
+                )
                 if not parent_existed:
                     try:
                         archive_path.parent.rmdir()
