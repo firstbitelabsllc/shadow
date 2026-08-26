@@ -658,6 +658,18 @@ class AnArchivedReceiptRangeStopsAtTheNextBullet(unittest.TestCase):
 
 
 class HistoricalProgressCompaction(unittest.TestCase):
+    def test_progress_cutoff_rejects_an_impossible_utc_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve(), PROGRESS_ONLY_PLAN)
+
+            result, report = run(
+                repo, "--progress-before", "2026-13-40T25:61:61Z"
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(report["action"], "refused")
+            self.assertIn("UTC second timestamp", report["error"])
+
     def test_machine_local_plan_compacts_without_git_or_second_authority(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
