@@ -34,6 +34,7 @@ PLAN = """# Fixture
 
 ### M1 — live
 - [pending] ship the cold activation verifier from a clean clone ~aa11 | proof: cmd true
+- [pending] the cold activation lifecycle is proven ~bb22 (DoD) | proof: cmd true | needs: ~aa11
 
 ## Progress
 

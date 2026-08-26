@@ -32,6 +32,7 @@ PLAN = """# Demo — Plan
 
 ### M1 — shipped already
 - [completed] groundwork ~aa11 | proof: cmd true
+- [completed] the shipped foundation is proven ~ab12 (DoD) | proof: cmd true | needs: ~aa11
 
 ### M2 — the live milestone
 - tools: /craft for UI, /xbq for builds — simulator proof is the bar
@@ -48,6 +49,7 @@ PLAN = """# Demo — Plan
 ## Progress
 
 - 2026-08-07T00:00:00Z ~aa11 PROOF true -> ok
+- 2026-08-07T00:00:30Z ~ab12 PROOF true -> ok
 - 2026-08-07T00:01:00Z ~bb22 PROOF parser suite -> ok
 """
 

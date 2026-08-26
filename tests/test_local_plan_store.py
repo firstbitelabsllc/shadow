@@ -362,7 +362,11 @@ class LocalPlanStore(unittest.TestCase):
             # The archive is finished by atomic local writes, never a commit.
             archive = plan.parent / "docs" / "plan-archive" / "finished-work.md"
             self.assertTrue(archive.is_file(), "the archive file must be written")
-            compacted = plan.read_text(encoding="utf-8")
+            self.assertTrue(
+                board.open_plan(plan).is_tree,
+                "the first local lifecycle mutation must retain its plain source as tree lineage",
+            )
+            compacted = board.read_plan_text(plan)
             self.assertNotIn("### Finished work", compacted)
             self.assertIn("### Next work", compacted)
 
