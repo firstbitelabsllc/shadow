@@ -655,6 +655,7 @@ def ensure_clean(repo: Path, paths: list[Path]) -> None:
 def assert_archive_immutable(
     repo: Path,
     *,
+    plan: Path,
     plan_relative: Path,
     archive_relative: Path,
     archive_link: Path,
@@ -663,69 +664,91 @@ def assert_archive_immutable(
     archive_bytes: bytes,
     tombstone: re.Match[str],
 ) -> dict:
-    introductions = git(
-        repo,
-        "log",
-        "--diff-filter=A",
-        "--format=%H",
-        "--",
-        archive_relative.as_posix(),
-    ).stdout.splitlines()
-    if len(introductions) != 1:
-        raise LifecycleError("archive has no unique lifecycle introduction")
-    commit = introductions[0]
-    parent = git(repo, "rev-parse", f"{commit}^").stdout.strip()
-    if parent != tombstone.group("head"):
-        raise LifecycleError("archive source HEAD does not match its introduction")
-    source_blob = git(
-        repo,
-        "rev-parse",
-        f"{parent}:{plan_relative.as_posix()}",
-    ).stdout.strip()
-    if source_blob != tombstone.group("blob"):
-        raise LifecycleError("archive source PLAN blob does not match its introduction")
-    identity = git(repo, "show", "-s", "--format=%s%n%an%n%ae", commit).stdout.splitlines()
-    if identity != [
-        f"shadow: archive milestone {slug}",
-        "Shadow Lifecycle",
-        "shadow-lifecycle@localhost",
-    ]:
-        raise LifecycleError("archive was not introduced by Shadow lifecycle")
-    changed = set(
-        git(
+    if _board.is_local_plan(plan):
+        source_text = local_source_text(plan, tombstone.group("blob"))
+        source_token = {
+            "relative": plan_relative.as_posix(),
+            "head": tombstone.group("head"),
+            "blob": tombstone.group("blob"),
+        }
+        committed_plan: bytes | None = None
+    else:
+        introductions = git(
             repo,
-            "diff-tree",
-            "--no-commit-id",
-            "--name-only",
-            "-r",
-            commit,
+            "log",
+            "--diff-filter=A",
+            "--format=%H",
+            "--",
+            archive_relative.as_posix(),
         ).stdout.splitlines()
-    )
-    if changed != {plan_relative.as_posix(), archive_relative.as_posix()}:
-        raise LifecycleError("archive introduction changed unrelated authority")
-    if git_bytes(repo, "show", f"{commit}:{archive_relative.as_posix()}") != archive_bytes:
-        raise LifecycleError("archive changed after its lifecycle introduction")
-    try:
-        source_text = git_bytes(repo, "cat-file", "blob", source_blob).decode("utf-8")
-    except UnicodeDecodeError:
-        raise LifecycleError("archive source PLAN blob is not valid UTF-8") from None
+        if len(introductions) != 1:
+            raise LifecycleError("archive has no unique lifecycle introduction")
+        commit = introductions[0]
+        parent = git(repo, "rev-parse", f"{commit}^").stdout.strip()
+        if parent != tombstone.group("head"):
+            raise LifecycleError("archive source HEAD does not match its introduction")
+        source_blob = git(
+            repo,
+            "rev-parse",
+            f"{parent}:{plan_relative.as_posix()}",
+        ).stdout.strip()
+        if source_blob != tombstone.group("blob"):
+            raise LifecycleError("archive source PLAN blob does not match its introduction")
+        identity = git(
+            repo, "show", "-s", "--format=%s%n%an%n%ae", commit
+        ).stdout.splitlines()
+        if identity != [
+            f"shadow: archive milestone {slug}",
+            "Shadow Lifecycle",
+            "shadow-lifecycle@localhost",
+        ]:
+            raise LifecycleError("archive was not introduced by Shadow lifecycle")
+        changed = set(
+            git(
+                repo,
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                commit,
+            ).stdout.splitlines()
+        )
+        if changed != {plan_relative.as_posix(), archive_relative.as_posix()}:
+            raise LifecycleError("archive introduction changed unrelated authority")
+        if (
+            git_bytes(repo, "show", f"{commit}:{archive_relative.as_posix()}")
+            != archive_bytes
+        ):
+            raise LifecycleError("archive changed after its lifecycle introduction")
+        try:
+            source_text = git_bytes(repo, "cat-file", "blob", source_blob).decode(
+                "utf-8"
+            )
+        except UnicodeDecodeError:
+            raise LifecycleError("archive source PLAN blob is not valid UTF-8") from None
+        source_token = {
+            "relative": plan_relative.as_posix(),
+            "head": parent,
+            "blob": source_blob,
+        }
+        committed_plan = git_bytes(
+            repo, "show", f"{commit}:{plan_relative.as_posix()}"
+        )
     candidate = archive_candidate(
         source_text,
         wanted,
         archive_link,
-        {
-            "relative": plan_relative.as_posix(),
-            "head": parent,
-            "blob": source_blob,
-        },
+        source_token,
     )
     if (
         candidate["cas"] != tombstone.group("cas")
         or candidate["digest"] != tombstone.group("digest")
         or candidate["marker"] != tombstone.group(0)
         or candidate["archive"].encode("utf-8") != archive_bytes
-        or git_bytes(repo, "show", f"{commit}:{plan_relative.as_posix()}")
-        != candidate["plan"].encode("utf-8")
+        or (
+            committed_plan is not None
+            and committed_plan != candidate["plan"].encode("utf-8")
+        )
     ):
         raise LifecycleError("archive cannot be regenerated from its recorded source")
     return candidate
@@ -876,7 +899,12 @@ def replace_plan(
 ) -> _plan_store.PublishReceipt | None:
     try:
         snapshot = _board.open_plan(plan)
-        if snapshot.is_tree:
+        # Machine-local authorities need their pre-mutation generation even
+        # when `shadow init` created a legacy, plain PLAN.md. Publishing the
+        # first lifecycle mutation through the plan store upgrades that file
+        # to a lineage-bearing tree whose previous_root is the exact plain
+        # source. Git-backed product plans keep their declared representation.
+        if snapshot.is_tree or _board.is_local_plan(plan):
             return (
                 _plan_store.PlanTransaction.begin(
                     plan,
@@ -997,6 +1025,49 @@ def recover_archive_half_state(
     if expanded.is_symlink():
         return None
     plan = expanded.resolve() / "PLAN.md"
+    slug = safe_slug(wanted)
+    archive_link = Path("docs") / "plan-archive" / f"{slug}.md"
+
+    if _board.is_local_plan(plan):
+        try:
+            token, source = _board.frozen_plan_snapshot(plan)
+            source_text = source.decode("utf-8")
+            repo = Path(token["repo"]).resolve()
+            plan_relative = Path(token["relative"])
+            archive_relative = plan_relative.parent / archive_link
+            candidate = archive_candidate(
+                source_text,
+                wanted,
+                archive_link,
+                token,
+            )
+        except (LifecycleError, UnicodeDecodeError, ValueError, _board.BoardError):
+            return None
+        if candidate["cas"] != expected:
+            return None
+        archive_path = repo / archive_relative
+        ensure_no_symlink(repo, archive_relative)
+        if not os.path.lexists(archive_path):
+            return None
+        archive_bytes = read_regular_bounded(
+            archive_path,
+            MAX_ARCHIVE_BYTES,
+            "archive target",
+        )
+        candidate_archive = candidate["archive"].encode("utf-8")
+        if archive_bytes != candidate_archive:
+            raise LifecycleError(
+                "interrupted archive bytes do not match the exact lifecycle CAS; preserve and inspect them"
+            )
+        mode = stat.S_IMODE(plan.stat().st_mode)
+        replace_plan(plan, candidate["plan"].encode("utf-8"), mode)
+        return commit_archive_candidate(
+            repo,
+            plan_relative,
+            archive_relative,
+            candidate["slug"],
+        )
+
     try:
         repo = Path(git(expanded.resolve(), "rev-parse", "--show-toplevel").stdout.strip()).resolve()
         plan_relative = plan.relative_to(repo)
@@ -1004,8 +1075,6 @@ def recover_archive_half_state(
         source_blob = git(repo, "rev-parse", f"HEAD:{plan_relative.as_posix()}").stdout.strip()
         source_bytes = git_bytes(repo, "cat-file", "blob", source_blob)
         source_text = source_bytes.decode("utf-8")
-        slug = safe_slug(wanted)
-        archive_link = Path("docs") / "plan-archive" / f"{slug}.md"
         archive_relative = plan_relative.parent / archive_link
         candidate = archive_candidate(
             source_text,
@@ -2392,7 +2461,8 @@ def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
     archive_relative = plan_relative.parent / archive_link
     archive_path = repo / archive_relative
     ensure_no_symlink(repo, archive_relative)
-    ensure_clean(repo, [plan_relative, archive_relative])
+    if not _board.is_local_plan(plan):
+        ensure_clean(repo, [plan_relative, archive_relative])
     tombstone = re.search(
         TOMBSTONE_RE_TEMPLATE.format(slug=re.escape(slug)),
         text,
@@ -2422,6 +2492,7 @@ def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
             raise LifecycleError("archive target content does not match its provenance digest")
         regenerated = assert_archive_immutable(
             repo,
+            plan=plan,
             plan_relative=plan_relative,
             archive_relative=archive_relative,
             archive_link=archive_link,
