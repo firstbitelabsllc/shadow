@@ -466,7 +466,10 @@ def accept_local_plan(
         raise AcceptError(f"{row_id} still needs {', '.join(blocked_by)}")
     challenged = contradiction_challenges(plan_text, row_id, needs)
     if challenged:
-        raise AcceptError(f"{row_id} is under a written challenge: {challenged[0]}")
+        raise AcceptError(
+            f"{row_id} is under a written challenge scoped as a current-row "
+            f"acceptance challenge: {challenged[0]}"
+        )
     if not proof.startswith("cmd "):
         raise AcceptError("only cmd proofs are machine-rerunnable")
     argv = proof_argv(proof[4:])
@@ -584,7 +587,7 @@ def contradiction_challenges(plan_text: str, row_id: str, needs: str) -> list[st
             continue
         if not inside or not line.startswith("- "):
             continue
-        if line.strip().lower().startswith("- none"):
+        if not _grammar.contradiction_is_open(line):
             continue
         if any(member in line for member in ancestry):
             hits.append(line.strip())
@@ -1399,7 +1402,8 @@ def main(argv: list[str] | None = None) -> int:
         challenged = contradiction_challenges(plan_text, row_id, needs)
         if challenged:
             raise AcceptError(
-                f"{row_id} or its needs-ancestry is under a written challenge and must not "
+                f"{row_id} or its needs-ancestry is under a written challenge scoped as an "
+                "acceptance challenge and must not "
                 f"flip silently; resolve the Contradictions entry first: {challenged[0]}"
             )
         if not proof.startswith("cmd "):
@@ -1485,7 +1489,7 @@ def main(argv: list[str] | None = None) -> int:
         challenged_now = contradiction_challenges(plan_text, row_id, fresh_needs)
         if challenged_now:
             raise AcceptError(
-                f"{row_id} or its needs-ancestry was challenged in writing while the proof "
+                f"{row_id} or its needs-ancestry gained an acceptance challenge while the proof "
                 f"ran; nothing was changed — resolve the Contradictions entry first: {challenged_now[0]}"
             )
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

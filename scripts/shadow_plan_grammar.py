@@ -33,6 +33,11 @@ PROOF_RECEIPT_RE: Final = re.compile(
     r"(?P<id>~[0-9a-z]{4}) PROOF (?P<proof>.+) -> (?P<result>.+)$"
 )
 PROOF_LINE_RE: Final = re.compile(r"^- \S+ (?P<id>~[0-9a-z]{4}) PROOF\b")
+CONTRADICTION_RESOLVED_RE: Final = re.compile(r"^- RESOLVED(?:\s|:|$)")
+CONTRADICTION_NONE_RE: Final = re.compile(
+    r"^- none(?: recorded)? yet\.?$",
+    re.IGNORECASE,
+)
 
 # `shadow accept` executes a proof with argv, never an implicit shell.  These
 # helpers are shared so lint rejects precisely the argument shapes accept would
@@ -82,3 +87,17 @@ def progress_proof_receipt(line: str) -> tuple[str, str, str] | None:
     if match is None:
         return None
     return match.group("id"), match.group("proof"), match.group("result")
+
+
+def contradiction_is_open(line: str) -> bool:
+    """Return whether a canonical Contradictions bullet is unresolved.
+
+    ``winner`` and ``provisional winner`` record a current judgment, not a
+    delivered resolution. Only the explicit leading ``RESOLVED`` marker
+    closes a real bullet. The conventional ``None ...`` sentinel is not a
+    contradiction at all.
+    """
+    stripped = line.strip()
+    if not stripped.startswith("- ") or CONTRADICTION_NONE_RE.match(stripped):
+        return False
+    return CONTRADICTION_RESOLVED_RE.match(stripped) is None

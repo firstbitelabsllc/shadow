@@ -72,6 +72,25 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn("A. Focused check", result.stdout)
         self.assertNotIn(dirname, result.stdout)
 
+    def test_status_names_unresolved_plan_entries_not_acceptance_challenges(self) -> None:
+        text = PLAN + (
+            "\n## Contradictions\n\n"
+            "- one open plan conflict | provisional winner: measure\n"
+            "- a decided-looking plan conflict | winner: smaller\n"
+            "- RESOLVED 2026-08-26: retired conflict | winner: smaller\n"
+            "\n## Progress\n"
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(text, encoding="utf-8")
+            result = self.run_status(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Plan contradictions unresolved: 2", result.stdout)
+        self.assertNotIn("acceptance challenge", result.stdout.lower())
+        self.assertNotIn("blocker", result.stdout.lower())
+        self.assertNotIn("bug", result.stdout.lower())
+
     def test_json_is_bounded_and_path_relative(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

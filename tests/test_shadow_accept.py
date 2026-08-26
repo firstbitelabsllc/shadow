@@ -2233,6 +2233,28 @@ class AChallengedFoundationDoesNotFlipSilently(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("- [completed] x.txt says hello ~ab12", (repo / "PLAN.md").read_text())
 
+    def test_only_an_explicitly_resolved_challenge_releases_the_flip(self) -> None:
+        plan = self._plan(
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF}\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- RESOLVED 2026-08-26: ~ab12 keeps hello | winner: hello\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_winner_language_without_resolved_remains_an_acceptance_challenge(self) -> None:
+        plan = self._plan(
+            f"- [in_progress] x.txt says hello ~ab12 | proof: {self.HELLO_PROOF}\n"
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut\n",
+            "- ~ab12 hello vs goodbye | winner: hello\n",
+        )
+        context, repo, result = self._run(plan, "~ab12")
+        with context:
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("acceptance challenge", result.stderr)
+            self.assertIn("needs-ancestry", result.stderr)
+
 
 class AForgedCompletionCannotBeLaunderedByTheFastPath(unittest.TestCase):
     """The other end of the backdated-receipt chain (~lgrf). accept's
