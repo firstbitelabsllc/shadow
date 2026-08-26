@@ -126,6 +126,7 @@ class ReleasePackageTests(unittest.TestCase):
             "--receipt progress:N",
             "--find LITERAL",
             "--expect-root ROOT_SHA256",
+            "never follows archive/spill links",
         ):
             self.assertIn(clause, output.stdout)
 
