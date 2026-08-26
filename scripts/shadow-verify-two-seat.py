@@ -71,11 +71,13 @@ PLAN = """# {name} acceptance fixture
 ## Tasks
 
 ### Coordinate through one board
-- [pending] complete the disposable {name} proof {row} | proof: cmd true
+- [completed] the disposable {name} fixture is ready ~zz99 | proof: cmd true
+- [pending] complete the disposable {name} proof {row} (DoD) | proof: cmd true | needs: ~zz99
 
 ## Progress
 
 - 2026-08-10T00:00:00Z NOTE fixture seeded
+- 2026-08-10T00:00:01Z ~zz99 PROOF true -> pass (fixture)
 """
 
 
