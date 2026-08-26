@@ -504,14 +504,40 @@ def projected_claims(
     return claims, None
 
 
-def board_records(payload: dict) -> list[dict]:
-    records: list[dict] = []
+def ordered_entities(payload: dict) -> list[dict]:
     priorities = {project["id"]: project["priority"] for project in payload["projects"]}
-    ordered = sorted(
+    return sorted(
         payload["entities"],
         key=lambda entity: (priorities[entity["project"]], entity["project"], entity["id"]),
     )
-    for entity in ordered:
+
+
+def seat_board_entities(payload: dict, seat: str) -> tuple[set[str], int]:
+    """Choose a human seat's bounded entity set from local board facts only."""
+    owned = {
+        claim["entity"] for claim in payload["claims"] if claim["owner"] == seat
+    }
+    if owned:
+        return owned, len(owned)
+    ordered = ordered_entities(payload)
+    candidate = next(
+        (entity for entity in ordered if entity["resume"] is not None),
+        ordered[0] if ordered else None,
+    )
+    return ({candidate["id"]} if candidate is not None else set()), 0
+
+
+def board_records(
+    payload: dict,
+    *,
+    entity_ids: set[str] | None = None,
+    verify_identity: bool = False,
+) -> list[dict]:
+    records: list[dict] = []
+    priorities = {project["id"]: project["priority"] for project in payload["projects"]}
+    for entity in ordered_entities(payload):
+        if entity_ids is not None and entity["id"] not in entity_ids:
+            continue
         plan_path = Path(entity["plan"])
         project = entity["project"]
         locator = _board.public_plan_locator(plan_path)
@@ -519,6 +545,10 @@ def board_records(payload: dict) -> list[dict]:
             claim for claim in payload["claims"] if claim["entity"] == entity["id"]
         ]
         try:
+            if verify_identity and _board.entity_id(plan_path) != entity["id"]:
+                raise _board.BoardError(
+                    "stored entity identity no longer matches its plan pointer"
+                )
             text = _board.read_plan_text(plan_path)
             parsed = _amp._parse(text)
             row_ids = {
@@ -813,6 +843,38 @@ def main(argv: list[str] | None = None) -> int:
             for receipt in receipts:
                 print(f"{receipt.path} — {receipt.reason}")
         return 0
+    # A human seat resumes from the current local board before portfolio
+    # discovery. Board claims name every entity it already owns; otherwise the
+    # priority-ordered resume pointer names one candidate. Only that bounded
+    # set crosses plan, lint, Git-identity, and remote-authentication seams.
+    # Machine JSON and recovery views continue through exhaustive reconciliation.
+    if args.by and not args.json and not args.in_flight and not explicit_root:
+        try:
+            board_snapshot = _board.snapshot()
+        except _board.BoardError as exc:
+            print(
+                f"shadow status: this computer's root board is unreadable: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        if board_snapshot is not None:
+            selected, owned = seat_board_entities(board_snapshot, args.by)
+            if selected:
+                focused = board_records(
+                    board_snapshot,
+                    entity_ids=selected,
+                    verify_identity=True,
+                )
+                unhealthy = sum(bool(record.get("broken")) for record in focused)
+                blocks = [
+                    f"This computer — root board revision {board_snapshot['revision']}",
+                    f"Portfolio: {len(board_snapshot['entities'])} entities | "
+                    f"Seat: {args.by} | Focused: {len(focused)} | "
+                    f"Owned: {owned} | Unhealthy: {unhealthy}",
+                ]
+                blocks.extend(render_seat_v4(record, args.by) for record in focused)
+                print("\n\n".join(blocks) + "\n", end="")
+                return 1 if unhealthy else 0
     try:
         if not explicit_root:
             root = _import.portfolio_root(root)
