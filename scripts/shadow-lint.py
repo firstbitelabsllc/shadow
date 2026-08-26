@@ -232,7 +232,7 @@ def lint_plan(
     ids: dict[str, tuple[int, str]] = {}
     needs_refs: list[tuple[int, str]] = []
     needs_edges: list[tuple[str, str]] = []
-    milestone_rows: list[list[tuple[int, dict]]] = []
+    milestone_rows: list[tuple[int, list[tuple[int, dict]]]] = []
     current_rows: list[tuple[int, dict]] | None = None
     # Row grammar runs over the WHOLE file, because `shadow accept` builds its
     # row list from every line of the plan and will flip a row wherever it
@@ -250,7 +250,7 @@ def lint_plan(
         if line.startswith("### "):
             if in_tasks:
                 current_rows = []
-                milestone_rows.append(current_rows)
+                milestone_rows.append((number, current_rows))
             continue
         match = ROW_RE.match(line)
         if not match:
@@ -333,9 +333,27 @@ def lint_plan(
         if color.get(node, 0) == 0:
             _walk(node)
 
-    for rows in milestone_rows:
+    for heading_number, rows in milestone_rows:
         if len(rows) < 2:
+            findings.append(_finding(
+                "MILESTONE-SHAPE",
+                rows[0][0] if rows else heading_number,
+                "blocking",
+                f"milestone has {len(rows)} task rows, needs at least 2",
+            ))
             continue
+        if len(rows) > 7:
+            # The published 2-7 band is the lifecycle archive boundary, but
+            # existing plans predate mechanical enforcement and may carry
+            # larger live milestones. Make that debt visible without turning
+            # an otherwise healthy board into a flag-day outage. DoD checks
+            # below still run and remain blocking.
+            findings.append(_finding(
+                "MILESTONE-SHAPE",
+                rows[0][0],
+                "warning",
+                f"milestone has {len(rows)} task rows; lifecycle archives require 2-7",
+            ))
         dod = [(n, r) for n, r in rows if r["dod"]]
         if len(dod) != 1:
             findings.append(

@@ -73,6 +73,59 @@ def blocking(plan: str) -> set[str]:
     return {f["check"] for f in lint.lint_plan(plan) if f["severity"] == "blocking"}
 
 
+class MilestoneShapeMatchesLifecycle(unittest.TestCase):
+    @staticmethod
+    def _with_tasks(tasks: str) -> str:
+        start = CLEAN_PLAN.index("- [completed] wrapper renders")
+        end = CLEAN_PLAN.index("\n\n## Deferred", start)
+        return CLEAN_PLAN[:start] + tasks.rstrip("\n") + CLEAN_PLAN[end:]
+
+    def test_one_row_milestone_is_blocking(self) -> None:
+        plan = self._with_tasks(
+            "- [pending] compressed umbrella ~aa11 (DoD) | proof: read receipt -> pass\n"
+        )
+        self.assertIn("MILESTONE-SHAPE", blocking(plan))
+
+    def test_zero_row_milestone_is_blocking(self) -> None:
+        self.assertIn("MILESTONE-SHAPE", blocking(self._with_tasks("")))
+
+    def test_eight_row_milestone_is_visible_without_blocking_legacy_plans(self) -> None:
+        tasks = "".join(
+            f"- [pending] bounded sibling {index} ~a{index:03d} | proof: cmd true\n"
+            for index in range(7)
+        )
+        tasks += "- [pending] bounded exit ~b000 (DoD) | proof: read receipt -> pass\n"
+        found = [
+            item
+            for item in lint.lint_plan(self._with_tasks(tasks))
+            if item["check"] == "MILESTONE-SHAPE"
+        ]
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["severity"], "warning")
+        self.assertNotIn("MILESTONE-SHAPE", blocking(self._with_tasks(tasks)))
+
+    def test_two_and_seven_row_boundaries_remain_valid(self) -> None:
+        two = (
+            "- [pending] first sibling ~aa11 | proof: cmd true\n"
+            "- [pending] bounded exit ~bb22 (DoD) | proof: read receipt -> pass\n"
+        )
+        seven = "".join(
+            f"- [pending] bounded sibling {index} ~a{index:03d} | proof: cmd true\n"
+            for index in range(6)
+        )
+        seven += "- [pending] bounded exit ~b000 (DoD) | proof: read receipt -> pass\n"
+        self.assertNotIn("MILESTONE-SHAPE", blocking(self._with_tasks(two)))
+        self.assertNotIn("MILESTONE-SHAPE", blocking(self._with_tasks(seven)))
+
+    def test_a_heading_outside_tasks_does_not_invent_a_milestone(self) -> None:
+        plan = CLEAN_PLAN + (
+            "\n## Worklane boundary\n\n"
+            "### A prose grouping\n"
+            "- [pending] globally checked row ~zz99 | proof: cmd true\n"
+        )
+        self.assertNotIn("MILESTONE-SHAPE", blocking(plan))
+
+
 def commit_fixture(root: Path, *paths: str) -> None:
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "Shadow Test"], check=True)
