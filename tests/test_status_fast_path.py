@@ -87,9 +87,75 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
     def invoke(self, root: Path, *args: str) -> tuple[int, str, str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            code = status.main(["--root", str(root), *args])
+        with (
+            mock.patch.dict(
+                status.os.environ, {"SHADOW_DEV_ROOT": str(root)}, clear=False
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = status.main(list(args))
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_explicit_root_bypasses_the_machine_board_fast_path(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            machine_root = root / "machine"
+            requested_root = root / "requested"
+            machine_root.mkdir()
+            requested_root.mkdir()
+            machine_payload, machine_owned, _ = self.fixture(machine_root)
+            requested_payload, requested_owned, _ = self.fixture(requested_root)
+            machine_owned.write_text(
+                plan("machine", "~aa11", "continue machine-wide work"),
+                encoding="utf-8",
+            )
+            requested_owned.write_text(
+                plan("requested", "~aa11", "continue explicit-root work"),
+                encoding="utf-8",
+            )
+            machine_payload["entities"][0]["id"] = status._board.entity_id(
+                machine_owned
+            )
+            machine_payload["claims"][0]["entity"] = machine_payload[
+                "entities"
+            ][0]["id"]
+            requested_payload["entities"][0]["id"] = status._board.entity_id(
+                requested_owned
+            )
+            requested_payload["claims"][0]["entity"] = requested_payload[
+                "entities"
+            ][0]["id"]
+
+            with (
+                mock.patch.object(
+                    status._board, "snapshot", return_value=machine_payload
+                ) as snapshot,
+                mock.patch.object(
+                    status._import,
+                    "reconcile_portfolio",
+                    return_value=requested_payload,
+                ) as reconcile,
+                mock.patch.object(
+                    status,
+                    "projected_claims",
+                    side_effect=lambda entity, project, path, parsed, local: (
+                        list(local),
+                        None,
+                    ),
+                ),
+                redirect_stdout(stdout := io.StringIO()),
+                redirect_stderr(stderr := io.StringIO()),
+            ):
+                code = status.main(
+                    ["--root", str(requested_root), "--by", "codex"]
+                )
+
+        self.assertEqual(code, 0, stderr.getvalue())
+        self.assertIn("continue explicit-root work", stdout.getvalue())
+        self.assertNotIn("continue machine-wide work", stdout.getvalue())
+        snapshot.assert_not_called()
+        reconcile.assert_called_once()
 
     def test_owned_human_seat_reads_only_its_board_entity(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
