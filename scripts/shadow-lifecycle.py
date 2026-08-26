@@ -899,7 +899,12 @@ def replace_plan(
 ) -> _plan_store.PublishReceipt | None:
     try:
         snapshot = _board.open_plan(plan)
-        if snapshot.is_tree:
+        # Machine-local authorities need their pre-mutation generation even
+        # when `shadow init` created a legacy, plain PLAN.md. Publishing the
+        # first lifecycle mutation through the plan store upgrades that file
+        # to a lineage-bearing tree whose previous_root is the exact plain
+        # source. Git-backed product plans keep their declared representation.
+        if snapshot.is_tree or _board.is_local_plan(plan):
             return (
                 _plan_store.PlanTransaction.begin(
                     plan,

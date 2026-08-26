@@ -1201,6 +1201,50 @@ class AtomicWritesAreDurable(unittest.TestCase):
 
 
 class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
+    def test_plain_machine_local_milestone_archive_preserves_replay_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            home = root / "home"
+            entity = home / ".shadow" / "plans" / "plain-milestone-pressure"
+            entity.mkdir(parents=True)
+            plan = entity / "PLAN.md"
+            plan.write_text(PLAN, encoding="utf-8")
+            env = {"HOME": str(home)}
+
+            _, preview = run(
+                entity,
+                "--milestone",
+                "Finished work",
+                extra_env=env,
+            )
+            applied, report, _ = apply_with_cas(
+                entity,
+                "--milestone",
+                "Finished work",
+                cas=preview["cas"],
+                extra_env=env,
+            )
+            self.assertEqual(applied.returncode, 0, report)
+            self.assertEqual(report["action"], "archived")
+
+            archived_snapshot = lifecycle._board.open_plan(plan)
+            self.assertTrue(archived_snapshot.is_tree)
+            self.assertIsInstance(archived_snapshot.root.get("previous_root"), str)
+
+            repeated, repeated_report = run(
+                entity,
+                "--milestone",
+                "Finished work",
+                extra_env=env,
+            )
+
+            self.assertEqual(repeated.returncode, 0, repeated_report)
+            self.assertEqual(repeated_report["action"], "already_archived")
+            self.assertEqual(repeated_report["cas"], preview["cas"])
+            self.assertEqual(
+                repeated_report["archive_sha256"], preview["archive_sha256"]
+            )
+
     def test_machine_local_milestone_archive_replays_without_git_history(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
