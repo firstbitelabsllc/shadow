@@ -103,7 +103,15 @@ def _sections(lines: list[str]) -> dict[str, list[str]]:
     current = ""
     for line in lines:
         if line.startswith("## "):
-            current = line[3:].strip()
+            heading = line[3:].strip()
+            current = next(
+                (
+                    name
+                    for name in ("Brief", "Tasks", "Contradictions", "Progress")
+                    if heading == name or heading.startswith(name + " ")
+                ),
+                heading,
+            )
             sections.setdefault(current, [])
             continue
         sections.setdefault(current, []).append(line)
@@ -150,7 +158,9 @@ def _parse(text: str) -> dict:
         current["rows"].append(row)
 
     contradictions = [
-        line for line in sections.get("Contradictions", []) if line.startswith("- ")
+        line
+        for line in sections.get("Contradictions", [])
+        if _grammar.contradiction_is_open(line)
     ]
     # Goal minting reuses the plan's append-only knowledge. Only the newest
     # entry of each kind is projected; the plan remains the authority and no
@@ -838,7 +848,8 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     if plan["contradictions"]:
         optional.append((
             "CONTRA",
-            f"CONTRADICTIONS OPEN: {len(plan['contradictions'])} — read ## Contradictions "
+            f"PLAN CONTRADICTIONS UNRESOLVED: {len(plan['contradictions'])} — "
+            "read ## Contradictions "
             "before landing any checkpoint.",
         ))
     optional.append((

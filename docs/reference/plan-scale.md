@@ -37,7 +37,7 @@ contains an absolute plan path.
 
 ## Frozen sources
 
-| Source | SHA-256 | Bytes | Rows | Milestones | Progress | Contradictions | Archives |
+| Source | SHA-256 | Bytes | Rows | Milestones | Progress | Unresolved plan contradictions | Archives |
 |---|---|---:|---:|---:|---:|---:|---:|
 | `board@698` | `eb559cce2ea89abce561f87a851656f6074f915facf5ebdf514cf93994007d93` | 3,074 | — | — | — | — | — |
 | `entity@7eff07537c1e/PLAN.md` | `c4f4fed431e0e7a35296d2b4f85fa463657e5d090f35baed7f10bb54df01c2f1` | 260,541 | 117 | 19 | 344 | 11 | 5 links; 4 missing |
@@ -50,6 +50,9 @@ benchmark inconvenience. The machine-local plan contains their tombstones but
 its adjacent archive directory contains only the universal-system archive.
 The corpus uses that one re-observable archive and records the missing-link
 count separately; it never follows a worktree copy to manufacture history.
+Contradiction counts and contradiction-query results use the plan grammar's
+unresolved predicate: `winner:` and `provisional winner:` remain live, while
+only a bullet beginning with `RESOLVED` is closed.
 
 ## Current complexity
 
