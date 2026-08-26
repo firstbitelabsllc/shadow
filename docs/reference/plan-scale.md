@@ -196,6 +196,13 @@ Current `shadow lifecycle` already controls hot storage and is the safest
 incremental migration tool. A dry run on completed M7 would reduce Shadow from
 260,866 to 258,696 bytes and 117 to 113 rows. That is useful housekeeping.
 
+When every milestone is held open, lifecycle can instead take one explicit UTC
+cutoff and relocate only older Progress receipts that reference no current task
+row. The archive is adjacent, content-addressed, CAS-bound, and lossless; one
+hot tombstone replaces the moved bytes. Current-row receipts and newer history
+remain in the plan tree, whose previous root still provides exact rollback.
+This is retention pressure relief, not a new index or competing authority.
+
 It does not make active lookup proportional to the requested work. The parser
 still reads the whole remaining hot plan, whose Progress section alone is
 189,886 bytes. The field baseline also found four tombstones whose adjacent
