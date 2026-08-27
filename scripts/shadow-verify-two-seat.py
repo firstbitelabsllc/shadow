@@ -166,8 +166,17 @@ def source_ref(live: bool) -> str:
     if live:
         if git(ROOT, "rev-parse", "HEAD") != value:
             raise HarnessError("source_identity_mismatch")
-        if git(ROOT, "status", "--porcelain", "--untracked-files=all"):
-            raise HarnessError("source_dirty")
+        porcelain = git(ROOT, "status", "--porcelain", "--untracked-files=all")
+        # Host CLIs write working-directory state while the live seats run:
+        # claude creates .claude/settings.json in the checkout it is asked to
+        # prove. That is harness-caused host state, not source dirt a user
+        # left behind - exclude exactly that one path, fail loud on anything
+        # else so the clean-source invariant keeps its teeth.
+        HOST_STATE_PATHS = {".claude/settings.json"}
+        for entry in porcelain.splitlines():
+            path = entry[3:].strip()
+            if path not in HOST_STATE_PATHS:
+                raise HarnessError("source_dirty")
     return value
 
 
