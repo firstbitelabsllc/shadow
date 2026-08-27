@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import select
 import shlex
 import shutil
 import signal
@@ -3279,6 +3280,103 @@ class ManualProofsCanCloseClaims(unittest.TestCase):
             payload = board(home)
             self.assertEqual(payload["claims"], [])
             self.assertEqual(payload["entities"][0]["resume"], "~bb22")
+
+
+class ProjectLifecycleLocks(unittest.TestCase):
+    LOCK_PROCESS = f"""
+from pathlib import Path
+import sys
+sys.path.insert(0, {str(ROOT / 'scripts')!r})
+import shadow_root_board
+with shadow_root_board.project_lock(Path(sys.argv[1])):
+    print('LOCKED', flush=True)
+    if sys.argv[2] == 'hold':
+        sys.stdin.read(1)
+"""
+
+    def _start_lock(
+        self, plan: Path, *, hold: bool
+    ) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                self.LOCK_PROCESS,
+                str(plan),
+                "hold" if hold else "once",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def _read_lock_state(
+        self, process: subprocess.Popen[str], timeout: float
+    ) -> str | None:
+        assert process.stdout is not None
+        ready, _, _ = select.select([process.stdout], [], [], timeout)
+        return process.stdout.readline().strip() if ready else None
+
+    def _release_lock(self, process: subprocess.Popen[str]) -> None:
+        if process.poll() is None:
+            assert process.stdin is not None
+            process.stdin.write("g")
+            process.stdin.flush()
+            process.stdin.close()
+            process.stdin = None
+        _, stderr = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 0, stderr)
+
+    def _finish_lock(self, process: subprocess.Popen[str]) -> None:
+        _, stderr = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 0, stderr)
+
+    def test_disjoint_sibling_plans_do_not_serialize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            plans = []
+            for name in ("alpha", "beta"):
+                plan = repo / name / "PLAN.md"
+                plan.parent.mkdir()
+                plan.write_bytes((repo / "PLAN.md").read_bytes())
+                plans.append(plan)
+            git(repo, "add", "alpha/PLAN.md", "beta/PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "add sibling plans")
+
+            first = self._start_lock(plans[0], hold=True)
+            second = None
+            try:
+                self.assertEqual(self._read_lock_state(first, 2), "LOCKED")
+                second = self._start_lock(plans[1], hold=False)
+                self.assertEqual(self._read_lock_state(second, 0.5), "LOCKED")
+            finally:
+                self._release_lock(first)
+                if second is not None:
+                    self._finish_lock(second)
+
+    def test_same_plan_across_worktrees_still_serializes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            sibling = root / "sibling-worktree"
+            git(repo, "worktree", "add", "--quiet", "--detach", str(sibling), "HEAD")
+
+            first = self._start_lock(repo / "PLAN.md", hold=True)
+            second = None
+            try:
+                self.assertEqual(self._read_lock_state(first, 2), "LOCKED")
+                second = self._start_lock(sibling / "PLAN.md", hold=False)
+                self.assertIsNone(self._read_lock_state(second, 0.25))
+                self.assertIsNone(second.poll())
+                self._release_lock(first)
+                first = None
+                self.assertEqual(self._read_lock_state(second, 2), "LOCKED")
+            finally:
+                if first is not None:
+                    self._release_lock(first)
+                if second is not None:
+                    self._finish_lock(second)
 
 
 class ConcurrentClaimsHaveExactlyOneWinner(unittest.TestCase):
