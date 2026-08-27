@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Rerun one owned checkpoint's proof in a clean checkout, then flip it.
+"""Rerun one owned checkpoint's proof from a detached checkout, then flip it.
 
 This is the only code path that flips a `cmd`-proven checkpoint to completed.
-It parses the project PLAN.md, finds the row by its ~hash id, reruns a
-``cmd``-classed proof inside a detached clean worktree of HEAD, and — only on
-success — rewrites the row's state and appends the paired PROOF Progress line
-in one commit. Its path-free ``--entity`` form also reconciles an authenticated,
-published ``cmd`` completion whose remote journal remains acquired. ``read`` and
-``gate`` proofs are person/agent judgments and are refused here on purpose.
+It parses the entity PLAN.md, finds the row by its ~hash id, reruns a
+``cmd``-classed proof with a detached checkout of HEAD as its initial working
+directory, and — only on success — rewrites the row's state and appends the
+paired PROOF Progress line in one commit. This is a source-state boundary, not
+filesystem containment: the trusted proof process can still change directory
+or access other paths. Its path-free ``--entity`` form also reconciles an
+authenticated, published ``cmd`` completion whose remote journal remains
+acquired. ``read`` and ``gate`` proofs are person/agent judgments and are
+refused here on purpose.
 """
 
 from __future__ import annotations
@@ -65,6 +68,15 @@ LIFECYCLE_ARCHIVE_RE = re.compile(
     r"cas:(?P<cas>[0-9a-f]{64}):head:(?P<head>[0-9a-f]{40}):"
     r"blob:(?P<blob>[0-9a-f]{40}):"
     r"successor:(?P<successor>~[0-9a-z]{4}|none) -->$"
+)
+SOURCE_HEAD_RE = re.compile(r"[0-9a-f]{40}")
+PUBLIC_SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}")
+SOURCE_RECEIPT_RE = re.compile(
+    r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
+    r"(?P<id>~[0-9a-z]{4}) SOURCE "
+    r"(?P<source>[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}) "
+    r"HEAD (?P<head>[0-9a-f]{40}) "
+    r"-> proof and final lint \(accept\)$"
 )
 
 
@@ -171,6 +183,71 @@ def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.Compl
         raise AcceptError(f"project Git state cannot be read: {exc}") from exc
 
 
+def frozen_source_head(repo: Path) -> str:
+    """Resolve one exact commit before creating the detached proof checkout."""
+    result = git_completed(repo, "rev-parse", "--verify", "HEAD^{commit}")
+    head = result.stdout.strip()
+    if result.returncode or SOURCE_HEAD_RE.fullmatch(head) is None:
+        raise AcceptError("source checkout HEAD cannot be resolved to one commit")
+    return head
+
+
+def require_frozen_review_head(review: Path, expected_head: str) -> None:
+    """Refuse a detached proof checkout that moved away from its source commit."""
+    if frozen_source_head(review) != expected_head:
+        raise AcceptError(
+            "detached source checkout moved away from the frozen HEAD; "
+            "nothing was changed"
+        )
+
+
+def public_source_identity(repo: Path) -> str:
+    """Name the proof source without writing its private checkout path."""
+    try:
+        identity = _board.origin_of(repo)
+    except _board.BoardError as exc:
+        raise AcceptError(f"source checkout identity cannot be read: {exc}") from exc
+    if (
+        identity.startswith(("local-git:", "local-remote:"))
+        or PUBLIC_SOURCE_ID_RE.fullmatch(identity) is None
+    ):
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+        return f"local-git@{digest}"
+    return identity
+
+
+def local_source_receipt(
+    plan_text: str,
+    row_id: str,
+    argv: list[str],
+) -> tuple[str, str]:
+    """Return the one source identity and commit bound to a local completion."""
+    receipts: list[tuple[str, str, str]] = []
+    for line in _board.section_lines(plan_text, "Progress"):
+        if f" {row_id} SOURCE " not in line:
+            continue
+        match = SOURCE_RECEIPT_RE.fullmatch(line)
+        if match is None:
+            raise AcceptError(
+                f"{row_id} has a malformed SOURCE receipt; root claim stays open"
+            )
+        receipts.append(
+            (match.group("ts"), match.group("source"), match.group("head"))
+        )
+    if len(receipts) != 1:
+        raise AcceptError(
+            f"{row_id} has {len(receipts)} canonical SOURCE receipts; "
+            "root claim stays open"
+        )
+    proof_stamps = _receipt_stamps(plan_text, row_id, argv)
+    if proof_stamps != [receipts[0][0]]:
+        raise AcceptError(
+            f"{row_id} SOURCE is not paired with one canonical PROOF receipt; "
+            "root claim stays open"
+        )
+    return receipts[0][1], receipts[0][2]
+
+
 def atomic_write_text(
     path: Path,
     text: str,
@@ -179,7 +256,7 @@ def atomic_write_text(
     try:
         snapshot = _board.open_plan(path)
     except _board.BoardError as exc:
-        raise AcceptError(f"project plan could not be opened: {exc}") from exc
+        raise AcceptError(f"entity plan could not be opened: {exc}") from exc
     if snapshot.is_tree:
         try:
             return (
@@ -191,7 +268,7 @@ def atomic_write_text(
                 .publish()
             )
         except _plan_store.PlanStoreError as exc:
-            raise AcceptError(f"project plan tree could not be replaced: {exc}") from exc
+            raise AcceptError(f"entity plan tree could not be replaced: {exc}") from exc
     descriptor, temporary = tempfile.mkstemp(prefix=".shadow-accept.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -206,7 +283,7 @@ def atomic_write_text(
         finally:
             os.close(directory)
     except OSError as exc:
-        raise AcceptError("project plan could not be replaced atomically") from exc
+        raise AcceptError("entity plan could not be replaced atomically") from exc
     finally:
         Path(temporary).unlink(missing_ok=True)
     return None
@@ -264,16 +341,16 @@ def commit_completed_plan(
     updated_text: str,
     resumes: list[str],
 ) -> tuple[dict, dict[str, str], str]:
-    """Create one exact project commit while preserving unrelated index state."""
+    """Create one exact source commit while preserving unrelated index state."""
     plan_pathspec = str(plan_relative)
     with _board.project_lock(plan_path):
         try:
             locked_token, locked_bytes = _board.committed_plan_snapshot(plan_path)
             locked_text = locked_bytes.decode("utf-8")
         except (_board.BoardError, OSError, UnicodeError) as exc:
-            raise AcceptError(f"plan changed before the project commit: {exc}") from exc
+            raise AcceptError(f"plan changed before the source commit: {exc}") from exc
         if locked_token != plan_token or locked_text != original_text:
-            raise AcceptError("the committed project plan changed before the project commit; retry")
+            raise AcceptError("the committed entity plan changed before the source commit; retry")
         try:
             claim_token = _board.reserve_completion(
                 plan_path,
@@ -373,6 +450,8 @@ def lead_review_passes(
     proof: list[str],
     timeout_seconds: int,
     proof_directory: Path = Path("."),
+    *,
+    expected_head: str | None = None,
 ) -> bool:
     if not proof_passes(worktree / proof_directory, proof, timeout_seconds):
         return False
@@ -383,9 +462,14 @@ def lead_review_passes(
         "--ignored=matching",
         "--untracked-files=all",
     )
-    if status.returncode:
+    if status.returncode or status.stdout.strip():
         return False
-    return not status.stdout.strip()
+    if expected_head is not None:
+        try:
+            require_frozen_review_head(worktree, expected_head)
+        except AcceptError:
+            return False
+    return True
 
 
 def remove_review_worktree(repo: Path, destination: Path) -> None:
@@ -428,7 +512,8 @@ def accept_local_plan(
 
     Local plans are the machine authority, so their flip is an atomic local
     replacement, not a source commit.  Their cmd proofs remain source code:
-    run those only from a detached clean checkout of the explicit ``--repo``.
+    launch those from a detached checkout of the explicit ``--repo`` and keep
+    that exact commit alive through final lint, local publication, and release.
     """
     try:
         plan_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
@@ -443,20 +528,58 @@ def accept_local_plan(
         argv = proof_argv(proof[4:])
         if not _board.has_accept_proof_receipt(plan_text, row_id, argv):
             raise AcceptError("the local row is completed without a matching accept proof")
-        refuse_lint_blocked_plan(plan_text, plan_path, proof_root=repo, row_id=row_id)
-        if claim is not None:
-            parsed = _amp._parse(plan_text)
-            parsed["claimed"] = set()
-            _board.release(
-                plan_path,
-                row_id,
-                owner=owner,
-                reason="completed",
-                resumes=_amp._candidate_ids(parsed),
-                expected_plan=plan_token,
-                expected_text=plan_text,
-                expected_claim=claim,
+        source_identity, source_head = local_source_receipt(
+            plan_text,
+            row_id,
+            argv,
+        )
+        if public_source_identity(repo) != source_identity:
+            raise AcceptError(
+                "the explicit source checkout does not match the completion's "
+                "SOURCE receipt"
             )
+        pool = repo.parent / f"{repo.name}-shadow-accept"
+        pool.mkdir(exist_ok=True)
+        git_completed(repo, "worktree", "prune", timeout=15)
+        review = create_lead_review_worktree(
+            repo,
+            pool,
+            row_id.lstrip("~"),
+            source_head,
+        )
+        try:
+            require_frozen_review_head(review, source_head)
+            issue = script_operand_issue(argv, review)
+            if issue:
+                raise AcceptError(
+                    f"the completed proof's {issue}; root claim stays open"
+                )
+            refuse_lint_blocked_plan(
+                plan_text,
+                plan_path,
+                proof_root=review,
+                row_id=row_id,
+            )
+            require_frozen_review_head(review, source_head)
+            if claim is not None:
+                parsed = _amp._parse(plan_text)
+                parsed["claimed"] = set()
+                _board.release(
+                    plan_path,
+                    row_id,
+                    owner=owner,
+                    reason="completed",
+                    resumes=_amp._candidate_ids(parsed),
+                    expected_plan=plan_token,
+                    expected_text=plan_text,
+                    expected_claim=claim,
+                )
+        finally:
+            remove_review_worktree(repo, review)
+            try:
+                pool.rmdir()
+            except OSError:
+                pass
         print(f"accepted {row_id}: local completion already proven; root claim reconciled")
         return 0
     if claim is None:
@@ -478,64 +601,93 @@ def accept_local_plan(
     offenders = _shell_operators(proof[4:])
     if offenders:
         raise AcceptError(f"the proof passes {' '.join(offenders)} as literal shell operators")
-    head = git_completed(repo, "rev-parse", "HEAD")
-    if head.returncode or not head.stdout.strip():
-        raise AcceptError("source checkout HEAD cannot be read")
+    source_head = frozen_source_head(repo)
+    source_identity = public_source_identity(repo)
     pool = repo.parent / f"{repo.name}-shadow-accept"
     pool.mkdir(exist_ok=True)
     git_completed(repo, "worktree", "prune", timeout=15)
-    review = create_lead_review_worktree(repo, pool, row_id.lstrip("~"), head.stdout.strip())
+    review = create_lead_review_worktree(
+        repo,
+        pool,
+        row_id.lstrip("~"),
+        source_head,
+    )
     try:
         issue = script_operand_issue(argv, review)
         if issue:
             raise AcceptError(f"the proof's {issue}; nothing was changed")
-        passed = lead_review_passes(review, argv, timeout_seconds)
+        if not lead_review_passes(
+            review,
+            argv,
+            timeout_seconds,
+            expected_head=source_head,
+        ):
+            raise AcceptError(
+                "the proof did not pass from the detached source checkout; "
+                "nothing was changed"
+            )
+        with _board.project_lock(plan_path):
+            fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
+            try:
+                fresh_text = fresh_bytes.decode("utf-8")
+            except UnicodeError as exc:
+                raise AcceptError("local plan is not UTF-8") from exc
+            if fresh_token != plan_token or fresh_text != plan_text:
+                raise AcceptError("the local plan changed while the proof ran; retry")
+            _, _, fresh_state, fresh_proof, fresh_needs = find_row(fresh_text, row_id)
+            if fresh_state != state or fresh_proof != proof:
+                raise AcceptError("the local row changed while the proof ran; retry")
+            if unmet_needs(fresh_text, fresh_needs) or contradiction_challenges(
+                fresh_text, row_id, fresh_needs
+            ):
+                raise AcceptError("the local row is no longer ready; nothing was changed")
+            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            updated = completed_local_plan_text(
+                fresh_text,
+                row_id,
+                argv,
+                stamp,
+                source_identity,
+                source_head,
+            )
+            refuse_lint_blocked_plan(
+                updated,
+                plan_path,
+                proof_root=review,
+                row_id=row_id,
+            )
+            require_frozen_review_head(review, source_head)
+            claim_token = _board.reserve_completion(
+                plan_path,
+                row_id,
+                owner,
+                expected_plan=fresh_token,
+            )
+            atomic_write_text(plan_path, updated)
+            completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
+            completed_text = completed_bytes.decode("utf-8")
+            parsed = _amp._parse(completed_text)
+            parsed["claimed"] = set()
+            _board.release(
+                plan_path,
+                row_id,
+                owner=owner,
+                reason="completed",
+                resumes=_amp._candidate_ids(parsed),
+                expected_plan=completed_token,
+                expected_text=completed_text,
+                expected_claim=claim_token,
+            )
     finally:
         remove_review_worktree(repo, review)
         try:
             pool.rmdir()
         except OSError:
             pass
-    if not passed:
-        raise AcceptError("the proof did not pass in a clean source checkout; nothing was changed")
-    with _board.project_lock(plan_path):
-        fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
-        try:
-            fresh_text = fresh_bytes.decode("utf-8")
-        except UnicodeError as exc:
-            raise AcceptError("local plan is not UTF-8") from exc
-        if fresh_token != plan_token or fresh_text != plan_text:
-            raise AcceptError("the local plan changed while the proof ran; retry")
-        _, _, fresh_state, fresh_proof, fresh_needs = find_row(fresh_text, row_id)
-        if fresh_state != state or fresh_proof != proof:
-            raise AcceptError("the local row changed while the proof ran; retry")
-        if unmet_needs(fresh_text, fresh_needs) or contradiction_challenges(fresh_text, row_id, fresh_needs):
-            raise AcceptError("the local row is no longer ready; nothing was changed")
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        updated = completed_plan_text(fresh_text, row_id, argv, stamp)
-        refuse_lint_blocked_plan(updated, plan_path, proof_root=repo, row_id=row_id)
-        claim_token = _board.reserve_completion(
-            plan_path,
-            row_id,
-            owner,
-            expected_plan=fresh_token,
-        )
-        atomic_write_text(plan_path, updated)
-        completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
-        completed_text = completed_bytes.decode("utf-8")
-        parsed = _amp._parse(completed_text)
-        parsed["claimed"] = set()
-        _board.release(
-            plan_path,
-            row_id,
-            owner=owner,
-            reason="completed",
-            resumes=_amp._candidate_ids(parsed),
-            expected_plan=completed_token,
-            expected_text=completed_text,
-            expected_claim=claim_token,
-        )
-    print(f"accepted {row_id}: proof passed in a clean source checkout; local row flipped with its PROOF line")
+    print(
+        f"accepted {row_id}: proof and final lint passed at {source_identity} "
+        f"HEAD {source_head}; local row flipped with its PROOF and SOURCE lines"
+    )
     return 0
 
 
@@ -655,16 +807,38 @@ def completed_plan_text(
         r"^- \[[a-z_]+\]", "- [completed]", plan_lines[index], count=1
     )
     updated = "".join(plan_lines)
-    heading = PROGRESS_HEADING_RE.search(updated)
-    if heading is None:
-        raise AcceptError("the plan has no Progress section")
     proof_line = (
         f"- {stamp} {row_id} PROOF {shlex.join(argv)} -> pass (accept)\n"
     )
-    next_heading = updated.find("\n## ", heading.end())
+    return append_progress_line(updated, proof_line)
+
+
+def append_progress_line(plan_text: str, line: str) -> str:
+    """Append one canonical receipt to Progress without moving later sections."""
+    heading = PROGRESS_HEADING_RE.search(plan_text)
+    if heading is None:
+        raise AcceptError("the plan has no Progress section")
+    next_heading = plan_text.find("\n## ", heading.end())
     if next_heading == -1:
-        return updated.rstrip() + "\n" + proof_line
-    return updated[: next_heading + 1] + proof_line + updated[next_heading + 1 :]
+        return plan_text.rstrip() + "\n" + line
+    return plan_text[: next_heading + 1] + line + plan_text[next_heading + 1 :]
+
+
+def completed_local_plan_text(
+    plan_text: str,
+    row_id: str,
+    argv: list[str],
+    stamp: str,
+    source_identity: str,
+    source_head: str,
+) -> str:
+    """Flip one private row and bind proof plus final lint to one source commit."""
+    completed = completed_plan_text(plan_text, row_id, argv, stamp)
+    return append_progress_line(
+        completed,
+        f"- {stamp} {row_id} SOURCE {source_identity} HEAD {source_head} "
+        "-> proof and final lint (accept)\n",
+    )
 
 
 def _receipt_stamps(plan_text: str, row_id: str, argv: list[str]) -> list[str]:
@@ -1264,11 +1438,17 @@ def finalize_completed_retry_without_local_claim(
 def main(argv: list[str] | None = None) -> int:
     _remote_claim.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow accept", description=__doc__)
-    location = parser.add_mutually_exclusive_group(required=True)
-    location.add_argument("--repo", type=Path)
-    location.add_argument(
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        help="Git checkout whose committed HEAD supplies the proof source",
+    )
+    parser.add_argument(
         "--entity",
-        help="computer-board entity id for path-free completed-claim recovery",
+        help=(
+            "computer-board entity id; combine with --repo to accept one "
+            "machine-local entity plan"
+        ),
     )
     parser.add_argument("--row", required=True)
     parser.add_argument("--by", required=True, help="stable owner of the existing claim")
@@ -1276,6 +1456,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-push", action="store_true",
                         help="commit without pushing (an unpushed flip is invisible to other seats)")
     args = parser.parse_args(argv)
+    if args.repo is None and args.entity is None:
+        parser.error("one of --repo or --entity is required")
     row_id = args.row.strip()
     try:
         if ROW_ID_RE.fullmatch(row_id) is None:
@@ -1293,8 +1475,30 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 plan_path = resolved["plan"]
                 if _board.is_local_plan(plan_path):
+                    if args.repo is None:
+                        raise _board.BoardError(
+                            "machine-local --entity accept also requires "
+                            "--repo <proof-source-checkout>"
+                        )
+                    source_repo = args.repo.resolve()
+                    source_top = git_completed(
+                        source_repo, "rev-parse", "--show-toplevel"
+                    )
+                    if source_top.returncode or not source_top.stdout.strip():
+                        raise AcceptError("--repo must name a Git source checkout")
+                    source_root = Path(source_top.stdout.strip()).resolve()
+                    local_state = _board.entity_state(plan_path)
+                    owned_claim(local_state, row_id, owner)
+                    return accept_local_plan(
+                        source_root,
+                        plan_path,
+                        row_id,
+                        owner,
+                        args.timeout_seconds,
+                    )
+                if args.repo is not None:
                     raise _board.BoardError(
-                        "--entity recovery requires a Git-backed project plan"
+                        "--repo may accompany --entity only for a machine-local entity plan"
                     )
             else:
                 repo = args.repo.resolve()
@@ -1313,24 +1517,21 @@ def main(argv: list[str] | None = None) -> int:
                     or _board.local_plan_for_repo(source_root)
                 )
                 if local_plan is not None:
-                    local_state = _board.entity_state(local_plan)
-                    owned_claim(local_state, row_id, owner)
-                    return accept_local_plan(
-                        source_root,
-                        local_plan,
-                        row_id,
-                        owner,
-                        args.timeout_seconds,
+                    raise AcceptError(
+                        "machine-local acceptance requires both exact selectors; "
+                        "use `shadow accept --entity ID --repo PATH "
+                        f"--row {shlex.quote(row_id)} --by {shlex.quote(owner)}` "
+                        "with the entity id printed by `shadow status --by`"
                     )
                 state = _board.entity_state(requested_plan)
                 owned_claim(state, row_id, owner)
                 plan_path = _board.canonical_plan(requested_plan, repair_missing=True)
                 state = _board.entity_state(plan_path)
         except _board.BoardError as exc:
-            raise AcceptError(f"the computer board's project pointer is unusable: {exc}") from exc
+            raise AcceptError(f"the computer board's entity-plan pointer is unusable: {exc}") from exc
         top = git_completed(plan_path.parent, "rev-parse", "--show-toplevel")
         if top.returncode or not top.stdout.strip():
-            raise AcceptError("the canonical project plan is not inside a Git repository")
+            raise AcceptError("the canonical entity plan is not inside a Git repository")
         repo = Path(top.stdout.strip()).resolve()
         try:
             plan_relative = plan_path.relative_to(repo)
@@ -1447,6 +1648,7 @@ def main(argv: list[str] | None = None) -> int:
                 argv_proof,
                 args.timeout_seconds,
                 plan_relative.parent,
+                expected_head=head,
             )
         finally:
             remove_review_worktree(repo, review)
@@ -1464,7 +1666,7 @@ def main(argv: list[str] | None = None) -> int:
         except (_board.BoardError, OSError, UnicodeError) as exc:
             raise AcceptError(f"plan cannot be frozen after the proof: {exc}") from exc
         if fresh_token != plan_token:
-            raise AcceptError("the committed project plan changed while the proof ran; retry")
+            raise AcceptError("the committed entity plan changed while the proof ran; retry")
         _, _, fresh_state, fresh_proof, fresh_needs = find_row(plan_text, row_id)
         # Any state move during the run is somebody else's judgment about this
         # row — completed, or blocked because the work is not done. Overwriting

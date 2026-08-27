@@ -49,6 +49,7 @@ HOT_PLAN_MAX_BYTES = 256 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
 HOT_TASK_ROW_RE = _grammar.HOT_TASK_ROW_RE
+GIT_TIMEOUT_SECONDS = 30
 
 
 class BoardError(ValueError):
@@ -174,7 +175,7 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
             command,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=GIT_TIMEOUT_SECONDS,
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -757,20 +758,20 @@ def logical_entity_id(origin: str, relative: str) -> str:
 def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     """Return the exact PLAN bytes stored at HEAD, independent of worktree dirt."""
     if not regular_plan(plan):
-        raise BoardError("project plan must be a regular, non-symlink PLAN.md")
+        raise BoardError("entity plan must be a regular, non-symlink PLAN.md")
     plan = plan.resolve()
     top = _git(plan.parent, "rev-parse", "--show-toplevel")
     if top.returncode or not top.stdout.strip():
-        raise BoardError("project plan must be committed in a Git repository")
+        raise BoardError("entity plan must be committed in a Git repository")
     repo = Path(top.stdout.strip()).resolve()
     try:
         relative = plan.relative_to(repo).as_posix()
     except ValueError as exc:
-        raise BoardError("project plan is outside its Git repository") from exc
+        raise BoardError("entity plan is outside its Git repository") from exc
     head = _git(repo, "rev-parse", "HEAD")
     blob = _git(repo, "rev-parse", f"HEAD:{relative}")
     if head.returncode or blob.returncode:
-        raise BoardError("project plan is not present at the current Git HEAD")
+        raise BoardError("entity plan is not present at the current Git HEAD")
     try:
         frozen = subprocess.run(
             ["git", "-C", str(repo), "cat-file", "blob", blob.stdout.strip()],
@@ -779,12 +780,12 @@ def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise BoardError("project plan HEAD bytes could not be frozen") from exc
+        raise BoardError("entity plan HEAD bytes could not be frozen") from exc
     if frozen.returncode:
-        raise BoardError("project plan HEAD bytes could not be frozen")
+        raise BoardError("entity plan HEAD bytes could not be frozen")
     head_after = _git(repo, "rev-parse", "HEAD")
     if head_after.returncode or head_after.stdout.strip() != head.stdout.strip():
-        raise BoardError("project plan ref changed while it was being read; retry")
+        raise BoardError("entity plan ref changed while it was being read; retry")
     return (
         {
             "repo": str(repo),
@@ -809,9 +810,9 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
         )
     status = _git(repo, "status", "--porcelain=v1", "--", *tracked_paths)
     if status.returncode:
-        raise BoardError("project plan Git state could not be read")
+        raise BoardError("entity plan Git state could not be read")
     if status.stdout.strip():
-        raise BoardError("project plan or its staged index changed; commit or restore it first")
+        raise BoardError("entity plan or its staged index changed; commit or restore it first")
     try:
         root_content = plan.read_bytes()
         hashed = subprocess.run(
@@ -821,12 +822,12 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
             check=False,
         )
     except OSError as exc:
-        raise BoardError("project plan bytes could not be frozen") from exc
+        raise BoardError("entity plan bytes could not be frozen") from exc
     if hashed.returncode or hashed.stdout.decode("ascii", errors="ignore").strip() != token["blob"]:
-        raise BoardError("project plan changed or is uncommitted; retry from one committed ref")
+        raise BoardError("entity plan changed or is uncommitted; retry from one committed ref")
     head_after = _git(repo, "rev-parse", "HEAD")
     if head_after.returncode or head_after.stdout.strip() != token["head"]:
-        raise BoardError("project plan ref changed while it was being read; retry")
+        raise BoardError("entity plan ref changed while it was being read; retry")
     try:
         content = snapshot.materialize()
     except _plan_store.PlanStoreError as exc:
@@ -1402,7 +1403,7 @@ def claim(
     if expected_plan is not None:
         preflight_plan, preflight_content = frozen_plan_snapshot(plan, home=home)
         if preflight_plan != expected_plan:
-            raise BoardError("project plan changed before the claim committed; retry")
+            raise BoardError("entity plan changed before the claim committed; retry")
     else:
         preflight_content = read_plan_bytes(plan)
     assert_hot_plan_budget(preflight_content)
@@ -1410,7 +1411,7 @@ def claim(
         if expected_plan is not None:
             observed, observed_content = frozen_plan_snapshot(plan, home=home)
             if observed != expected_plan:
-                raise BoardError("project plan changed before the claim committed; retry")
+                raise BoardError("entity plan changed before the claim committed; retry")
         else:
             observed_content = read_plan_bytes(plan)
         assert_hot_plan_budget(observed_content)
@@ -2070,7 +2071,7 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
         try:
             text = read_plan_text(plan)
         except BoardError as exc:
-            raise BoardError("claim return needs a readable project plan") from exc
+            raise BoardError("claim return needs a readable entity plan") from exc
     row_matches = []
     for line in text.splitlines():
         match = re.match(
@@ -2083,9 +2084,9 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
     if not row_matches:
         if reason == "orphan":
             return
-        raise BoardError("claim return row is missing from the project plan")
+        raise BoardError("claim return row is missing from the entity plan")
     if len(row_matches) != 1:
-        raise BoardError("claim return row id is duplicated in the project plan")
+        raise BoardError("claim return row id is duplicated in the entity plan")
     if reason == "orphan":
         raise BoardError("orphan return requires the claim row to be absent")
     row_match = row_matches[0]
@@ -2173,7 +2174,7 @@ def _reserve_claim_receipt(
         if expected_plan is not None:
             observed, _ = frozen_plan_snapshot(plan, home=home)
             if observed != expected_plan:
-                raise BoardError("project plan changed while its proof ran; retry")
+                raise BoardError("entity plan changed while its proof ran; retry")
         entity = _entity_for(payload, plan)
         if entity is None:
             raise BoardError("entity is not registered on this computer")
@@ -2247,9 +2248,9 @@ def release(
             try:
                 observed_text = observed_bytes.decode("utf-8")
             except UnicodeError as exc:
-                raise BoardError("claim return needs a UTF-8 project plan") from exc
+                raise BoardError("claim return needs a UTF-8 entity plan") from exc
             if observed != expected_plan or observed_text != expected_text:
-                raise BoardError("project plan changed before the claim return committed; retry")
+                raise BoardError("entity plan changed before the claim return committed; retry")
         entity = _entity_for(payload, plan, exact_on_conflict=True)
         if entity is None:
             return None

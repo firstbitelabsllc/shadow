@@ -14,7 +14,7 @@ starting pointer, never the Outcome's scope or stopping condition.
 
 1. **Pointer first.** The block names the plan path, the ref
    (`branch@sha`), the origin, and the exact `### <milestone>` section. The
-   computer board owns priority, claims, owners, and resume; the project plan
+   computer board owns priority, claims, owners, and resume; the entity plan
    owns task detail and proof. The block owns neither. First move is always
    fetch + read + state your ref.
 2. **Owned pointer, never scope.** `--by <seat>` is required for executable

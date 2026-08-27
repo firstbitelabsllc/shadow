@@ -718,9 +718,9 @@ def board_in_flight(payload: dict) -> list[dict]:
         )
         if located is None:
             reason = (
-                "the project plan is missing or unreadable"
+                "the entity plan is missing or unreadable"
                 if plan is None
-                else "the claimed row is missing from the project plan"
+                else "the claimed row is missing from the entity plan"
             )
             rows.append(
                 {

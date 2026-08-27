@@ -91,13 +91,13 @@ def _remote_only_manual_completion(
         published_text = published_bytes.decode("utf-8")
     except UnicodeError as exc:
         raise board.BoardError(
-            "the current published project plan is not UTF-8; remote claim retained"
+            "the current published entity plan is not UTF-8; remote claim retained"
         ) from exc
     published = amp._parse(published_text)
     unclean = amp.unclean_note(published)
     if unclean:
         raise board.BoardError(
-            f"the current published project plan cannot close a remote claim: {unclean}"
+            f"the current published entity plan cannot close a remote claim: {unclean}"
         )
     matches = [
         candidate
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
                 reason = "orphan"
             elif len(rows) != 1:
-                raise board.BoardError(f"task id {args.row} is duplicated in the project plan")
+                raise board.BoardError(f"task id {args.row} is duplicated in the entity plan")
             else:
                 row = rows[0]
                 reason = (
@@ -200,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             unclean = amp.unclean_note(parsed)
             if unclean:
-                raise board.BoardError(f"project plan cannot return a claim: {unclean}")
+                raise board.BoardError(f"entity plan cannot return a claim: {unclean}")
             # Resume arbitration needs the full reachable order, including rows
             # currently claimed by other seats. The board removes this row itself.
             parsed["claimed"] = set()
