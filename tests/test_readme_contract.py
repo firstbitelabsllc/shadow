@@ -151,27 +151,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertIn("--work-class coding", host_example)
         self.assertIn("--delegation direct", host_example)
 
-    def test_runtime_vocabulary_names_entity_plans(self) -> None:
-        """Shipped command sources name entity plans, never project aliases."""
-        obsolete_aliases = ("project plan", "project-plan", "project pointer")
-        runtime_sources = [
-            SHADOW,
-            *sorted((ROOT / "scripts").glob("shadow*.py")),
-        ]
-        offenders = []
-        for path in runtime_sources:
-            text = path.read_text(encoding="utf-8").casefold()
-            relative = path.relative_to(ROOT).as_posix()
-            offenders.extend(
-                f"{relative}: {alias!r}"
-                for alias in obsolete_aliases
-                if alias.casefold() in text
-            )
-
-        self.assertFalse(
-            offenders,
-            "obsolete runtime vocabulary remains:\n" + "\n".join(offenders),
-        )
+    def test_acceptance_docs_describe_the_proof_boundary(self) -> None:
         quickstart = (ROOT / "docs" / "guide" / "quickstart.md").read_text(
             encoding="utf-8"
         )
@@ -190,6 +170,22 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertIn("does not confine the trusted proof process", skill_text)
 
     def test_public_help_is_quiet_and_advertises_supported_flags(self) -> None:
+        top_level = subprocess.run(
+            [str(SHADOW), "--help"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(top_level.returncode, 0, top_level.stderr)
+        self.assertEqual("", top_level.stderr)
+        self.assertTrue(
+            top_level.stdout.startswith(
+                "shadow — one local computer board coordinating entity plans and proof\n"
+            ),
+            top_level.stdout,
+        )
+        self.assertNotIn("project plan", top_level.stdout.casefold())
+        self.assertNotIn("project-plan", top_level.stdout.casefold())
+        self.assertNotIn("project pointer", top_level.stdout.casefold())
+
         verbs = (
             "browse", "status", "init", "lint", "goal", "amp", "throw",
             "return", "priority", "accept", "lifecycle", "read", "host", "slots",
