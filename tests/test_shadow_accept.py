@@ -2666,3 +2666,319 @@ class ProofRootIsResolvedOrNamed(unittest.TestCase):
 
     def test_the_refusal_names_repo_as_the_proof_root(self) -> None:
         self.assertIn("--repo", self._refusal())
+
+
+ORIGIN_NAMED_LOCAL_PLAN = """# Widget
+
+## Brief
+
+- Project: widget
+- Mode: ship
+
+## Tasks
+
+### Origin-named sibling
+- [in_progress] origin plan row ~cd34 | proof: cmd true
+- [pending] origin plan done ~ef56 (DoD) | proof: cmd true | needs: ~cd34
+
+## Progress
+
+- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
+"""
+
+SIDECAR_LOCAL_PLAN = """# Sidecar
+
+## Brief
+
+- Project: sidecar
+- Mode: ship
+
+## Tasks
+
+### Non-origin-named plan
+- [in_progress] sidecar-only row ~ab12 | proof: cmd true
+- [pending] sidecar done ~aa11 (DoD) | proof: cmd true | needs: ~ab12
+
+## Progress
+
+- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
+"""
+
+
+class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
+    """Two local plans can share one Git origin; --entity names the plan.
+
+    `shadow accept --repo` guesses a registered local plan from checkout
+    basename and origin. When the intended cmd-proof row lives only on the
+    non-origin-named sibling, that guess cannot select it. Path-free local
+    `--entity` stays refused. The public pairing is `--entity` for the exact
+    local plan plus `--repo` for the proof checkout only.
+    """
+
+    def _world(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        home = root / "home"
+        repo = root / "dev" / "widget"
+        repo.mkdir(parents=True)
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.invalid")
+        git(repo, "config", "user.name", "T")
+        git(repo, "remote", "add", "origin", "git@github.com:example/widget.git")
+        (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+        git(repo, "add", "README.md")
+        git(repo, "commit", "-qm", "seed")
+
+        origin_plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+        sidecar_plan = home / ".shadow" / "plans" / "sidecar" / "PLAN.md"
+        origin_plan.parent.mkdir(parents=True)
+        sidecar_plan.parent.mkdir(parents=True)
+        origin_plan.write_text(ORIGIN_NAMED_LOCAL_PLAN, encoding="utf-8")
+        sidecar_plan.write_text(SIDECAR_LOCAL_PLAN, encoding="utf-8")
+
+        payload = accept._board.reconcile(
+            [
+                {
+                    "plan": str(origin_plan),
+                    "project": "widget",
+                    "priority": 2,
+                    "candidates": ["~cd34"],
+                },
+                {
+                    "plan": str(sidecar_plan),
+                    "project": "sidecar",
+                    "priority": 3,
+                    "candidates": ["~ab12"],
+                },
+            ],
+            [],
+            home=home,
+        )
+        by_plan = {Path(item["plan"]).resolve(): item["id"] for item in payload["entities"]}
+        origin_entity = by_plan[origin_plan.resolve()]
+        sidecar_entity = by_plan[sidecar_plan.resolve()]
+        accept._board.claim(
+            sidecar_plan, "~ab12", "seat-a", project="sidecar", priority=3, home=home
+        )
+        accept._board.claim(
+            origin_plan, "~cd34", "seat-a", project="widget", priority=2, home=home
+        )
+        guessed = accept._board.local_plan_for_repo(repo, home=home)
+        return {
+            "home": home,
+            "repo": repo,
+            "origin_plan": origin_plan,
+            "sidecar_plan": sidecar_plan,
+            "origin_entity": origin_entity,
+            "sidecar_entity": sidecar_entity,
+            "guessed": guessed,
+            "origin_text": origin_plan.read_text(encoding="utf-8"),
+            "sidecar_text": sidecar_plan.read_text(encoding="utf-8"),
+        }
+
+    def _accept(self, world, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            env={**os.environ, "HOME": str(world["home"])},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_entity_and_explicit_repo_accept_the_non_origin_named_plan(self) -> None:
+        world = self._world()
+        self.assertEqual(world["guessed"], world["origin_plan"].resolve())
+
+        result = self._accept(
+            world,
+            "--entity",
+            world["sidecar_entity"],
+            "--repo",
+            str(world["repo"]),
+            "--row",
+            "~ab12",
+            "--by",
+            "seat-a",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        sidecar = world["sidecar_plan"].read_text(encoding="utf-8")
+        self.assertIn("[completed] sidecar-only row ~ab12", sidecar)
+        self.assertIn("~ab12 PROOF true -> pass (accept)", sidecar)
+        self.assertEqual(
+            world["origin_plan"].read_text(encoding="utf-8"), world["origin_text"]
+        )
+        self.assertEqual(
+            accept._board.entity_state(world["sidecar_plan"], home=world["home"])["claims"],
+            [],
+        )
+        origin_claims = accept._board.entity_state(
+            world["origin_plan"], home=world["home"]
+        )["claims"]
+        self.assertEqual([item["row"] for item in origin_claims], ["~cd34"])
+
+    def test_basename_origin_guessing_cannot_select_the_sibling_plan(self) -> None:
+        world = self._world()
+        self.assertEqual(world["guessed"], world["origin_plan"].resolve())
+
+        result = self._accept(
+            world,
+            "--repo",
+            str(world["repo"]),
+            "--row",
+            "~ab12",
+            "--by",
+            "seat-a",
+        )
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no task carries ~ab12", result.stderr)
+        self.assertEqual(
+            world["sidecar_plan"].read_text(encoding="utf-8"), world["sidecar_text"]
+        )
+        self.assertEqual(
+            world["origin_plan"].read_text(encoding="utf-8"), world["origin_text"]
+        )
+
+    def test_path_free_local_entity_remains_refused(self) -> None:
+        world = self._world()
+
+        result = self._accept(
+            world,
+            "--entity",
+            world["sidecar_entity"],
+            "--row",
+            "~ab12",
+            "--by",
+            "seat-a",
+        )
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--entity recovery requires a Git-backed project plan", result.stderr)
+        self.assertEqual(
+            world["sidecar_plan"].read_text(encoding="utf-8"), world["sidecar_text"]
+        )
+
+    def test_mismatched_entity_repo_row_owner_fail_closed(self) -> None:
+        world = self._world()
+        other = world["home"].parent / "not-a-repo"
+        other.mkdir()
+        cases = (
+            (
+                [
+                    "--entity",
+                    world["sidecar_entity"],
+                    "--repo",
+                    str(world["repo"]),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-b",
+                ],
+                "claimed by seat-a, not seat-b",
+            ),
+            (
+                [
+                    "--entity",
+                    world["origin_entity"],
+                    "--repo",
+                    str(world["repo"]),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                "no task carries ~ab12",
+            ),
+            (
+                [
+                    "--entity",
+                    world["sidecar_entity"],
+                    "--repo",
+                    str(world["repo"]),
+                    "--row",
+                    "~cd34",
+                    "--by",
+                    "seat-a",
+                ],
+                "no task carries ~cd34",
+            ),
+            (
+                [
+                    "--entity",
+                    "a" * 64,
+                    "--repo",
+                    str(world["repo"]),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                "not registered on the computer board",
+            ),
+            (
+                [
+                    "--entity",
+                    world["sidecar_entity"],
+                    "--repo",
+                    str(other),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ],
+                "--repo must name a Git source checkout",
+            ),
+        )
+        for argv, needle in cases:
+            with self.subTest(needle=needle):
+                result = self._accept(world, *argv)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(needle, result.stderr)
+                self.assertEqual(
+                    world["sidecar_plan"].read_text(encoding="utf-8"),
+                    world["sidecar_text"],
+                )
+                self.assertEqual(
+                    world["origin_plan"].read_text(encoding="utf-8"),
+                    world["origin_text"],
+                )
+
+    def test_git_backed_entity_does_not_take_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            home = root / "home"
+            home.mkdir()
+            claimed = run_shadow(
+                repo, home, "throw", "--repo", str(repo), "--task", "~ab12", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            entity = json.loads((home / ".shadow" / "board.json").read_text())["entities"][0]["id"]
+            before = (repo / "PLAN.md").read_text(encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--entity",
+                    entity,
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Git-backed", result.stderr)
+            self.assertIn("--repo", result.stderr)
+            self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), before)
