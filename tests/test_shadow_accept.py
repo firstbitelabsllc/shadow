@@ -1680,6 +1680,7 @@ class ShadowAcceptTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
             git(repo, "push", "-qu", "origin", "HEAD:main")
+            git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
             home = root / "home"
             home.mkdir()
             claimed = run_shadow(
