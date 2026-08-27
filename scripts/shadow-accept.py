@@ -250,6 +250,43 @@ def local_source_receipt(
     return receipts[0][1], receipts[0][2]
 
 
+def local_plan_source_identity(plan_text: str) -> str | None:
+    """Return the one source identity already established by local completions."""
+    accepted_receipts: list[tuple[str, str]] = []
+    for line in _board.section_lines(plan_text, "Progress"):
+        receipt = _grammar.progress_proof_receipt(line)
+        if receipt is not None and receipt[2] == "pass (accept)":
+            accepted_receipts.append((receipt[0], receipt[1]))
+    task_rows = {
+        row.group("id")
+        for line in _board.section_lines(plan_text, "Tasks")
+        if (row := ROW_LINE_RE.fullmatch(line)) is not None
+    }
+    identities: set[str] = set()
+    for row_id, accepted_proof in accepted_receipts:
+        if row_id not in task_rows:
+            continue
+        _, _, state, proof, _ = find_row(plan_text, row_id)
+        if state != "completed" or not proof.startswith("cmd "):
+            raise AcceptError(
+                f"{row_id} accept PROOF no longer belongs to a completed cmd row"
+            )
+        argv = proof_argv(proof[4:])
+        if accepted_proof != shlex.join(argv):
+            raise AcceptError(
+                f"{row_id} task proof no longer matches its canonical accept PROOF"
+            )
+        source_identity, _ = local_source_receipt(
+            plan_text,
+            row_id,
+            argv,
+        )
+        identities.add(source_identity)
+    if len(identities) > 1:
+        raise AcceptError("the machine-local plan has conflicting SOURCE bindings")
+    return next(iter(identities), None)
+
+
 def atomic_write_text(
     path: Path,
     text: str,
@@ -643,8 +680,17 @@ def accept_local_plan(
     offenders = _shell_operators(proof[4:])
     if offenders:
         raise AcceptError(f"the proof passes {' '.join(offenders)} as literal shell operators")
-    source_head = frozen_source_head(repo)
     source_identity = public_source_identity(repo)
+    bound_source_identity = local_plan_source_identity(plan_text)
+    if (
+        bound_source_identity is not None
+        and source_identity != bound_source_identity
+    ):
+        raise AcceptError(
+            "the explicit source checkout does not match the machine-local "
+            "plan's SOURCE binding"
+        )
+    source_head = frozen_source_head(repo)
     pool = repo.parent / f"{repo.name}-shadow-accept"
     pool.mkdir(exist_ok=True)
     git_completed(repo, "worktree", "prune", timeout=15)
