@@ -1,10 +1,12 @@
 # Native hosts
 
 Shadow's sealed host runner supports `codex`, `claude-code`, `cursor`, and
-`grok`. You choose the host directly: `shadow host run --host <name>` is the
-complete sealed path. There is no roster, route, or seat layer in front of it,
-and Shadow cannot verify or guarantee the provider model or billing tier inside
-a host.
+`grok`. You choose the host, semantic work class, and execution shape directly:
+`shadow host run --host <name> --work-class <class> --delegation direct|required`
+is the complete sealed path. There is no prompt classifier, account router, or
+seat layer in front of it. The [native execution policy](execution-policy.md)
+supplies a deterministic native model selector and native child capability;
+provider execution still requires an owner-local observed-model check.
 
 Cold directive activation is a narrower surface. Shadow manages a marker block
 in Claude Code's `CLAUDE.md`, Codex's `AGENTS.md`, and Grok's `AGENTS.md`.
@@ -21,23 +23,24 @@ claim stays `accepted_by_lead: false` until a person or lead agent reproduces
 the proof. Shadow supplies the receipt contract to the host and records
 the frozen task's SHA-256, not its prompt or provider output.
 
-Shadow passes no model or account selector and records none. Which provider,
-model, or account a host uses is that host CLI's own business, configured in
-the host's own config (for example the Codex CLI config file, Claude Code
-settings, Cursor settings, or Grok's `~/.grok/config.toml`).
+Shadow passes the checked-in model selector for the chosen host/class pair and
+configures the declared `direct|required` shape. Direct mode disables child
+spawning where the CLI exposes a control. Required mode enables Claude Code's
+`Agent`, Codex `multi_agent`, or Grok `spawn_subagent`; Cursor fails closed
+until its headless CLI exposes verifiable child lineage. The private attempt
+records the non-secret request but does not infer that the provider honored it.
+Shadow never chooses or
+records an account, credential, session, billing identifier, prompt, or
+transcript. Host authentication and quota stay inside the host CLI. A quota or
+unsupported-model failure remains a failed attempt; Shadow does not try a
+different provider or model behind the lead's back.
 
-## A fleet map of hosts and models lives outside Shadow
-
-If your fleet wants one human-readable map of which host runs which model, keep
-it next to your other operator configuration — never in a plan, brief, status
-output, or receipt. Have an agent regenerate it from the live host configs and
-treat hand edits as drift.
-
-Shadow ships no example of that file on purpose. A worked shape inside this
-repository would be a template for model and account data in a product whose
-boundary is that it passes no selector and records none — and the first person
-to fill it in would fill it in here. The host CLI configs stay authoritative;
-the map is a mirror for people, and it is yours.
+Requested and observed models are separate fields; requested and observed child
+lineage are separate too. The product attempt leaves `observed_model` and
+`observed_child_spans` empty and names the owner-local gauntlet as its
+observation door. The gauntlet reads structured native output, and Codex native
+OTel spans, without making Langfuse product authority. Cursor Auto is
+necessarily opaque: the CLI reports `Auto`, not the underlying provider model.
 
 ## Activation surfaces — where the standing goal is written
 

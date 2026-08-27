@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Run a claimed Shadow task through a native coding host.
 
-This is deliberately a thin transport seam. It does not choose a provider,
-create a queue, accept a result, or write a durable plan. The caller supplies
-the host, a clean worktree, a task file, and exact allowed paths. The host
-must return a ``shadow.host-receipt.v1`` JSON fence; otherwise the attempt is
-blocked or failed closed.
+This is deliberately a thin transport seam. It does not choose a host or
+provider, create a queue, accept a result, or write a durable plan. The caller
+supplies the host, one semantic work class, a clean worktree, a task file, and
+exact allowed paths. Shadow resolves only that host/class pair to the native
+model selector. The host must return a ``shadow.host-receipt.v1`` JSON fence;
+otherwise the attempt is blocked or failed closed.
 """
 
 from __future__ import annotations
@@ -27,12 +28,22 @@ from typing import Any
 
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 from shadow_task_lib import TaskError, frozen_task_sha256
+from shadow_execution_policy import (
+    DELEGATION_MODES,
+    ExecutionPolicyError,
+    HOSTS as POLICY_HOSTS,
+    POLICY_VERSION,
+    WORK_CLASSES,
+    delegation_capability,
+    native_model_argv,
+    resolve_route,
+)
 
 
 PROBE_SCHEMA = "shadow.host-probe.v1"
 ATTEMPT_SCHEMA = "shadow.host-attempt.v1"
 HOST_RECEIPT_SCHEMA = "shadow.host-receipt.v1"
-HOSTS = {"codex", "claude-code", "cursor", "grok"}
+HOSTS = set(POLICY_HOSTS)
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 MAX_CAPTURE_BYTES = 64 * 1024
@@ -43,6 +54,15 @@ CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 # Known-private markers match anywhere: a mid-string `/Users/...` behind a
 # backtick or parenthesis is still a private path.
 ABSOLUTE_PATH_RE = re.compile(r"(?:^|[\s\"'=])/(?!/)[A-Za-z0-9._-]+(?:/[^\s\"']*)?")
+
+CLAUDE_EVIDENCE_AGENT = {
+    "shadow-evidence": {
+        "description": "Use for one bounded independent evidence lane when delegation is required.",
+        "prompt": "Inspect only the delegated evidence. Do not edit files. Return concise, exact facts to the parent.",
+        "tools": ["Read", "Glob", "Grep"],
+        "model": "sonnet",
+    }
+}
 
 
 ENVIRONMENTAL_KINDS = frozenset({"host_failed", "host_launch_failed", "host_timeout"})
@@ -231,17 +251,18 @@ def path_allowed(path: str, allowed: list[str]) -> bool:
     return any(path == item or path.startswith(item.rstrip("/") + "/") for item in allowed)
 
 
-def public_command_shape(host: str) -> list[str]:
+def public_command_shape(host: str, *, delegation: str) -> list[str]:
     """Return the static, non-secret shape that may enter an attempt receipt.
 
-    The actual native argv is built separately below.  In particular, an
-    owner-local selector must never be constructed and then filtered out of a
-    public receipt: this projection has no selector input at all.
+    The actual native argv is built separately below. The public shape records
+    that a native model selector was supplied, while the execution-policy field
+    records its non-secret requested value. It never records account or auth.
     """
 
     if host == "codex":
-        return [
+        shape = [
             "exec",
+            "--model",
             "--json",
             "--ephemeral",
             "--sandbox",
@@ -249,8 +270,11 @@ def public_command_shape(host: str) -> list[str]:
             "-C",
             "--output-last-message",
         ]
+        shape[1:1] = ["--enable" if delegation == "required" else "--disable", "multi_agent"]
+        return shape
     if host == "claude-code":
-        return [
+        shape = [
+            "--model",
             "--print",
             "--output-format",
             "json",
@@ -259,8 +283,11 @@ def public_command_shape(host: str) -> list[str]:
             "acceptEdits",
             "--add-dir",
         ]
+        shape[0:0] = ["--agents"] if delegation == "required" else ["--disallowedTools", "Agent"]
+        return shape
     if host == "cursor":
         return [
+            "--model",
             "--print",
             "--output-format",
             "json",
@@ -270,7 +297,8 @@ def public_command_shape(host: str) -> list[str]:
             "agent",
         ]
     if host == "grok":
-        return [
+        shape = [
+            "--model",
             "--cwd",
             "--output-format",
             "json",
@@ -278,6 +306,8 @@ def public_command_shape(host: str) -> list[str]:
             "acceptEdits",
             "--prompt-file",
         ]
+        shape[0:0] = ["--max-turns", "20"] if delegation == "required" else ["--no-subagents"]
+        return shape
     raise HostError("host_unknown", f"unsupported host: {host}")
 
 
@@ -288,17 +318,47 @@ def launch_command(
     repo: Path,
     final_message: Path,
     prompt_file: Path | None = None,
+    *,
+    work_class: str,
+    delegation: str,
 ) -> list[str]:
     """Build the private native argv for one frozen task.
 
     Codex, Claude Code, and Cursor receive the frozen task on stdin. Grok's
     documented headless entry is ``--prompt-file`` (not stdin). Cursor's
     current non-interactive CLI requires ``agent``. This argv never becomes
-    an attempt field and never includes a model or account selector.
+    an attempt field. The native model selector is resolved from the public
+    semantic work class; no account or credential selector is accepted.
     """
+
+    try:
+        model_argv = native_model_argv(host, work_class)
+        delegation_capability(host, delegation)
+    except ExecutionPolicyError as exc:
+        raise HostError("execution_policy_invalid", str(exc)) from None
+
+    if delegation == "direct":
+        delegation_argv = {
+            "claude-code": ["--disallowedTools", "Agent"],
+            "codex": ["--disable", "multi_agent"],
+            "cursor": [],
+            "grok": ["--no-subagents"],
+        }[host]
+    else:
+        delegation_argv = {
+            "claude-code": [
+                "--agents",
+                json.dumps(CLAUDE_EVIDENCE_AGENT, separators=(",", ":")),
+            ],
+            "codex": ["--enable", "multi_agent"],
+            "cursor": [],  # Rejected by delegation_capability above.
+            "grok": ["--max-turns", "20"],
+        }[host]
 
     if host == "codex":
         command = [binary, "exec"]
+        command.extend(delegation_argv)
+        command.extend(model_argv)
         command.extend(
             [
                 "--json",
@@ -314,6 +374,8 @@ def launch_command(
         return command
     if host == "claude-code":
         command = [binary]
+        command.extend(delegation_argv)
+        command.extend(model_argv)
         command.extend(
             [
                 "--print",
@@ -330,6 +392,8 @@ def launch_command(
     if host == "cursor":
         command = [
             binary,
+            *delegation_argv,
+            *model_argv,
             "--print",
             "--output-format",
             "json",
@@ -345,6 +409,8 @@ def launch_command(
             raise HostError("host_unknown", "grok requires a prompt file")
         return [
             binary,
+            *delegation_argv,
+            *model_argv,
             "--cwd",
             str(repo),
             "--output-format",
@@ -363,20 +429,47 @@ def command_shape(
     repo: Path,
     final_message: Path,
     prompt_file: Path | None = None,
+    *,
+    work_class: str,
+    delegation: str,
 ) -> list[str]:
     """Compatibility helper for tests of the native argv."""
 
-    return launch_command(host, binary, repo, final_message, prompt_file)
+    return launch_command(
+        host,
+        binary,
+        repo,
+        final_message,
+        prompt_file,
+        work_class=work_class,
+        delegation=delegation,
+    )
 
 
-def host_prompt(task: str, task_id: str, allowed: list[str], task_sha256: str) -> str:
+def host_prompt(
+    task: str,
+    task_id: str,
+    allowed: list[str],
+    task_sha256: str,
+    delegation: str,
+) -> str:
     paths = "\n".join(f"- {path}" for path in allowed)
+    delegation_contract = (
+        "Do the bounded work directly. Do not invoke a child agent."
+        if delegation == "direct"
+        else (
+            "Invoke one native child agent for an independent evidence lane before "
+            "reconciling the result. Do not merely claim that delegation occurred."
+        )
+    )
     return f"""Execute this bounded coding task in the current worktree.
 
 Task ID: {task_id}
 Frozen task SHA-256: {task_sha256}
 Allowed paths:
 {paths}
+
+Delegation contract: {delegation_contract}
 
 Do not change any other path. Run the relevant tests. Finish by emitting exactly
 one JSON object with this shape and no additional JSON objects:
@@ -724,6 +817,11 @@ def probe(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
 def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     started = time.monotonic()
     task_id = identifier(args.task_id, "task id")
+    try:
+        route = resolve_route(args.host, args.work_class)
+        requested_capability = delegation_capability(args.host, args.delegation)
+    except ExecutionPolicyError as exc:
+        raise HostError("execution_policy_invalid", str(exc)) from None
     repo = Path(args.repo).expanduser().resolve()
     exact_git_root(repo)
     allowed = normalize_allowed(repo, args.allowed_path)
@@ -737,7 +835,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     except TaskError as exc:
         kind = "task_too_large" if "exceeds" in str(exc) else "task_unreadable"
         raise HostError(kind, str(exc)) from None
-    prompt = host_prompt(task, task_id, allowed, task_sha256)
+    prompt = host_prompt(task, task_id, allowed, task_sha256, args.delegation)
     state_before = local_state_snapshot(repo)
     before = status_paths(repo)
     source_changes = [
@@ -761,7 +859,15 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         final_message = Path(temp_dir) / "final-message.txt"
         prompt_file = Path(temp_dir) / "prompt.txt"
         prompt_file.write_text(prompt, encoding="utf-8")
-        command = launch_command(args.host, binary, repo, final_message, prompt_file)
+        command = launch_command(
+            args.host,
+            binary,
+            repo,
+            final_message,
+            prompt_file,
+            work_class=args.work_class,
+            delegation=args.delegation,
+        )
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
         output_texts = [result.get("stdout", b"").decode("utf-8", errors="replace")]
         output_texts.append(result.get("stderr", b"").decode("utf-8", errors="replace"))
@@ -810,6 +916,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "schema": ATTEMPT_SCHEMA,
             "revision": 1,
             "host": args.host,
+            "execution_policy": {
+                "schema": POLICY_VERSION,
+                "work_class": args.work_class,
+                "requested_model": route.model,
+                "observed_model": None,
+                "delegation": args.delegation,
+                "requested_child_capability": requested_capability,
+                "observed_child_spans": None,
+                "observation": "owner-local-gauntlet-required",
+            },
             "task_id": task_id,
             "task_sha256": task_sha256,
             "status": status,
@@ -823,7 +939,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "duration_s": round(time.monotonic() - started, 3),
             "stdout_bytes": result.get("stdout_bytes", 0),
             "stderr_bytes": result.get("stderr_bytes", 0),
-            "command_shape": public_command_shape(args.host),
+            "command_shape": public_command_shape(args.host, delegation=args.delegation),
             "blocked": blocked_reason,
             "unreviewed_claim": True,
             "accepted_by_lead": False,
@@ -843,6 +959,8 @@ def parser() -> argparse.ArgumentParser:
     probe_parser.set_defaults(handler=probe)
     run_parser = sub.add_parser("run", help="run a claimed packet through a native host")
     run_parser.add_argument("--host", choices=sorted(HOSTS), required=True)
+    run_parser.add_argument("--work-class", choices=WORK_CLASSES, required=True)
+    run_parser.add_argument("--delegation", choices=DELEGATION_MODES, required=True)
     run_parser.add_argument("--binary")
     run_parser.add_argument("--repo", default=os.getcwd())
     run_parser.add_argument("--task-file", required=True)

@@ -56,6 +56,8 @@ export default defineConfig({
           items: [
             { text: 'Host integration', link: '/reference/host-integration' },
             { text: 'Native hosts', link: '/reference/native-hosts' },
+            { text: 'Execution policy', link: '/reference/execution-policy' },
+            { text: 'Execution evidence', link: '/reference/execution-policy-evidence-2026-08-26' },
           ],
         },
         {

@@ -72,6 +72,25 @@ carries no task or proof text and never becomes authority. With no upstream
 the same flow stays local-only.
 Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
 
+## Route hard work deliberately
+
+Sealed native-host runs require one of four semantic work classes—`planning`,
+`coding`, `review`, or `lightweight`—plus an explicit execution shape:
+`--delegation direct|required`. Shadow maps the chosen host and class to a
+small checked-in native model policy—Fable/Opus/Sonnet for Claude Code,
+Sol/Terra/Luna for Codex, Fable/Opus/Cursor Grok/Auto for Cursor, and Grok
+4.6/4.5 for Grok. Required delegation enables the host's verified native child
+door; unsupported child capability fails closed. Shadow does not inspect prompt
+text, select accounts, or silently fall back after a quota failure.
+
+Requested selection is not observed execution. The owner-local evaluation
+gauntlet runs 12 real jobs through all four headless CLIs and requires exact
+model and usage evidence, scoped edits, deterministic verification, native
+child lineage where required, plus Langfuse write and exact readback. See
+**[Native execution policy](https://firstbitelabsllc.github.io/shadow/reference/execution-policy)**.
+The [dated 48-row evidence and cold takeover](https://firstbitelabsllc.github.io/shadow/reference/execution-policy-evidence-2026-08-26)
+publishes the exact falsifiers, corrections, hashes, and remaining wakes.
+
 ## Docs
 
 The full contract — every verb, plan grammar, extensions, privacy — lives at
