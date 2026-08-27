@@ -512,21 +512,6 @@ def ordered_entities(payload: dict) -> list[dict]:
     )
 
 
-def seat_board_entities(payload: dict, seat: str) -> tuple[set[str], int]:
-    """Choose a human seat's bounded entity set from local board facts only."""
-    owned = {
-        claim["entity"] for claim in payload["claims"] if claim["owner"] == seat
-    }
-    if owned:
-        return owned, len(owned)
-    ordered = ordered_entities(payload)
-    candidate = next(
-        (entity for entity in ordered if entity["resume"] is not None),
-        ordered[0] if ordered else None,
-    )
-    return ({candidate["id"]} if candidate is not None else set()), 0
-
-
 def board_records(
     payload: dict,
     *,
@@ -858,13 +843,34 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         if board_snapshot is not None:
-            selected, owned = seat_board_entities(board_snapshot, args.by)
-            if selected:
-                focused = board_records(
+            inspected: set[str] = set()
+            fallback: list[dict] = []
+            focused: list[dict] = []
+            owned = 0
+            while True:
+                selected, owned = _board.seat_board_entities(
+                    board_snapshot,
+                    args.by,
+                    inspected_entities=inspected,
+                )
+                if not selected:
+                    focused = fallback
+                    break
+                candidate = board_records(
                     board_snapshot,
                     entity_ids=selected,
                     verify_identity=True,
                 )
+                if owned or any(
+                    record.get("broken") or claimable_row(record)
+                    for record in candidate
+                ):
+                    focused = candidate
+                    break
+                if not fallback:
+                    fallback = candidate
+                inspected.update(selected)
+            if focused:
                 unhealthy = sum(bool(record.get("broken")) for record in focused)
                 blocks = [
                     f"This computer — root board revision {board_snapshot['revision']}",

@@ -229,6 +229,61 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         self.assertEqual(reads, [owned], reads)
         self.assertEqual(remotes, [payload["entities"][1]["id"]], remotes)
 
+    def test_unowned_seat_skips_a_remotely_owned_board_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, owned, unrelated = self.fixture(root)
+            payload["claims"] = []
+            reads: list[Path] = []
+            remotes: list[str] = []
+            real_read = status._board.read_plan_text
+            first_entity = payload["entities"][0]
+            second_entity = payload["entities"][1]
+
+            def read(path: Path) -> str:
+                reads.append(Path(path))
+                return real_read(path)
+
+            def project(entity, project, plan_path, parsed, local_claims):
+                remotes.append(entity["id"])
+                if entity["id"] == first_entity["id"]:
+                    return (
+                        [
+                            {
+                                "entity": entity["id"],
+                                "row": first_entity["resume"],
+                                "owner": "other-seat",
+                                "claimed_at": "2026-08-27T00:00:00Z",
+                                "return_by": "2099-08-27T08:00:00Z",
+                                "recovery": "probe-proof-then-adopt-park-or-close",
+                                "remote": True,
+                            }
+                        ],
+                        None,
+                    )
+                return list(local_claims), None
+
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(
+                    status._import, "reconcile_portfolio", return_value=payload
+                ) as reconcile,
+                mock.patch.object(status._board, "read_plan_text", side_effect=read),
+                mock.patch.object(status, "projected_claims", side_effect=project),
+            ):
+                code, stdout, stderr = self.invoke(root, "--by", "cold-seat")
+
+        self.assertEqual(code, 0, stderr)
+        self.assertNotIn("continue the owned row", stdout)
+        self.assertIn("never read this portfolio row", stdout)
+        reconcile.assert_not_called()
+        self.assertEqual(reads, [owned, unrelated], reads)
+        self.assertEqual(
+            remotes,
+            [first_entity["id"], second_entity["id"]],
+            remotes,
+        )
+
     def test_resume_selection_skips_an_entity_with_no_board_resume(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
