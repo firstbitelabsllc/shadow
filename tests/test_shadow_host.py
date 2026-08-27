@@ -120,6 +120,10 @@ def run_host(
         "run",
         "--host",
         host,
+        "--work-class",
+        "coding",
+        "--delegation",
+        "direct",
         "--binary",
         str(binary),
         "--repo",
@@ -161,11 +165,22 @@ class ShadowHostTests(unittest.TestCase):
         self.assertEqual(len(receipts), 1)
         self.assertEqual(receipts[0]["task_id"], "cursor-native-probe")
 
-    def test_cursor_command_shape_uses_agent_stdin_without_receipt_leak(self) -> None:
+    def test_cursor_command_shape_uses_agent_stdin_and_coding_selector(self) -> None:
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
-        command = shadow_host.command_shape("cursor", "cursor-agent", repo, final_message)
+        command = shadow_host.command_shape(
+            "cursor",
+            "cursor-agent",
+            repo,
+            final_message,
+            work_class="coding",
+            delegation="direct",
+        )
         self.assertEqual(command[-1], "agent")
+        self.assertEqual(
+            command[command.index("--model") + 1],
+            "claude-opus-5-thinking-high",
+        )
         self.assertNotIn("frozen task", command)
 
     def test_sealed_host_set_includes_grok_and_refuses_unknown(self) -> None:
@@ -178,7 +193,7 @@ class ShadowHostTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             shadow_host.parser().parse_args(["probe", "--host", "not-a-host"])
 
-    def test_documented_delegation_door_names_every_sealed_host_and_no_model(self) -> None:
+    def test_documented_delegation_door_requires_class_and_execution_shape(self) -> None:
         # Shadow's entire delegation surface is `shadow host run --host X`.
         # The SKILL handoff and the CLI help are the caller contract. If either
         # omits a cheaper/alternate host, a seat cannot dispatch there.
@@ -192,23 +207,55 @@ class ShadowHostTests(unittest.TestCase):
         for host in ("codex", "claude-code", "cursor", "grok"):
             self.assertIn(host, skill, f"SKILL.md handoff lost {host}")
             self.assertIn(host, help_text, f"shadow help host lost {host}")
-            args = shadow_host.parser().parse_args(["run", "--host", host, "--task-file", "t", "--task-id", "add-proof"])
+            with self.assertRaises(SystemExit):
+                shadow_host.parser().parse_args(
+                    ["run", "--host", host, "--task-file", "t", "--task-id", "add-proof"]
+                )
+            args = shadow_host.parser().parse_args(
+                [
+                    "run",
+                    "--host",
+                    host,
+                    "--work-class",
+                    "coding",
+                    "--delegation",
+                    "direct",
+                    "--task-file",
+                    "t",
+                    "--task-id",
+                    "add-proof",
+                ]
+            )
             self.assertEqual(args.host, host)
-            shape = shadow_host.public_command_shape(host)
-            self.assertNotIn("--model", shape)
-            self.assertNotIn("-m", shape)
+            self.assertEqual(args.work_class, "coding")
+            self.assertEqual(args.delegation, "direct")
+            shape = shadow_host.public_command_shape(host, delegation="direct")
+            self.assertIn("--model", shape)
         self.assertIn("shadow host run --host", skill)
+        self.assertIn("--delegation direct|required", skill)
+        self.assertIn("--delegation MODE", help_text)
         self.assertNotIn("shadow route", skill)
 
-    def test_grok_command_shape_uses_prompt_file_without_model_selector(self) -> None:
+    def test_grok_command_shape_uses_prompt_file_and_coding_selector(self) -> None:
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
         prompt_file = Path("/tmp/prompt.txt")
-        command = shadow_host.command_shape("grok", "grok", repo, final_message, prompt_file)
+        command = shadow_host.command_shape(
+            "grok",
+            "grok",
+            repo,
+            final_message,
+            prompt_file,
+            work_class="coding",
+            delegation="direct",
+        )
         self.assertEqual(
             command,
             [
                 "grok",
+                "--no-subagents",
+                "--model",
+                "grok-4.6",
                 "--cwd",
                 str(repo),
                 "--output-format",
@@ -219,11 +266,11 @@ class ShadowHostTests(unittest.TestCase):
                 str(prompt_file),
             ],
         )
-        self.assertNotIn("--model", command)
-        self.assertNotIn("-m", command)
         self.assertEqual(
-            shadow_host.public_command_shape("grok"),
+            shadow_host.public_command_shape("grok", delegation="direct"),
             [
+                "--no-subagents",
+                "--model",
                 "--cwd",
                 "--output-format",
                 "json",
@@ -232,7 +279,44 @@ class ShadowHostTests(unittest.TestCase):
                 "--prompt-file",
             ],
         )
-        self.assertNotIn("--model", shadow_host.public_command_shape("grok"))
+        self.assertIn(
+            "--model",
+            shadow_host.public_command_shape("grok", delegation="direct"),
+        )
+
+    def test_required_delegation_enables_only_verified_native_capabilities(self) -> None:
+        repo = Path("/workspace/repo")
+        final_message = Path("/tmp/final-message.txt")
+        prompt_file = Path("/tmp/prompt.txt")
+        commands = {
+            host: shadow_host.command_shape(
+                host,
+                {"claude-code": "claude", "codex": "codex", "grok": "grok"}[host],
+                repo,
+                final_message,
+                prompt_file,
+                work_class="planning",
+                delegation="required",
+            )
+            for host in ("claude-code", "codex", "grok")
+        }
+        self.assertIn("--agents", commands["claude-code"])
+        self.assertEqual(
+            commands["codex"][1:4],
+            ["exec", "--enable", "multi_agent"],
+        )
+        self.assertEqual(commands["grok"][1:3], ["--max-turns", "20"])
+        with self.assertRaises(shadow_host.HostError) as raised:
+            shadow_host.command_shape(
+                "cursor",
+                "cursor-agent",
+                repo,
+                final_message,
+                work_class="planning",
+                delegation="required",
+            )
+        self.assertEqual(raised.exception.kind, "execution_policy_invalid")
+        self.assertIn("observable child lineage", raised.exception.detail)
 
     def test_missing_grok_binary_fail_closes_without_launching_another_host(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -269,7 +353,9 @@ class ShadowHostTests(unittest.TestCase):
     def test_host_prompt_supplies_the_receipt_contract(self) -> None:
         task = "Change the bounded file."
         digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
-        prompt = shadow_host.host_prompt(task, "bounded-task", ["result.txt"], digest)
+        prompt = shadow_host.host_prompt(
+            task, "bounded-task", ["result.txt"], digest, "direct"
+        )
         self.assertIn(task, prompt)
         self.assertIn(digest, prompt)
         self.assertIn("result.txt", prompt)
@@ -279,11 +365,20 @@ class ShadowHostTests(unittest.TestCase):
         self.assertIn("Do not use spaces or prose for proof_ref.", prompt)
         self.assertIn("with status `blocked`", prompt)
         self.assertIn("`proof_ref`: null", prompt)
+        self.assertIn("Do not invoke a child agent", prompt)
+
+        required = shadow_host.host_prompt(
+            task, "bounded-task", ["result.txt"], digest, "required"
+        )
+        self.assertIn("Invoke one native child agent", required)
+        self.assertIn("Do not merely claim", required)
 
     def test_echoing_the_prompt_example_cannot_satisfy_the_real_receipt(self) -> None:
         task = "Change the bounded file."
         digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
-        prompt = shadow_host.host_prompt(task, "bounded-task", ["result.txt"], digest)
+        prompt = shadow_host.host_prompt(
+            task, "bounded-task", ["result.txt"], digest, "direct"
+        )
 
         example = shadow_host.extract_host_receipt([prompt])
         with self.assertRaises(shadow_host.HostError) as raised:
@@ -368,7 +463,7 @@ class ShadowHostTests(unittest.TestCase):
                 resolved = shadow_host.resolve_binary("cursor", None)
         self.assertEqual(Path(resolved), binary.resolve())
 
-    def test_same_packet_contract_runs_through_all_three_hosts(self) -> None:
+    def test_same_packet_contract_runs_through_all_four_hosts(self) -> None:
         for host in sorted(shadow_host.HOSTS):
             with self.subTest(host=host), tempfile.TemporaryDirectory() as dirname:
                 root = Path(dirname)
@@ -384,6 +479,10 @@ class ShadowHostTests(unittest.TestCase):
                         "run",
                         "--host",
                         host,
+                        "--work-class",
+                        "coding",
+                        "--delegation",
+                        "direct",
                         "--binary",
                         str(binary),
                         "--repo",
@@ -413,40 +512,51 @@ class ShadowHostTests(unittest.TestCase):
                 )
                 self.assertEqual(payload["changed_paths"], ["result.txt"])
                 self.assertEqual(payload["proof_ref"], "tests-green")
+                route = shadow_host.resolve_route(host, "coding")
+                self.assertEqual(
+                    payload["execution_policy"],
+                    {
+                        "schema": shadow_host.POLICY_VERSION,
+                        "work_class": "coding",
+                        "requested_model": route.model,
+                        "observed_model": None,
+                        "delegation": "direct",
+                        "requested_child_capability": None,
+                        "observed_child_spans": None,
+                        "observation": "owner-local-gauntlet-required",
+                    },
+                )
                 # Pin the exact per-host argv: a silently dropped sandbox or
                 # output flag would still pass every other assertion here.
                 argv = json.loads(binary.with_suffix(".argv.json").read_text(encoding="utf-8"))
                 resolved = str(repo.resolve())
                 if host == "codex":
-                    self.assertEqual(argv[1:8], [
-                        "exec", "--json", "--ephemeral", "--sandbox", "workspace-write", "-C", resolved,
+                    self.assertEqual(argv[1:12], [
+                        "exec", "--disable", "multi_agent", "--model", "gpt-5.6-sol",
+                        "--json", "--ephemeral", "--sandbox", "workspace-write", "-C", resolved,
                     ])
-                    self.assertEqual(argv[8], "--output-last-message")
+                    self.assertEqual(argv[12], "--output-last-message")
                 elif host == "claude-code":
                     self.assertEqual(argv[1:], [
-                        "--print", "--output-format", "json", "--no-session-persistence",
+                        "--disallowedTools", "Agent", "--model", "opus", "--print",
+                        "--output-format", "json", "--no-session-persistence",
                         "--permission-mode", "acceptEdits", "--add-dir", resolved,
                     ])
                 elif host == "grok":
-                    self.assertEqual(argv[1:8], [
-                        "--cwd", resolved, "--output-format", "json",
+                    self.assertEqual(argv[1:11], [
+                        "--no-subagents", "--model", "grok-4.6", "--cwd", resolved,
+                        "--output-format", "json",
                         "--permission-mode", "acceptEdits", "--prompt-file",
                     ])
-                    self.assertTrue(argv[8].endswith("prompt.txt"), argv[8])
-                    self.assertNotIn("--model", argv)
+                    self.assertTrue(argv[11].endswith("prompt.txt"), argv[11])
                 else:
                     self.assertEqual(argv[1:], [
-                        "--print", "--output-format", "json", "--workspace", resolved,
+                        "--model", "claude-opus-5-thinking-high", "--print",
+                        "--output-format", "json", "--workspace", resolved,
                         "--trust", "--force", "agent",
                     ])
                 self.assertFalse(payload["accepted_by_lead"])
                 self.assertTrue(payload["unreviewed_claim"])
-
-
-
-
-
-
     def test_missing_host_receipt_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -462,6 +572,10 @@ class ShadowHostTests(unittest.TestCase):
                     "run",
                     "--host",
                     "codex",
+                    "--work-class",
+                    "coding",
+                    "--delegation",
+                    "direct",
                     "--binary",
                     str(binary),
                     "--repo",
@@ -500,6 +614,10 @@ class ShadowHostTests(unittest.TestCase):
                     "run",
                     "--host",
                     "cursor",
+                    "--work-class",
+                    "coding",
+                    "--delegation",
+                    "direct",
                     "--binary",
                     str(binary),
                     "--repo",
@@ -538,6 +656,10 @@ class ShadowHostTests(unittest.TestCase):
                     "run",
                     "--host",
                     "codex",
+                    "--work-class",
+                    "coding",
+                    "--delegation",
+                    "direct",
                     "--binary",
                     str(binary),
                     "--repo",
@@ -575,6 +697,10 @@ class ShadowHostTests(unittest.TestCase):
                     "run",
                     "--host",
                     "codex",
+                    "--work-class",
+                    "coding",
+                    "--delegation",
+                    "direct",
                     "--binary",
                     str(binary),
                     "--repo",
@@ -688,6 +814,10 @@ class AuditBlockRegressionTests(unittest.TestCase):
                             "run",
                             "--host",
                             "cursor",
+                            "--work-class",
+                            "coding",
+                            "--delegation",
+                            "direct",
                             "--binary",
                             str(root / "fake-host"),
                             "--repo",

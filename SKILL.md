@@ -87,15 +87,23 @@ Use the active host directly for normal work. For each claimed handoff, use:
 
 ```bash
 shadow host run --host codex|claude-code|cursor|grok \
+  --work-class planning|coding|review|lightweight \
+  --delegation direct|required \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
   --allowed-path <exact-path> \
   --out <project>/.shadow/evidence/<id>.json
 ```
 
 The task file is frozen, the worktree must be clean, allowed paths are exact,
-and the host must emit a scoped receipt with passing tests. Which provider
-or account the host uses is the host CLI's own business — Shadow passes no
-selector and records none.
+and the host must emit a scoped receipt with passing tests. The lead chooses
+the host, semantic work class, and explicit execution shape; Shadow
+deterministically supplies that pair's native model selector and enables or
+disables the verified native child door. `required` fails closed on Cursor
+until its headless CLI exposes observable child lineage. The host CLI still
+owns authentication, account choice, quota, and provider execution. Requested
+model and observed model are distinct: the private attempt records the former,
+while observed-model and child-lineage proof require the owner-local gauntlet
+documented in `docs/reference/execution-policy.md`.
 
 Review the diff and reproduce important tests before accepting the result.
 Do not put credentials, prompts, transcripts, private paths, or provider output
@@ -194,8 +202,10 @@ around which provider a native host uses.
 Shadow owns a single product identity and one authority hierarchy: the
 per-computer root board for coordination, entity `PLAN.md` files for milestone
 and checkpoint detail/proof, and project-local evidence paths. Native Codex,
-Claude Code, Cursor, and Grok own model authentication and execution. Do not add a
-router, daemon, scheduler, cloud executor, credential relay, transcript store,
+Claude Code, Cursor, and Grok own model authentication and execution. Shadow's
+four semantic work classes plus `direct|required` are a deterministic execution
+policy, not a prompt classifier or scheduler. Do not add a router, daemon, scheduler, cloud
+executor, credential relay, transcript store,
 or parallel status database.
 Thermo and Ponytail remain separate review disciplines rather than runtime
 roles.
