@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded migration from project plans into this computer's pointer board."""
+"""Bounded migration from entity plans into this computer's pointer board."""
 
 from __future__ import annotations
 

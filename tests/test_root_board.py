@@ -179,7 +179,7 @@ class PartitionedPlansUseOneLogicalReadBoundary(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 board_api.BoardError,
-                "project plan or its staged index changed",
+                "entity plan or its staged index changed",
             ):
                 board_api.committed_plan_snapshot(plan)
 
@@ -489,7 +489,11 @@ class ColdSeatsResumeThroughBoardEntityIds(unittest.TestCase):
             second = subprocess.run(
                 [shell, "-lc", rendered],
                 cwd=unrelated,
-                env={**os.environ, "HOME": str(home)},
+                env={
+                    **os.environ,
+                    "HOME": str(home),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
                 capture_output=True,
                 text=True,
                 check=False,
@@ -2742,6 +2746,219 @@ class ProjectsGroupEntitiesWithoutCollapsingThem(unittest.TestCase):
             claims = board(home)["claims"]
             self.assertEqual({item["owner"] for item in claims}, {"seat-web", "seat-api"})
             self.assertEqual(len({item["entity"] for item in claims}), 2)
+
+    def test_one_repository_project_map_preserves_entity_claims_and_cold_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            unrelated = root / "unrelated"
+            home.mkdir()
+            portfolio.mkdir()
+            unrelated.mkdir()
+            repo = project(
+                portfolio,
+                name="shared-repo",
+                display_name="shared",
+            )
+            root_plan = repo / "PLAN.md"
+            root_plan.write_text(
+                root_plan.read_text(encoding="utf-8").replace(
+                    "- Mode: ship\n",
+                    "- Mode: ship\n- Plans: plans/*/PLAN.md\n",
+                ),
+                encoding="utf-8",
+            )
+            nested_plan = repo / "plans" / "api" / "PLAN.md"
+            nested_plan.parent.mkdir(parents=True)
+            nested_plan.write_text(
+                "# API\n\n"
+                "## Brief\n\n"
+                "- Project: shared\n"
+                "- Mode: ship\n"
+                "- Priority: 2\n\n"
+                "## Tasks\n\n"
+                "### The API outcome\n"
+                "- [pending] API-TASK-BELONGS-TO-NESTED-ENTITY ~aa11"
+                " | proof: cmd true\n"
+                "- [pending] the API outcome is proven ~bb22 (DoD)"
+                " | proof: cmd true | needs: ~aa11\n\n"
+                "## Progress\n\n"
+                "- 2026-08-27T00:00:00Z NOTE seeded\n",
+                encoding="utf-8",
+            )
+            linted = run(
+                home,
+                "lint",
+                "PLAN.md",
+                "plans/api/PLAN.md",
+                cwd=repo,
+            )
+            self.assertEqual(linted.returncode, 0, linted.stdout + linted.stderr)
+            git(repo, "add", "PLAN.md", "plans/api/PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "declare one project map")
+
+            registered = run(
+                home,
+                "status",
+                "--root",
+                str(portfolio),
+                "--json",
+                cwd=root,
+            )
+
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            payload = board(home)
+            self.assertEqual(payload["projects"], [{"id": "shared", "priority": 2}])
+            self.assertEqual(len(payload["entities"]), 2)
+            entities = {
+                Path(item["plan"]).resolve().relative_to(repo.resolve()).as_posix(): item["id"]
+                for item in payload["entities"]
+            }
+            self.assertEqual(set(entities), {"PLAN.md", "plans/api/PLAN.md"})
+
+            for entity_id in entities.values():
+                claimed = run(
+                    home,
+                    "throw",
+                    "--entity",
+                    entity_id,
+                    "--task",
+                    "~aa11",
+                    "--by",
+                    "map-seat",
+                    cwd=unrelated,
+                )
+                self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+            claims = [
+                item for item in board(home)["claims"]
+                if item["owner"] == "map-seat"
+            ]
+            self.assertEqual(
+                {(item["entity"], item["row"]) for item in claims},
+                {(entity_id, "~aa11") for entity_id in entities.values()},
+            )
+
+            cold = run(home, "status", "--by", "map-seat", cwd=unrelated)
+            self.assertEqual(cold.returncode, 0, cold.stderr)
+            for entity_id in entities.values():
+                self.assertIn(
+                    f"Continue: shadow amp --entity {entity_id} "
+                    "--task '~aa11' --by map-seat",
+                    cold.stdout,
+                )
+
+            root_resume = run(
+                home,
+                "amp",
+                "--entity",
+                entities["PLAN.md"],
+                "--by",
+                "map-seat",
+                cwd=unrelated,
+            )
+            nested_resume = run(
+                home,
+                "amp",
+                "--entity",
+                entities["plans/api/PLAN.md"],
+                "--by",
+                "map-seat",
+                cwd=unrelated,
+            )
+            self.assertEqual(root_resume.returncode, 0, root_resume.stderr)
+            self.assertEqual(nested_resume.returncode, 0, nested_resume.stderr)
+            self.assertIn("TASK-BODY-MUST-NOT-ENTER-THE-BOARD", root_resume.stdout)
+            self.assertNotIn("API-TASK-BELONGS-TO-NESTED-ENTITY", root_resume.stdout)
+            self.assertIn("API-TASK-BELONGS-TO-NESTED-ENTITY", nested_resume.stdout)
+            self.assertNotIn("TASK-BODY-MUST-NOT-ENTER-THE-BOARD", nested_resume.stdout)
+
+    def test_sibling_row_id_never_satisfies_local_needs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            project(
+                portfolio,
+                name="producer",
+                display_name="shared",
+            )
+            consumer = project(
+                portfolio,
+                name="consumer",
+                display_name="shared",
+            )
+            consumer_plan = consumer / "PLAN.md"
+            consumer_plan.write_text(
+                "# Consumer\n\n"
+                "## Brief\n\n"
+                "- Project: shared\n"
+                "- Mode: ship\n"
+                "- Priority: 2\n\n"
+                "## Tasks\n\n"
+                "### Consume one producer\n"
+                "- [pending] integration observes the producer ~cc33"
+                " | proof: cmd true | needs: ~aa11\n"
+                "- [pending] integration is proven ~dd44 (DoD)"
+                " | proof: cmd true | needs: ~cc33\n\n"
+                "## Progress\n\n"
+                "- 2026-08-27T00:00:00Z NOTE seeded\n",
+                encoding="utf-8",
+            )
+            git(consumer, "add", "PLAN.md")
+            git(consumer, "commit", "--quiet", "-m", "add invalid sibling need")
+            environment = {"SHADOW_PORTFOLIO_ROOT": str(portfolio)}
+
+            refused = run(
+                home,
+                "status",
+                "--json",
+                cwd=root,
+                extra_env=environment,
+            )
+            linted = run(
+                home,
+                "lint",
+                str(consumer_plan),
+                cwd=root,
+                extra_env=environment,
+            )
+
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("blocking lint", refused.stderr)
+            self.assertNotEqual(linted.returncode, 0)
+            self.assertIn("NEEDS-DANGLE", linted.stdout + linted.stderr)
+            board_path = home / ".shadow" / "board.json"
+            if board_path.exists():
+                self.assertEqual(board(home)["entities"], [])
+
+            consumer_plan.write_text(
+                consumer_plan.read_text(encoding="utf-8").replace(
+                    "### Consume one producer\n",
+                    "### Consume one producer\n"
+                    "- [pending] local producer is explicit ~aa11"
+                    " | proof: cmd true\n",
+                ),
+                encoding="utf-8",
+            )
+            git(consumer, "add", "PLAN.md")
+            git(consumer, "commit", "--quiet", "-m", "add local dependency owner")
+
+            accepted = run(
+                home,
+                "status",
+                "--json",
+                cwd=root,
+                extra_env=environment,
+            )
+
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            payload = board(home)
+            self.assertEqual(payload["projects"], [{"id": "shared", "priority": 2}])
+            self.assertEqual(len(payload["entities"]), 2)
 
     def test_highest_priority_project_renders_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

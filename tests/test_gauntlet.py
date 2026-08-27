@@ -16,9 +16,9 @@ What one gauntlet run proves, in order:
 2.  projection: status and the browser dereference the same canonical
     computer-board entities;
 3.  dispatch: two named seats atomically claim disjoint rows in different
-    entities without mutating either project plan;
+    entities without mutating either entity plan;
 4.  reachability: a cold seat in another clone sees WHO claimed WHICH row from
-    the same local computer board — the remote project plan never becomes a
+    the same local computer board — the remote entity plan never becomes a
     competing claim ledger;
 5.  acceptance: `shadow accept` reruns both rows' cmd proofs in clean
     checkouts and flips each with its paired PROOF line, pushed;

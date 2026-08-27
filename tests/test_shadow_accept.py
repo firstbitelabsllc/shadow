@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -131,6 +132,210 @@ def fail_after_project_commit(*args, **kwargs):
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def test_local_completed_retry_uses_the_recorded_source_head(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            (repo / "proof.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+            git(repo, "add", "proof.py")
+            git(repo, "commit", "-qm", "add local proof")
+            frozen_head = git(repo, "rev-parse", "HEAD")
+            home = root / "home"
+            home.mkdir()
+            plan = home / ".shadow" / "plans" / "local-recovery" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(
+                PLAN.replace(
+                    'cmd python3 -c "import pathlib,sys; '
+                    "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
+                    "cmd python3 proof.py",
+                ),
+                encoding="utf-8",
+            )
+            accept._board.reconcile(
+                [
+                    {
+                        "plan": str(plan),
+                        "project": "demo",
+                        "priority": 3,
+                        "candidates": ["~ab12"],
+                    }
+                ],
+                [],
+                home=home,
+            )
+            accept._board.claim(
+                plan,
+                "~ab12",
+                "seat-a",
+                project="demo",
+                priority=3,
+                home=home,
+            )
+            entity = accept._board.entity_state(
+                plan, home=home
+            )["entity"]["id"]
+            accept_argv = [
+                "--entity",
+                entity,
+                "--repo",
+                str(repo),
+                "--row",
+                "~ab12",
+                "--by",
+                "seat-a",
+            ]
+            first_output = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ, {"HOME": str(home)}
+            ), mock.patch.object(
+                accept._board,
+                "release",
+                side_effect=fail_after_project_commit,
+            ), redirect_stdout(first_output), redirect_stderr(first_output):
+                first = accept.main(accept_argv)
+
+            self.assertEqual(first, 1, first_output.getvalue())
+            completed = plan.read_text(encoding="utf-8")
+            self.assertIn("[completed] x.txt says hello ~ab12", completed)
+            source_receipts = [
+                line for line in completed.splitlines()
+                if "~ab12 SOURCE " in line
+            ]
+            self.assertEqual(len(source_receipts), 1)
+            self.assertRegex(
+                source_receipts[0],
+                rf"~ab12 SOURCE local-git@[0-9a-f]{{12}} HEAD "
+                rf"{frozen_head} -> proof and final lint \(accept\)$",
+            )
+            self.assertNotIn(str(root), source_receipts[0])
+            self.assertEqual(
+                [claim["row"] for claim in accept._board.entity_state(
+                    plan, home=home
+                )["claims"]],
+                ["~ab12"],
+            )
+
+            wrong_repo = root / "wrong-source"
+            subprocess.run(
+                ["git", "clone", "-q", str(repo), str(wrong_repo)],
+                check=True,
+            )
+            git(
+                wrong_repo,
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/example/wrong-source.git",
+            )
+            wrong_argv = accept_argv.copy()
+            wrong_argv[3] = str(wrong_repo)
+            wrong_output = io.StringIO()
+            with mock.patch.dict(
+                os.environ, {"HOME": str(home)}
+            ), redirect_stdout(wrong_output), redirect_stderr(wrong_output):
+                wrong_source = accept.main(wrong_argv)
+            self.assertEqual(wrong_source, 1, wrong_output.getvalue())
+            self.assertIn(
+                "does not match the completion's SOURCE receipt",
+                wrong_output.getvalue(),
+            )
+
+            forged = re.sub(
+                r"(?m)^- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z "
+                r"(?=~ab12 SOURCE )",
+                "- 2000-01-01T00:00:00Z ",
+                completed,
+                count=1,
+            )
+            plan.write_text(forged, encoding="utf-8")
+            forged_output = io.StringIO()
+            with mock.patch.dict(
+                os.environ, {"HOME": str(home)}
+            ), redirect_stdout(forged_output), redirect_stderr(forged_output):
+                forged_retry = accept.main(accept_argv)
+            self.assertEqual(forged_retry, 1, forged_output.getvalue())
+            self.assertIn(
+                "SOURCE is not paired with one canonical PROOF receipt",
+                forged_output.getvalue(),
+            )
+            plan.write_text(completed, encoding="utf-8")
+
+            (repo / "proof.py").unlink()
+            git(repo, "add", "-u")
+            git(repo, "commit", "-qm", "move source head")
+            self.assertNotEqual(git(repo, "rev-parse", "HEAD"), frozen_head)
+            completed_before_retry = plan.read_bytes()
+            retry_output = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ, {"HOME": str(home)}
+            ), redirect_stdout(retry_output), redirect_stderr(retry_output):
+                retry = accept.main(accept_argv)
+
+            self.assertEqual(retry, 0, retry_output.getvalue())
+            self.assertIn("already proven", retry_output.getvalue())
+            self.assertEqual(plan.read_bytes(), completed_before_retry)
+            self.assertEqual(
+                accept._board.entity_state(plan, home=home)["claims"],
+                [],
+            )
+
+    def test_git_backed_entity_refuses_a_paired_repo_selector_before_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            home = root / "home"
+            home.mkdir()
+            claimed = run_shadow(
+                repo,
+                home,
+                "throw",
+                "--repo",
+                str(repo),
+                "--task",
+                "~ab12",
+                "--by",
+                "seat-a",
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            entity = accept._board.entity_state(
+                repo / "PLAN.md", home=home
+            )["entity"]["id"]
+            before_plan = (repo / "PLAN.md").read_bytes()
+            before_board = (home / ".shadow" / "board.json").read_bytes()
+            output = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ, {"HOME": str(home)}
+            ), mock.patch.object(
+                accept,
+                "create_lead_review_worktree",
+                side_effect=AssertionError("proof started"),
+            ) as proof_start, redirect_stdout(output), redirect_stderr(output):
+                result = accept.main(
+                    [
+                        "--entity",
+                        entity,
+                        "--repo",
+                        str(repo),
+                        "--row",
+                        "~ab12",
+                        "--by",
+                        "seat-a",
+                    ]
+                )
+
+            self.assertEqual(result, 1, output.getvalue())
+            self.assertIn(
+                "--repo may accompany --entity only for a machine-local entity plan",
+                output.getvalue(),
+            )
+            proof_start.assert_not_called()
+            self.assertEqual((repo / "PLAN.md").read_bytes(), before_plan)
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before_board)
+
     def test_git_backed_partitioned_plan_commits_root_and_objects_together(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
