@@ -38,6 +38,7 @@ CONTRADICTION_NONE_RE: Final = re.compile(
     r"^- none(?: recorded)? yet\.?$",
     re.IGNORECASE,
 )
+ORIGIN_LINE_RE: Final = re.compile(r"^- Origin:(?: (?P<value>.*))?$")
 
 # `shadow accept` executes a proof with argv, never an implicit shell.  These
 # helpers are shared so lint rejects precisely the argument shapes accept would
@@ -87,6 +88,23 @@ def progress_proof_receipt(line: str) -> tuple[str, str, str] | None:
     if match is None:
         return None
     return match.group("id"), match.group("proof"), match.group("result")
+
+
+def brief_origin_values(plan_text: str) -> list[str]:
+    """Return every Brief ``Origin:`` value, including empty declarations."""
+    values: list[str] = []
+    in_brief = False
+    for line in plan_text.splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            in_brief = heading == "Brief" or heading.startswith("Brief ")
+            continue
+        if not in_brief:
+            continue
+        match = ORIGIN_LINE_RE.fullmatch(line)
+        if match is not None:
+            values.append((match.group("value") or "").strip())
+    return values
 
 
 def contradiction_is_open(line: str) -> bool:

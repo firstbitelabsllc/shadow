@@ -61,7 +61,7 @@ class DocumentedTargetTests(unittest.TestCase):
             "amp": ("--entity ID", "--by OWNER"),
             "throw": ("--entity ID", "--by OWNER"),
             "return": ("--entity ID", "--by OWNER"),
-            "accept": ("--by OWNER", "--row '~hash'", "--entity ID"),
+            "accept": ("--by OWNER", "--row '~hash'", "--entity ID", "Origin"),
         }
         for verb, clauses in expected.items():
             result = subprocess.run(

@@ -6,7 +6,8 @@ It parses the project PLAN.md, finds the row by its ~hash id, reruns a
 ``cmd``-classed proof inside a detached clean worktree of HEAD, and — only on
 success — rewrites the row's state and appends the paired PROOF Progress line
 in one commit. ``--entity`` plus ``--repo`` selects one registered machine-local
-plan and uses ``--repo`` only as the proof checkout. Path-free ``--entity``
+plan and uses ``--repo`` only as the proof checkout after the plan's Brief
+``Origin:`` equals that checkout's normalized origin. Path-free ``--entity``
 still reconciles an authenticated, published ``cmd`` completion whose remote
 journal remains acquired, and still refuses a local plan. ``read`` and
 ``gate`` proofs are person/agent judgments and are refused here on purpose.
@@ -180,6 +181,29 @@ def proof_source_checkout(repo: Path) -> Path:
     if source_top.returncode or not source_top.stdout.strip():
         raise AcceptError("--repo must name a Git source checkout")
     return Path(source_top.stdout.strip()).resolve()
+
+
+def bind_local_plan_to_proof_repo(plan_path: Path, source_root: Path) -> None:
+    """Require the local plan's Origin to equal ``--repo``'s normalized origin."""
+    try:
+        plan_text = _board.read_plan_text(plan_path)
+    except _board.BoardError as exc:
+        raise AcceptError(f"local plan cannot be read: {exc}") from exc
+    values = _grammar.brief_origin_values(plan_text)
+    if not values:
+        raise AcceptError("the local plan has no Origin")
+    if len(values) > 1:
+        raise AcceptError("the local plan has more than one Origin")
+    try:
+        declared = _board.well_formed_proof_origin(values[0])
+    except ValueError:
+        raise AcceptError("the local plan Origin is not a normalized Git identity")
+    origin = git_completed(source_root, "config", "--get", "remote.origin.url")
+    if origin.returncode or not origin.stdout.strip():
+        raise AcceptError("the proof checkout has no origin")
+    checkout = _board.normalized_origin(origin.stdout.strip())
+    if checkout != declared:
+        raise AcceptError("--repo origin does not match the plan Origin")
 
 
 def atomic_write_text(
@@ -1284,7 +1308,7 @@ def main(argv: list[str] | None = None) -> int:
         "--entity",
         help=(
             "computer-board entity id; with --repo, selects a machine-local "
-            "plan while --repo is only the proof checkout"
+            "plan whose Origin matches --repo's normalized origin"
         ),
     )
     parser.add_argument("--row", required=True)
@@ -1317,6 +1341,7 @@ def main(argv: list[str] | None = None) -> int:
                             "--entity recovery requires a Git-backed project plan"
                         )
                     source_root = proof_source_checkout(args.repo)
+                    bind_local_plan_to_proof_repo(plan_path, source_root)
                     owned_claim(_board.entity_state(plan_path), row_id, owner)
                     return accept_local_plan(
                         source_root,

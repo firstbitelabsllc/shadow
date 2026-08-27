@@ -85,7 +85,8 @@ shadow accept --repo . --row '~ab12' --by your-seat
 # --repo is where proofs RUN (the product checkout); a machine-local
 # plan's own directory also works when its proof argv cds there itself.
 # Two local plans sharing one origin: add --entity <id> so --repo is
-# only the proof checkout. Path-free --entity still refuses a local plan.
+# only the proof checkout, bound by the plan's Origin line. Path-free
+# --entity still refuses a local plan.
 ```
 
 For a remotely coordinated claim, ordinary accept publishes the completed

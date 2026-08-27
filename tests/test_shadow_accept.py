@@ -2668,41 +2668,42 @@ class ProofRootIsResolvedOrNamed(unittest.TestCase):
         self.assertIn("--repo", self._refusal())
 
 
-ORIGIN_NAMED_LOCAL_PLAN = """# Widget
+WIDGET_PROOF_ORIGIN = "github.com/example/widget"
 
-## Brief
 
-- Project: widget
-- Mode: ship
+def local_authority_plan(
+    title: str,
+    project: str,
+    heading: str,
+    row: str,
+    row_id: str,
+    dod_id: str,
+    origins: tuple[str, ...] | None = (WIDGET_PROOF_ORIGIN,),
+) -> str:
+    origin_lines = ""
+    if origins is not None:
+        origin_lines = "".join(f"- Origin: {value}\n" for value in origins)
+    return (
+        f"# {title}\n\n"
+        "## Brief\n\n"
+        f"- Project: {project}\n"
+        "- Mode: ship\n"
+        f"{origin_lines}\n"
+        "## Tasks\n\n"
+        f"### {heading}\n"
+        f"- [in_progress] {row} {row_id} | proof: cmd true\n"
+        f"- [pending] {title.lower()} done {dod_id} (DoD) | proof: cmd true | needs: {row_id}\n\n"
+        "## Progress\n\n"
+        "- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command\n"
+    )
 
-## Tasks
 
-### Origin-named sibling
-- [in_progress] origin plan row ~cd34 | proof: cmd true
-- [pending] origin plan done ~ef56 (DoD) | proof: cmd true | needs: ~cd34
-
-## Progress
-
-- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
-"""
-
-SIDECAR_LOCAL_PLAN = """# Sidecar
-
-## Brief
-
-- Project: sidecar
-- Mode: ship
-
-## Tasks
-
-### Non-origin-named plan
-- [in_progress] sidecar-only row ~ab12 | proof: cmd true
-- [pending] sidecar done ~aa11 (DoD) | proof: cmd true | needs: ~ab12
-
-## Progress
-
-- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
-"""
+ORIGIN_NAMED_LOCAL_PLAN = local_authority_plan(
+    "Widget", "widget", "Origin-named sibling", "origin plan row", "~cd34", "~ef56"
+)
+SIDECAR_LOCAL_PLAN = local_authority_plan(
+    "Sidecar", "sidecar", "Non-origin-named plan", "sidecar-only row", "~ab12", "~aa11"
+)
 
 
 class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
@@ -2715,27 +2716,35 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
     local plan plus `--repo` for the proof checkout only.
     """
 
-    def _world(self):
+    def _git_repo(self, path: Path, origin: str) -> Path:
+        path.mkdir(parents=True)
+        git(path, "init", "-q")
+        git(path, "config", "user.email", "t@example.invalid")
+        git(path, "config", "user.name", "T")
+        git(path, "remote", "add", "origin", origin)
+        (path / "README.md").write_text("fixture\n", encoding="utf-8")
+        git(path, "add", "README.md")
+        git(path, "commit", "-qm", "seed")
+        return path
+
+    def _world(
+        self,
+        *,
+        sidecar_plan_text: str = SIDECAR_LOCAL_PLAN,
+        repo_url: str = "git@github.com:example/widget.git",
+    ):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name).resolve()
         home = root / "home"
-        repo = root / "dev" / "widget"
-        repo.mkdir(parents=True)
-        git(repo, "init", "-q")
-        git(repo, "config", "user.email", "t@example.invalid")
-        git(repo, "config", "user.name", "T")
-        git(repo, "remote", "add", "origin", "git@github.com:example/widget.git")
-        (repo / "README.md").write_text("fixture\n", encoding="utf-8")
-        git(repo, "add", "README.md")
-        git(repo, "commit", "-qm", "seed")
+        repo = self._git_repo(root / "dev" / "widget", repo_url)
 
         origin_plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
         sidecar_plan = home / ".shadow" / "plans" / "sidecar" / "PLAN.md"
         origin_plan.parent.mkdir(parents=True)
         sidecar_plan.parent.mkdir(parents=True)
         origin_plan.write_text(ORIGIN_NAMED_LOCAL_PLAN, encoding="utf-8")
-        sidecar_plan.write_text(SIDECAR_LOCAL_PLAN, encoding="utf-8")
+        sidecar_plan.write_text(sidecar_plan_text, encoding="utf-8")
 
         payload = accept._board.reconcile(
             [
@@ -2775,6 +2784,7 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             "guessed": guessed,
             "origin_text": origin_plan.read_text(encoding="utf-8"),
             "sidecar_text": sidecar_plan.read_text(encoding="utf-8"),
+            "board_bytes": (home / ".shadow" / "board.json").read_bytes(),
         }
 
     def _accept(self, world, *args: str) -> subprocess.CompletedProcess[str]:
@@ -2785,6 +2795,37 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             text=True,
             check=False,
         )
+
+    def _accept_sidecar(self, world, repo: Path) -> subprocess.CompletedProcess[str]:
+        return self._accept(
+            world,
+            "--entity",
+            world["sidecar_entity"],
+            "--repo",
+            str(repo),
+            "--row",
+            "~ab12",
+            "--by",
+            "seat-a",
+        )
+
+    def _assert_unmoved(self, world, result: subprocess.CompletedProcess[str]) -> None:
+        combined = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, combined)
+        self.assertEqual(
+            world["sidecar_plan"].read_text(encoding="utf-8"), world["sidecar_text"]
+        )
+        self.assertEqual(
+            world["origin_plan"].read_text(encoding="utf-8"), world["origin_text"]
+        )
+        self.assertEqual(
+            (world["home"] / ".shadow" / "board.json").read_bytes(),
+            world["board_bytes"],
+        )
+        self.assertNotIn(str(world["home"]), combined)
+        self.assertNotIn(str(world["repo"]), combined)
+        self.assertNotIn("/Users/", combined)
+        self.assertNotIn("/tmp/", combined)
 
     def test_entity_and_explicit_repo_accept_the_non_origin_named_plan(self) -> None:
         world = self._world()
@@ -2944,6 +2985,63 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
                     world["origin_plan"].read_text(encoding="utf-8"),
                     world["origin_text"],
                 )
+
+    def test_unrelated_git_checkout_is_refused_before_proof(self) -> None:
+        world = self._world()
+        other = self._git_repo(
+            world["home"].parent / "other" / "gadget",
+            "git@github.com:example/gadget.git",
+        )
+
+        result = self._accept_sidecar(world, other)
+
+        self._assert_unmoved(world, result)
+        self.assertIn("origin does not match the plan Origin", result.stderr)
+        self.assertNotIn("accepted", result.stdout)
+        self.assertNotIn(str(other), result.stdout + result.stderr)
+
+    def test_equivalent_ssh_and_https_origins_accept(self) -> None:
+        urls = (
+            "git@github.com:example/widget.git",
+            "https://github.com/example/widget.git",
+            "ssh://git@github.com/example/widget.git",
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                world = self._world(repo_url=url)
+                result = self._accept_sidecar(world, world["repo"])
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("[completed] sidecar-only row ~ab12", world["sidecar_plan"].read_text())
+                self.assertEqual(
+                    world["origin_plan"].read_text(encoding="utf-8"),
+                    world["origin_text"],
+                )
+
+    def test_missing_duplicate_malformed_and_different_origin_refuse(self) -> None:
+        cases = (
+            (None, "has no Origin"),
+            (("",), "not a normalized Git identity"),
+            (("git@github.com:example/widget.git",), "not a normalized Git identity"),
+            (("/tmp/widget.git",), "not a normalized Git identity"),
+            (("github.com/example/widget", "github.com/example/widget"), "more than one Origin"),
+            (("github.com/example/gadget",), "origin does not match the plan Origin"),
+        )
+        for origins, needle in cases:
+            with self.subTest(needle=needle, origins=origins):
+                world = self._world(
+                    sidecar_plan_text=local_authority_plan(
+                        "Sidecar",
+                        "sidecar",
+                        "Non-origin-named plan",
+                        "sidecar-only row",
+                        "~ab12",
+                        "~aa11",
+                        origins=origins,
+                    )
+                )
+                result = self._accept_sidecar(world, world["repo"])
+                self._assert_unmoved(world, result)
+                self.assertIn(needle, result.stderr)
 
     def test_git_backed_entity_does_not_take_repo(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
