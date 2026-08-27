@@ -63,6 +63,8 @@ claimed paths:
 ```bash
 shadow host run \
   --host codex \
+  --work-class coding \
+  --delegation direct \
   --repo "$PWD" \
   --task-file /tmp/task.md \
   --task-id focused-fix \
