@@ -4,8 +4,8 @@
 The product never imports this module.  It is owner-local evaluation tooling:
 each native CLI receives a real prompt in a disposable Git fixture; structured
 native output supplies model/usage evidence; Codex's native OTel traces supply
-its otherwise-hidden model; one allowlisted summary span is written to a local
-Langfuse and read back before the run can pass.
+its otherwise-hidden model; a red provisional span is written to local
+Langfuse and read back before any final adjudication span can be green.
 """
 
 from __future__ import annotations
@@ -40,6 +40,14 @@ from shadow_execution_policy import HOSTS, POLICY_VERSION, resolve_route
 
 class GauntletError(RuntimeError):
     """A hard evaluation predicate was unavailable or false."""
+
+
+class LangfuseReadbackError(GauntletError):
+    """OTLP accepted the provisional span, but its exact trace stayed unreadable."""
+
+    def __init__(self, trace_id: str) -> None:
+        super().__init__("Langfuse accepted OTLP but exact trace was not readable")
+        self.trace_id = trace_id
 
 
 @dataclass(frozen=True)
@@ -405,14 +413,20 @@ ORDER BY start_time DESC LIMIT 1 FORMAT JSONEachRow
             "-c", exporter,
         ], env
 
-    def emit_observation(self, observation: RunObservation, grade: Grade) -> str:
-        trace_id = secrets.token_hex(16)
-        span_id = secrets.token_hex(8)
+    def _observation_span(
+        self,
+        observation: RunObservation,
+        grade: Grade,
+        trace_id: str,
+        *,
+        final: bool,
+    ) -> dict[str, object]:
         now = time.time_ns()
         safe_error = (observation.error or "")[:240]
         attrs = {
             "shadow.schema": "shadow.routing-eval.v1",
             "shadow.policy": POLICY_VERSION,
+            "shadow.final": final,
             "shadow.run_id": observation.run_id,
             "shadow.host": observation.host,
             "shadow.scenario": observation.scenario_id,
@@ -426,22 +440,61 @@ ORDER BY start_time DESC LIMIT 1 FORMAT JSONEachRow
             "shadow.input_tokens": observation.input_tokens if observation.input_tokens is not None else -1,
             "shadow.output_tokens": observation.output_tokens if observation.output_tokens is not None else -1,
             "shadow.cost_usd": observation.cost_usd if observation.cost_usd is not None else -1.0,
+            "shadow.langfuse_write_verified": observation.langfuse_write_verified,
+            "shadow.langfuse_readback_verified": observation.langfuse_readback_verified,
             "shadow.passed": grade.passed,
             "shadow.error": safe_error,
         }
-        span = {
+        return {
             "traceId": trace_id,
-            "spanId": span_id,
-            "name": f"routing:{observation.host}:{observation.scenario_id}",
+            "spanId": secrets.token_hex(8),
+            "name": (
+                f"routing-final:{observation.host}:{observation.scenario_id}"
+                if final
+                else f"routing-provisional:{observation.host}:{observation.scenario_id}"
+            ),
             "kind": 1,
             "startTimeUnixNano": str(now),
             "endTimeUnixNano": str(now + 1),
             "status": {"code": 1 if grade.passed else 2},
             "attributes": [_attr(key, value) for key, value in attrs.items()],
         }
-        self.send_spans([span])
+
+    def emit_observation(self, observation: RunObservation) -> str:
+        if (
+            observation.langfuse_trace_id is not None
+            or observation.langfuse_write_verified
+            or observation.langfuse_readback_verified
+        ):
+            raise GauntletError("Langfuse observation must begin in an unverified state")
+
+        trace_id = secrets.token_hex(16)
+        provisional_grade = grade_observation(observation)
+        self.send_spans([
+            self._observation_span(
+                observation,
+                provisional_grade,
+                trace_id,
+                final=False,
+            )
+        ])
         if not self.verify_trace(trace_id):
-            raise GauntletError("Langfuse accepted OTLP but exact trace was not readable")
+            raise LangfuseReadbackError(trace_id)
+
+        final_observation = replace(
+            observation,
+            langfuse_trace_id=trace_id,
+            langfuse_write_verified=True,
+            langfuse_readback_verified=True,
+        )
+        self.send_spans([
+            self._observation_span(
+                final_observation,
+                grade_observation(final_observation),
+                trace_id,
+                final=True,
+            )
+        ])
         return trace_id
 
 
@@ -749,17 +802,20 @@ def run_one(job: MatrixJob, sink: LangfuseSink, fixture_parent: Path, timeout: i
         cost_usd=cost,
         error=error,
     )
-    delivery_candidate = replace(
-        observation,
-        langfuse_write_verified=True,
-        langfuse_readback_verified=True,
-    )
-    provisional = grade_observation(delivery_candidate)
     try:
-        trace_id = sink.emit_observation(delivery_candidate, provisional)
+        trace_id = sink.emit_observation(observation)
         observation = replace(
-            delivery_candidate,
+            observation,
             langfuse_trace_id=trace_id,
+            langfuse_write_verified=True,
+            langfuse_readback_verified=True,
+        )
+    except LangfuseReadbackError as exc:
+        observation = replace(
+            observation,
+            langfuse_trace_id=exc.trace_id,
+            langfuse_write_verified=True,
+            error=observation.error or str(exc),
         )
     except GauntletError as exc:
         observation = replace(observation, error=observation.error or str(exc))

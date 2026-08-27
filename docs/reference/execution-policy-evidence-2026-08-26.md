@@ -81,6 +81,9 @@ how easily they can manufacture a false claim of intelligent delegation.
 6. **Telemetry delivery stood in for durable observation.** An accepted OTLP
    request is not a stored trace. Every gauntlet row needs exact trace-ID
    readback from Langfuse.
+   The writer records a red provisional span first, performs that exact
+   readback, and only then writes the final adjudication to the same trace. A
+   readback failure therefore cannot leave a green final record behind.
 7. **Delegation prose stood in for child lineage.** A parent mentioning an
    agent or claiming it used one is insufficient. Required-delegation rows need
    a structured native `Agent`, `spawn_agent`, or `spawn_subagent` witness.

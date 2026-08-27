@@ -171,6 +171,99 @@ class FalseGreenMutationTests(unittest.TestCase):
 
 
 class LocalSinkBoundaryTests(unittest.TestCase):
+    @staticmethod
+    def _passing_native_observation() -> object:
+        return gauntlet.RunObservation(
+            run_id="0123456789abcdef",
+            host="codex",
+            scenario_id="exact-code",
+            work_class="coding",
+            requested_model="gpt-5.6-sol",
+            observed_model="gpt-5.6-sol",
+            exit_code=0,
+            timed_out=False,
+            completion_sentinel="SHADOW_EVAL_EXACT_CODE_OK",
+            completion_observed=True,
+            expected_paths=("result.txt",),
+            changed_paths=("result.txt",),
+            deterministic_checks=("fixture-check",),
+            deterministic_checks_passed=True,
+            delegation_required=False,
+            child_spans=0,
+            langfuse_trace_id=None,
+            langfuse_write_verified=False,
+            langfuse_readback_verified=False,
+            input_tokens=100,
+            output_tokens=10,
+            cost_usd=0.01,
+            error=None,
+        )
+
+    @staticmethod
+    def _span_facts(span: dict[str, object]) -> tuple[bool | None, bool | None, bool | None, int]:
+        facts: dict[str, object] = {}
+        for attribute in span["attributes"]:  # type: ignore[index]
+            value = attribute["value"]  # type: ignore[index]
+            facts[attribute["key"]] = next(iter(value.values()))  # type: ignore[index]
+        return (
+            facts.get("shadow.final"),
+            facts.get("shadow.passed"),
+            facts.get("shadow.langfuse_readback_verified"),
+            span["status"]["code"],  # type: ignore[index]
+        )
+
+    def test_failed_readback_leaves_only_a_red_provisional_span(self) -> None:
+        sink = object.__new__(gauntlet.LangfuseSink)
+        events: list[tuple[object, ...]] = []
+
+        def send(spans: list[dict[str, object]]) -> None:
+            events.append(("send", *self._span_facts(spans[0])))
+
+        def reject_readback(_trace_id: str) -> bool:
+            events.append(("readback",))
+            return False
+
+        sink.send_spans = send
+        sink.verify_trace = reject_readback
+        try:
+            with self.assertRaises(gauntlet.GauntletError):
+                sink.emit_observation(self._passing_native_observation())
+        except TypeError as exc:
+            self.fail(f"emit_observation still requires pre-readback final state: {exc}")
+
+        self.assertEqual(
+            events,
+            [("send", False, False, False, 2), ("readback",)],
+        )
+
+    def test_green_adjudication_is_emitted_only_after_exact_readback(self) -> None:
+        sink = object.__new__(gauntlet.LangfuseSink)
+        events: list[tuple[object, ...]] = []
+
+        def send(spans: list[dict[str, object]]) -> None:
+            events.append(("send", *self._span_facts(spans[0])))
+
+        def accept_readback(_trace_id: str) -> bool:
+            events.append(("readback",))
+            return True
+
+        sink.send_spans = send
+        sink.verify_trace = accept_readback
+        try:
+            trace_id = sink.emit_observation(self._passing_native_observation())
+        except TypeError as exc:
+            self.fail(f"emit_observation still requires pre-readback final state: {exc}")
+
+        self.assertRegex(trace_id, r"^[0-9a-f]{32}$")
+        self.assertEqual(
+            events,
+            [
+                ("send", False, False, False, 2),
+                ("readback",),
+                ("send", True, True, True, 1),
+            ],
+        )
+
     def test_langfuse_sink_accepts_only_explicit_loopback_endpoints(self) -> None:
         common = {
             "SHADOW_LANGFUSE_PUBLIC_KEY": "public-test",

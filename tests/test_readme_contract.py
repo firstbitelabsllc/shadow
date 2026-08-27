@@ -96,6 +96,11 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertNotIn("proof: cmd npm test", text)
         # Never send a reader back to a repo-root PLAN.md: no such file exists.
         self.assertNotIn("shadow lint PLAN.md", text)
+        host_example = text.split("## 3. Work through a bounded host", 1)[1].split(
+            "## 4. Close the loop", 1
+        )[0]
+        self.assertIn("--work-class coding", host_example)
+        self.assertIn("--delegation direct", host_example)
 
     def test_public_help_is_quiet_and_advertises_supported_flags(self) -> None:
         verbs = (

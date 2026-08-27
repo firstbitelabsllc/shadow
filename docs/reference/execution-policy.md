@@ -105,8 +105,13 @@ Each terminal row is green only when all of these are true:
 - the exact completion token appears in the final model response, not merely
   in an echoed prompt;
 - a required native child leaves structured lineage;
-- an allowlisted summary span is accepted by local Langfuse; and
-- the exact trace ID is subsequently readable from Langfuse's event store.
+- an allowlisted red provisional span is accepted by local Langfuse;
+- the exact trace ID is subsequently readable from Langfuse's event store; and
+- only after that readback does the same trace receive its final adjudication.
+
+If readback fails, the trace retains only the red non-final span. This ordering
+prevents accepted-but-unreadable telemetry from leaving a contradictory green
+record in Langfuse.
 
 The mutation suite independently turns each predicate false and requires the
 grader to reject it. The gauntlet stores no raw prompt or transcript in
