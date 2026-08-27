@@ -31,7 +31,7 @@ aren't merged right now:
 
 ```bash
 scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'
-scripts/shadow-python.sh scripts/shadow-lint.py PLAN.md
+bin/shadow init --here && bin/shadow lint   # init makes the plan the grammar check lints
 scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty
 ```
 
