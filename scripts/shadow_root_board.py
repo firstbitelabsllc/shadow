@@ -191,6 +191,26 @@ def _git_marker(path: Path) -> Path | None:
     return None
 
 
+def well_formed_proof_origin(value: str) -> str:
+    """A plan-owned proof origin is one already-normalized public Git identity."""
+    if not value or any(char.isspace() for char in value):
+        raise ValueError("not a normalized Git identity")
+    if value.startswith(("/", "~", ".", "local-remote:")) or "\\" in value or ".." in value:
+        raise ValueError("not a normalized Git identity")
+    if PRIVATE_PATH_RE.search(value):
+        raise ValueError("not a normalized Git identity")
+    identity = normalized_origin(value)
+    host, sep, path = identity.partition("/")
+    if (
+        identity != value
+        or not sep
+        or not path
+        or "." not in host.split(":", 1)[0]
+    ):
+        raise ValueError("not a normalized Git identity")
+    return identity
+
+
 def normalized_origin(origin: str) -> str:
     """Return one offline identity for common Git remote spellings."""
     if not origin:

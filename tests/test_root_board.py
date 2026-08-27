@@ -234,6 +234,31 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             module.normalized_origin("http://example.test/org/repo.git"),
         )
 
+    def test_a_plan_owned_origin_must_already_be_normalized(self) -> None:
+        spec = importlib.util.spec_from_file_location("shadow_proof_origin", BOARD_MODULE)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+
+        self.assertEqual(
+            module.well_formed_proof_origin("github.com/example/widget"),
+            "github.com/example/widget",
+        )
+        for value in (
+            "",
+            "git@github.com:example/widget.git",
+            "https://github.com/example/widget.git",
+            "/tmp/widget.git",
+            "local-remote:/tmp/widget",
+            "github.com",
+            "./.forge",
+            "example/widget",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    module.well_formed_proof_origin(value)
+
     def test_filesystem_remotes_are_resolved_against_each_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

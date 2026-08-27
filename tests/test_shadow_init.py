@@ -62,6 +62,54 @@ class InitTests(unittest.TestCase):
         self.assertIn("- Option A ID: derive-and-execute", plan)
         self.assertNotIn("smallest", plan.lower())
         self.assertNotIn(" ".join(("one", "bounded")), plan.lower())
+        self.assertNotIn("- Origin:", plan)
+
+    def test_writes_normalized_origin_from_ssh_or_https(self) -> None:
+        urls = (
+            "git@github.com:example/widget.git",
+            "https://github.com/example/widget.git",
+            "ssh://git@github.com/example/widget.git",
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                with tempfile.TemporaryDirectory() as dirname:
+                    root = Path(dirname)
+                    repo = self.make_repo(root)
+                    subprocess.run(
+                        ["git", "-C", str(repo), "remote", "add", "origin", url],
+                        check=True,
+                    )
+                    home = root / "home"
+                    destination = home / ".shadow" / "plans" / "useful-project" / "PLAN.md"
+                    result = run("--here", cwd=repo, home=home)
+                    plan = destination.read_text(encoding="utf-8")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("- Origin: github.com/example/widget\n", plan)
+                self.assertNotIn("git@github.com", plan)
+                self.assertNotIn("https://", plan)
+                self.assertNotIn(dirname, plan)
+
+    def test_omits_origin_when_the_remote_is_a_filesystem_path(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            cases = (("relative-repo", "../forge.git"), ("absolute-repo", str(root / "forge.git")))
+            for name, url in cases:
+                with self.subTest(url=url):
+                    repo = root / name
+                    repo.mkdir()
+                    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+                    subprocess.run(
+                        ["git", "-C", str(repo), "remote", "add", "origin", url],
+                        check=True,
+                    )
+                    home = root / f"home-{name}"
+                    destination = home / ".shadow" / "plans" / name / "PLAN.md"
+                    result = run("--here", cwd=repo, home=home)
+                    plan = destination.read_text(encoding="utf-8")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotIn("- Origin:", plan)
+                    self.assertNotIn(dirname, plan)
+                    self.assertNotIn("/Users/", plan)
 
     def test_exclusive_plan_write_fsyncs_its_file_and_parent_directory(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

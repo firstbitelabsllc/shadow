@@ -11,6 +11,7 @@ ledger. Nothing requires a database, daemon, queue, or scheduler.
 ## Brief
 - Project: <name>             required; the project is the grep across plans
 - Mode: explore | ship        required; the only legal values
+- Origin: github.com/org/repo machine-local plans; one normalized proof-source identity
 - Priority: 1-5               optional; steering-default rank
 - Loop: /<skill>              only when it differs from /<project>-loop
 
@@ -40,6 +41,15 @@ ledger. Nothing requires a database, daemon, queue, or scheduler.
 `Project:` values match `^[a-z][a-z0-9-]{1,31}$` — lowercase slug, no spaces,
 no paths. Multi-repo projects repeat the same line in each member plan; the
 project view is the grep across them.
+
+`Origin:` is the machine-local plan's proof-source identity, written by
+`shadow init` from this computer's canonical origin normalizer. It is already
+normalized (`github.com/org/repo`), never a working-tree path, basename, or
+project slug. `shadow accept --entity` plus `--repo` requires exactly one
+well-formed line equal to the supplied checkout's normalized origin. Missing,
+duplicate, malformed, or different values fail closed. SSH and HTTPS spellings
+of the same remote normalize to one identity. A `--repo`-only accept does not
+read this line.
 
 ## Plan location
 

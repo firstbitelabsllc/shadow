@@ -5,8 +5,11 @@ This is the only code path that flips a `cmd`-proven checkpoint to completed.
 It parses the project PLAN.md, finds the row by its ~hash id, reruns a
 ``cmd``-classed proof inside a detached clean worktree of HEAD, and — only on
 success — rewrites the row's state and appends the paired PROOF Progress line
-in one commit. Its path-free ``--entity`` form also reconciles an authenticated,
-published ``cmd`` completion whose remote journal remains acquired. ``read`` and
+in one commit. ``--entity`` plus ``--repo`` selects one registered machine-local
+plan and uses ``--repo`` only as the proof checkout after the plan's Brief
+``Origin:`` equals that checkout's normalized origin. Path-free ``--entity``
+still reconciles an authenticated, published ``cmd`` completion whose remote
+journal remains acquired, and still refuses a local plan. ``read`` and
 ``gate`` proofs are person/agent judgments and are refused here on purpose.
 """
 
@@ -169,6 +172,38 @@ def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.Compl
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise AcceptError(f"project Git state cannot be read: {exc}") from exc
+
+
+def proof_source_checkout(repo: Path) -> Path:
+    """Resolve ``--repo`` to the Git toplevel where cmd proofs run."""
+    repo = repo.resolve()
+    source_top = git_completed(repo, "rev-parse", "--show-toplevel")
+    if source_top.returncode or not source_top.stdout.strip():
+        raise AcceptError("--repo must name a Git source checkout")
+    return Path(source_top.stdout.strip()).resolve()
+
+
+def bind_local_plan_to_proof_repo(plan_path: Path, source_root: Path) -> None:
+    """Require the local plan's Origin to equal ``--repo``'s normalized origin."""
+    try:
+        plan_text = _board.read_plan_text(plan_path)
+    except _board.BoardError as exc:
+        raise AcceptError(f"local plan cannot be read: {exc}") from exc
+    values = _grammar.brief_origin_values(plan_text)
+    if not values:
+        raise AcceptError("the local plan has no Origin")
+    if len(values) > 1:
+        raise AcceptError("the local plan has more than one Origin")
+    try:
+        declared = _board.well_formed_proof_origin(values[0])
+    except ValueError:
+        raise AcceptError("the local plan Origin is not a normalized Git identity")
+    origin = git_completed(source_root, "config", "--get", "remote.origin.url")
+    if origin.returncode or not origin.stdout.strip():
+        raise AcceptError("the proof checkout has no origin")
+    checkout = _board.normalized_origin(origin.stdout.strip())
+    if checkout != declared:
+        raise AcceptError("--repo origin does not match the plan Origin")
 
 
 def atomic_write_text(
@@ -1264,11 +1299,17 @@ def finalize_completed_retry_without_local_claim(
 def main(argv: list[str] | None = None) -> int:
     _remote_claim.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow accept", description=__doc__)
-    location = parser.add_mutually_exclusive_group(required=True)
-    location.add_argument("--repo", type=Path)
-    location.add_argument(
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        help="Git checkout where cmd proofs RUN, not where the plan lives",
+    )
+    parser.add_argument(
         "--entity",
-        help="computer-board entity id for path-free completed-claim recovery",
+        help=(
+            "computer-board entity id; with --repo, selects a machine-local "
+            "plan whose Origin matches --repo's normalized origin"
+        ),
     )
     parser.add_argument("--row", required=True)
     parser.add_argument("--by", required=True, help="stable owner of the existing claim")
@@ -1276,6 +1317,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-push", action="store_true",
                         help="commit without pushing (an unpushed flip is invisible to other seats)")
     args = parser.parse_args(argv)
+    if args.repo is None and not args.entity:
+        parser.error("one of the arguments --repo --entity is required")
     row_id = args.row.strip()
     try:
         if ROW_ID_RE.fullmatch(row_id) is None:
@@ -1293,16 +1336,28 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 plan_path = resolved["plan"]
                 if _board.is_local_plan(plan_path):
-                    raise _board.BoardError(
-                        "--entity recovery requires a Git-backed project plan"
+                    if args.repo is None:
+                        raise _board.BoardError(
+                            "--entity recovery requires a Git-backed project plan"
+                        )
+                    source_root = proof_source_checkout(args.repo)
+                    bind_local_plan_to_proof_repo(plan_path, source_root)
+                    owned_claim(_board.entity_state(plan_path), row_id, owner)
+                    return accept_local_plan(
+                        source_root,
+                        plan_path,
+                        row_id,
+                        owner,
+                        args.timeout_seconds,
+                    )
+                if args.repo is not None:
+                    raise AcceptError(
+                        "Git-backed --entity recovery does not take --repo"
                     )
             else:
                 repo = args.repo.resolve()
-                source_top = git_completed(repo, "rev-parse", "--show-toplevel")
-                if source_top.returncode or not source_top.stdout.strip():
-                    raise AcceptError("--repo must name a Git source checkout")
+                source_root = proof_source_checkout(repo)
                 requested_plan = repo / "PLAN.md"
-                source_root = Path(source_top.stdout.strip()).resolve()
                 # A machine-local authority deliberately supersedes the source
                 # checkout's PLAN.md. Worktrees do not necessarily share the
                 # canonical repository directory name, so resolve through the
