@@ -8,6 +8,8 @@
 - [Amp](amp.md) — the goal as a pointer, and what it deliberately will not do
 - [Chief-of-staff briefing](chief-of-staff.md)
 - [Native hosts](native-hosts.md)
+- [Native execution policy](execution-policy.md) — four work classes, explicit delegation, and the real 12 by 4 gauntlet
+- [Execution-policy evidence and cold takeover](execution-policy-evidence-2026-08-26.md) — dated results, hashes, falsifiers, and overnight continuation
 - [Browser](browser.md)
 - [A/B/C decisions](decision-mode.md)
 - [Outcome contract](outcome-choice.md)

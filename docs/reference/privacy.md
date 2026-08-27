@@ -51,5 +51,11 @@ event beneath the current project's `.shadow/evidence/`; it contains no plan
 payload, proof output, environment, provider/account data, or operator path and
 is never authority. The optional Git coordination lock carries no telemetry;
 local receipts and Git history remain the only durable work/proof surfaces.
-Which provider or account a native host uses is the host CLI's own business —
-Shadow passes no selector and records none.
+Shadow supplies the non-secret model selector from the chosen native host and
+semantic work class, configures the explicit `direct|required` shape, then
+records those requests in the private attempt receipt. It never records an
+account, credential, session, billing identifier, prompt, transcript, or
+provider payload. The product receipt does not infer an observed model or child
+spawn from a request. Observed-model, child-lineage, and usage evidence belongs
+only to the owner's local evaluation gauntlet; its bounded Langfuse summary is
+not a portable receipt or product authority.

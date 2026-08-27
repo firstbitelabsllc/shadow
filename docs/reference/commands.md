@@ -20,7 +20,7 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow lint [--repo PATH] PLAN.md …` | Check plans against the grammar; blocking findings exit non-zero. A registered machine-local plan uses `--repo` to check proof scripts at its source checkout's committed HEAD. |
 | `shadow browse --root PATH [--no-open] [--port N] [--host HOST] [--allow-host NAME ...]` | Start the loopback briefing UI. `--allow-host` (repeatable) only widens the accepted `Host` header for a self-run proxy; the bind stays loopback. |
 | `shadow host probe --host HOST` | Check a native host without using it. |
-| `shadow host run …` | Run a claimed task in its clean worktree; invoke again for path-disjoint lanes. |
+| `shadow host run --host HOST --work-class CLASS --delegation MODE …` | Run a claimed task in its clean worktree with the checked-in native model selector for that host/class pair. `CLASS` is `planning`, `coding`, `review`, or `lightweight`; `MODE` is `direct` or `required`. Required delegation enables only a verified native child door and fails closed when unavailable. Invoke again for path-disjoint lanes. |
 | `shadow slots` | Report which extension slots are filled. Absent is a WARN and exits 0; a wrong binding FAILs. No slot reads tooling Shadow does not itself call. |
 | `shadow doctor` | Check installation, skill mounts, native hosts, and whether each host carries the current standing goal. |
 
