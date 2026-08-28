@@ -174,6 +174,10 @@ class ShadowAcceptTests(unittest.TestCase):
             plan.parent.mkdir(parents=True)
             plan.write_text(
                 PLAN.replace(
+                    "- Mode: ship\n",
+                    "- Mode: ship\n- Origin: github.com/example/detached-head\n",
+                    1,
+                ).replace(
                     'cmd python3 -c "import pathlib,sys; '
                     "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
                     "cmd python3 proof.py",
