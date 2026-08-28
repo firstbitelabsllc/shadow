@@ -39,16 +39,34 @@ def display_name(value: str) -> str:
     return " ".join(word[:1].upper() + word[1:] for word in words) or "Project"
 
 
-def plan_text(repo: Path, now: str) -> str:
+def proof_source_origin(repo: Path) -> str | None:
+    """Return this checkout's normalized public origin, or omit a private path."""
+    result = subprocess.run(
+        ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode or not result.stdout.strip():
+        return None
+    identity = board.normalized_origin(result.stdout.strip())
+    try:
+        return board.well_formed_proof_origin(identity)
+    except ValueError:
+        return None
+
+
+def plan_text(repo: Path, now: str, *, origin: str | None = None) -> str:
     project_id = public_identifier(repo.name)
     name = display_name(repo.name)
+    origin_line = f"- Origin: {origin}\n" if origin else ""
     return f"""# {name}
 
 ## Brief
 
 - Project: {project_id}
 - Mode: explore
-- Outcome ID: ship-{project_id}
+{origin_line}- Outcome ID: ship-{project_id}
 - Outcome Revision: 1
 - Outcome Updated At: {now}
 - Outcome State: needs_input
@@ -127,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(destination.parent, 0o700)
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    text = plan_text(repo, now)
+    text = plan_text(repo, now, origin=proof_source_origin(repo))
     try:
         write_exclusive(destination, text)
     except FileExistsError:
