@@ -794,9 +794,11 @@ def declared_plan_globs(plan_text: str) -> list[str]:
             raise BrowserError(
                 "recursive plan globs are not supported; declare bounded depths explicitly"
             )
-        globs.append(candidate)
         if len(globs) == MAX_DECLARED_GLOBS:
-            break
+            raise BrowserError(
+                f"more than {MAX_DECLARED_GLOBS} declared plan globs are not supported"
+            )
+        globs.append(candidate)
     return globs
 
 
