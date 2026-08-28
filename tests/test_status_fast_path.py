@@ -139,10 +139,12 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
 
         with (
             mock.patch.object(
-                status._remote_claim, "managed_repo_for_plan", return_value=repo
-            ),
-            mock.patch.object(
-                status._remote_claim, "uses_origin_upstream", return_value=True
+                status._remote_claim,
+                "managed_repo_for_plan",
+                return_value=(
+                    status._remote_claim.RemoteEligibility.REMOTE,
+                    repo,
+                ),
             ),
             mock.patch.object(
                 status._board,
@@ -467,6 +469,135 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             [[claim["owner"] for claim in record["live_claims"]] for record in records],
             [["remote-owned"], []],
         )
+
+    def test_indeterminate_eligibility_is_broken_without_poisoning_peer(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = (root / "repo").resolve()
+            first_plan = repo / "first" / "PLAN.md"
+            second_plan = repo / "second" / "PLAN.md"
+            (repo / ".git").mkdir(parents=True)
+            first_plan.parent.mkdir()
+            second_plan.parent.mkdir()
+            first_plan.write_text(
+                plan("first", "~aa11", "do not expose this row"),
+                encoding="utf-8",
+            )
+            second_plan.write_text(
+                plan("second", "~bb22", "keep this peer available"),
+                encoding="utf-8",
+            )
+            first_id = "a" * 64
+            second_id = "b" * 64
+            payload = {
+                "schema": "shadow.root-board.v1",
+                "revision": 42,
+                "projects": [
+                    {"id": "first", "priority": 1},
+                    {"id": "second", "priority": 2},
+                ],
+                "entities": [
+                    {
+                        "id": first_id,
+                        "project": "first",
+                        "plan": str(first_plan),
+                        "resume": "~aa11",
+                    },
+                    {
+                        "id": second_id,
+                        "project": "second",
+                        "plan": str(second_plan),
+                        "resume": "~bb22",
+                    },
+                ],
+                "claims": [],
+            }
+            calls: list[tuple[str, ...]] = []
+            eligibility_probes = 0
+
+            def git(_repo, *args, **_kwargs):
+                nonlocal eligibility_probes
+                calls.append(args)
+                if args == ("rev-parse", "--show-toplevel"):
+                    return subprocess.CompletedProcess(args, 0, f"{repo}\n".encode(), b"")
+                if args[0] == "symbolic-ref":
+                    eligibility_probes += 1
+                    if eligibility_probes == 1:
+                        return subprocess.CompletedProcess(
+                            args, 2, b"", b"eligibility probe failed"
+                        )
+                    return subprocess.CompletedProcess(args, 0, b"main\n", b"")
+                if args == ("config", "--get", "branch.main.remote"):
+                    return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
+                if args == ("config", "--get", "branch.main.merge"):
+                    return subprocess.CompletedProcess(
+                        args, 0, b"refs/heads/main\n", b""
+                    )
+                if args[:3] == ("ls-remote", "--refs", "origin"):
+                    return subprocess.CompletedProcess(args, 0, b"", b"")
+                self.fail(f"unexpected git call: {args}")
+
+            with (
+                mock.patch.object(status._remote_claim, "_git", side_effect=git),
+                mock.patch.object(
+                    status._board,
+                    "frozen_plan_snapshot",
+                    return_value=(
+                        {"repo": str(repo), "relative": "second/PLAN.md"},
+                        b"",
+                    ),
+                ),
+            ):
+                records = status.board_records(payload)
+
+        self.assertEqual(eligibility_probes, 2, calls)
+        self.assertTrue(records[0]["broken"], records[0])
+        self.assertIn(status.REMOTE_DISCOVERY_ISSUE, records[0]["resume"])
+        self.assertIsNone(records[0].get("next_unclaimed"))
+        first_checkpoint = records[0]["milestones"][0]["checkpoints"][0]
+        self.assertEqual(first_checkpoint["availability"], "unknown")
+        self.assertFalse(records[1].get("broken", False), records[1])
+        self.assertEqual(records[1]["next_unclaimed"], "~bb22")
+        ls_remote_calls = [call for call in calls if call[0] == "ls-remote"]
+        self.assertEqual(len(ls_remote_calls), 1, calls)
+        self.assertEqual(
+            {ref.split("/")[-2] for ref in ls_remote_calls[0][3:]},
+            {second_id},
+        )
+
+    def test_remote_eligibility_states_include_timeout_unknown(self) -> None:
+        completed = subprocess.CompletedProcess
+        remote_results = [
+            completed(("symbolic-ref",), 0, b"main\n", b""),
+            completed(("config",), 0, b"origin\n", b""),
+            completed(("config",), 0, b"refs/heads/main\n", b""),
+        ]
+        local_results = [
+            completed(("symbolic-ref",), 0, b"main\n", b""),
+            completed(("config",), 1, b"", b""),
+        ]
+
+        with mock.patch.object(
+            status._remote_claim, "_git", side_effect=remote_results
+        ):
+            remote = status._remote_claim.origin_upstream_eligibility(Path("."))
+        with mock.patch.object(
+            status._remote_claim, "_git", side_effect=local_results
+        ):
+            local = status._remote_claim.origin_upstream_eligibility(Path("."))
+        with mock.patch.object(
+            status._remote_claim.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(("git",), 20),
+        ):
+            unknown = status._remote_claim.origin_upstream_eligibility(Path("."))
+
+        self.assertIs(remote, status._remote_claim.RemoteEligibility.REMOTE)
+        self.assertIs(
+            local,
+            status._remote_claim.RemoteEligibility.VERIFIED_LOCAL_ONLY,
+        )
+        self.assertIs(unknown, status._remote_claim.RemoteEligibility.UNKNOWN)
 
     def test_exhaustive_isolates_invalid_remote_receipt_per_entity(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

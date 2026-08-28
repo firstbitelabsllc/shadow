@@ -473,8 +473,14 @@ def prepare_status_entities(
             continue
         item.update(text=text, parsed=parsed)
         try:
-            repo = _remote_claim.managed_repo_for_plan(plan_path)
+            eligibility, repo = _remote_claim.managed_repo_for_plan(plan_path)
+            if eligibility is _remote_claim.RemoteEligibility.UNKNOWN:
+                item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
+                continue
+            if eligibility is _remote_claim.RemoteEligibility.VERIFIED_LOCAL_ONLY:
+                continue
             if repo is None:
+                item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
                 continue
             token, _ = _board.frozen_plan_snapshot(plan_path)
         except (_board.BoardError, OSError, UnicodeError):
@@ -498,7 +504,11 @@ def prepare_status_entities(
     for repo, requests in batches.items():
         entity_ids = {request["entity"] for request in requests}
         try:
-            observed = _remote_claim.discover_active_batch(repo, requests=requests)
+            observed = _remote_claim.discover_active_batch(
+                repo,
+                requests=requests,
+                verified_eligibility=_remote_claim.RemoteEligibility.REMOTE,
+            )
         except (_remote_claim.RemoteClaimError, OSError, UnicodeError):
             observed = None
         valid = (
