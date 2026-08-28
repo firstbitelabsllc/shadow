@@ -31,7 +31,8 @@ aren't merged right now:
 
 ```bash
 scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'
-bin/shadow init --here && bin/shadow lint   # init makes the plan the grammar check lints
+PLAN_PATH=$(bin/shadow init --here | awk -F': ' '{print $2}')
+bin/shadow lint "$PLAN_PATH"   # init makes the plan; lint takes its path
 scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty
 ```
 
