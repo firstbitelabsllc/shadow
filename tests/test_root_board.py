@@ -2841,6 +2841,17 @@ class ProjectsGroupEntitiesWithoutCollapsingThem(unittest.TestCase):
                 for item in payload["entities"]
             }
             self.assertEqual(set(entities), {"PLAN.md", "plans/api/PLAN.md"})
+            selected, owned = board_api.seat_board_entities(payload, "cold-seat")
+            self.assertEqual(owned, 0)
+            self.assertEqual(len(selected), 1)
+            next_selected, next_owned = board_api.seat_board_entities(
+                payload,
+                "cold-seat",
+                inspected_entities=selected,
+            )
+            self.assertEqual(next_owned, 0)
+            self.assertEqual(len(next_selected), 1)
+            self.assertEqual(selected | next_selected, set(entities.values()))
 
             for entity_id in entities.values():
                 claimed = run(
@@ -2864,6 +2875,13 @@ class ProjectsGroupEntitiesWithoutCollapsingThem(unittest.TestCase):
                 {(item["entity"], item["row"]) for item in claims},
                 {(entity_id, "~aa11") for entity_id in entities.values()},
             )
+            selected_owned, owned_count = board_api.seat_board_entities(
+                board(home),
+                "map-seat",
+                inspected_entities=set(entities.values()),
+            )
+            self.assertEqual(selected_owned, set(entities.values()))
+            self.assertEqual(owned_count, 2)
 
             cold = run(home, "status", "--by", "map-seat", cwd=unrelated)
             self.assertEqual(cold.returncode, 0, cold.stderr)
@@ -2898,6 +2916,82 @@ class ProjectsGroupEntitiesWithoutCollapsingThem(unittest.TestCase):
             self.assertNotIn("API-TASK-BELONGS-TO-NESTED-ENTITY", root_resume.stdout)
             self.assertIn("API-TASK-BELONGS-TO-NESTED-ENTITY", nested_resume.stdout)
             self.assertNotIn("TASK-BODY-MUST-NOT-ENTER-THE-BOARD", nested_resume.stdout)
+
+            accepted_root = run(
+                home,
+                "accept",
+                "--entity",
+                entities["PLAN.md"],
+                "--row",
+                "~aa11",
+                "--by",
+                "map-seat",
+                "--no-push",
+                cwd=unrelated,
+            )
+            self.assertEqual(accepted_root.returncode, 0, accepted_root.stderr)
+            after_root = board(home)
+            after_root_entities = {
+                Path(item["plan"]).resolve().relative_to(repo.resolve()).as_posix(): item
+                for item in after_root["entities"]
+            }
+            self.assertEqual(
+                {
+                    (item["entity"], item["row"], item["owner"])
+                    for item in after_root["claims"]
+                },
+                {
+                    (
+                        entities["plans/api/PLAN.md"],
+                        "~aa11",
+                        "map-seat",
+                    )
+                },
+            )
+            self.assertEqual(after_root_entities["PLAN.md"]["resume"], "~bb22")
+            self.assertEqual(
+                after_root_entities["plans/api/PLAN.md"]["resume"],
+                "~aa11",
+            )
+            self.assertIn(
+                "- [completed] TASK-BODY-MUST-NOT-ENTER-THE-BOARD ~aa11",
+                root_plan.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "- [pending] API-TASK-BELONGS-TO-NESTED-ENTITY ~aa11",
+                nested_plan.read_text(encoding="utf-8"),
+            )
+
+            accepted_nested = run(
+                home,
+                "accept",
+                "--entity",
+                entities["plans/api/PLAN.md"],
+                "--row",
+                "~aa11",
+                "--by",
+                "map-seat",
+                "--no-push",
+                cwd=unrelated,
+            )
+            self.assertEqual(accepted_nested.returncode, 0, accepted_nested.stderr)
+            after_nested = board(home)
+            self.assertEqual(after_nested["claims"], [])
+            self.assertEqual(
+                {
+                    Path(item["plan"]).resolve().relative_to(repo.resolve()).as_posix():
+                    item["resume"]
+                    for item in after_nested["entities"]
+                },
+                {
+                    "PLAN.md": "~bb22",
+                    "plans/api/PLAN.md": "~bb22",
+                },
+            )
+            self.assertIn(
+                "- [completed] API-TASK-BELONGS-TO-NESTED-ENTITY ~aa11",
+                nested_plan.read_text(encoding="utf-8"),
+            )
 
     def test_sibling_row_id_never_satisfies_local_needs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

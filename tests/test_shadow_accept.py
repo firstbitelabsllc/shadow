@@ -132,6 +132,122 @@ def fail_after_project_commit(*args, **kwargs):
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def test_detached_proof_cannot_move_the_accepted_source_head(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            git(
+                repo,
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/detached-head.git",
+            )
+            (repo / "proof.py").write_text(
+                "import os\n"
+                "from pathlib import Path\n"
+                "import subprocess\n"
+                "subprocess.run(\n"
+                "    ['git', 'reset', '--hard', os.environ['OTHER_SOURCE_HEAD']],\n"
+                "    check=True,\n"
+                "    stdout=subprocess.DEVNULL,\n"
+                ")\n"
+                "raise SystemExit(\n"
+                "    0\n"
+                "    if Path('proof.txt').read_text(encoding='utf-8') == 'other\\n'\n"
+                "    else 1\n"
+                ")\n",
+                encoding="utf-8",
+            )
+            (repo / "proof.txt").write_text("frozen\n", encoding="utf-8")
+            git(repo, "add", "proof.py", "proof.txt")
+            git(repo, "commit", "-qm", "seed frozen proof")
+            frozen_head = git(repo, "rev-parse", "HEAD")
+            (repo / "proof.txt").write_text("other\n", encoding="utf-8")
+            git(repo, "add", "proof.txt")
+            git(repo, "commit", "-qm", "other proof")
+            other_head = git(repo, "rev-parse", "HEAD")
+            git(repo, "reset", "--hard", frozen_head)
+            home = root / "home"
+            home.mkdir()
+            plan = home / ".shadow" / "plans" / "detached-head" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(
+                PLAN.replace(
+                    'cmd python3 -c "import pathlib,sys; '
+                    "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
+                    "cmd python3 proof.py",
+                ),
+                encoding="utf-8",
+            )
+            accept._board.reconcile(
+                [
+                    {
+                        "plan": str(plan),
+                        "project": "detached",
+                        "priority": 1,
+                        "candidates": ["~ab12"],
+                    }
+                ],
+                [],
+                home=home,
+            )
+            accept._board.claim(
+                plan,
+                "~ab12",
+                "seat-a",
+                project="detached",
+                priority=1,
+                home=home,
+            )
+            entity = accept._board.entity_state(
+                plan, home=home
+            )["entity"]["id"]
+            plan_before = plan.read_bytes()
+            board_before = (home / ".shadow" / "board.json").read_bytes()
+            output = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HOME": str(home),
+                    "OTHER_SOURCE_HEAD": other_head,
+                },
+            ), redirect_stdout(output), redirect_stderr(output):
+                result = accept.main(
+                    [
+                        "--entity",
+                        entity,
+                        "--repo",
+                        str(repo),
+                        "--row",
+                        "~ab12",
+                        "--by",
+                        "seat-a",
+                    ]
+                )
+
+            self.assertEqual(result, 1, output.getvalue())
+            self.assertIn(
+                "proof did not pass from the detached source checkout",
+                output.getvalue(),
+            )
+            self.assertEqual(plan.read_bytes(), plan_before)
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                board_before,
+            )
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), frozen_head)
+            self.assertEqual(
+                [
+                    claim["row"]
+                    for claim in accept._board.entity_state(
+                        plan, home=home
+                    )["claims"]
+                ],
+                ["~ab12"],
+            )
+
     def test_local_completed_retry_uses_the_recorded_source_head(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()

@@ -1160,6 +1160,50 @@ def snapshot(*, home: Path | None = None) -> dict | None:
     return None
 
 
+def seat_board_entities(
+    payload: dict,
+    seat: str,
+    *,
+    inspected_entities: set[str] | None = None,
+) -> tuple[set[str], int]:
+    """Return every locally owned entity or the next cold-seat board candidate."""
+    seat = validate_owner(seat)
+    inspected = set(inspected_entities or ())
+    known = {entity["id"] for entity in payload["entities"]}
+    if any(ENTITY_ID.fullmatch(identity) is None for identity in inspected):
+        raise BoardError("inspected entities must be logical entity ids")
+    if not inspected.issubset(known):
+        raise BoardError("inspected entity is absent from this root board snapshot")
+    owned = {
+        claim["entity"]
+        for claim in payload["claims"]
+        if claim["owner"] == seat
+    }
+    if owned:
+        return owned, len(owned)
+    priorities = {
+        project["id"]: project["priority"]
+        for project in payload["projects"]
+    }
+    ordered = sorted(
+        payload["entities"],
+        key=lambda entity: (
+            priorities[entity["project"]],
+            entity["project"],
+            entity["id"],
+        ),
+    )
+    remaining = [
+        entity for entity in ordered
+        if entity["id"] not in inspected
+    ]
+    candidate = next(
+        (entity for entity in remaining if entity["resume"] is not None),
+        remaining[0] if remaining else None,
+    )
+    return ({candidate["id"]} if candidate is not None else set()), 0
+
+
 def _identity_index(payload: dict) -> dict[str, list[dict]]:
     """Index live identities once; stored ids are fallback only for missing plans."""
     result: dict[str, list[dict]] = {}

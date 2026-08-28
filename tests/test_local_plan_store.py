@@ -950,7 +950,6 @@ class LocalPlanStore(unittest.TestCase):
                 text,
             )
             self.assertEqual(board.entity_state(plan, home=home)["claims"], [])
-
     def test_detached_proof_cannot_move_the_accepted_source_head(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
