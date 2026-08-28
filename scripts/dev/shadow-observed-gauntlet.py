@@ -31,11 +31,13 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -92,6 +94,31 @@ class Sink:
         self.endpoint = host.rstrip("/") + "/api/public/otel/v1/traces"
         token = base64.b64encode(f"{public}:{secret}".encode()).decode()
         self.auth = f"Basic {token}"
+        self.readback = os.environ.get("SHADOW_LANGFUSE_READBACK_URL", "").strip().rstrip("/")
+        if self.readback:
+            parsed = urllib.parse.urlparse(self.readback)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise SystemExit("SHADOW_LANGFUSE_READBACK_URL must be an explicit loopback HTTP endpoint")
+        self.project_id = os.environ.get("SHADOW_LANGFUSE_PROJECT_ID", "")
+        self.readback_user = os.environ.get("SHADOW_LANGFUSE_READBACK_USER", "")
+        self.readback_password = os.environ.get("SHADOW_LANGFUSE_READBACK_PASSWORD", "")
+
+    def _readback_query(self, query: str) -> str:
+        request = urllib.request.Request(self.readback, data=query.encode(), method="POST")
+        if self.readback_user or self.readback_password:
+            token = base64.b64encode(
+                f"{self.readback_user}:{self.readback_password}".encode()
+            ).decode()
+            request.add_header("Authorization", f"Basic {token}")
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.read().decode().strip()
 
     def send_spans(self, spans: list[dict]) -> bool:
         payload = {
@@ -118,6 +145,30 @@ class Sink:
 
     def verify_trace(self, trace_id: str, *, attempts: int = 8, delay_s: float = 5.0) -> bool:
         """The doc contract: accepted HTTP without an exact trace-ID readback is red."""
+        if self.readback and self.project_id:
+            return self._verify_trace_clickhouse(trace_id, attempts=attempts, delay_s=delay_s)
+        return self._verify_trace_web(trace_id, attempts=attempts, delay_s=delay_s)
+
+    def _verify_trace_clickhouse(self, trace_id: str, *, attempts: int, delay_s: float) -> bool:
+        """v4 readback: exact trace id must appear in default.events_core, the
+        same path the routing gauntlet uses, so both gauntlets share one sink."""
+        if not re.fullmatch(r"[0-9a-f]{32}", trace_id):
+            return False
+        query = (
+            "SELECT count() FROM default.events_core "
+            f"WHERE project_id = '{self.project_id}' AND trace_id = '{trace_id}' FORMAT TSV"
+        )
+        for attempt in range(attempts):
+            try:
+                if int(self._readback_query(query) or "0") >= 1:
+                    return True
+            except (ValueError, urllib.error.URLError, OSError):
+                pass
+            if attempt + 1 < attempts:
+                time.sleep(delay_s)
+        return False
+
+    def _verify_trace_web(self, trace_id: str, *, attempts: int, delay_s: float) -> bool:
         request = urllib.request.Request(
             f"{self.host}/api/public/traces/{trace_id}",
             headers={"Authorization": self.auth},

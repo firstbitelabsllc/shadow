@@ -24,11 +24,22 @@ SPEC.loader.exec_module(gauntlet)
 class FakeLangfuse(http.server.BaseHTTPRequestHandler):
     traces: set[str] = set()
     accept_otel = True
+    clickhouse_queries: list[str] = []
 
     def log_message(self, *args: object) -> None:
         return
 
     def do_POST(self) -> None:
+        if self.path == "/":
+            length = int(self.headers.get("Content-Length", 0))
+            query = self.rfile.read(length).decode()
+            self.clickhouse_queries.append(query)
+            trace_id = query.split("trace_id = '")[1].split("'")[0] if "trace_id = '" in query else ""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"1" if trace_id in self.traces else b"0")
+            return
         if not self.path.startswith("/api/public/otel/v1/traces"):
             self.send_error(404)
             return
@@ -61,6 +72,7 @@ class ReadbackGateTests(unittest.TestCase):
     def setUp(self) -> None:
         FakeLangfuse.traces = set()
         FakeLangfuse.accept_otel = True
+        FakeLangfuse.clickhouse_queries = []
         self.server = http.server.HTTPServer(("127.0.0.1", 0), FakeLangfuse)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -96,6 +108,15 @@ class ReadbackGateTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.assertEqual(self.run_gauntlet(), 1)
+
+    def test_clickhouse_readback_path_preferred_when_configured(self) -> None:
+        self.env["SHADOW_LANGFUSE_READBACK_URL"] = self.env["SHADOW_LANGFUSE_HOST"]
+        self.env["SHADOW_LANGFUSE_PROJECT_ID"] = "shadow-test"
+        self.assertEqual(self.run_gauntlet(), 0)
+        self.assertTrue(
+            any("FROM default.events_core" in q for q in FakeLangfuse.clickhouse_queries),
+            "the v4 events_core readback must be used when READBACK_URL + PROJECT_ID are set",
+        )
 
 
 if __name__ == "__main__":
