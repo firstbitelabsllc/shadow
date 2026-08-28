@@ -20,6 +20,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "shadow init --here",
             "shadow status",
             "shadow accept",
+            "--proposal",
             "shadow doctor",
             "install.sh",
             "--branch shadow-v1.3.0",
@@ -261,6 +262,27 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertIn("machine-local entity plan", accept.stdout)
         self.assertIn("verified committed HEAD", accept.stdout)
         self.assertIn("does not confine", accept.stdout)
+        self.assertIn("--proposal", accept.stdout)
+
+    def test_proposal_acceptance_is_public_and_narrow(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(
+            encoding="utf-8"
+        )
+
+        for text in (readme, grammar):
+            self.assertIn("--proposal", text)
+            self.assertIn("machine-local", text)
+            self.assertIn("sealed Codex", text)
+            self.assertIn("Git-backed", text)
+        for phrase in (
+            "shadow.authority-proposal.v1",
+            "shadow.proof-result.v1",
+            "marker:",
+            "floor:",
+            "exact prior plan root",
+        ):
+            self.assertIn(phrase, grammar)
 
     def test_banner_honors_reduced_motion(self) -> None:
         text = (ROOT / "assets" / "shadow-banner.svg").read_text(encoding="utf-8")

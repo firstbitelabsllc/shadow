@@ -18,6 +18,7 @@ Nothing requires a database, daemon, queue, or scheduler.
 ## Tasks
 ### <milestone heading>       2-7 tasks + exactly one (DoD)
 - [pending] <state the world reaches> ~ab12 | proof: cmd <runnable> | needs: ~cd34
+- [pending] <proposal-enabled outcome> ~ef56 | proof: cmd <runnable> | marker: <result-name> | floor: <positive integer>
 - [pending] <...> ~ef56 (DoD) | proof: read <artifact/url> -> <observation>
 
 ## Deferred
@@ -178,6 +179,10 @@ plan.
   -> expected observation>` (a human or agent re-reads the real surface), or
   `gate <owner> resume: <predicate>` (person-gated; closes agent-side with a
   handoff). Bare prose proof is a lint finding. No proof, no completed.
+- `marker: <result-name>` and `floor: <positive integer>` are an optional pair
+  reserved for proposal-enabled `cmd` rows. The marker is 1-80 lowercase
+  letters, digits, dots, underscores, or hyphens; the floor is an integer from
+  1 through 999999999. A row declaring either field must declare both.
 - `needs: ~hash[, ~hash]` is the only dependency edge and dependency-readiness
   gate: references are local to the same entity plan, and a task is
   dependency-ready when it is pending and every needs-target is completed.
@@ -194,6 +199,28 @@ plan.
 - A task flips completed only in the same commit as its PROOF line;
   `shadow accept --row ... --by <seat>` reruns a `cmd` proof in a clean detached checkout
   and is the only code path that flips a task.
+
+## Proposal-only acceptance
+
+`shadow accept --proposal` is an opt-in machine-local completion path. It
+requires exact `--entity`, `--repo`, `--row`, and `--by` selectors plus one
+sealed Codex workspace-write attempt below the source checkout's
+`.shadow/evidence/` directory. The attempt may contain exactly one closed
+`shadow.authority-proposal.v1` request for `complete`; it cannot provide proof
+text, a marker, a floor, receipts, timestamps, source identity, or authority
+edits.
+
+Shadow reads the proof command, marker, floor, dependencies, contradiction
+state, and claim only from the canonical plan. The proof must exit zero and
+emit exactly one `shadow.proof-result.v1` object whose `result` is `pass`, whose
+marker exactly matches the row, and whose integer `executed` value meets the
+row's floor. Shadow binds and rechecks the entity, row, owner, claim, plan root,
+and source `HEAD` before publishing the completion and releasing the claim.
+Failure restores the exact prior plan root and object store.
+
+Proposal-enabled rows cannot fall back to legacy acceptance. Git-backed
+authority, non-Codex hosts, and `read` or `gate` proofs do not support
+proposals.
 
 ## Milestone law
 
