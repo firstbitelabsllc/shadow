@@ -884,7 +884,6 @@ def project_lock(plan: Path) -> Iterator[None]:
         raise BoardError("project lifecycle lock requires a regular, non-symlink PLAN.md")
     if is_local_plan(plan):
         common_dir = plan.parent
-        lock = common_dir / ".shadow-lifecycle.lock"
     else:
         common = _git(plan.parent, "rev-parse", "--git-common-dir")
         if common.returncode or not common.stdout.strip():
@@ -894,7 +893,7 @@ def project_lock(plan: Path) -> Iterator[None]:
             common_dir = (plan.parent / common_dir).resolve()
         if common_dir.is_symlink() or not common_dir.is_dir():
             raise BoardError("project Git common directory is unsafe")
-        lock = common_dir / ".shadow-lifecycle.lock"
+    lock = common_dir / f".shadow-lifecycle-{entity_id(plan)}.lock"
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(lock, flags, 0o600)
