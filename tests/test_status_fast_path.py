@@ -123,6 +123,10 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         }
 
         def git(_repo, *args, **_kwargs):
+            if args[:3] == ("symbolic-ref", "--quiet", "--short"):
+                return subprocess.CompletedProcess(args, 0, b"main\n", b"")
+            if args[:2] == ("config", "--get") and args[2].endswith(".remote") and not args[2].startswith("remote."):
+                return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
             if args[:3] == ("ls-remote", "--refs", "origin"):
                 output = "".join(
                     f"{commit_id}\t{ref}\n"
@@ -550,7 +554,10 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             ):
                 records = status.board_records(payload)
 
-        self.assertEqual(eligibility_probes, 2, calls)
+        # The first repo burns one probe and fails; the healthy peer then
+        # resolves its upstream remote once more for the transport itself
+        # (the claim module no longer assumes the name `origin`).
+        self.assertEqual(eligibility_probes, 3, calls)
         self.assertTrue(records[0]["broken"], records[0])
         self.assertIn(status.REMOTE_DISCOVERY_ISSUE, records[0]["resume"])
         self.assertIsNone(records[0].get("next_unclaimed"))

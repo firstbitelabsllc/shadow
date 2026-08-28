@@ -661,6 +661,38 @@ def origin_of(repo: Path) -> str:
         if result is not None and result.returncode == 0
         else ""
     )
+    if not origin:
+        branch = subprocess.run(
+            ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        remote = (
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "--get", f"branch.{branch.stdout.strip()}.remote"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if branch.returncode == 0 and branch.stdout.strip()
+            else None
+        )
+        upstream_url = (
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "--get", f"remote.{remote.stdout.strip()}.url"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if remote is not None and remote.returncode == 0 and remote.stdout.strip()
+            else None
+        )
+        if upstream_url is not None and upstream_url.returncode == 0 and upstream_url.stdout.strip():
+            origin = normalized_repo_origin(repo, upstream_url.stdout.strip())
     if origin:
         if cache is not None:
             cache.origins[cache_key] = origin

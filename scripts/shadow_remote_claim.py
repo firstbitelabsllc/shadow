@@ -128,6 +128,30 @@ def _one_git_value(result: subprocess.CompletedProcess[bytes]) -> str | None:
     return values[0].strip()
 
 
+def _upstream_remote_name(repo: Path) -> str | None:
+    """The current branch's upstream remote name, or None when indeterminate.
+
+    Mirrors the eligibility probe discipline: a failed or ambiguous probe
+    never resolves to a transport remote."""
+    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if branch.returncode:
+        return None
+    name = _one_git_value(branch)
+    if name is None:
+        return None
+    remote = _git(repo, "config", "--get", f"branch.{name}.remote")
+    if remote.returncode:
+        return None
+    return _one_git_value(remote)
+
+
+def _transport_remote(repo: Path) -> str:
+    """The remote claim transport speaks to the branch's upstream remote;
+    falling back to the historical name preserves every existing failure mode
+    for checkouts with no configured upstream."""
+    return _upstream_remote_name(repo) or "origin"
+
+
 def origin_upstream_eligibility(repo: Path) -> RemoteEligibility:
     """Classify origin tracking without treating an unreadable probe as local-only."""
     branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
@@ -146,8 +170,6 @@ def origin_upstream_eligibility(repo: Path) -> RemoteEligibility:
     remote_name = _one_git_value(remote)
     if remote_name is None:
         return RemoteEligibility.UNKNOWN
-    if remote_name != "origin":
-        return RemoteEligibility.VERIFIED_LOCAL_ONLY
     merge = _git(repo, "config", "--get", f"branch.{name}.merge")
     if _missing_git_value(merge):
         return RemoteEligibility.VERIFIED_LOCAL_ONLY
@@ -186,10 +208,11 @@ def _configured_origin_merge_refs(repo: Path) -> list[str]:
     configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
     if configured.returncode:
         return []
+    remote_name = _transport_remote(repo)
     refs: set[str] = set()
     for line in configured.stdout.decode("utf-8", errors="replace").splitlines():
         fields = line.split(maxsplit=1)
-        if len(fields) != 2 or fields[1] != "origin":
+        if len(fields) != 2 or fields[1] != remote_name:
             continue
         key = fields[0]
         if not key.startswith("branch.") or not key.endswith(".remote"):
@@ -203,7 +226,7 @@ def _configured_origin_merge_refs(repo: Path) -> list[str]:
 
 
 def _origin_default(repo: Path) -> tuple[str, str]:
-    listed = _git(repo, "ls-remote", "--symref", "origin", "HEAD")
+    listed = _git(repo, "ls-remote", "--symref", _transport_remote(repo), "HEAD")
     if listed.returncode:
         raise RemoteClaimError("published completion could not be authenticated")
     default_ref: str | None = None
@@ -283,7 +306,7 @@ def published_plan_snapshot(
         "--quiet",
         "--no-tags",
         "--no-write-fetch-head",
-        "origin",
+        _transport_remote(repo),
         default_ref,
     )
     if fetched.returncode:
@@ -588,7 +611,7 @@ def _remote_tip(
     project: str,
     plan_token: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, Any] | None] | None:
-    listed = _git(repo, "ls-remote", "--refs", "origin", ref)
+    listed = _git(repo, "ls-remote", "--refs", _transport_remote(repo), ref)
     if listed.returncode:
         return None
     listing = listed.stdout.decode("ascii", errors="ignore").strip()
@@ -598,7 +621,7 @@ def _remote_tip(
     if len(fields) != 2 or HEX_OBJECT.fullmatch(fields[0]) is None or fields[1] != ref:
         return None
     commit_id = fields[0]
-    fetched = _git(repo, "fetch", "--quiet", "--no-tags", "origin", ref)
+    fetched = _git(repo, "fetch", "--quiet", "--no-tags", _transport_remote(repo), ref)
     if fetched.returncode:
         return None
     return (
@@ -665,7 +688,7 @@ def discover_active_batch(
             expected[ref] = (entity, row, project, relative)
     if not expected:
         return active
-    listed = _git(repo, "ls-remote", "--refs", "origin", *expected)
+    listed = _git(repo, "ls-remote", "--refs", _transport_remote(repo), *expected)
     if listed.returncode:
         raise RemoteClaimError("remote claim discovery is unavailable")
     lines = listed.stdout.decode("ascii", errors="ignore").splitlines()
@@ -686,7 +709,7 @@ def discover_active_batch(
         return active
     fetched = _git(
         repo, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
-        "origin", *tips,
+        _transport_remote(repo), *tips,
     )
     if fetched.returncode:
         raise RemoteClaimError("remote claim discovery could not authenticate its receipts")
@@ -740,7 +763,7 @@ def discover_active(
 
 def _push(repo: Path, ref: str, commit_id: str, previous: str | None) -> bool:
     lease = f"--force-with-lease={ref}:{previous or ''}"
-    return _git(repo, "push", "--porcelain", lease, "origin", f"{commit_id}:{ref}").returncode == 0
+    return _git(repo, "push", "--porcelain", lease, _transport_remote(repo), f"{commit_id}:{ref}").returncode == 0
 
 
 def _result(

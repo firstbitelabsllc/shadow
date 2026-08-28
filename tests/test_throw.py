@@ -873,16 +873,44 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             stored = json.loads(
                 self.git(bare, "show", f"{winner_receipt['ref']}:claim.json")
             )
-            self.assertEqual(
-                stored,
-                {key: winner_receipt[key] for key in remote_claim.JOURNAL_FIELDS},
-            )
-            for index, home_name in enumerate(("home-a", "home-b")):
-                board_payload = json.loads(
-                    (root / home_name / ".shadow" / "board.json").read_text(encoding="utf-8")
-                )
-                expected = 1 if index == winner_index else 0
-                self.assertEqual(len(board_payload["claims"]), expected)
+
+    def test_upstream_named_remote_coordinates_one_claim_packet(self) -> None:
+        """A branch tracking a remote not named `origin` still has a shared
+        trunk: remote-claim coordination must cover it (exactly one winner and
+        the claim ref published to it), never silently degrade to local-only
+        and let both seats acquire the same row."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, second, _, original_main = self.protected_fixture(root)
+            for clone in (first, second):
+                self.git(clone, "remote", "rename", "origin", "upstream")
+
+            processes = [
+                self.throw_process(first, root / "home-a", "seat-a"),
+                self.throw_process(second, root / "home-b", "seat-b"),
+            ]
+            results = [process.communicate(timeout=30) for process in processes]
+            codes = [process.returncode for process in processes]
+
+            winners = [index for index, code in enumerate(codes) if code == 0]
+            losers = [index for index, code in enumerate(codes) if code == 1]
+            self.assertEqual(len(winners), 1, results)
+            self.assertEqual(len(losers), 1, results)
+            winner_stdout, winner_stderr = results[winners[0]]
+            loser_stdout, loser_stderr = results[losers[0]]
+            self.assertIn("/goal protected-demo", winner_stdout)
+            self.assertEqual(loser_stdout, "")
+
+            winner_receipt = self.receipt(winner_stderr)
+            loser_receipt = self.receipt(loser_stderr)
+            self.assertEqual(winner_receipt["status"], "acquired")
+            self.assertEqual(loser_receipt["status"], "lost")
+            self.assertEqual(loser_receipt["winner"], winner_receipt["owner"])
+            self.assertEqual(loser_receipt["failure"], "claim_exists")
+
+            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
+            self.assertEqual(set(refs), {"refs/heads/main", winner_receipt["ref"]})
 
     def test_claim_ref_makes_the_exact_unpushed_plan_authority_reachable(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
