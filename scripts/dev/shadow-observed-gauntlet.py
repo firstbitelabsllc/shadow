@@ -15,6 +15,16 @@ Refuses unless ALL of these are set:
     SHADOW_LANGFUSE_PUBLIC_KEY   the local project's public key
     SHADOW_LANGFUSE_SECRET_KEY   the local project's secret key
 
+Every round's trace is verified by exact trace-ID readback; accepted HTTP
+without readback turns the exit code red. On Langfuse v3 the readback uses
+the web API. On Langfuse v4 (`events_only` mode) the web API is gone, so set
+these optional vars to read back from ClickHouse `default.events_core`
+instead (loopback only):
+    SHADOW_LANGFUSE_READBACK_URL       e.g. http://localhost:8123
+    SHADOW_LANGFUSE_PROJECT_ID         the local project id
+    SHADOW_LANGFUSE_READBACK_USER      ClickHouse user, if the instance requires auth
+    SHADOW_LANGFUSE_READBACK_PASSWORD  ClickHouse password
+
 Optionally forwards a Shadow local event file (the SHADOW_TELEMETRY=local
 output, already allowlisted and redacted at emission) as spans:
     SHADOW_LANGFUSE_EVENTS       path to a shadow-events.jsonl
