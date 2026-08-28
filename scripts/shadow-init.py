@@ -28,10 +28,7 @@ def repository_root(path: Path) -> Path:
 
 
 def public_identifier(value: str) -> str:
-    value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    if len(value) < 3:
-        value = f"project-{value or 'work'}"
-    return value[:48]
+    return board.local_plan_slug(value)[:32]
 
 
 def display_name(value: str) -> str:
@@ -141,7 +138,13 @@ def main(argv: list[str] | None = None) -> int:
     if current != repo:
         print("shadow init: run --here from the Git project root", file=sys.stderr)
         return 2
-    destination = Path.home() / ".shadow" / "plans" / public_identifier(repo.name) / "PLAN.md"
+    destination = (
+        Path.home()
+        / ".shadow"
+        / "plans"
+        / board.local_plan_slug(repo.name)
+        / "PLAN.md"
+    )
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(destination.parent, 0o700)
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
