@@ -1150,6 +1150,39 @@ def _journal_parent(root: Path) -> str | None:
     return _commit_parent(root, "HEAD")
 
 
+def _is_expected_board_commit(
+    root: Path,
+    revision: str,
+    *,
+    parent: str,
+    encoded: bytes,
+    message: str,
+) -> bool:
+    try:
+        if _commit_parent(root, revision) != parent:
+            return False
+    except BoardError:
+        return False
+    changed = _git(
+        root,
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        revision,
+    )
+    published = _git(root, "show", f"{revision}:{BOARD_NAME}")
+    subject = _git(root, "show", "-s", "--format=%s", revision)
+    return (
+        not changed.returncode
+        and changed.stdout.splitlines() == [BOARD_NAME]
+        and not published.returncode
+        and published.stdout.encode("utf-8") == encoded
+        and not subject.returncode
+        and subject.stdout.strip() == message
+    )
+
+
 def _write_and_commit(root: Path, path: Path, payload: dict, message: str) -> None:
     """Publish one board value and its journal commit or restore both exactly."""
     try:
@@ -1167,28 +1200,68 @@ def _write_and_commit(root: Path, path: Path, payload: dict, message: str) -> No
         ):
             raise BoardError("root board journal did not preserve the published value")
     except BaseException as exc:
-        restored = _git(root, "reset", "--hard", "--quiet", before_head)
-        if restored.returncode:
-            raise BoardError(
-                "root board journal failed and exact recovery also failed"
-            ) from exc
         try:
             if path.read_bytes() != previous:
                 _write_bytes(path, previous)
-        except OSError as recovery_exc:
+            current_head = _journal_head(root)
+            if current_head != before_head:
+                if not _is_expected_board_commit(
+                    root,
+                    current_head,
+                    parent=before_head,
+                    encoded=encoded,
+                    message=message,
+                ):
+                    raise BoardError(
+                        "root board journal changed outside this transaction"
+                    )
+                restored_head = _git(
+                    root,
+                    "update-ref",
+                    "-m",
+                    "shadow board: roll back failed transaction",
+                    "HEAD",
+                    before_head,
+                    current_head,
+                )
+                if restored_head.returncode:
+                    raise BoardError("root board journal ref could not be restored")
+            staged = _git(
+                root,
+                "diff",
+                "--cached",
+                "--quiet",
+                before_head,
+                "--",
+                BOARD_NAME,
+            )
+            if staged.returncode == 1:
+                restored_index = _git(
+                    root,
+                    "reset",
+                    "--quiet",
+                    before_head,
+                    "--",
+                    BOARD_NAME,
+                )
+                if restored_index.returncode:
+                    raise BoardError("root board journal index could not be restored")
+            elif staged.returncode:
+                raise BoardError("root board journal index could not be inspected")
+            status = _git(root, "status", "--porcelain=v1", "--", BOARD_NAME)
+            if (
+                _journal_head(root) != before_head
+                or path.read_bytes() != previous
+                or status.returncode
+                or status.stdout.strip()
+            ):
+                raise BoardError(
+                    "root board journal recovery did not restore exact state"
+                )
+        except BaseException as recovery_exc:
             raise BoardError(
                 "root board journal failed and exact recovery also failed"
             ) from recovery_exc
-        status = _git(root, "status", "--porcelain=v1", "--", BOARD_NAME)
-        if (
-            _journal_head(root) != before_head
-            or path.read_bytes() != previous
-            or status.returncode
-            or status.stdout.strip()
-        ):
-            raise BoardError(
-                "root board journal failed and exact recovery also failed"
-            ) from exc
         raise
 
 
@@ -1206,7 +1279,10 @@ def _initialize_git(root: Path) -> None:
     if index_lock.exists() or index_lock.is_symlink():
         if index_lock.is_symlink() or not index_lock.is_file():
             raise BoardError("root board Git receipt lock is unsafe")
-        index_lock.unlink()
+        raise BoardError(
+            "root board Git receipt lock exists; verify no Git process owns it, "
+            "remove it, and retry"
+        )
     _git(root, "config", "user.name", "Shadow")
     _git(root, "config", "user.email", "shadow@localhost")
     exclude = root / ".git" / "info" / "exclude"
@@ -1696,8 +1772,7 @@ def claim(
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
         payload["revision"] += 1
         _validate(payload)
-        _write(path, payload)
-        _commit(root, f"shadow board: claim {row}")
+        _write_and_commit(root, path, payload, f"shadow board: claim {row}")
         snapshot = json.loads(json.dumps(payload))
         return {
             "payload": snapshot,
@@ -2291,8 +2366,7 @@ def reconcile(
             return json.loads(json.dumps(payload))
         payload["revision"] = original_payload["revision"] + 1
         _validate(payload)
-        _write(path, payload)
-        _commit(root, "shadow board: reconcile bounded portfolio")
+        _write_and_commit(root, path, payload, "shadow board: reconcile bounded portfolio")
         return json.loads(json.dumps(payload))
 
 
@@ -2425,8 +2499,9 @@ def _reserve_claim_receipt(
                 claim["return_by"] = _stamp(protected)
                 payload["revision"] += 1
                 _validate(payload)
-                _write(path, payload)
-                _commit(root, f"shadow board: reserve completion {row}")
+                _write_and_commit(
+                    root, path, payload, f"shadow board: reserve completion {row}"
+                )
         receipt = json.loads(json.dumps(claim))
         receipt["revision"] = payload["revision"]
         return receipt
@@ -2526,8 +2601,7 @@ def release(
             return json.loads(json.dumps(payload)), False
         payload["revision"] += 1
         _validate(payload)
-        _write(path, payload)
-        _commit(root, f"shadow board: release {row}")
+        _write_and_commit(root, path, payload, f"shadow board: release {row}")
         return json.loads(json.dumps(payload)), True
 
 
@@ -2548,8 +2622,9 @@ def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict
         payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
         payload["revision"] += 1
         _validate(payload)
-        _write(path, payload)
-        _commit(root, f"shadow board: set project priority {priority}")
+        _write_and_commit(
+            root, path, payload, f"shadow board: set project priority {priority}"
+        )
         return json.loads(json.dumps(payload))
 
 
@@ -3169,8 +3244,7 @@ def migrate_to_local_plan(source: Path, destination: Path, *, home: Path | None 
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
         payload["revision"] += 1
         _validate(payload)
-        _write(path, payload)
-        _commit(root, "shadow board: move authority to local plan")
+        _write_and_commit(root, path, payload, "shadow board: move authority to local plan")
         return json.loads(json.dumps(payload))
 
 
@@ -3277,8 +3351,7 @@ def discard_unclaimed_source_alias(
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
         payload["revision"] += 1
         _validate(payload)
-        _write(path, payload)
-        _commit(root, "shadow board: remove stale source alias")
+        _write_and_commit(root, path, payload, "shadow board: remove stale source alias")
         return json.loads(json.dumps(payload))
 
 
@@ -3409,8 +3482,9 @@ def discard_missing_unclaimed_aliases(
         payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
         payload["revision"] += 1
         _validate(payload)
-        _write(path, payload)
-        _commit(root, "shadow board: discard missing unclaimed alias")
+        _write_and_commit(
+            root, path, payload, "shadow board: discard missing unclaimed alias"
+        )
         return len(repairs)
 
 
