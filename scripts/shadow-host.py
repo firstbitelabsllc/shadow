@@ -26,6 +26,7 @@ import threading
 import time
 from typing import Any
 
+import shadow_plan_grammar as _grammar
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 from shadow_task_lib import TaskError, frozen_task_sha256
 from shadow_execution_policy import (
@@ -43,8 +44,11 @@ from shadow_execution_policy import (
 PROBE_SCHEMA = "shadow.host-probe.v1"
 ATTEMPT_SCHEMA = "shadow.host-attempt.v1"
 HOST_RECEIPT_SCHEMA = "shadow.host-receipt.v1"
+AUTHORITY_PROPOSAL_SCHEMA = "shadow.authority-proposal.v1"
 HOSTS = set(POLICY_HOSTS)
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+GIT_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 MAX_CAPTURE_BYTES = 64 * 1024
 MAX_RECEIPT_BYTES = 64 * 1024
@@ -475,6 +479,12 @@ Do not change any other path. Run the relevant tests. Finish by emitting exactly
 one JSON object with this shape and no additional JSON objects:
 {{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"example-task-id","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":["one-allowed-relative-path"],"tests":[{{"name":"relevant-test","status":"pass"}}]}}
 
+When the frozen task explicitly asks to propose completion, add exactly one
+top-level `authority_proposal` field whose value has this closed shape:
+{{"schema":"{AUTHORITY_PROPOSAL_SCHEMA}","entity_id":"64-lowercase-hex","row_id":"~ab12","owner":"public-seat","base":{{"plan_root_sha256":"64-lowercase-hex","source_head":"40-lowercase-hex"}},"request":{{"transition":"complete"}}}}
+Omit `authority_proposal` otherwise. Never add proof text, a marker, a floor,
+paths, timestamps, or authority edits to the proposal.
+
 For a successful result, use the exact Task ID above and a lowercase proof_ref
 identifier such as `bounded-proof`. Do not use spaces or prose for proof_ref.
 If the task is blocked or fails, emit the same one object with status `blocked`
@@ -605,20 +615,34 @@ def json_objects(text: str) -> list[dict[str, Any]]:
             if isinstance(nested, str) and nested != text:
                 candidates.extend(json_objects(nested))
 
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise HostError(
+                    "host_receipt_invalid",
+                    f"host output repeats JSON field {key}",
+                )
+            value[key] = item
+        return value
+
+    def decode(raw: str) -> Any:
+        return json.loads(raw, object_pairs_hook=unique_object)
+
     for raw in JSON_FENCE_RE.findall(text):
         try:
-            value = json.loads(raw)
+            value = decode(raw)
         except json.JSONDecodeError:
             continue
         add(value)
     for line in text.splitlines():
         try:
-            value = json.loads(line)
+            value = decode(line)
         except json.JSONDecodeError:
             continue
         add(value)
     try:
-        value = json.loads(text.strip())
+        value = decode(text.strip())
     except json.JSONDecodeError:
         value = None
 
@@ -629,7 +653,7 @@ def json_objects(text: str) -> list[dict[str, Any]]:
     # normal line/full-document parse cannot see that object; scan only for
     # syntactically valid JSON objects and keep the schema filter below as the
     # trust boundary. This does not accept arbitrary text as a receipt.
-    decoder = json.JSONDecoder()
+    decoder = json.JSONDecoder(object_pairs_hook=unique_object)
     offset = 0
     while True:
         start = text.find("{", offset)
@@ -676,9 +700,57 @@ def _receipt_text(value: object, label: str, maximum: int) -> str:
     return clean
 
 
+def validate_authority_proposal(raw: object) -> dict[str, Any]:
+    expected_fields = {"schema", "entity_id", "row_id", "owner", "base", "request"}
+    if not isinstance(raw, dict) or set(raw) != expected_fields:
+        raise HostError("host_receipt_invalid", "authority proposal fields are invalid")
+    if raw.get("schema") != AUTHORITY_PROPOSAL_SCHEMA:
+        raise HostError("host_receipt_invalid", "authority proposal schema is invalid")
+
+    entity_id = raw.get("entity_id")
+    row_id = raw.get("row_id")
+    owner = raw.get("owner")
+    if not isinstance(entity_id, str) or SHA256_RE.fullmatch(entity_id) is None:
+        raise HostError("host_receipt_invalid", "authority proposal entity id is invalid")
+    if not isinstance(row_id, str) or _grammar.ROW_ID_RE.fullmatch(row_id) is None:
+        raise HostError("host_receipt_invalid", "authority proposal row id is invalid")
+    safe_owner = _receipt_text(owner, "authority proposal owner", 40)
+    if safe_owner != owner:
+        raise HostError("host_receipt_invalid", "authority proposal owner is invalid")
+
+    base = raw.get("base")
+    if not isinstance(base, dict) or set(base) != {"plan_root_sha256", "source_head"}:
+        raise HostError("host_receipt_invalid", "authority proposal base fields are invalid")
+    plan_root = base.get("plan_root_sha256")
+    source_head = base.get("source_head")
+    if not isinstance(plan_root, str) or SHA256_RE.fullmatch(plan_root) is None:
+        raise HostError("host_receipt_invalid", "authority proposal plan root is invalid")
+    if not isinstance(source_head, str) or GIT_SHA1_RE.fullmatch(source_head) is None:
+        raise HostError("host_receipt_invalid", "authority proposal source head is invalid")
+
+    request = raw.get("request")
+    if not isinstance(request, dict) or set(request) != {"transition"}:
+        raise HostError("host_receipt_invalid", "authority proposal request fields are invalid")
+    if request.get("transition") != "complete":
+        raise HostError("host_receipt_invalid", "authority proposal transition is invalid")
+
+    return {
+        "schema": AUTHORITY_PROPOSAL_SCHEMA,
+        "entity_id": entity_id,
+        "row_id": row_id,
+        "owner": safe_owner,
+        "base": {
+            "plan_root_sha256": plan_root,
+            "source_head": source_head,
+        },
+        "request": {"transition": "complete"},
+    }
+
+
 def validate_host_receipt(raw: dict[str, Any], task_id: str, allowed: list[str]) -> dict[str, Any]:
     expected_fields = {"schema", "task_id", "status", "summary", "proof_ref", "changed_paths", "tests"}
-    if set(raw) != expected_fields:
+    actual_fields = set(raw)
+    if actual_fields != expected_fields and actual_fields != expected_fields | {"authority_proposal"}:
         raise HostError("host_receipt_invalid", "host receipt fields are invalid")
     if raw.get("schema") != HOST_RECEIPT_SCHEMA:
         raise HostError("host_receipt_invalid", "host receipt schema is invalid")
@@ -728,13 +800,16 @@ def validate_host_receipt(raw: dict[str, Any], task_id: str, allowed: list[str])
             raise HostError("proof_missing", "successful host receipt requires passing tests")
     elif proof_ref is not None:
         identifier(proof_ref, "host proof_ref")
-    return {
+    validated = {
         "status": status,
         "summary": summary,
         "proof_ref": proof_ref,
         "changed_paths": sorted(set(safe_paths)),
         "tests": safe_tests,
     }
+    if "authority_proposal" in raw:
+        validated["authority_proposal"] = validate_authority_proposal(raw["authority_proposal"])
+    return validated
 
 
 def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> None:
@@ -945,6 +1020,8 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "accepted_by_lead": False,
             "projection_is_usage": False,
         }
+        if host_receipt is not None and "authority_proposal" in host_receipt:
+            payload["authority_proposal"] = host_receipt["authority_proposal"]
     write_json("-" if destination is None else str(destination), payload, force=args.force)
     return payload, 0 if status == "ok" else 1
 

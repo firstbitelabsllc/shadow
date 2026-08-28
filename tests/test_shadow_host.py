@@ -69,6 +69,18 @@ if mode != "missing":
         receipt["tests"] = [{"name": "private-model-marker", "status": "pass"}]
     elif mode == "unsafe-test":
         receipt["tests"] = [{"name": "fake-test", "status": "pass", "extra": "private-model-marker"}]
+    elif mode == "proposal":
+        receipt["authority_proposal"] = {
+            "schema": "shadow.authority-proposal.v1",
+            "entity_id": "a" * 64,
+            "row_id": "~a502",
+            "owner": "codexdk",
+            "base": {
+                "plan_root_sha256": "b" * 64,
+                "source_head": "c" * 40,
+            },
+            "request": {"transition": "complete"},
+        }
     print(json.dumps(receipt))
     print("```")
 '''
