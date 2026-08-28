@@ -8,8 +8,9 @@ directory, and — only on success — rewrites the row's state and appends the
 paired PROOF Progress line in one commit. This is a source-state boundary, not
 filesystem containment: the trusted proof process can still change directory or
 access other paths. ``--entity`` plus ``--repo`` selects one registered
-machine-local plan and requires the plan's Brief ``Origin:`` to equal that
-checkout's normalized origin. Its path-free ``--entity`` form reconciles an
+machine-local plan. A declared Brief ``Origin:`` must equal that checkout's
+normalized identity; the first local-only accept promotes an opaque path-free
+identity into ``Origin:``. The path-free ``--entity`` form reconciles an
 authenticated, published ``cmd`` completion whose remote journal remains
 acquired and still refuses a local plan. ``read`` and ``gate`` proofs are
 person/agent judgments and are refused here on purpose.
@@ -81,6 +82,10 @@ SOURCE_RECEIPT_RE = re.compile(
     r"(?P<source>[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}) "
     r"HEAD (?P<head>[0-9a-f]{40}) "
     r"-> proof and final lint \(accept\)$"
+)
+LEGACY_LOCAL_SOURCE_ID_RE = re.compile(r"local-git@(?P<digest>[0-9a-f]{12})")
+OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
+    r"local\.shadow\.invalid/(?P<digest>[0-9a-f]{12})"
 )
 
 
@@ -197,45 +202,26 @@ def proof_source_checkout(repo: Path) -> Path:
 
 
 def bind_local_plan_to_proof_repo(
-    plan_path: Path,
+    plan_text: str,
     source_root: Path,
     row_id: str,
-) -> None:
-    """Require the local plan's Origin to equal ``--repo``'s normalized origin."""
-    try:
-        plan_text = _board.read_plan_text(plan_path)
-    except _board.BoardError as exc:
-        raise AcceptError(f"local plan cannot be read: {exc}") from exc
+) -> str:
+    """Bind one frozen local-plan snapshot to its explicit proof checkout."""
     values = _grammar.brief_origin_values(plan_text)
-    origin = git_completed(source_root, "config", "--get", "remote.origin.url")
-    if not values:
-        if origin.returncode or not origin.stdout.strip():
-            return
-        checkout = _board.normalized_repo_origin(
-            source_root,
-            origin.stdout.strip(),
-        )
-        if checkout.startswith("local-remote:"):
-            return
-        _, _, state, proof, _ = find_row(plan_text, row_id)
-        if state == "completed" and proof.startswith("cmd "):
-            local_source_receipt(plan_text, row_id, proof_argv(proof[4:]))
-            return
+    declared = local_plan_source_identity(plan_text)
+    checkout = public_source_identity(source_root)
+    if declared is None:
+        if OPAQUE_LOCAL_SOURCE_ID_RE.fullmatch(checkout):
+            return checkout
         raise AcceptError("the local plan has no Origin")
-    if len(values) > 1:
-        raise AcceptError("the local plan has more than one Origin")
-    try:
-        declared = _board.well_formed_proof_origin(values[0])
-    except ValueError:
-        raise AcceptError("the local plan Origin is not a normalized Git identity")
-    if origin.returncode or not origin.stdout.strip():
-        raise AcceptError("the proof checkout has no origin")
-    checkout = _board.normalized_repo_origin(
-        source_root,
-        origin.stdout.strip(),
-    )
     if checkout != declared:
+        if not values:
+            raise AcceptError(
+                "the explicit source checkout does not match the machine-local "
+                "plan's SOURCE binding"
+            )
         raise AcceptError("--repo origin does not match the plan Origin")
+    return checkout
 
 
 def frozen_source_head(repo: Path) -> str:
@@ -267,8 +253,19 @@ def public_source_identity(repo: Path) -> str:
         or PUBLIC_SOURCE_ID_RE.fullmatch(identity) is None
     ):
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
-        return f"local-git@{digest}"
-    return identity
+        return f"local.shadow.invalid/{digest}"
+    return canonical_source_identity(identity)
+
+
+def canonical_source_identity(identity: str) -> str:
+    """Normalize legacy opaque receipts into the one durable Brief identity."""
+    legacy = LEGACY_LOCAL_SOURCE_ID_RE.fullmatch(identity)
+    if legacy is not None:
+        return f"local.shadow.invalid/{legacy.group('digest')}"
+    try:
+        return _board.well_formed_proof_origin(identity)
+    except ValueError as exc:
+        raise AcceptError("SOURCE identity is not one public normalized identity") from exc
 
 
 def local_source_receipt(
@@ -300,11 +297,22 @@ def local_source_receipt(
             f"{row_id} SOURCE is not paired with one canonical PROOF receipt; "
             "root claim stays open"
         )
-    return receipts[0][1], receipts[0][2]
+    return canonical_source_identity(receipts[0][1]), receipts[0][2]
 
 
 def local_plan_source_identity(plan_text: str) -> str | None:
-    """Return the one source identity already established by local completions."""
+    """Return the plan-owned source identity, including after lifecycle archive."""
+    values = _grammar.brief_origin_values(plan_text)
+    if len(values) > 1:
+        raise AcceptError("the local plan has more than one Origin")
+    declared: str | None = None
+    if values:
+        try:
+            declared = _board.well_formed_proof_origin(values[0])
+        except ValueError as exc:
+            raise AcceptError(
+                "the local plan Origin is not a normalized Git identity"
+            ) from exc
     accepted_receipts: list[tuple[str, str]] = []
     for line in _board.section_lines(plan_text, "Progress"):
         receipt = _grammar.progress_proof_receipt(line)
@@ -315,7 +323,7 @@ def local_plan_source_identity(plan_text: str) -> str | None:
         for line in _board.section_lines(plan_text, "Tasks")
         if (row := ROW_LINE_RE.fullmatch(line)) is not None
     }
-    identities: set[str] = set()
+    identities = {declared} if declared is not None else set()
     for row_id, accepted_proof in accepted_receipts:
         if row_id not in task_rows:
             continue
@@ -338,6 +346,53 @@ def local_plan_source_identity(plan_text: str) -> str | None:
     if len(identities) > 1:
         raise AcceptError("the machine-local plan has conflicting SOURCE bindings")
     return next(iter(identities), None)
+
+
+def local_plan_with_origin(plan_text: str, source_identity: str) -> str:
+    """Persist the one path-free source binding in the plan's Brief."""
+    source_identity = canonical_source_identity(source_identity)
+    values = _grammar.brief_origin_values(plan_text)
+    if len(values) > 1:
+        raise AcceptError("the local plan has more than one Origin")
+    if values:
+        try:
+            declared = _board.well_formed_proof_origin(values[0])
+        except ValueError as exc:
+            raise AcceptError(
+                "the local plan Origin is not a normalized Git identity"
+            ) from exc
+        if declared != source_identity:
+            raise AcceptError(
+                "the explicit source checkout does not match the machine-local "
+                "plan's Origin"
+            )
+        return plan_text
+
+    lines = plan_text.splitlines(keepends=True)
+    brief_start: int | None = None
+    brief_end: int | None = None
+    insert_at: int | None = None
+    for index, line in enumerate(lines):
+        if not line.startswith("## "):
+            continue
+        heading = line[3:].strip()
+        if brief_start is None:
+            if heading == "Brief" or heading.startswith("Brief "):
+                brief_start = index + 1
+            continue
+        brief_end = index
+        break
+    if brief_start is None:
+        raise AcceptError("the local plan has no Brief section")
+    brief_end = len(lines) if brief_end is None else brief_end
+    for index in range(brief_start, brief_end):
+        if lines[index].startswith("- Mode:"):
+            insert_at = index + 1
+            break
+    if insert_at is None:
+        raise AcceptError("the local plan Brief has no Mode")
+    lines.insert(insert_at, f"- Origin: {source_identity}\n")
+    return "".join(lines)
 
 
 def atomic_write_text(
@@ -668,6 +723,11 @@ def accept_local_plan(
         plan_text = plan_bytes.decode("utf-8")
     except (_board.BoardError, OSError, UnicodeError) as exc:
         raise AcceptError(f"local plan cannot be frozen before proof: {exc}") from exc
+    source_identity = bind_local_plan_to_proof_repo(
+        plan_text,
+        repo,
+        row_id,
+    )
     _, _, state, proof, needs = find_row(plan_text, row_id)
     claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
     if state == "completed":
@@ -676,12 +736,12 @@ def accept_local_plan(
         argv = proof_argv(proof[4:])
         if not _board.has_accept_proof_receipt(plan_text, row_id, argv):
             raise AcceptError("the local row is completed without a matching accept proof")
-        source_identity, source_head = local_source_receipt(
+        recorded_source_identity, source_head = local_source_receipt(
             plan_text,
             row_id,
             argv,
         )
-        if public_source_identity(repo) != source_identity:
+        if source_identity != recorded_source_identity:
             raise AcceptError(
                 "the explicit source checkout does not match the completion's "
                 "SOURCE receipt"
@@ -733,16 +793,6 @@ def accept_local_plan(
     offenders = _shell_operators(proof[4:])
     if offenders:
         raise AcceptError(f"the proof passes {' '.join(offenders)} as literal shell operators")
-    source_identity = public_source_identity(repo)
-    bound_source_identity = local_plan_source_identity(plan_text)
-    if (
-        bound_source_identity is not None
-        and source_identity != bound_source_identity
-    ):
-        raise AcceptError(
-            "the explicit source checkout does not match the machine-local "
-            "plan's SOURCE binding"
-        )
     source_head = frozen_source_head(repo)
     pool = repo.parent / f"{repo.name}-shadow-accept"
     pool.mkdir(exist_ok=True)
@@ -775,6 +825,15 @@ def accept_local_plan(
                 raise AcceptError("local plan is not UTF-8") from exc
             if fresh_token != plan_token or fresh_text != plan_text:
                 raise AcceptError("the local plan changed while the proof ran; retry")
+            locked_source_identity = bind_local_plan_to_proof_repo(
+                fresh_text,
+                repo,
+                row_id,
+            )
+            if locked_source_identity != source_identity:
+                raise AcceptError(
+                    "the source checkout identity changed while the proof ran; retry"
+                )
             _, _, fresh_state, fresh_proof, fresh_needs = find_row(fresh_text, row_id)
             if fresh_state != state or fresh_proof != proof:
                 raise AcceptError("the local row changed while the proof ran; retry")
@@ -974,7 +1033,9 @@ def completed_local_plan_text(
     source_head: str,
 ) -> str:
     """Flip one private row and bind proof plus final lint to one source commit."""
-    completed = completed_plan_text(plan_text, row_id, argv, stamp)
+    source_identity = canonical_source_identity(source_identity)
+    bound = local_plan_with_origin(plan_text, source_identity)
+    completed = completed_plan_text(bound, row_id, argv, stamp)
     return append_progress_line(
         completed,
         f"- {stamp} {row_id} SOURCE {source_identity} HEAD {source_head} "
@@ -1543,7 +1604,13 @@ def finalize_completion(
 ) -> int:
     """Publish authority, close its remote journal, then release locally."""
     receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
-    managed = _remote_claim.uses_origin_upstream(repo) or receipt is not None
+    try:
+        managed = _remote_claim.managed_for_release(
+            repo,
+            authenticated_receipt=receipt is not None,
+        )
+    except _remote_claim.RemoteClaimError as exc:
+        raise AcceptError(str(exc)) from exc
     if no_push and managed:
         return publish_completion(
             repo,
@@ -1602,6 +1669,13 @@ def finalize_completed_retry_without_local_claim(
     summary: str,
 ) -> int:
     receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
+    try:
+        _remote_claim.managed_for_release(
+            repo,
+            authenticated_receipt=receipt is not None,
+        )
+    except _remote_claim.RemoteClaimError as exc:
+        raise AcceptError(str(exc)) from exc
     if receipt is None:
         return publish_completion(
             repo,
@@ -1682,11 +1756,6 @@ def main(argv: list[str] | None = None) -> int:
                             "--repo <proof-source-checkout>"
                         )
                     source_root = proof_source_checkout(args.repo)
-                    bind_local_plan_to_proof_repo(
-                        plan_path,
-                        source_root,
-                        row_id,
-                    )
                     owned_claim(_board.entity_state(plan_path), row_id, owner)
                     return accept_local_plan(
                         source_root,

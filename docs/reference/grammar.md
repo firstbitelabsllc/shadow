@@ -11,7 +11,7 @@ Nothing requires a database, daemon, queue, or scheduler.
 ## Brief
 - Project: <name>             required; groups this entity under one board project
 - Mode: explore | ship        required; the only legal values
-- Origin: github.com/org/repo machine-local plans; one normalized proof-source identity
+- Origin: <normalized identity> machine-local plans; one path-free proof source
 - Priority: 1-5               optional; steering-default rank
 - Loop: /<skill>              only when it differs from /<project>-loop
 
@@ -45,14 +45,22 @@ the sole authority for its own rows and proof. Plan-tree storage objects remain
 one logical entity and never become member plans. The split policy lives in
 [Project maps](project-maps.md), not in this syntax contract.
 
-`Origin:` is the machine-local plan's proof-source identity, written by
-`shadow init` from this computer's canonical origin normalizer. It is already
-normalized (`github.com/org/repo`), never a working-tree path, basename, or
-project slug. `shadow accept --entity` plus `--repo` requires exactly one
-well-formed line equal to the supplied checkout's normalized origin. Missing,
-duplicate, malformed, or different values fail closed. SSH and HTTPS spellings
-of the same remote normalize to one identity. A `--repo`-only accept does not
-read this line.
+`Origin:` is the machine-local plan's permanent proof-source identity.
+`shadow init` writes a public normalized origin such as
+`github.com/org/repo` when one exists. A local-only checkout begins without the
+line; its first explicit `shadow accept --entity ID --repo PATH` writes one
+opaque `local.shadow.invalid/<12-hex>` identity into the Brief and a matching
+row-level `SOURCE` receipt. The opaque value derives from the canonical local
+Git identity but exposes no working-tree path. Lifecycle may archive completed
+rows and their receipts, while Brief `Origin:` remains the sole durable binding
+authority. Every later accept requires the supplied checkout to normalize to
+that exact identity.
+
+An `Origin:` value is never a working-tree path, basename, or project slug.
+Once present, missing, duplicate, malformed, or different values fail closed.
+SSH and HTTPS spellings of the same remote normalize to one identity. Acceptance
+revalidates the exact frozen Brief under the lifecycle lock before publishing.
+A `--repo`-only accept does not read this line.
 
 ## Plan location
 

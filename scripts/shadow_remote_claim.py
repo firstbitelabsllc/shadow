@@ -168,6 +168,20 @@ def uses_origin_upstream(repo: Path) -> bool:
     return origin_upstream_eligibility(repo) is RemoteEligibility.REMOTE
 
 
+def managed_for_release(
+    repo: Path,
+    *,
+    authenticated_receipt: bool,
+) -> bool:
+    """Require a definite local-only verdict before release skips remote state."""
+    if authenticated_receipt:
+        return True
+    eligibility = origin_upstream_eligibility(repo)
+    if eligibility is RemoteEligibility.UNKNOWN:
+        raise RemoteClaimError("remote claim eligibility is unavailable")
+    return eligibility is RemoteEligibility.REMOTE
+
+
 def _configured_origin_merge_refs(repo: Path) -> list[str]:
     configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
     if configured.returncode:

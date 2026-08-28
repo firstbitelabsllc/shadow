@@ -350,7 +350,7 @@ class ShadowAcceptTests(unittest.TestCase):
 
             self.assertEqual(wrong, 1, wrong_output.getvalue())
             self.assertIn(
-                "does not match the machine-local plan's SOURCE binding",
+                "does not match the plan Origin",
                 wrong_output.getvalue(),
             )
             self.assertFalse(marker.exists())
@@ -485,6 +485,8 @@ class ShadowAcceptTests(unittest.TestCase):
         self,
     ) -> None:
         source_head = "a" * 40
+        source_a = "source-a.invalid/repository"
+        source_b = "source-b.invalid/repository"
         pending = PLAN.replace(
             "### M — file speaks\n",
             "### M — file speaks\n"
@@ -507,8 +509,12 @@ class ShadowAcceptTests(unittest.TestCase):
             "~ef56",
             ["true"],
             "2026-08-27T12:00:00Z",
-            "source-a",
+            source_a,
             source_head,
+        )
+        self.assertEqual(
+            accept._grammar.brief_origin_values(valid),
+            [source_a],
         )
         reverted = valid.replace(
             "- [completed] establish the source binding ~ef56",
@@ -520,22 +526,29 @@ class ShadowAcceptTests(unittest.TestCase):
             "~ef56 | proof: cmd false",
             1,
         )
-        archived = valid.replace(
-            "- [completed] establish the source binding ~ef56 | proof: cmd true\n",
-            "",
-            1,
+        archived = (
+            "\n".join(
+                line for line in valid.splitlines()
+                if "~ef56" not in line
+            ).rstrip()
+            + "\n"
         )
-        conflicting = accept.completed_local_plan_text(
-            valid,
-            "~gh78",
-            ["true"],
-            "2026-08-27T12:01:00Z",
-            "source-b",
-            source_head,
+        conflicting = accept.append_progress_line(
+            accept.completed_plan_text(
+                valid,
+                "~gh78",
+                ["true"],
+                "2026-08-27T12:01:00Z",
+            ),
+            f"- 2026-08-27T12:01:00Z ~gh78 SOURCE {source_b} "
+            f"HEAD {source_head} -> proof and final lint (accept)\n",
         )
 
         with self.subTest(name="archived"):
-            self.assertIsNone(accept.local_plan_source_identity(archived))
+            self.assertEqual(
+                accept.local_plan_source_identity(archived),
+                source_a,
+            )
 
         cases = [
             (
@@ -643,8 +656,16 @@ class ShadowAcceptTests(unittest.TestCase):
             self.assertEqual(len(source_receipts), 1)
             self.assertRegex(
                 source_receipts[0],
-                rf"~ab12 SOURCE local-git@[0-9a-f]{{12}} HEAD "
+                rf"~ab12 SOURCE local\.shadow\.invalid/[0-9a-f]{{12}} HEAD "
                 rf"{frozen_head} -> proof and final lint \(accept\)$",
+            )
+            source_identity = source_receipts[0].split(" SOURCE ", 1)[1].split(
+                " HEAD ",
+                1,
+            )[0]
+            self.assertEqual(
+                accept._grammar.brief_origin_values(completed),
+                [source_identity],
             )
             self.assertNotIn(str(root), source_receipts[0])
             self.assertEqual(
@@ -675,7 +696,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 wrong_source = accept.main(wrong_argv)
             self.assertEqual(wrong_source, 1, wrong_output.getvalue())
             self.assertIn(
-                "does not match the completion's SOURCE receipt",
+                "origin does not match the plan Origin",
                 wrong_output.getvalue(),
             )
 
@@ -2739,6 +2760,88 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"][0]["owner"], "seat-a")
 
+    def test_unknown_remote_eligibility_without_receipt_refuses_release_paths(self) -> None:
+        claim = {
+            "entity": "a" * 64,
+            "row": "~ab12",
+            "owner": "seat-a",
+            "claimed_at": "2026-08-27T12:00:00Z",
+            "return_by": "2026-08-27T20:00:00Z",
+            "recovery": "probe-proof-then-adopt-park-or-close",
+        }
+        plan_token = {
+            "head": "b" * 40,
+            "blob": "c" * 40,
+            "relative": "PLAN.md",
+        }
+        with (
+            mock.patch.object(
+                accept,
+                "remote_completion_receipt",
+                return_value=None,
+            ),
+            mock.patch.object(
+                accept._remote_claim,
+                "origin_upstream_eligibility",
+                return_value=accept._remote_claim.RemoteEligibility.UNKNOWN,
+            ),
+            mock.patch.object(
+                accept,
+                "publish_completion",
+                return_value=0,
+            ) as publish,
+            mock.patch.object(accept._board, "release") as release,
+        ):
+            with self.assertRaisesRegex(
+                accept.AcceptError,
+                "remote claim eligibility is unavailable",
+            ):
+                accept.finalize_completion(
+                    Path("."),
+                    Path("PLAN.md"),
+                    "~ab12",
+                    "seat-a",
+                    claim,
+                    plan_token,
+                    PLAN,
+                    ["~cd34"],
+                    False,
+                    "proof passed",
+                )
+            with self.assertRaisesRegex(
+                accept.AcceptError,
+                "remote claim eligibility is unavailable",
+            ):
+                accept.finalize_completed_retry_without_local_claim(
+                    Path("."),
+                    Path("PLAN.md"),
+                    "~ab12",
+                    "seat-a",
+                    plan_token,
+                    PLAN,
+                    False,
+                    "proof passed",
+                )
+
+        publish.assert_not_called()
+        release.assert_not_called()
+
+    def test_authenticated_remote_receipt_stays_managed_when_eligibility_is_unknown(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            accept._remote_claim,
+            "origin_upstream_eligibility",
+            return_value=accept._remote_claim.RemoteEligibility.UNKNOWN,
+        ) as eligibility:
+            self.assertTrue(
+                accept._remote_claim.managed_for_release(
+                    Path("."),
+                    authenticated_receipt=True,
+                )
+            )
+        eligibility.assert_not_called()
+
     def test_ambiguous_completed_cas_after_publish_retains_claim_without_success(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, remote, home, _ = self.fixture(Path(dirname).resolve())
@@ -3843,6 +3946,58 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             world["origin_plan"], home=world["home"]
         )["claims"]
         self.assertEqual([item["row"] for item in origin_claims], ["~cd34"])
+
+    def test_origin_change_after_preflight_refuses_under_the_plan_lock(self) -> None:
+        world = self._world()
+        changed = world["sidecar_text"].replace(
+            WIDGET_PROOF_ORIGIN,
+            "github.com/example/gadget",
+            1,
+        )
+        real_bind = accept.bind_local_plan_to_proof_repo
+
+        def change_origin_after_preflight(*args, **kwargs):
+            result = real_bind(*args, **kwargs)
+            world["sidecar_plan"].write_text(changed, encoding="utf-8")
+            return result
+
+        output = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(world["home"])}),
+            mock.patch.object(
+                accept,
+                "bind_local_plan_to_proof_repo",
+                side_effect=change_origin_after_preflight,
+            ),
+            redirect_stdout(output),
+            redirect_stderr(output),
+        ):
+            result = accept.main(
+                [
+                    "--entity",
+                    world["sidecar_entity"],
+                    "--repo",
+                    str(world["repo"]),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                ]
+            )
+
+        self.assertEqual(result, 1, output.getvalue())
+        self.assertIn("plan changed while the proof ran", output.getvalue())
+        self.assertEqual(
+            world["sidecar_plan"].read_text(encoding="utf-8"),
+            changed,
+        )
+        claims = accept._board.entity_state(
+            world["sidecar_plan"], home=world["home"]
+        )["claims"]
+        self.assertEqual(
+            [(item["row"], item["owner"]) for item in claims],
+            [("~ab12", "seat-a")],
+        )
 
     def test_basename_origin_guessing_cannot_select_the_sibling_plan(self) -> None:
         world = self._world()
