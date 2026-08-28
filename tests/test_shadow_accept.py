@@ -248,6 +248,323 @@ class ShadowAcceptTests(unittest.TestCase):
                 ["~ab12"],
             )
 
+    def test_machine_local_first_accept_rejects_unrelated_bound_source_before_proof(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            intended_parent = root / "intended"
+            intended_parent.mkdir()
+            intended_repo = make_repo(intended_parent)
+            unrelated_parent = root / "unrelated"
+            unrelated_parent.mkdir()
+            unrelated_repo = make_repo(unrelated_parent)
+            marker = root / "proof-ran"
+            proof_script = (
+                "import os\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['SHADOW_PROOF_MARKER']).write_text(\n"
+                "    'ran\\n', encoding='utf-8'\n"
+                ")\n"
+            )
+            for repo in (intended_repo, unrelated_repo):
+                (repo / "proof.py").write_text(proof_script, encoding="utf-8")
+                git(repo, "add", "proof.py")
+                git(repo, "commit", "-qm", "add proof")
+            intended_identity = accept.public_source_identity(intended_repo)
+            intended_head = git(intended_repo, "rev-parse", "HEAD")
+            home = root / "home"
+            home.mkdir()
+            plan = home / ".shadow" / "plans" / "source-bound" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            pending = PLAN.replace(
+                "### M — file speaks\n",
+                "### M — file speaks\n"
+                "- [in_progress] establish the source binding ~ef56 | proof: cmd true\n",
+            ).replace(
+                'cmd python3 -c "import pathlib,sys; '
+                "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
+                "cmd python3 proof.py",
+            )
+            plan.write_text(
+                accept.completed_local_plan_text(
+                    pending,
+                    "~ef56",
+                    ["true"],
+                    "2026-08-27T12:00:00Z",
+                    intended_identity,
+                    intended_head,
+                ),
+                encoding="utf-8",
+            )
+            accept._board.reconcile(
+                [
+                    {
+                        "plan": str(plan),
+                        "project": "demo",
+                        "priority": 3,
+                        "candidates": ["~ab12"],
+                    }
+                ],
+                [],
+                home=home,
+            )
+            accept._board.claim(
+                plan,
+                "~ab12",
+                "seat-a",
+                project="demo",
+                priority=3,
+                home=home,
+            )
+            entity = accept._board.entity_state(
+                plan, home=home
+            )["entity"]["id"]
+            plan_before = plan.read_bytes()
+            board_before = (home / ".shadow" / "board.json").read_bytes()
+            wrong_output = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HOME": str(home),
+                    "SHADOW_PROOF_MARKER": str(marker),
+                },
+            ), redirect_stdout(wrong_output), redirect_stderr(wrong_output):
+                wrong = accept.main(
+                    [
+                        "--entity",
+                        entity,
+                        "--repo",
+                        str(unrelated_repo),
+                        "--row",
+                        "~ab12",
+                        "--by",
+                        "seat-a",
+                    ]
+                )
+
+            self.assertEqual(wrong, 1, wrong_output.getvalue())
+            self.assertIn(
+                "does not match the machine-local plan's SOURCE binding",
+                wrong_output.getvalue(),
+            )
+            self.assertFalse(marker.exists())
+            self.assertEqual(plan.read_bytes(), plan_before)
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                board_before,
+            )
+
+            correct_output = io.StringIO()
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HOME": str(home),
+                    "SHADOW_PROOF_MARKER": str(marker),
+                },
+            ), redirect_stdout(correct_output), redirect_stderr(correct_output):
+                correct = accept.main(
+                    [
+                        "--entity",
+                        entity,
+                        "--repo",
+                        str(intended_repo),
+                        "--row",
+                        "~ab12",
+                        "--by",
+                        "seat-a",
+                    ]
+                )
+
+            self.assertEqual(correct, 0, correct_output.getvalue())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "ran\n")
+            self.assertIn(
+                "[completed] x.txt says hello ~ab12",
+                plan.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                accept._board.entity_state(plan, home=home)["claims"],
+                [],
+            )
+
+    def test_machine_local_bound_accept_ignores_takeoff_style_manual_source_prose(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            source_identity = accept.public_source_identity(repo)
+            source_head = git(repo, "rev-parse", "HEAD")
+            home = root / "home"
+            home.mkdir()
+            plan = home / ".shadow" / "plans" / "source-bound" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            pending = PLAN.replace(
+                "### M — file speaks\n",
+                "### M — file speaks\n"
+                "- [completed] historical source checkpoint ~a101 | proof: cmd true\n"
+                "- [in_progress] establish the source binding ~ef56 | proof: cmd true\n",
+            )
+            bound = accept.completed_local_plan_text(
+                pending,
+                "~ef56",
+                ["true"],
+                "2026-08-27T12:00:00Z",
+                source_identity,
+                source_head,
+            )
+            plan.write_text(
+                accept.append_progress_line(
+                    accept.append_progress_line(
+                        bound,
+                        "- 2026-08-27T12:01:00Z ~a101 PROOF true "
+                        "-> pass (manual)\n",
+                    ),
+                    f"- 2026-08-27T12:01:00Z ~a101 SOURCE {source_head} "
+                    "committed as accepted change\n",
+                ),
+                encoding="utf-8",
+            )
+            accept._board.reconcile(
+                [
+                    {
+                        "plan": str(plan),
+                        "project": "demo",
+                        "priority": 3,
+                        "candidates": ["~ab12"],
+                    }
+                ],
+                [],
+                home=home,
+            )
+            accept._board.claim(
+                plan,
+                "~ab12",
+                "seat-a",
+                project="demo",
+                priority=3,
+                home=home,
+            )
+            entity = accept._board.entity_state(
+                plan, home=home
+            )["entity"]["id"]
+            output = io.StringIO()
+
+            with mock.patch.dict(
+                os.environ, {"HOME": str(home)}
+            ), redirect_stdout(output), redirect_stderr(output):
+                result = accept.main(
+                    [
+                        "--entity",
+                        entity,
+                        "--repo",
+                        str(repo),
+                        "--row",
+                        "~ab12",
+                        "--by",
+                        "seat-a",
+                    ]
+                )
+
+            self.assertEqual(result, 0, output.getvalue())
+            self.assertIn(
+                "[completed] x.txt says hello ~ab12",
+                plan.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                accept._board.entity_state(plan, home=home)["claims"],
+                [],
+            )
+
+    def test_machine_local_plan_binding_fails_closed_on_accepted_source_receipts(
+        self,
+    ) -> None:
+        source_head = "a" * 40
+        pending = PLAN.replace(
+            "### M — file speaks\n",
+            "### M — file speaks\n"
+            "- [in_progress] establish the source binding ~ef56 | proof: cmd true\n"
+            "- [in_progress] establish another source binding ~gh78 | proof: cmd true\n",
+        )
+        missing = accept.completed_plan_text(
+            pending,
+            "~ef56",
+            ["true"],
+            "2026-08-27T12:00:00Z",
+        )
+        malformed = accept.append_progress_line(
+            missing,
+            "- 2026-08-27T12:00:00Z ~ef56 SOURCE source-a HEAD malformed "
+            "-> proof and final lint (accept)\n",
+        )
+        valid = accept.completed_local_plan_text(
+            pending,
+            "~ef56",
+            ["true"],
+            "2026-08-27T12:00:00Z",
+            "source-a",
+            source_head,
+        )
+        reverted = valid.replace(
+            "- [completed] establish the source binding ~ef56",
+            "- [pending] establish the source binding ~ef56",
+            1,
+        )
+        proof_changed = valid.replace(
+            "~ef56 | proof: cmd true",
+            "~ef56 | proof: cmd false",
+            1,
+        )
+        archived = valid.replace(
+            "- [completed] establish the source binding ~ef56 | proof: cmd true\n",
+            "",
+            1,
+        )
+        conflicting = accept.completed_local_plan_text(
+            valid,
+            "~gh78",
+            ["true"],
+            "2026-08-27T12:01:00Z",
+            "source-b",
+            source_head,
+        )
+
+        with self.subTest(name="archived"):
+            self.assertIsNone(accept.local_plan_source_identity(archived))
+
+        cases = [
+            (
+                "missing",
+                missing,
+                r"~ef56 has 0 canonical SOURCE receipts",
+            ),
+            (
+                "malformed",
+                malformed,
+                r"~ef56 has a malformed SOURCE receipt",
+            ),
+            (
+                "state reverted",
+                reverted,
+                r"~ef56 accept PROOF no longer belongs to a completed cmd row",
+            ),
+            (
+                "proof changed",
+                proof_changed,
+                r"~ef56 task proof no longer matches its canonical accept PROOF",
+            ),
+            (
+                "conflicting",
+                conflicting,
+                r"the machine-local plan has conflicting SOURCE bindings",
+            ),
+        ]
+        for name, plan_text, message in cases:
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(accept.AcceptError, message):
+                    accept.local_plan_source_identity(plan_text)
+
     def test_local_completed_retry_uses_the_recorded_source_head(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
