@@ -23,7 +23,7 @@ import shlex
 import stat
 import subprocess
 import tempfile
-from typing import Iterator
+from typing import Callable, Iterator
 from urllib.parse import unquote, urlsplit
 
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
@@ -37,10 +37,13 @@ COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
 ROW_ID = _grammar.ROW_ID_RE
 ENTITY_ID = re.compile(r"[0-9a-f]{64}")
+GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 PROJECT_ID = re.compile(r"[a-z][a-z0-9-]{1,31}")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 BOARD_NAME = "board.json"
 LOCK_NAME = ".board.lock"
+INIT_REGISTRATION_REF_PREFIX = "refs/shadow/init"
+MAX_INIT_REGISTRATION_RECEIPT_BYTES = 1024
 MAX_PLAN_BYTES = 1_000_000
 # Same-identity copies whose state one live-or-retired discovery verdict may
 # hold as a predicate. Bounded for the same reason every other import input is:
@@ -215,6 +218,24 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return subprocess.CompletedProcess(command, 124, "", str(exc))
+
+
+def _git_bytes(
+    root: Path,
+    *args: str,
+    content: bytes | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    command = ["git", "-C", str(root), *args]
+    try:
+        return subprocess.run(
+            command,
+            input=content,
+            capture_output=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return subprocess.CompletedProcess(command, 124, b"", str(exc).encode())
 
 
 def _git_marker(path: Path) -> Path | None:
@@ -1183,7 +1204,100 @@ def _is_expected_board_commit(
     )
 
 
-def _write_and_commit(root: Path, path: Path, payload: dict, message: str) -> None:
+def _journal_update_reference(root: Path) -> str:
+    symbolic = _git(root, "symbolic-ref", "--quiet", "HEAD")
+    if symbolic.returncode == 0:
+        reference = symbolic.stdout.strip()
+        checked = _git(root, "check-ref-format", reference)
+        if checked.returncode:
+            raise BoardError("root board journal HEAD ref is malformed")
+        return reference
+    if symbolic.returncode == 1:
+        return "HEAD"
+    raise BoardError("root board journal HEAD ref could not be inspected")
+
+
+def _git_ref_transaction(
+    root: Path,
+    commands: list[str],
+) -> subprocess.CompletedProcess[bytes]:
+    content = (
+        "start\n"
+        "option no-deref\n"
+        + "\n".join(commands)
+        + "\nprepare\ncommit\n"
+    ).encode("ascii")
+    return _git_bytes(root, "update-ref", "--stdin", content=content)
+
+
+def _commit_consuming_ref(
+    root: Path,
+    message: str,
+    *,
+    before_head: str,
+    reference: str,
+    receipt_oid: str,
+) -> tuple[str, str]:
+    added = _git(root, "add", "--", BOARD_NAME)
+    if added.returncode:
+        raise BoardError("root board could not record its local receipt")
+    tree = _git(root, "write-tree")
+    if tree.returncode or GIT_OBJECT_ID.fullmatch(tree.stdout.strip()) is None:
+        raise BoardError("root board journal tree could not be written")
+    committed = _git(
+        root,
+        "-c",
+        "commit.gpgSign=false",
+        "commit-tree",
+        tree.stdout.strip(),
+        "-p",
+        before_head,
+        "-m",
+        message,
+    )
+    revision = committed.stdout.strip()
+    if (
+        committed.returncode
+        or GIT_OBJECT_ID.fullmatch(revision) is None
+        or not _is_expected_board_commit(
+            root,
+            revision,
+            parent=before_head,
+            encoded=(root / BOARD_NAME).read_bytes(),
+            message=message,
+        )
+    ):
+        raise BoardError("root board journal commit could not be prepared")
+    head_reference = _journal_update_reference(root)
+    updated = _git_ref_transaction(
+        root,
+        [
+            f"update {head_reference} {revision} {before_head}",
+            f"delete {reference} {receipt_oid}",
+        ],
+    )
+    if updated.returncode:
+        raise BoardError(
+            "init registration receipt changed before board registration"
+        )
+    _git(
+        root,
+        "-c", "maintenance.autoDetach=false",
+        "-c", "gc.autoDetach=false",
+        "maintenance", "run", "--auto", "--quiet", "--no-detach",
+    )
+    return revision, head_reference
+
+
+def _write_and_commit(
+    root: Path,
+    path: Path,
+    payload: dict,
+    message: str,
+    *,
+    consume_ref: tuple[str, str] | None = None,
+    guard: Callable[[], None] | None = None,
+) -> None:
     """Publish one board value and its journal commit or restore both exactly."""
     try:
         previous = path.read_bytes()
@@ -1191,12 +1305,31 @@ def _write_and_commit(root: Path, path: Path, payload: dict, message: str) -> No
         raise BoardError("root board could not freeze its previous value") from exc
     before_head = _journal_head(root)
     encoded = _encoded_board(payload)
+    published_head_reference: str | None = None
     try:
         _write_bytes(path, encoded)
-        _commit(root, message)
+        if guard is not None:
+            guard()
+        if consume_ref is None:
+            _commit(root, message)
+        else:
+            reference, receipt_oid = consume_ref
+            _, published_head_reference = _commit_consuming_ref(
+                root,
+                message,
+                before_head=before_head,
+                reference=reference,
+                receipt_oid=receipt_oid,
+            )
+        if guard is not None:
+            guard()
         if (
             path.read_bytes() != encoded
             or _git(root, "diff", "--quiet", "HEAD", "--", BOARD_NAME).returncode
+            or (
+                consume_ref is not None
+                and _init_registration_oid(root, consume_ref[0]) is not None
+            )
         ):
             raise BoardError("root board journal did not preserve the published value")
     except BaseException as exc:
@@ -1215,15 +1348,27 @@ def _write_and_commit(root: Path, path: Path, payload: dict, message: str) -> No
                     raise BoardError(
                         "root board journal changed outside this transaction"
                     )
-                restored_head = _git(
-                    root,
-                    "update-ref",
-                    "-m",
-                    "shadow board: roll back failed transaction",
-                    "HEAD",
-                    before_head,
-                    current_head,
-                )
+                if consume_ref is None:
+                    restored_head = _git(
+                        root,
+                        "update-ref",
+                        "-m",
+                        "shadow board: roll back failed transaction",
+                        "HEAD",
+                        before_head,
+                        current_head,
+                    )
+                else:
+                    if published_head_reference is None:
+                        published_head_reference = _journal_update_reference(root)
+                    reference, receipt_oid = consume_ref
+                    restored_head = _git_ref_transaction(
+                        root,
+                        [
+                            f"update {published_head_reference} {before_head} {current_head}",
+                            f"create {reference} {receipt_oid}",
+                        ],
+                    )
                 if restored_head.returncode:
                     raise BoardError("root board journal ref could not be restored")
             staged = _git(
@@ -1254,6 +1399,10 @@ def _write_and_commit(root: Path, path: Path, payload: dict, message: str) -> No
                 or path.read_bytes() != previous
                 or status.returncode
                 or status.stdout.strip()
+                or (
+                    consume_ref is not None
+                    and _init_registration_oid(root, consume_ref[0]) != consume_ref[1]
+                )
             ):
                 raise BoardError(
                     "root board journal recovery did not restore exact state"
@@ -1786,6 +1935,170 @@ def claim(
         }
 
 
+def complete_init_registration(
+    entity: dict,
+    receipt: bytes,
+    repository_witness: Callable[[], bool],
+    *,
+    home: Path | None = None,
+) -> dict:
+    """Consume one exact init receipt while registering at most one entity."""
+    plan = Path(entity.get("plan", ""))
+    return reconcile(
+        [entity],
+        [],
+        home=home,
+        _init_registration=(plan, receipt, repository_witness),
+    )
+
+
+def _init_registration_ref(plan: Path) -> str:
+    locator = str(Path(os.path.abspath(plan)))
+    digest = hashlib.sha256(locator.encode("utf-8")).hexdigest()
+    return f"{INIT_REGISTRATION_REF_PREFIX}/{digest}"
+
+
+def _init_registration_oid(root: Path, reference: str) -> str | None:
+    symbolic = _git(root, "symbolic-ref", "--quiet", reference)
+    if symbolic.returncode == 0:
+        raise BoardError("init registration receipt ref is symbolic")
+    if symbolic.returncode != 1:
+        raise BoardError("init registration receipt ref could not be inspected")
+    current = _git(root, "rev-parse", "--verify", "--quiet", reference)
+    if current.returncode == 1:
+        return None
+    if current.returncode or not GIT_OBJECT_ID.fullmatch(current.stdout.strip()):
+        raise BoardError("init registration receipt ref is malformed")
+    oid = current.stdout.strip()
+    kind = _git(root, "cat-file", "-t", oid)
+    if kind.returncode or kind.stdout.strip() != "blob":
+        raise BoardError("init registration receipt ref does not name a blob")
+    return oid
+
+
+def _read_init_registration_blob(root: Path, oid: str) -> bytes:
+    measured = _git(root, "cat-file", "-s", oid)
+    try:
+        size = int(measured.stdout.strip())
+    except ValueError as exc:
+        raise BoardError("init registration receipt size could not be read") from exc
+    if (
+        measured.returncode
+        or size < 1
+        or size > MAX_INIT_REGISTRATION_RECEIPT_BYTES
+    ):
+        raise BoardError("init registration receipt is missing or oversized")
+    content = _git_bytes(root, "cat-file", "blob", oid)
+    if content.returncode or len(content.stdout) != size:
+        raise BoardError("init registration receipt could not be read")
+    return content.stdout
+
+
+def _required_init_registration_oid(
+    root: Path,
+    reference: str,
+    receipt: bytes,
+) -> str:
+    expected = _git_bytes(root, "hash-object", "--stdin", content=receipt)
+    oid = expected.stdout.decode("ascii", errors="ignore").strip()
+    if expected.returncode or GIT_OBJECT_ID.fullmatch(oid) is None:
+        raise BoardError("init registration receipt could not be identified")
+    current = _init_registration_oid(root, reference)
+    if (
+        current != oid
+        or _read_init_registration_blob(root, oid) != receipt
+    ):
+        raise BoardError("init registration receipt changed before registration")
+    return oid
+
+
+def _clear_init_registration_locked(
+    root: Path,
+    reference: str,
+    receipt: bytes,
+    *,
+    missing_ok: bool,
+) -> None:
+    current = _init_registration_oid(root, reference)
+    if current is None:
+        if missing_ok:
+            return
+        raise BoardError("init registration receipt is missing")
+    oid = _required_init_registration_oid(root, reference, receipt)
+    deleted = _git(
+        root,
+        "update-ref",
+        "-m",
+        "shadow init: complete registration",
+        "--no-deref",
+        "-d",
+        reference,
+        oid,
+    )
+    if deleted.returncode or _init_registration_oid(root, reference) is not None:
+        raise BoardError("init registration receipt could not be completed")
+
+
+def read_init_registration(
+    plan: Path,
+    *,
+    home: Path | None = None,
+) -> bytes | None:
+    """Read one pending init receipt without creating board authority."""
+    root = _safe_root(home)
+    git_dir = root / ".git"
+    if not git_dir.exists():
+        return None
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        raise BoardError("root board Git directory must not be a symlink or file")
+    reference = _init_registration_ref(plan)
+    with _transaction(home) as (locked_root, _, _):
+        oid = _init_registration_oid(locked_root, reference)
+        return (
+            _read_init_registration_blob(locked_root, oid)
+            if oid is not None
+            else None
+        )
+
+
+def prepare_init_registration(
+    plan: Path,
+    receipt: bytes,
+    *,
+    home: Path | None = None,
+) -> bytes:
+    """CAS-create or resume one pending init receipt in the board journal."""
+    if not isinstance(receipt, bytes) or not (
+        1 <= len(receipt) <= MAX_INIT_REGISTRATION_RECEIPT_BYTES
+    ):
+        raise BoardError("init registration receipt is empty or oversized")
+    reference = _init_registration_ref(plan)
+    with _transaction(home) as (root, _, _):
+        current = _init_registration_oid(root, reference)
+        if current is not None:
+            return _read_init_registration_blob(root, current)
+        stored = _git_bytes(root, "hash-object", "-w", "--stdin", content=receipt)
+        oid = stored.stdout.decode("ascii", errors="ignore").strip()
+        if stored.returncode or not GIT_OBJECT_ID.fullmatch(oid):
+            raise BoardError("init registration receipt could not be stored")
+        created = _git(
+            root,
+            "update-ref",
+            "-m",
+            "shadow init: reserve registration",
+            "--no-deref",
+            reference,
+            oid,
+            "0" * len(oid),
+        )
+        if created.returncode:
+            raise BoardError("init registration receipt could not be reserved")
+        confirmed = _init_registration_oid(root, reference)
+        if confirmed != oid or _read_init_registration_blob(root, oid) != receipt:
+            raise BoardError("init registration receipt reservation changed")
+        return receipt
+
+
 def reconcile(
     entities: list[dict],
     legacy_claims: list[dict],
@@ -1793,6 +2106,7 @@ def reconcile(
     retired_entities: list[str] | None = None,
     retired_sources: list[dict] | None = None,
     home: Path | None = None,
+    _init_registration: tuple[Path, bytes, Callable[[], bool]] | None = None,
 ) -> dict:
     """Atomically import bounded discovery into pointer-only local authority.
 
@@ -1800,6 +2114,33 @@ def reconcile(
     a healthy canonical locator, project priority, or that entity's resume with
     metadata from a sibling checkout. Historical plan claims are consumed once.
     """
+    if _init_registration is not None and (
+        len(entities) != 1
+        or legacy_claims
+        or retired_entities
+        or retired_sources
+    ):
+        raise BoardError("new entity registration requires one live entity seed")
+    if _init_registration is not None:
+        registration_plan, registration_receipt, repository_witness = (
+            _init_registration
+        )
+        if (
+            not isinstance(registration_plan, Path)
+            or not isinstance(registration_receipt, bytes)
+            or not 1
+            <= len(registration_receipt)
+            <= MAX_INIT_REGISTRATION_RECEIPT_BYTES
+            or not callable(repository_witness)
+        ):
+            raise BoardError("init registration completion input is invalid")
+        registration_plan = Path(os.path.abspath(registration_plan))
+        registration_reference = _init_registration_ref(registration_plan)
+    else:
+        registration_plan = None
+        registration_receipt = None
+        repository_witness = None
+        registration_reference = None
     retired_ids = set(retired_entities or [])
     if any(
         not isinstance(identity, str) or ENTITY_ID.fullmatch(identity) is None
@@ -1974,6 +2315,36 @@ def reconcile(
                 **locator_fields,
             }
         )
+    if (
+        registration_plan is not None
+        and prepared[0]["plan"] != str(registration_plan.resolve())
+    ):
+        raise BoardError("init registration plan changed before completion")
+
+    def assert_repository_witness() -> None:
+        if repository_witness is None:
+            return
+        try:
+            matches = repository_witness()
+        except Exception as exc:
+            raise BoardError(
+                "init registration repository identity could not be verified"
+            ) from exc
+        if matches is not True:
+            raise BoardError(
+                "init registration repository identity changed before registration"
+            )
+
+    def assert_init_registration(root: Path) -> str | None:
+        if registration_reference is None or registration_receipt is None:
+            return None
+        assert_repository_witness()
+        return _required_init_registration_oid(
+            root,
+            registration_reference,
+            registration_receipt,
+        )
+
     seed_ids = [seed["id"] for seed in prepared]
     duplicated = {identity for identity in seed_ids if seed_ids.count(identity) > 1}
     if duplicated:
@@ -2080,6 +2451,7 @@ def reconcile(
     assert_seed_witnesses()
     assert_retired_content()
     with _transaction(home) as (root, path, payload):
+        registration_oid = assert_init_registration(root)
         assert_seed_content()
         assert_repair_states()
         assert_seed_witnesses()
@@ -2087,6 +2459,49 @@ def reconcile(
         original_payload = json.loads(json.dumps(payload))
         changed = False
         identity_index = _identity_index(payload)
+        if registration_reference is not None and prepared[0]["id"] in identity_index:
+            exact = [
+                entity
+                for entity in identity_index[prepared[0]["id"]]
+                if entity["plan"] == prepared[0]["plan"]
+            ]
+            if len(exact) != 1:
+                raise BoardError("entity is already registered on this computer")
+            registration_oid = assert_init_registration(root)
+            assert_seed_content()
+            assert_seed_witnesses()
+            _clear_init_registration_locked(
+                root,
+                registration_reference,
+                registration_receipt,
+                missing_ok=False,
+            )
+            try:
+                assert_repository_witness()
+                assert_seed_content()
+                assert_seed_witnesses()
+            except BaseException:
+                restored = _git(
+                    root,
+                    "update-ref",
+                    "-m",
+                    "shadow init: restore incomplete registration",
+                    "--no-deref",
+                    registration_reference,
+                    registration_oid,
+                    "0" * len(registration_oid),
+                )
+                if (
+                    restored.returncode
+                    or _init_registration_oid(root, registration_reference)
+                    != registration_oid
+                ):
+                    raise BoardError(
+                        "init registration cleanup failed and its receipt "
+                        "could not be restored"
+                    )
+                raise
+            return json.loads(json.dumps(payload))
         prepared_by_id = {seed["id"]: seed for seed in prepared}
         original_entities = json.loads(json.dumps(payload["entities"]))
         original_claims = json.loads(json.dumps(payload["claims"]))
@@ -2366,7 +2781,29 @@ def reconcile(
             return json.loads(json.dumps(payload))
         payload["revision"] = original_payload["revision"] + 1
         _validate(payload)
-        _write_and_commit(root, path, payload, "shadow board: reconcile bounded portfolio")
+        if registration_reference is None:
+            _write_and_commit(
+                root,
+                path,
+                payload,
+                "shadow board: reconcile bounded portfolio",
+            )
+        else:
+            registration_oid = assert_init_registration(root)
+
+            def registration_guard() -> None:
+                assert_repository_witness()
+                assert_seed_content()
+                assert_seed_witnesses()
+
+            _write_and_commit(
+                root,
+                path,
+                payload,
+                "shadow board: register initialized plan",
+                consume_ref=(registration_reference, registration_oid),
+                guard=registration_guard,
+            )
         return json.loads(json.dumps(payload))
 
 
