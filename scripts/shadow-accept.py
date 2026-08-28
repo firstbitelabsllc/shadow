@@ -18,6 +18,7 @@ person/agent judgments and are refused here on purpose.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -28,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path, PurePosixPath
+from typing import Iterator
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -554,6 +556,62 @@ def remove_review_worktree(repo: Path, destination: Path) -> None:
         raise AcceptError("retired lead review checkout could not be pruned")
 
 
+@contextmanager
+def completed_proof_review(
+    repo: Path,
+    plan_path: Path,
+    plan_text: str,
+    row_id: str,
+    argv: list[str],
+    source_head: str,
+    timeout_seconds: int,
+    proof_directory: Path = Path("."),
+) -> Iterator[Path]:
+    """Rerun one recorded completion before any retry can publish or release it."""
+    pool = repo.parent / f"{repo.name}-shadow-accept"
+    pool.mkdir(exist_ok=True)
+    git_completed(repo, "worktree", "prune", timeout=15)
+    review = create_lead_review_worktree(
+        repo,
+        pool,
+        row_id.lstrip("~"),
+        source_head,
+    )
+    try:
+        require_frozen_review_head(review, source_head)
+        proof_root = review / proof_directory
+        issue = script_operand_issue(argv, proof_root)
+        if issue:
+            raise AcceptError(
+                f"the completed proof's {issue}; root claim stays open"
+            )
+        refuse_lint_blocked_plan(
+            plan_text,
+            plan_path,
+            proof_root=proof_root,
+            row_id=row_id,
+        )
+        if not lead_review_passes(
+            review,
+            argv,
+            timeout_seconds,
+            proof_directory,
+            expected_head=source_head,
+        ):
+            raise AcceptError(
+                "the completed proof did not pass from the detached source "
+                "checkout; root claim stays open"
+            )
+        require_frozen_review_head(review, source_head)
+        yield review
+    finally:
+        remove_review_worktree(repo, review)
+        try:
+            pool.rmdir()
+        except OSError:
+            pass
+
+
 def accept_local_plan(
     repo: Path,
     plan_path: Path,
@@ -591,28 +649,15 @@ def accept_local_plan(
                 "the explicit source checkout does not match the completion's "
                 "SOURCE receipt"
             )
-        pool = repo.parent / f"{repo.name}-shadow-accept"
-        pool.mkdir(exist_ok=True)
-        git_completed(repo, "worktree", "prune", timeout=15)
-        review = create_lead_review_worktree(
+        with completed_proof_review(
             repo,
-            pool,
-            row_id.lstrip("~"),
+            plan_path,
+            plan_text,
+            row_id,
+            argv,
             source_head,
-        )
-        try:
-            require_frozen_review_head(review, source_head)
-            issue = script_operand_issue(argv, review)
-            if issue:
-                raise AcceptError(
-                    f"the completed proof's {issue}; root claim stays open"
-                )
-            refuse_lint_blocked_plan(
-                plan_text,
-                plan_path,
-                proof_root=review,
-                row_id=row_id,
-            )
+            timeout_seconds,
+        ) as review:
             require_frozen_review_head(review, source_head)
             if claim is not None:
                 parsed = _amp._parse(plan_text)
@@ -627,13 +672,10 @@ def accept_local_plan(
                     expected_text=plan_text,
                     expected_claim=claim,
                 )
-        finally:
-            remove_review_worktree(repo, review)
-            try:
-                pool.rmdir()
-            except OSError:
-                pass
-        print(f"accepted {row_id}: local completion already proven; root claim reconciled")
+        print(
+            f"accepted {row_id}: completed proof reran at its recorded source; "
+            "root claim reconciled"
+        )
         return 0
     if claim is None:
         raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
@@ -1093,9 +1135,20 @@ def committed_or_recovered_snapshot(
 
 
 def publish_completion(
-    repo: Path, row_id: str, no_push: bool, summary: str, *, announce: bool = True
+    repo: Path,
+    row_id: str,
+    no_push: bool,
+    summary: str,
+    *,
+    expected_head: str,
+    announce: bool = True,
 ) -> int:
     """Make an already-committed completion reachable, including on retry."""
+    if frozen_source_head(repo) != expected_head:
+        raise AcceptError(
+            "the source checkout moved away from the frozen completion commit; "
+            "root claim stays open"
+        )
     if no_push:
         print(
             f"accepted {row_id}: {summary} — NOT pushed (--no-push); "
@@ -1124,7 +1177,12 @@ def publish_completion(
             )
             return 0
         remote, remote_ref = parts
-        pushed = git_completed(repo, "push", remote, f"HEAD:{remote_ref}")
+        if frozen_source_head(repo) != expected_head:
+            raise AcceptError(
+                "the source checkout moved away from the frozen completion commit; "
+                "root claim stays open"
+            )
+        pushed = git_completed(repo, "push", remote, f"{expected_head}:{remote_ref}")
     except AcceptError as exc:
         print(
             f"shadow accept: {row_id} is flipped and committed locally but the push could "
@@ -1202,20 +1260,36 @@ def ensure_completion_published(
     tracking = _remote_claim.uses_origin_upstream(repo)
     try:
         snapshot = _remote_claim.published_plan_snapshot(repo, plan_token)
-    except _remote_claim.RemoteClaimError as exc:
-        if tracking:
-            result = publish_completion(repo, row_id, False, summary, announce=False)
-            return result or None
-        raise AcceptError(
-            "completion publication could not be authenticated; remote claim retained"
-        ) from exc
+    except _remote_claim.RemoteClaimError:
+        snapshot = None
     if snapshot is None:
-        if tracking:
-            result = publish_completion(repo, row_id, False, summary, announce=False)
-            return result or None
-        raise AcceptError(
-            "completion is not published on the configured origin; remote claim retained"
+        if not tracking:
+            raise AcceptError(
+                "completion is not published on the configured origin; "
+                "remote claim retained"
+            )
+        result = publish_completion(
+            repo,
+            row_id,
+            False,
+            summary,
+            expected_head=plan_token["head"],
+            announce=False,
         )
+        if result:
+            return result
+        try:
+            snapshot = _remote_claim.published_plan_snapshot(repo, plan_token)
+        except _remote_claim.RemoteClaimError as exc:
+            raise AcceptError(
+                "completion publication could not be authenticated after push; "
+                "remote claim retained"
+            ) from exc
+        if snapshot is None:
+            raise AcceptError(
+                "completion is not published on the configured origin default; "
+                "remote claim retained"
+            )
     published_bytes, default_tip = snapshot
     try:
         published_text = published_bytes.decode("utf-8")
@@ -1425,7 +1499,13 @@ def finalize_completion(
     receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
     managed = _remote_claim.uses_origin_upstream(repo) or receipt is not None
     if no_push and managed:
-        return publish_completion(repo, row_id, True, summary)
+        return publish_completion(
+            repo,
+            row_id,
+            True,
+            summary,
+            expected_head=plan_token["head"],
+        )
     if managed:
         published = ensure_completion_published(
             repo, row_id, plan_token, plan_text, summary
@@ -1440,6 +1520,16 @@ def finalize_completion(
         transition_remote_completion(
             repo, plan_path, row_id, owner, plan_token, remote_claim
         )
+    else:
+        published = publish_completion(
+            repo,
+            row_id,
+            no_push,
+            summary,
+            expected_head=plan_token["head"],
+        )
+        if published:
+            return published
     _board.release(
         plan_path,
         row_id,
@@ -1452,8 +1542,7 @@ def finalize_completion(
     )
     if managed:
         print(f"accepted {row_id}: {summary}; published and remote claim completed")
-        return 0
-    return publish_completion(repo, row_id, no_push, summary)
+    return 0
 
 
 def finalize_completed_retry_without_local_claim(
@@ -1468,9 +1557,21 @@ def finalize_completed_retry_without_local_claim(
 ) -> int:
     receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
     if receipt is None:
-        return publish_completion(repo, row_id, no_push, summary)
+        return publish_completion(
+            repo,
+            row_id,
+            no_push,
+            summary,
+            expected_head=plan_token["head"],
+        )
     if no_push:
-        return publish_completion(repo, row_id, True, summary)
+        return publish_completion(
+            repo,
+            row_id,
+            True,
+            summary,
+            expected_head=plan_token["head"],
+        )
     published = ensure_completion_published(
         repo, row_id, plan_token, plan_text, summary
     )
@@ -1611,38 +1712,72 @@ def main(argv: list[str] | None = None) -> int:
                 plan_text, row_id, completed_argv
             ):
                 raise AcceptError("the row is completed without a matching accept proof")
-            refuse_lint_blocked_plan(plan_text, plan_path, row_id=row_id)
-            if claim is not None:
-                parsed = _amp._parse(plan_text)
-                parsed["claimed"] = set()
-                try:
-                    with _board.project_lock(plan_path):
-                        return finalize_completion(
-                            repo,
-                            plan_path,
-                            row_id,
-                            owner,
-                            claim,
-                            plan_token,
-                            plan_text,
-                            _amp._candidate_ids(parsed),
-                            args.no_push,
-                            "completion already proven; root claim reconciled",
-                        )
-                except (_board.BoardError, AcceptError) as exc:
-                    raise AcceptError(
-                        f"the completed row's root claim could not reconcile: {exc}"
-                    ) from exc
-            return finalize_completed_retry_without_local_claim(
+            head = plan_token["head"]
+            with completed_proof_review(
                 repo,
                 plan_path,
-                row_id,
-                owner,
-                plan_token,
                 plan_text,
-                args.no_push,
-                "completion already proven; root claim reconciled",
-            )
+                row_id,
+                completed_argv,
+                head,
+                args.timeout_seconds,
+                plan_relative.parent,
+            ) as review:
+                try:
+                    fresh_token, fresh_bytes = _board.committed_plan_snapshot(
+                        plan_path
+                    )
+                    fresh_text = fresh_bytes.decode("utf-8")
+                except (_board.BoardError, OSError, UnicodeError) as exc:
+                    raise AcceptError(
+                        f"plan cannot be frozen after the completed proof: {exc}"
+                    ) from exc
+                if fresh_token != plan_token or fresh_text != plan_text:
+                    raise AcceptError(
+                        "the committed entity plan changed while the completed "
+                        "proof ran; root claim stays open"
+                    )
+                if git_completed(
+                    repo, "status", "--porcelain", "--", str(plan_relative)
+                ).stdout.strip():
+                    raise AcceptError(
+                        "the completed row or its proof changed while the proof "
+                        "ran; root claim stays open"
+                    )
+                require_frozen_review_head(review, head)
+                if claim is not None:
+                    parsed = _amp._parse(plan_text)
+                    parsed["claimed"] = set()
+                    try:
+                        with _board.project_lock(plan_path):
+                            return finalize_completion(
+                                repo,
+                                plan_path,
+                                row_id,
+                                owner,
+                                claim,
+                                plan_token,
+                                plan_text,
+                                _amp._candidate_ids(parsed),
+                                args.no_push,
+                                "completed proof reran in its clean source "
+                                "checkout; root claim reconciled",
+                            )
+                    except (_board.BoardError, AcceptError) as exc:
+                        raise AcceptError(
+                            f"the completed row's root claim could not reconcile: {exc}"
+                        ) from exc
+                return finalize_completed_retry_without_local_claim(
+                    repo,
+                    plan_path,
+                    row_id,
+                    owner,
+                    plan_token,
+                    plan_text,
+                    args.no_push,
+                    "completed proof reran in its clean source checkout; "
+                    "root claim reconciled",
+                )
         if claim is None:
             raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
         blocked_by = unmet_needs(plan_text, needs)
