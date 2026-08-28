@@ -111,13 +111,20 @@ in a task receipt.
 
 ## Flip a task
 
-`shadow accept --row '~hash' --repo <project> --by <seat>` is the only code path that flips
-a source-backed task to completed: it reruns the task's `cmd` proof in a
-detached clean checkout of HEAD and, only on a pass, rewrites the source plan
-and appends its paired PROOF line. Infrastructure plans remain local under
-`~/.shadow/plans/` and are never committed. `read` and `gate`
-proofs are person judgments — re-observe them yourself and append the PROOF
-line with the flip.
+`shadow accept --row '~hash' --repo <project> --by <seat>` is the only code
+path that flips a Git-backed task to completed. A machine-local entity requires
+both its exact `--entity ID` and the `--repo <source-checkout>` whose committed
+HEAD supplies proof; repo-only input is refused rather than guessing among
+sibling plans. Shadow launches the task's `cmd` proof with a detached checkout
+of verified `HEAD^{commit}` as its initial working directory and keeps that
+checkout through final lint and publication, rechecking its detached HEAD after
+proof and immediately before the private plan write. This freezes source state
+but does not confine the trusted proof process to that directory. Only on a
+pass does it rewrite the plan and append the paired PROOF line; a private plan
+also records a path-free source identity and full SHA. Infrastructure plans
+remain local under `~/.shadow/plans/` and are never committed. `read` and
+`gate` proofs are person judgments — re-observe them yourself and append the
+PROOF line with the flip.
 
 ## Goal chaining
 

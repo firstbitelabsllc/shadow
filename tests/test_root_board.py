@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections import Counter
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import select
 import shlex
 import shutil
 import signal
@@ -17,12 +20,22 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "shadow"
 BOARD_MODULE = ROOT / "scripts" / "shadow_root_board.py"
+PLAN_MODULE = ROOT / "scripts" / "shadow-plan.py"
 PROOF_SENTINEL = "PROOF-MUST-NOT-ENTER-THE-BOARD"
 HOT_PLAN_LIMIT = 256 * 1024
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as board_api  # noqa: E402
 from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
+
+_PLAN_SPEC = importlib.util.spec_from_file_location(
+    "shadow_map_plan_test",
+    PLAN_MODULE,
+)
+plan_api = importlib.util.module_from_spec(_PLAN_SPEC)
+assert _PLAN_SPEC and _PLAN_SPEC.loader
+sys.modules[_PLAN_SPEC.name] = plan_api
+_PLAN_SPEC.loader.exec_module(plan_api)
 
 
 def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> None:
@@ -179,7 +192,7 @@ class PartitionedPlansUseOneLogicalReadBoundary(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 board_api.BoardError,
-                "project plan or its staged index changed",
+                "entity plan or its staged index changed",
             ):
                 board_api.committed_plan_snapshot(plan)
 
@@ -514,7 +527,11 @@ class ColdSeatsResumeThroughBoardEntityIds(unittest.TestCase):
             second = subprocess.run(
                 [shell, "-lc", rendered],
                 cwd=unrelated,
-                env={**os.environ, "HOME": str(home)},
+                env={
+                    **os.environ,
+                    "HOME": str(home),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
                 capture_output=True,
                 text=True,
                 check=False,
@@ -2385,6 +2402,141 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             self.assertNotIn(str(root), json.dumps(raw))
 
 
+class RootBoardImportScale(unittest.TestCase):
+    def _importer_and_amp(self):
+        import shadow_board_import as importer
+
+        name = f"shadow_status_import_scale_test_{id(self)}"
+        spec = importlib.util.spec_from_file_location(
+            name, ROOT / "scripts" / "shadow-status.py"
+        )
+        assert spec and spec.loader
+        status = importlib.util.module_from_spec(spec)
+        sys.modules[name] = status
+        spec.loader.exec_module(status)
+        return importer, status._amp
+
+    def test_250_entity_noop_refresh_bounds_identity_git_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root, name="mega", display_name="mega")
+            git(repo, "remote", "add", "origin", "git@example.invalid:team/mega.git")
+            root_plan = repo / "PLAN.md"
+            child_text = root_plan.read_text(encoding="utf-8")
+            root_plan.write_text(
+                child_text.replace(
+                    "- Mode: ship\n",
+                    "- Mode: ship\n- Plans: entities/*/PLAN.md\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            for index in range(249):
+                child = repo / "entities" / f"e{index:04d}"
+                child.mkdir(parents=True)
+                (child / "PLAN.md").write_text(child_text, encoding="utf-8")
+            git(repo, "add", "PLAN.md", "entities")
+            git(repo, "commit", "--quiet", "-m", "seed 250 entity plans")
+            importer, amp = self._importer_and_amp()
+            importer.reconcile_portfolio(repo, amp, home=home)
+            board_path = home / ".shadow" / "board.json"
+            before_bytes = board_path.read_bytes()
+            before_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            commands: list[tuple[str, ...]] = []
+            real_run = subprocess.run
+
+            def count_git(command, *args, **kwargs):
+                if command and command[0] == "git":
+                    commands.append(tuple(str(part) for part in command))
+                return real_run(command, *args, **kwargs)
+
+            with mock.patch.object(subprocess, "run", side_effect=count_git):
+                refreshed = importer.reconcile_portfolio(repo, amp, home=home)
+
+            after_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertEqual(len(refreshed["entities"]), 250)
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(after_head, before_head)
+            config_counts = Counter(
+                command
+                for command in commands
+                if command[-3:] == ("config", "--get", "remote.origin.url")
+            )
+            top_level_count = sum(
+                command[-2:] == ("rev-parse", "--show-toplevel")
+                for command in commands
+            )
+            self.assertLessEqual(max(config_counts.values(), default=0), 2)
+            self.assertLessEqual(top_level_count, (2 * 250) + 8)
+
+    def test_repository_identity_change_before_final_cas_refuses_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root, name="identity", display_name="identity")
+            git(
+                repo,
+                "remote",
+                "add",
+                "origin",
+                "git@example.invalid:team/identity.git",
+            )
+            importer, amp = self._importer_and_amp()
+            importer.reconcile_portfolio(repo, amp, home=home)
+            board_path = home / ".shadow" / "board.json"
+            before_bytes = board_path.read_bytes()
+            before_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            real_choose_resume = importer.board._choose_resume
+
+            def mutate_origin_then_choose(*args, **kwargs):
+                git(
+                    repo,
+                    "remote",
+                    "set-url",
+                    "origin",
+                    "git@example.invalid:team/changed.git",
+                )
+                return real_choose_resume(*args, **kwargs)
+
+            with mock.patch.object(
+                importer.board,
+                "_choose_resume",
+                side_effect=mutate_origin_then_choose,
+            ):
+                with self.assertRaisesRegex(
+                    importer.board.BoardError,
+                    "identity changed during reconciliation",
+                ):
+                    importer.reconcile_portfolio(repo, amp, home=home)
+
+            after_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(after_head, before_head)
+
+
 class PortfolioReconciliationIsBoundedAndComplete(unittest.TestCase):
     def test_first_claim_does_not_hide_another_portfolio_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2768,6 +2920,313 @@ class ProjectsGroupEntitiesWithoutCollapsingThem(unittest.TestCase):
             self.assertEqual({item["owner"] for item in claims}, {"seat-web", "seat-api"})
             self.assertEqual(len({item["entity"] for item in claims}), 2)
 
+    def test_one_repository_project_map_preserves_entity_claims_and_cold_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            unrelated = root / "unrelated"
+            home.mkdir()
+            portfolio.mkdir()
+            unrelated.mkdir()
+            repo = project(
+                portfolio,
+                name="shared-repo",
+                display_name="shared",
+            )
+            root_plan = repo / "PLAN.md"
+            root_plan.write_text(
+                root_plan.read_text(encoding="utf-8").replace(
+                    "- Mode: ship\n",
+                    "- Mode: ship\n- Plans: plans/*/PLAN.md\n",
+                ),
+                encoding="utf-8",
+            )
+            nested_plan = repo / "plans" / "api" / "PLAN.md"
+            nested_plan.parent.mkdir(parents=True)
+            nested_plan.write_text(
+                "# API\n\n"
+                "## Brief\n\n"
+                "- Project: shared\n"
+                "- Mode: ship\n"
+                "- Priority: 2\n\n"
+                "## Tasks\n\n"
+                "### The API outcome\n"
+                "- [pending] API-TASK-BELONGS-TO-NESTED-ENTITY ~aa11"
+                " | proof: cmd true\n"
+                "- [pending] the API outcome is proven ~bb22 (DoD)"
+                " | proof: cmd true | needs: ~aa11\n\n"
+                "## Progress\n\n"
+                "- 2026-08-27T00:00:00Z NOTE seeded\n",
+                encoding="utf-8",
+            )
+            linted = run(
+                home,
+                "lint",
+                "PLAN.md",
+                "plans/api/PLAN.md",
+                cwd=repo,
+            )
+            self.assertEqual(linted.returncode, 0, linted.stdout + linted.stderr)
+            git(repo, "add", "PLAN.md", "plans/api/PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "declare one project map")
+
+            registered = run(
+                home,
+                "status",
+                "--root",
+                str(portfolio),
+                "--json",
+                cwd=root,
+            )
+
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            payload = board(home)
+            self.assertEqual(payload["projects"], [{"id": "shared", "priority": 2}])
+            self.assertEqual(len(payload["entities"]), 2)
+            entities = {
+                Path(item["plan"]).resolve().relative_to(repo.resolve()).as_posix(): item["id"]
+                for item in payload["entities"]
+            }
+            self.assertEqual(set(entities), {"PLAN.md", "plans/api/PLAN.md"})
+            selected, owned = board_api.seat_board_entities(payload, "cold-seat")
+            self.assertEqual(owned, 0)
+            self.assertEqual(len(selected), 1)
+            next_selected, next_owned = board_api.seat_board_entities(
+                payload,
+                "cold-seat",
+                inspected_entities=selected,
+            )
+            self.assertEqual(next_owned, 0)
+            self.assertEqual(len(next_selected), 1)
+            self.assertEqual(selected | next_selected, set(entities.values()))
+
+            for entity_id in entities.values():
+                claimed = run(
+                    home,
+                    "throw",
+                    "--entity",
+                    entity_id,
+                    "--task",
+                    "~aa11",
+                    "--by",
+                    "map-seat",
+                    cwd=unrelated,
+                )
+                self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+            claims = [
+                item for item in board(home)["claims"]
+                if item["owner"] == "map-seat"
+            ]
+            self.assertEqual(
+                {(item["entity"], item["row"]) for item in claims},
+                {(entity_id, "~aa11") for entity_id in entities.values()},
+            )
+            selected_owned, owned_count = board_api.seat_board_entities(
+                board(home),
+                "map-seat",
+                inspected_entities=set(entities.values()),
+            )
+            self.assertEqual(selected_owned, set(entities.values()))
+            self.assertEqual(owned_count, 2)
+
+            cold = run(home, "status", "--by", "map-seat", cwd=unrelated)
+            self.assertEqual(cold.returncode, 0, cold.stderr)
+            for entity_id in entities.values():
+                self.assertIn(
+                    f"Continue: shadow amp --entity {entity_id} "
+                    "--task '~aa11' --by map-seat",
+                    cold.stdout,
+                )
+
+            root_resume = run(
+                home,
+                "amp",
+                "--entity",
+                entities["PLAN.md"],
+                "--by",
+                "map-seat",
+                cwd=unrelated,
+            )
+            nested_resume = run(
+                home,
+                "amp",
+                "--entity",
+                entities["plans/api/PLAN.md"],
+                "--by",
+                "map-seat",
+                cwd=unrelated,
+            )
+            self.assertEqual(root_resume.returncode, 0, root_resume.stderr)
+            self.assertEqual(nested_resume.returncode, 0, nested_resume.stderr)
+            self.assertIn("TASK-BODY-MUST-NOT-ENTER-THE-BOARD", root_resume.stdout)
+            self.assertNotIn("API-TASK-BELONGS-TO-NESTED-ENTITY", root_resume.stdout)
+            self.assertIn("API-TASK-BELONGS-TO-NESTED-ENTITY", nested_resume.stdout)
+            self.assertNotIn("TASK-BODY-MUST-NOT-ENTER-THE-BOARD", nested_resume.stdout)
+
+            accepted_root = run(
+                home,
+                "accept",
+                "--entity",
+                entities["PLAN.md"],
+                "--row",
+                "~aa11",
+                "--by",
+                "map-seat",
+                "--no-push",
+                cwd=unrelated,
+            )
+            self.assertEqual(accepted_root.returncode, 0, accepted_root.stderr)
+            after_root = board(home)
+            after_root_entities = {
+                Path(item["plan"]).resolve().relative_to(repo.resolve()).as_posix(): item
+                for item in after_root["entities"]
+            }
+            self.assertEqual(
+                {
+                    (item["entity"], item["row"], item["owner"])
+                    for item in after_root["claims"]
+                },
+                {
+                    (
+                        entities["plans/api/PLAN.md"],
+                        "~aa11",
+                        "map-seat",
+                    )
+                },
+            )
+            self.assertEqual(after_root_entities["PLAN.md"]["resume"], "~bb22")
+            self.assertEqual(
+                after_root_entities["plans/api/PLAN.md"]["resume"],
+                "~aa11",
+            )
+            self.assertIn(
+                "- [completed] TASK-BODY-MUST-NOT-ENTER-THE-BOARD ~aa11",
+                root_plan.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "- [pending] API-TASK-BELONGS-TO-NESTED-ENTITY ~aa11",
+                nested_plan.read_text(encoding="utf-8"),
+            )
+
+            accepted_nested = run(
+                home,
+                "accept",
+                "--entity",
+                entities["plans/api/PLAN.md"],
+                "--row",
+                "~aa11",
+                "--by",
+                "map-seat",
+                "--no-push",
+                cwd=unrelated,
+            )
+            self.assertEqual(accepted_nested.returncode, 0, accepted_nested.stderr)
+            after_nested = board(home)
+            self.assertEqual(after_nested["claims"], [])
+            self.assertEqual(
+                {
+                    Path(item["plan"]).resolve().relative_to(repo.resolve()).as_posix():
+                    item["resume"]
+                    for item in after_nested["entities"]
+                },
+                {
+                    "PLAN.md": "~bb22",
+                    "plans/api/PLAN.md": "~bb22",
+                },
+            )
+            self.assertIn(
+                "- [completed] API-TASK-BELONGS-TO-NESTED-ENTITY ~aa11",
+                nested_plan.read_text(encoding="utf-8"),
+            )
+
+    def test_sibling_row_id_never_satisfies_local_needs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            home.mkdir()
+            portfolio.mkdir()
+            project(
+                portfolio,
+                name="producer",
+                display_name="shared",
+            )
+            consumer = project(
+                portfolio,
+                name="consumer",
+                display_name="shared",
+            )
+            consumer_plan = consumer / "PLAN.md"
+            consumer_plan.write_text(
+                "# Consumer\n\n"
+                "## Brief\n\n"
+                "- Project: shared\n"
+                "- Mode: ship\n"
+                "- Priority: 2\n\n"
+                "## Tasks\n\n"
+                "### Consume one producer\n"
+                "- [pending] integration observes the producer ~cc33"
+                " | proof: cmd true | needs: ~aa11\n"
+                "- [pending] integration is proven ~dd44 (DoD)"
+                " | proof: cmd true | needs: ~cc33\n\n"
+                "## Progress\n\n"
+                "- 2026-08-27T00:00:00Z NOTE seeded\n",
+                encoding="utf-8",
+            )
+            git(consumer, "add", "PLAN.md")
+            git(consumer, "commit", "--quiet", "-m", "add invalid sibling need")
+            environment = {"SHADOW_PORTFOLIO_ROOT": str(portfolio)}
+
+            refused = run(
+                home,
+                "status",
+                "--json",
+                cwd=root,
+                extra_env=environment,
+            )
+            linted = run(
+                home,
+                "lint",
+                str(consumer_plan),
+                cwd=root,
+                extra_env=environment,
+            )
+
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("blocking lint", refused.stderr)
+            self.assertNotEqual(linted.returncode, 0)
+            self.assertIn("NEEDS-DANGLE", linted.stdout + linted.stderr)
+            board_path = home / ".shadow" / "board.json"
+            if board_path.exists():
+                self.assertEqual(board(home)["entities"], [])
+
+            consumer_plan.write_text(
+                consumer_plan.read_text(encoding="utf-8").replace(
+                    "### Consume one producer\n",
+                    "### Consume one producer\n"
+                    "- [pending] local producer is explicit ~aa11"
+                    " | proof: cmd true\n",
+                ),
+                encoding="utf-8",
+            )
+            git(consumer, "add", "PLAN.md")
+            git(consumer, "commit", "--quiet", "-m", "add local dependency owner")
+
+            accepted = run(
+                home,
+                "status",
+                "--json",
+                cwd=root,
+                extra_env=environment,
+            )
+
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            payload = board(home)
+            self.assertEqual(payload["projects"], [{"id": "shared", "priority": 2}])
+            self.assertEqual(len(payload["entities"]), 2)
+
     def test_highest_priority_project_renders_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2789,6 +3248,864 @@ class ProjectsGroupEntitiesWithoutCollapsingThem(unittest.TestCase):
             self.assertEqual(observed.returncode, 0, observed.stderr)
             records = json.loads(observed.stdout)["v4_plans"]
             self.assertEqual([item["project"] for item in records], ["zeta", "alpha"])
+
+
+class ProjectMapMigrationIsAtomicAndReversible(unittest.TestCase):
+    @staticmethod
+    def _authority(payload: dict) -> str:
+        authority = json.loads(json.dumps(payload))
+        authority.pop("revision")
+        return json.dumps(
+            authority, sort_keys=True, separators=(",", ":")
+        )
+
+    def _fixture(self, root: Path) -> dict[str, object]:
+        home = root / "home"
+        portfolio = root / "portfolio"
+        unrelated = root / "unrelated"
+        home.mkdir()
+        portfolio.mkdir()
+        unrelated.mkdir()
+        repo = project(
+            portfolio,
+            name="shared-repo",
+            display_name="shared",
+        )
+        plan = repo / "PLAN.md"
+        source_text = (
+            "# Shared\n\n"
+            "## Brief\n\n"
+            "- Project: shared\n"
+            "- Mode: ship\n"
+            "- Priority: 2\n\n"
+            "## Tasks\n\n"
+            "### Root outcome\n"
+            "- [pending] ROOT-TASK-STAYS-IN-ROOT ~cc33"
+            " | proof: gate owner resume: root approved\n"
+            "- [pending] ROOT-RESUME-STAYS-IN-ROOT ~ee55 | proof: cmd true\n"
+            "- [pending] root outcome is proven ~dd44 (DoD)"
+            " | proof: cmd true | needs: ~cc33, ~ee55\n\n"
+            "### Child outcome\n"
+            "- [pending] CHILD-TASK-MOVES-TO-CHILD ~aa11 | proof: cmd true\n"
+            "- [pending] child outcome is proven ~bb22 (DoD)"
+            " | proof: cmd true | needs: ~aa11\n\n"
+            "## Contradictions\n\n"
+            "- OPEN child contradiction names ~aa11 | winner: child owns it\n"
+            "- RESOLVED root contradiction names ~cc33 | winner: root owns it\n\n"
+            "## Progress\n\n"
+            "- 2026-08-27T00:00:00Z ~aa11 NOTE child provenance\n"
+            "- 2026-08-27T00:01:00Z ~cc33 NOTE root provenance\n"
+        )
+        plan.write_text(source_text, encoding="utf-8")
+        git(repo, "add", "PLAN.md")
+        git(repo, "commit", "--quiet", "-m", "seed migration monolith")
+        registered = run(
+            home,
+            "status",
+            "--root",
+            str(portfolio),
+            "--json",
+            cwd=root,
+        )
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        root_claimed = run(
+            home,
+            "throw",
+            "--repo",
+            str(repo),
+            "--task",
+            "~cc33",
+            "--by",
+            "root-seat",
+            cwd=unrelated,
+        )
+        self.assertEqual(root_claimed.returncode, 0, root_claimed.stderr)
+        claimed = run(
+            home,
+            "throw",
+            "--repo",
+            str(repo),
+            "--task",
+            "~aa11",
+            "--by",
+            "cold-seat",
+            cwd=unrelated,
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        source_head = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        source_branch = subprocess.run(
+            ["git", "-C", str(repo), "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        before = board(home)
+        board_bytes = (home / ".shadow" / "board.json").read_bytes()
+        board_head = subprocess.run(
+            ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        child = repo / "plans" / "child" / "PLAN.md"
+        child.parent.mkdir(parents=True)
+        plan.write_text(
+            "# Shared\n\n"
+            "## Brief\n\n"
+            "- Project: shared\n"
+            "- Mode: ship\n"
+            "- Priority: 2\n"
+            "- Plans: plans/*/PLAN.md\n\n"
+            "## Tasks\n\n"
+            "### Root outcome\n"
+            "- [pending] ROOT-TASK-STAYS-IN-ROOT ~cc33"
+            " | proof: gate owner resume: root approved\n"
+            "- [pending] ROOT-RESUME-STAYS-IN-ROOT ~ee55 | proof: cmd true\n"
+            "- [pending] root outcome is proven ~dd44 (DoD)"
+            " | proof: cmd true | needs: ~cc33, ~ee55\n\n"
+            "## Contradictions\n\n"
+            "- RESOLVED root contradiction names ~cc33 | winner: root owns it\n\n"
+            "## Progress\n\n"
+            "- 2026-08-27T00:01:00Z ~cc33 NOTE root provenance\n",
+            encoding="utf-8",
+        )
+        child.write_text(
+            "# Child\n\n"
+            "## Brief\n\n"
+            "- Project: shared\n"
+            "- Mode: ship\n"
+            "- Priority: 2\n\n"
+            "## Tasks\n\n"
+            "### Child outcome\n"
+            "- [pending] CHILD-TASK-MOVES-TO-CHILD ~aa11 | proof: cmd true\n"
+            "- [pending] child outcome is proven ~bb22 (DoD)"
+            " | proof: cmd true | needs: ~aa11\n\n"
+            "## Contradictions\n\n"
+            "- OPEN child contradiction names ~aa11 | winner: child owns it\n\n"
+            "## Progress\n\n"
+            "- 2026-08-27T00:00:00Z ~aa11 NOTE child provenance\n",
+            encoding="utf-8",
+        )
+        git(repo, "add", "PLAN.md", "plans/child/PLAN.md")
+        git(repo, "commit", "--quiet", "-m", "prepare bounded project map")
+        target_head = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        git(repo, "branch", "map-target", target_head)
+        git(repo, "reset", "--hard", "--quiet", source_head)
+        return {
+            "home": home,
+            "portfolio": portfolio,
+            "unrelated": unrelated,
+            "repo": repo,
+            "plan": plan,
+            "child": child,
+            "source_text": source_text,
+            "source_branch": source_branch,
+            "source_head": source_head,
+            "target_head": target_head,
+            "before": before,
+            "board_bytes": board_bytes,
+            "board_head": board_head,
+        }
+
+    @staticmethod
+    def _map_args(fixture: dict[str, object]) -> list[str]:
+        return [
+            "plan",
+            "map-migrate",
+            str(fixture["plan"]),
+            "--target-ref",
+            "map-target",
+            "--child",
+            "plans/child/PLAN.md",
+        ]
+
+    def _dry_payload(self, fixture: dict[str, object]) -> dict:
+        dry = run(
+            fixture["home"],
+            *self._map_args(fixture),
+            "--dry-run",
+            cwd=fixture["repo"],
+        )
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        return json.loads(dry.stdout)
+
+    @staticmethod
+    def _head(repo: Path) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    @staticmethod
+    def _board_head(home: Path) -> str:
+        return subprocess.run(
+            ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def test_map_migration_round_trip_preserves_claim_and_cold_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            home = fixture["home"]
+            repo = fixture["repo"]
+            plan = fixture["plan"]
+            unrelated = fixture["unrelated"]
+            before = fixture["before"]
+            dry = run(
+                home,
+                *self._map_args(fixture),
+                "--dry-run",
+                cwd=repo,
+            )
+            self.assertEqual(dry.returncode, 0, dry.stderr)
+            transaction = json.loads(dry.stdout)["transaction_sha256"]
+            receipt = home / "migration-receipt.json"
+            applied = run(
+                home,
+                *self._map_args(fixture),
+                "--apply",
+                "--expect",
+                transaction,
+                "--receipt",
+                str(receipt),
+                cwd=repo,
+            )
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            applied_payload = json.loads(applied.stdout)
+            receipt_bytes = receipt.read_bytes()
+            receipt_payload = json.loads(receipt_bytes)
+            self.assertEqual(receipt_payload["phase"], "prepared")
+            self.assertEqual(
+                receipt_payload["transaction_sha256"],
+                transaction,
+            )
+            after = board(home)
+            entities = {item["id"]: item for item in after["entities"]}
+            self.assertEqual(len(entities), 2)
+            root_id = board_api.entity_id(plan)
+            child_id = board_api.entity_id(fixture["child"])
+            self.assertIn(root_id, entities)
+            self.assertIn(child_id, entities)
+            self.assertEqual(entities[root_id]["resume"], "~ee55")
+            self.assertEqual(entities[child_id]["resume"], "~aa11")
+            self.assertEqual(after["projects"], before["projects"])
+            before_claims = {item["row"]: item for item in before["claims"]}
+            after_claims = {item["row"]: item for item in after["claims"]}
+            self.assertEqual(set(after_claims), {"~aa11", "~cc33"})
+            self.assertEqual(after_claims["~aa11"]["entity"], child_id)
+            self.assertEqual(after_claims["~cc33"]["entity"], root_id)
+            for row in before_claims:
+                self.assertEqual(
+                    {
+                        key: value
+                        for key, value in after_claims[row].items()
+                        if key != "entity"
+                    },
+                    {
+                        key: value
+                        for key, value in before_claims[row].items()
+                        if key != "entity"
+                    },
+                )
+            cold = run(home, "status", "--by", "cold-seat", cwd=unrelated)
+            self.assertEqual(cold.returncode, 0, cold.stderr)
+            self.assertIn(
+                f"Continue: shadow amp --entity {child_id} "
+                "--task '~aa11' --by cold-seat",
+                cold.stdout,
+            )
+            root_cold = run(
+                home,
+                "status",
+                "--by",
+                "root-seat",
+                cwd=unrelated,
+            )
+            self.assertEqual(root_cold.returncode, 0, root_cold.stderr)
+            self.assertIn(
+                f"Continue: shadow amp --entity {root_id} "
+                "--task '~cc33' --by root-seat",
+                root_cold.stdout,
+            )
+
+            rolled_back = run(
+                home,
+                "plan",
+                "map-rollback",
+                str(plan),
+                "--receipt",
+                str(receipt),
+                "--apply",
+                "--expect",
+                applied_payload["applied_sha256"],
+                cwd=repo,
+            )
+            self.assertEqual(rolled_back.returncode, 0, rolled_back.stderr)
+            self.assertEqual(receipt.read_bytes(), receipt_bytes)
+            rollback_path = receipt.with_name(
+                receipt.stem + ".rollback.json"
+            )
+            rollback_payload = json.loads(
+                rollback_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                rollback_payload["migration_sha256"],
+                transaction,
+            )
+            frozen_rollback = dict(rollback_payload)
+            rollback_digest = frozen_rollback.pop("rollback_sha256")
+            self.assertEqual(
+                hashlib.sha256(
+                    json.dumps(
+                        frozen_rollback,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+                rollback_digest,
+            )
+            restored = board(home)
+            self.assertEqual(plan.read_text(encoding="utf-8"), fixture["source_text"])
+            self.assertFalse(fixture["child"].exists())
+            self.assertEqual(
+                self._authority(restored),
+                self._authority(before),
+            )
+            self.assertEqual(restored["projects"], before["projects"])
+            self.assertEqual(restored["entities"], before["entities"])
+            self.assertEqual(restored["claims"], before["claims"])
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(repo),
+                        "rev-parse",
+                        "--verify",
+                        "HEAD",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                ).stdout.strip(),
+                fixture["source_head"],
+            )
+            self.assertFalse(
+                subprocess.run(
+                    ["git", "-C", str(repo), "status", "--porcelain"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout
+            )
+            cold_restored = run(
+                home,
+                "status",
+                "--by",
+                "cold-seat",
+                cwd=unrelated,
+            )
+            self.assertEqual(cold_restored.returncode, 0, cold_restored.stderr)
+            self.assertIn(
+                f"Continue: shadow amp --entity {root_id} "
+                "--task '~aa11' --by cold-seat",
+                cold_restored.stdout,
+            )
+            restored_board_head = self._board_head(home)
+            repeated = run(
+                home,
+                "plan",
+                "map-rollback",
+                str(plan),
+                "--receipt",
+                str(receipt),
+                "--apply",
+                "--expect",
+                transaction,
+                cwd=repo,
+            )
+            self.assertEqual(repeated.returncode, 0, repeated.stderr)
+            self.assertEqual(self._head(repo), fixture["source_head"])
+            self.assertEqual(self._board_head(home), restored_board_head)
+            self.assertEqual(board(home), restored)
+
+    def test_direct_board_api_rejects_forged_routes_and_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            prepared = self._dry_payload(fixture)
+            home = fixture["home"]
+            repo = fixture["repo"]
+            git(repo, "reset", "--hard", "--quiet", fixture["target_head"])
+            board_bytes = (home / ".shadow" / "board.json").read_bytes()
+            board_head = self._board_head(home)
+
+            wrong_route = json.loads(json.dumps(prepared))
+            next(
+                item for item in wrong_route["row_map"] if item["row"] == "~aa11"
+            )["destination"] = "root"
+            with self.assertRaisesRegex(
+                board_api.BoardError,
+                "actual plan membership",
+            ):
+                board_api.apply_project_map_migration(
+                    fixture["plan"],
+                    fixture["child"],
+                    wrong_route,
+                    home=home,
+                )
+
+            wrong_candidates = json.loads(json.dumps(prepared))
+            wrong_candidates["plans"]["root"]["candidates"] = []
+            with self.assertRaisesRegex(
+                board_api.BoardError,
+                "resume candidates changed",
+            ):
+                board_api.apply_project_map_migration(
+                    fixture["plan"],
+                    fixture["child"],
+                    wrong_candidates,
+                    home=home,
+                )
+
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                board_bytes,
+            )
+            self.assertEqual(self._board_head(home), board_head)
+
+    def test_apply_journal_failure_restores_git_board_and_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            prepared = self._dry_payload(fixture)
+            transaction = prepared["transaction_sha256"]
+            home = fixture["home"]
+            repo = fixture["repo"]
+            receipt = home / "journal-failure.json"
+            original_commit = board_api._commit
+
+            def fail_after_commit(root: Path, message: str) -> None:
+                original_commit(root, message)
+                if message == "shadow board: apply project-map migration":
+                    raise board_api.BoardError("injected apply journal failure")
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
+                board_api,
+                "_commit",
+                side_effect=fail_after_commit,
+            ):
+                with self.assertRaisesRegex(
+                    board_api.BoardError,
+                    "injected apply journal failure",
+                ):
+                    plan_api._apply_project_map_migration(
+                        fixture["plan"],
+                        "map-target",
+                        Path("plans/child/PLAN.md"),
+                        transaction,
+                        receipt,
+                    )
+
+            self.assertEqual(self._head(repo), fixture["source_head"])
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                fixture["board_bytes"],
+            )
+            self.assertEqual(self._board_head(home), fixture["board_head"])
+            self.assertEqual(
+                json.loads(receipt.read_text(encoding="utf-8"))["phase"],
+                "prepared",
+            )
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                applied = plan_api._apply_project_map_migration(
+                    fixture["plan"],
+                    "map-target",
+                    Path("plans/child/PLAN.md"),
+                    transaction,
+                    receipt,
+                )
+            self.assertEqual(applied["action"], "applied")
+            self.assertEqual(self._head(repo), fixture["target_head"])
+            self.assertEqual(len(board(home)["entities"]), 2)
+
+    def test_apply_resumes_from_prepared_receipt_after_fast_forward(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            prepared = self._dry_payload(fixture)
+            home = fixture["home"]
+            repo = fixture["repo"]
+            receipt = home / "crash-after-fast-forward.json"
+            receipt.write_text(
+                json.dumps(prepared, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            os.chmod(receipt, 0o600)
+            git(repo, "reset", "--hard", "--quiet", fixture["target_head"])
+
+            recovered = run(
+                home,
+                *self._map_args(fixture),
+                "--apply",
+                "--expect",
+                prepared["transaction_sha256"],
+                "--receipt",
+                str(receipt),
+                cwd=repo,
+            )
+
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertEqual(self._head(repo), fixture["target_head"])
+            self.assertEqual(len(board(home)["entities"]), 2)
+            self.assertEqual(
+                json.loads(receipt.read_text(encoding="utf-8")),
+                prepared,
+            )
+
+    def test_rollback_journal_failure_restores_target_and_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            prepared = self._dry_payload(fixture)
+            transaction = prepared["transaction_sha256"]
+            home = fixture["home"]
+            repo = fixture["repo"]
+            receipt = home / "rollback-journal-failure.json"
+            applied = run(
+                home,
+                *self._map_args(fixture),
+                "--apply",
+                "--expect",
+                transaction,
+                "--receipt",
+                str(receipt),
+                cwd=repo,
+            )
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            applied_board = (home / ".shadow" / "board.json").read_bytes()
+            applied_board_head = self._board_head(home)
+            original_commit = board_api._commit
+
+            def fail_after_commit(root: Path, message: str) -> None:
+                original_commit(root, message)
+                if message == "shadow board: roll back project-map migration":
+                    raise board_api.BoardError("injected rollback journal failure")
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
+                board_api,
+                "_commit",
+                side_effect=fail_after_commit,
+            ):
+                with self.assertRaisesRegex(
+                    board_api.BoardError,
+                    "injected rollback journal failure",
+                ):
+                    plan_api._rollback_project_map_migration(
+                        fixture["plan"],
+                        receipt,
+                        transaction,
+                    )
+
+            self.assertEqual(self._head(repo), fixture["target_head"])
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                applied_board,
+            )
+            self.assertEqual(self._board_head(home), applied_board_head)
+            self.assertTrue(
+                receipt.with_name(receipt.stem + ".rollback.json").is_file()
+            )
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                rolled_back = plan_api._rollback_project_map_migration(
+                    fixture["plan"],
+                    receipt,
+                    transaction,
+                )
+            self.assertEqual(rolled_back["migration_sha256"], transaction)
+            self.assertEqual(self._head(repo), fixture["source_head"])
+            self.assertEqual(
+                self._authority(board(home)),
+                self._authority(fixture["before"]),
+            )
+
+    def test_rollback_resumes_after_source_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            prepared = self._dry_payload(fixture)
+            transaction = prepared["transaction_sha256"]
+            home = fixture["home"]
+            repo = fixture["repo"]
+            receipt = home / "crash-after-source-reset.json"
+            applied = run(
+                home,
+                *self._map_args(fixture),
+                "--apply",
+                "--expect",
+                transaction,
+                "--receipt",
+                str(receipt),
+                cwd=repo,
+            )
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            git(repo, "reset", "--hard", "--quiet", fixture["source_head"])
+
+            recovered = run(
+                home,
+                "plan",
+                "map-rollback",
+                str(fixture["plan"]),
+                "--receipt",
+                str(receipt),
+                "--apply",
+                "--expect",
+                transaction,
+                cwd=repo,
+            )
+
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertEqual(self._head(repo), fixture["source_head"])
+            self.assertEqual(
+                self._authority(board(home)),
+                self._authority(fixture["before"]),
+            )
+
+    def test_receipt_inside_repository_is_rejected_before_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            prepared = self._dry_payload(fixture)
+            home = fixture["home"]
+            repo = fixture["repo"]
+            receipt = repo / "migration.json"
+
+            refused = run(
+                home,
+                *self._map_args(fixture),
+                "--apply",
+                "--expect",
+                prepared["transaction_sha256"],
+                "--receipt",
+                str(receipt),
+                cwd=repo,
+            )
+
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("outside the repository", refused.stderr)
+            self.assertFalse(receipt.exists())
+            self.assertEqual(self._head(repo), fixture["source_head"])
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                fixture["board_bytes"],
+            )
+            self.assertEqual(self._board_head(home), fixture["board_head"])
+
+    def test_unsafe_child_path_and_recursive_declaration_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            home = fixture["home"]
+            repo = fixture["repo"]
+            unsafe_child = run(
+                home,
+                "plan",
+                "map-migrate",
+                str(fixture["plan"]),
+                "--dry-run",
+                "--target-ref",
+                "map-target",
+                "--child",
+                ":(glob)**/PLAN.md",
+                cwd=repo,
+            )
+            self.assertNotEqual(unsafe_child.returncode, 0)
+            self.assertIn("safe relative PLAN.md", unsafe_child.stderr)
+
+            git(repo, "checkout", "--quiet", "map-target")
+            fixture["plan"].write_text(
+                fixture["plan"].read_text(encoding="utf-8").replace(
+                    "- Plans: plans/*/PLAN.md",
+                    "- Plans: **/PLAN.md",
+                ),
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "--amend", "--no-edit")
+            git(repo, "checkout", "--quiet", fixture["source_branch"])
+            recursive = run(
+                home,
+                *self._map_args(fixture),
+                "--dry-run",
+                cwd=repo,
+            )
+            self.assertNotEqual(recursive.returncode, 0)
+            self.assertIn("unsafe child plan declaration", recursive.stderr)
+            self.assertEqual(self._head(repo), fixture["source_head"])
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                fixture["board_bytes"],
+            )
+
+    def test_rollback_sidecar_and_post_apply_board_tamper_refuse_before_git(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            prepared = self._dry_payload(fixture)
+            transaction = prepared["transaction_sha256"]
+            home = fixture["home"]
+            repo = fixture["repo"]
+            receipt = home / "rollback-preflight.json"
+            applied = run(
+                home,
+                *self._map_args(fixture),
+                "--apply",
+                "--expect",
+                transaction,
+                "--receipt",
+                str(receipt),
+                cwd=repo,
+            )
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            applied_board = (home / ".shadow" / "board.json").read_bytes()
+            applied_board_head = self._board_head(home)
+            sidecar = receipt.with_name(receipt.stem + ".rollback.json")
+            sidecar.mkdir()
+
+            refused_sidecar = run(
+                home,
+                "plan",
+                "map-rollback",
+                str(fixture["plan"]),
+                "--receipt",
+                str(receipt),
+                "--apply",
+                "--expect",
+                transaction,
+                cwd=repo,
+            )
+
+            self.assertNotEqual(refused_sidecar.returncode, 0)
+            self.assertIn("regular file", refused_sidecar.stderr)
+            self.assertEqual(self._head(repo), fixture["target_head"])
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                applied_board,
+            )
+            self.assertEqual(self._board_head(home), applied_board_head)
+            sidecar.rmdir()
+
+            board_api.set_priority(
+                fixture["plan"],
+                3,
+                home=home,
+            )
+            tampered_board = (home / ".shadow" / "board.json").read_bytes()
+            tampered_head = self._board_head(home)
+            refused_tamper = run(
+                home,
+                "plan",
+                "map-rollback",
+                str(fixture["plan"]),
+                "--receipt",
+                str(receipt),
+                "--apply",
+                "--expect",
+                transaction,
+                cwd=repo,
+            )
+            self.assertNotEqual(refused_tamper.returncode, 0)
+            self.assertIn("state changed after apply", refused_tamper.stderr)
+            self.assertEqual(self._head(repo), fixture["target_head"])
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                tampered_board,
+            )
+            self.assertEqual(self._board_head(home), tampered_head)
+
+    def test_map_migration_child_change_after_dry_run_writes_no_board_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp))
+            home = fixture["home"]
+            repo = fixture["repo"]
+            dry = run(
+                home,
+                *self._map_args(fixture),
+                "--dry-run",
+                cwd=repo,
+            )
+            self.assertEqual(dry.returncode, 0, dry.stderr)
+            transaction = json.loads(dry.stdout)["transaction_sha256"]
+            git(repo, "checkout", "--quiet", "map-target")
+            fixture["child"].write_text(
+                fixture["child"].read_text(encoding="utf-8")
+                + "\n<!-- changed after dry run -->\n",
+                encoding="utf-8",
+            )
+            git(repo, "add", "plans/child/PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "mutate target after dry run")
+            git(repo, "checkout", "--quiet", fixture["source_branch"])
+            receipt = home / "stale-receipt.json"
+            refused = run(
+                home,
+                *self._map_args(fixture),
+                "--apply",
+                "--expect",
+                transaction,
+                "--receipt",
+                str(receipt),
+                cwd=repo,
+            )
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("changed", refused.stderr.lower())
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                fixture["source_head"],
+            )
+            self.assertEqual(
+                (home / ".shadow" / "board.json").read_bytes(),
+                fixture["board_bytes"],
+            )
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                fixture["board_head"],
+            )
+            self.assertFalse(receipt.exists())
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "branch", "--show-current"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                fixture["source_branch"],
+            )
+            self.assertFalse(
+                subprocess.run(
+                    ["git", "-C", str(repo), "status", "--porcelain"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout
+            )
 
 
 class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
@@ -2993,6 +4310,103 @@ class ManualProofsCanCloseClaims(unittest.TestCase):
             payload = board(home)
             self.assertEqual(payload["claims"], [])
             self.assertEqual(payload["entities"][0]["resume"], "~bb22")
+
+
+class ProjectLifecycleLocks(unittest.TestCase):
+    LOCK_PROCESS = f"""
+from pathlib import Path
+import sys
+sys.path.insert(0, {str(ROOT / 'scripts')!r})
+import shadow_root_board
+with shadow_root_board.project_lock(Path(sys.argv[1])):
+    print('LOCKED', flush=True)
+    if sys.argv[2] == 'hold':
+        sys.stdin.read(1)
+"""
+
+    def _start_lock(
+        self, plan: Path, *, hold: bool
+    ) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                self.LOCK_PROCESS,
+                str(plan),
+                "hold" if hold else "once",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def _read_lock_state(
+        self, process: subprocess.Popen[str], timeout: float
+    ) -> str | None:
+        assert process.stdout is not None
+        ready, _, _ = select.select([process.stdout], [], [], timeout)
+        return process.stdout.readline().strip() if ready else None
+
+    def _release_lock(self, process: subprocess.Popen[str]) -> None:
+        if process.poll() is None:
+            assert process.stdin is not None
+            process.stdin.write("g")
+            process.stdin.flush()
+            process.stdin.close()
+            process.stdin = None
+        _, stderr = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 0, stderr)
+
+    def _finish_lock(self, process: subprocess.Popen[str]) -> None:
+        _, stderr = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 0, stderr)
+
+    def test_disjoint_sibling_plans_do_not_serialize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            plans = []
+            for name in ("alpha", "beta"):
+                plan = repo / name / "PLAN.md"
+                plan.parent.mkdir()
+                plan.write_bytes((repo / "PLAN.md").read_bytes())
+                plans.append(plan)
+            git(repo, "add", "alpha/PLAN.md", "beta/PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "add sibling plans")
+
+            first = self._start_lock(plans[0], hold=True)
+            second = None
+            try:
+                self.assertEqual(self._read_lock_state(first, 2), "LOCKED")
+                second = self._start_lock(plans[1], hold=False)
+                self.assertEqual(self._read_lock_state(second, 0.5), "LOCKED")
+            finally:
+                self._release_lock(first)
+                if second is not None:
+                    self._finish_lock(second)
+
+    def test_same_plan_across_worktrees_still_serializes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            sibling = root / "sibling-worktree"
+            git(repo, "worktree", "add", "--quiet", "--detach", str(sibling), "HEAD")
+
+            first = self._start_lock(repo / "PLAN.md", hold=True)
+            second = None
+            try:
+                self.assertEqual(self._read_lock_state(first, 2), "LOCKED")
+                second = self._start_lock(sibling / "PLAN.md", hold=False)
+                self.assertIsNone(self._read_lock_state(second, 0.25))
+                self.assertIsNone(second.poll())
+                self._release_lock(first)
+                first = None
+                self.assertEqual(self._read_lock_state(second, 2), "LOCKED")
+            finally:
+                if first is not None:
+                    self._release_lock(first)
+                if second is not None:
+                    self._finish_lock(second)
 
 
 class ConcurrentClaimsHaveExactlyOneWinner(unittest.TestCase):
