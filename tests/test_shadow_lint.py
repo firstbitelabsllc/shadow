@@ -1015,7 +1015,11 @@ class TheShippedPlanSurvivesTheGate(unittest.TestCase):
     """
 
     def _shipped_plan(self) -> str:
-        return init.plan_text(ROOT, "2026-08-11T00:00:00Z")
+        return init.plan_text(
+            ROOT,
+            "2026-08-11T00:00:00Z",
+            origin=init.proof_source_origin(ROOT),
+        )
 
     def test_the_shipped_plan_has_no_blocking_finding(self) -> None:
         findings = lint.lint_plan(self._shipped_plan(), root=ROOT)
@@ -1044,3 +1048,36 @@ class TheShippedPlanSurvivesTheGate(unittest.TestCase):
         blocking_after = {f for f in after if f[2] == "blocking"}
         self.assertEqual(blocking_before, blocking_after,
                          "the gate's exit code changes with the machine's PATH")
+
+
+class OriginIdentityTests(unittest.TestCase):
+    def _plan_with_origins(self, *origins: str) -> str:
+        extra = "".join(f"- Origin: {value}\n" for value in origins)
+        return CLEAN_PLAN.replace("- Mode: ship\n", f"- Mode: ship\n{extra}")
+
+    def test_one_normalized_origin_is_clean(self) -> None:
+        findings = [
+            item
+            for item in lint.lint_plan(self._plan_with_origins("github.com/example/widget"))
+            if item["check"] == "ORIGIN-IDENTITY"
+        ]
+        self.assertEqual(findings, [])
+
+    def test_duplicate_or_path_shaped_origin_blocks_without_leaking_the_value(self) -> None:
+        cases = (
+            ("github.com/example/widget", "github.com/example/widget"),
+            ("/tmp/widget.git",),
+            ("git@github.com:example/widget.git",),
+        )
+        for origins in cases:
+            with self.subTest(origins=origins):
+                findings = [
+                    item
+                    for item in lint.lint_plan(self._plan_with_origins(*origins))
+                    if item["check"] == "ORIGIN-IDENTITY" and item["severity"] == "blocking"
+                ]
+                self.assertTrue(findings, origins)
+                detail = findings[0]["detail"]
+                self.assertNotIn("/tmp/", detail)
+                self.assertNotIn("/Users/", detail)
+                self.assertNotIn("git@github.com", detail)

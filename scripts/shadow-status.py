@@ -39,6 +39,8 @@ _lint = _ilu.module_from_spec(_lint_spec)
 sys.modules.setdefault("shadow_lint", _lint)
 _lint_spec.loader.exec_module(_lint)
 
+REMOTE_DISCOVERY_ISSUE = "remote claim discovery is unavailable or unauthenticated"
+
 
 def plain_name(value: str) -> str:
     return re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", " ".join(value.split()))
@@ -448,38 +450,98 @@ def in_flight_root_board_view(payload: dict) -> dict:
     }
 
 
+def prepare_status_entities(
+    entities: list[dict],
+    *,
+    verify_identity: bool = False,
+) -> dict[str, dict]:
+    """Read each selected plan once, then discover claims once per repository."""
+    prepared: dict[str, dict] = {}
+    batches: dict[Path, list[dict]] = {}
+    for entity in entities:
+        plan_path = Path(entity["plan"])
+        item = {"discovery": (None, None)}
+        prepared[entity["id"]] = item
+        try:
+            if verify_identity and _board.entity_id(plan_path) != entity["id"]:
+                raise _board.BoardError(
+                    "stored entity identity no longer matches its plan pointer"
+                )
+            text = _board.read_plan_text(plan_path)
+            parsed = _amp._parse(text)
+        except (_board.BoardError, OSError, UnicodeError):
+            continue
+        item.update(text=text, parsed=parsed)
+        try:
+            eligibility, repo = _remote_claim.managed_repo_for_plan(plan_path)
+            if eligibility is _remote_claim.RemoteEligibility.UNKNOWN:
+                item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
+                continue
+            if eligibility is _remote_claim.RemoteEligibility.VERIFIED_LOCAL_ONLY:
+                continue
+            if repo is None:
+                item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
+                continue
+            token, _ = _board.frozen_plan_snapshot(plan_path)
+        except (_board.BoardError, OSError, UnicodeError):
+            item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
+            continue
+        if Path(token["repo"]) != repo:
+            item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
+            continue
+        batches.setdefault(repo, []).append(
+            {
+                "entity": entity["id"],
+                "project": entity["project"],
+                "rows": sorted(
+                    row["id"]
+                    for milestone in parsed["milestones"]
+                    for row in milestone["rows"]
+                ),
+                "relative": token["relative"],
+            }
+        )
+    for repo, requests in batches.items():
+        entity_ids = {request["entity"] for request in requests}
+        try:
+            observed = _remote_claim.discover_active_batch(
+                repo,
+                requests=requests,
+                verified_eligibility=_remote_claim.RemoteEligibility.REMOTE,
+            )
+        except (_remote_claim.RemoteClaimError, OSError, UnicodeError):
+            observed = None
+        valid = (
+            isinstance(observed, dict)
+            and set(observed) == entity_ids
+            and all(
+                observed[entity_id] is None
+                or isinstance(observed[entity_id], list)
+                for entity_id in entity_ids
+            )
+        )
+        for entity_id in entity_ids:
+            entity_observed = observed[entity_id] if valid else None
+            prepared[entity_id]["discovery"] = (
+                (entity_observed, None)
+                if entity_observed is not None
+                else (None, REMOTE_DISCOVERY_ISSUE)
+            )
+    return prepared
+
+
 def projected_claims(
     entity: dict,
     project: str,
     plan_path: Path,
-    parsed: dict,
+    discovery: tuple[list[dict] | None, str | None],
     local_claims: list[dict],
 ) -> tuple[list[dict], str | None]:
     """Join authenticated remote locks without changing the local board."""
     claims = list(local_claims)
-    row_ids = {
-        row["id"]
-        for milestone in parsed["milestones"]
-        for row in milestone["rows"]
-    }
-    repo = _remote_claim.managed_repo_for_plan(plan_path)
-    if repo is None:
-        return claims, None
-    try:
-        token, _ = _board.frozen_plan_snapshot(plan_path)
-        if Path(token["repo"]) != repo:
-            return claims, "remote claim discovery is unavailable or unauthenticated"
-        observed = _remote_claim.discover_active(
-            repo,
-            entity=entity["id"],
-            project=project,
-            rows=sorted(row_ids),
-            relative=token["relative"],
-        )
-    except _board.BoardError:
-        return claims, "remote claim discovery is unavailable or unauthenticated"
-    except _remote_claim.RemoteClaimError:
-        return claims, "remote claim discovery is unavailable or unauthenticated"
+    observed, remote_issue = discovery
+    if remote_issue:
+        return claims, remote_issue
     for journal in observed or []:
         projected = {
             "entity": entity["id"],
@@ -512,21 +574,6 @@ def ordered_entities(payload: dict) -> list[dict]:
     )
 
 
-def seat_board_entities(payload: dict, seat: str) -> tuple[set[str], int]:
-    """Choose a human seat's bounded entity set from local board facts only."""
-    owned = {
-        claim["entity"] for claim in payload["claims"] if claim["owner"] == seat
-    }
-    if owned:
-        return owned, len(owned)
-    ordered = ordered_entities(payload)
-    candidate = next(
-        (entity for entity in ordered if entity["resume"] is not None),
-        ordered[0] if ordered else None,
-    )
-    return ({candidate["id"]} if candidate is not None else set()), 0
-
-
 def board_records(
     payload: dict,
     *,
@@ -535,29 +582,35 @@ def board_records(
 ) -> list[dict]:
     records: list[dict] = []
     priorities = {project["id"]: project["priority"] for project in payload["projects"]}
-    for entity in ordered_entities(payload):
-        if entity_ids is not None and entity["id"] not in entity_ids:
-            continue
+    selected_entities = [
+        entity
+        for entity in ordered_entities(payload)
+        if entity_ids is None or entity["id"] in entity_ids
+    ]
+    prepared = prepare_status_entities(selected_entities, verify_identity=verify_identity)
+    for entity in selected_entities:
         plan_path = Path(entity["plan"])
         project = entity["project"]
         locator = _board.public_plan_locator(plan_path)
         local_claims = [
             claim for claim in payload["claims"] if claim["entity"] == entity["id"]
         ]
+        text = prepared[entity["id"]].get("text")
+        parsed = prepared[entity["id"]].get("parsed")
         try:
-            if verify_identity and _board.entity_id(plan_path) != entity["id"]:
-                raise _board.BoardError(
-                    "stored entity identity no longer matches its plan pointer"
-                )
-            text = _board.read_plan_text(plan_path)
-            parsed = _amp._parse(text)
+            if text is None or parsed is None:
+                raise _board.BoardError("the entity plan is missing or unreadable")
             row_ids = {
                 row["id"]
                 for milestone in parsed["milestones"]
                 for row in milestone["rows"]
             }
             claims, remote_issue = projected_claims(
-                entity, project, plan_path, parsed, local_claims
+                entity,
+                project,
+                plan_path,
+                prepared[entity["id"]]["discovery"],
+                local_claims,
             )
             entity_claims = {claim["row"] for claim in claims}
             record = v4_brief(
@@ -661,15 +714,19 @@ def board_in_flight(payload: dict) -> list[dict]:
     entities = {entity["id"]: entity for entity in payload["entities"]}
     claims = list(payload["claims"])
     remote_failures: list[tuple[dict, str]] = []
+    prepared = prepare_status_entities(payload["entities"])
     for pointer in payload["entities"]:
+        parsed = prepared[pointer["id"]].get("parsed")
+        if parsed is None:
+            continue
         plan_path = Path(pointer["plan"])
         local = [claim for claim in claims if claim["entity"] == pointer["id"]]
-        try:
-            parsed = _amp._parse(_board.read_plan_text(plan_path))
-        except (_board.BoardError, OSError, UnicodeError):
-            continue
         projected, issue = projected_claims(
-            pointer, pointer["project"], plan_path, parsed, local
+            pointer,
+            pointer["project"],
+            plan_path,
+            prepared[pointer["id"]]["discovery"],
+            local,
         )
         if issue:
             remote_failures.append((pointer, issue))
@@ -703,10 +760,7 @@ def board_in_flight(payload: dict) -> list[dict]:
         plan_path = Path(pointer["plan"])
         project = pointer["project"]
         locator = _board.public_plan_locator(plan_path)
-        try:
-            plan = _amp._parse(_board.read_plan_text(plan_path))
-        except (_board.BoardError, OSError, UnicodeError):
-            plan = None
+        plan = prepared[pointer["id"]].get("parsed")
         located = next(
             (
                 (milestone, row)
@@ -718,9 +772,9 @@ def board_in_flight(payload: dict) -> list[dict]:
         )
         if located is None:
             reason = (
-                "the project plan is missing or unreadable"
+                "the entity plan is missing or unreadable"
                 if plan is None
-                else "the claimed row is missing from the project plan"
+                else "the claimed row is missing from the entity plan"
             )
             rows.append(
                 {
@@ -858,13 +912,34 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         if board_snapshot is not None:
-            selected, owned = seat_board_entities(board_snapshot, args.by)
-            if selected:
-                focused = board_records(
+            inspected: set[str] = set()
+            fallback: list[dict] = []
+            focused: list[dict] = []
+            owned = 0
+            while True:
+                selected, owned = _board.seat_board_entities(
+                    board_snapshot,
+                    args.by,
+                    inspected_entities=inspected,
+                )
+                if not selected:
+                    focused = fallback
+                    break
+                candidate = board_records(
                     board_snapshot,
                     entity_ids=selected,
                     verify_identity=True,
                 )
+                if owned or any(
+                    record.get("broken") or claimable_row(record)
+                    for record in candidate
+                ):
+                    focused = candidate
+                    break
+                if not fallback:
+                    fallback = candidate
+                inspected.update(selected)
+            if focused:
                 unhealthy = sum(bool(record.get("broken")) for record in focused)
                 blocks = [
                     f"This computer — root board revision {board_snapshot['revision']}",

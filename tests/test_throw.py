@@ -1131,6 +1131,44 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             self.assertEqual(receipt["state"], "acquired")
             self.git(bare, "rev-parse", receipt["ref"])
 
+    def test_indeterminate_upstream_probe_refuses_without_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            wrapper_dir = root / "bin"
+            wrapper_dir.mkdir()
+            actual_git = shutil.which("git")
+            self.assertIsNotNone(actual_git)
+            wrapper = wrapper_dir / "git"
+            wrapper.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os\n"
+                "import sys\n"
+                "if len(sys.argv) >= 4 and sys.argv[1] == '-C' "
+                "and sys.argv[3] == 'symbolic-ref':\n"
+                "    print('eligibility probe failed', file=sys.stderr)\n"
+                "    raise SystemExit(2)\n"
+                f"os.execv({actual_git!r}, [{actual_git!r}, *sys.argv[1:]])\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+
+            process = self.throw_process(
+                first,
+                root / "home-a",
+                "seat-a",
+                extra_env={
+                    "PATH": f"{wrapper_dir}:{os.environ.get('PATH', '')}",
+                },
+            )
+            stdout, stderr = process.communicate(timeout=30)
+
+        self.assertEqual(process.returncode, 1, stderr)
+        self.assertEqual(stdout, "")
+        outcome = self.receipt(stderr)
+        self.assertEqual(outcome["status"], "error")
+        self.assertEqual(outcome["failure"], "ambiguous_remote")
+
     def test_expired_remote_acquired_tip_can_only_be_adopted_explicitly(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()

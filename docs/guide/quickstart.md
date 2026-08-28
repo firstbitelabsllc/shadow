@@ -1,6 +1,6 @@
 # Quick start
 
-Shadow has one loop: create or read a project plan, claim a checkpoint on this
+Shadow has one loop: create or read an entity plan, claim a checkpoint on this
 computer, do only that claimed work, then leave proof or a precise wake.
 
 ## 1. Create or open the plan
@@ -47,7 +47,7 @@ shadow throw --entity <entity-id> --task '~ab12' --by your-seat
 shadow amp --repo . --by your-seat
 ```
 
-The root board at `~/.shadow` owns the claim and lease. The project `PLAN.md`
+The root board at `~/.shadow` owns the claim and lease. The entity `PLAN.md`
 still owns the row text, proof, and evidence; the board never copies them.
 When the current branch tracks configured `origin`, `shadow throw` also
 confirms one deterministic remote coordination lock before printing the work
@@ -81,10 +81,29 @@ not acceptance by itself.
 For a passing `cmd` proof, use the only flip path:
 
 ```bash
+# Git-backed entity plan:
 shadow accept --repo . --row '~ab12' --by your-seat
-# --repo is where proofs RUN (the product checkout); a machine-local
-# plan's own directory also works when its proof argv cds there itself
+
+# Machine-local entity plan:
+shadow accept --entity ENTITY_ID --repo . --row '~ab12' --by your-seat
 ```
+
+For a machine-local plan, `--entity` selects the exact plan and `--repo`
+selects the source checkout. A plan with a public `Origin:` must match that
+checkout's normalized origin. A local-only source omits its private path; its
+first explicit accept writes one opaque `local.shadow.invalid/<digest>`
+identity into Brief `Origin:` and records the row's matching `SOURCE` receipt.
+Every later accept must match the Brief binding, which remains in the live plan
+when lifecycle archives completed rows and receipts. Repo-only acceptance
+refuses instead of guessing among sibling plans. Shadow resolves
+`HEAD^{commit}`, launches the trusted proof from a
+detached checkout as its initial working directory, and keeps it through final
+lint and the local plan
+write. It rechecks detached HEAD after the proof. Under the lifecycle lock it
+rechecks the exact plan snapshot and source binding, then checks detached HEAD
+again immediately before publication. This
+freezes source state, not the filesystem: the proof process can still change
+directory or access other paths.
 
 For a remotely coordinated claim, ordinary accept publishes the completed
 PLAN, records the completed tombstone, and then releases the local claim.

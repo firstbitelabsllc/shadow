@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Claim one project-plan row on this computer, then print its goal pointer.
+"""Claim one entity-plan checkpoint on this computer, then print its goal pointer.
 
-The root board owns claims and owners.  The project plan remains byte-for-byte
+The root board owns claims and owners.  The entity plan remains byte-for-byte
 the authority for task text and proof; claiming never copies or rewrites it.
 """
 
@@ -113,13 +113,13 @@ def _validated_target(
         token, content = _board.frozen_plan_snapshot(plan_path)
         text = content.decode("utf-8")
     except (OSError, UnicodeError) as exc:
-        raise _board.BoardError("project plan is missing or unreadable") from exc
+        raise _board.BoardError("entity plan is missing or unreadable") from exc
     plan = _amp._parse(text)
     canonical_task = _canonical_task(text, task)
     located = _row_line(text, canonical_task)
     if located is None:
         raise _board.BoardError(
-            f"no task carries {canonical_task} in the stored canonical project plan"
+            f"no task carries {canonical_task} in the stored canonical entity plan"
         )
     _, match = located
     if match.group("state") not in {"pending", "in_progress"}:
@@ -138,7 +138,7 @@ def _validated_target(
         )
     unclean = _amp.unclean_note(plan)
     if unclean:
-        raise _board.BoardError(f"project plan cannot be claimed: {unclean}")
+        raise _board.BoardError(f"entity plan cannot be claimed: {unclean}")
     where = _board.public_plan_locator(plan_path)
     suffix = f"/{token['relative']}"
     public_repo = where[: -len(suffix)] if where.endswith(suffix) else where
@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     parser = argparse.ArgumentParser(
         prog="shadow throw",
-        description="Claim a project-plan row on this computer before work leaves the chat.",
+        description="Claim a checkpoint row from one entity plan before work leaves the chat.",
     )
     parser.add_argument("--repo", default=None, help="repository root (default: cwd)")
     parser.add_argument("--entity", default=None, help="computer-board entity id")
@@ -244,13 +244,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             observed_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
             if observed_token != plan_token:
-                raise _board.BoardError("project plan changed before the claim committed; retry")
+                raise _board.BoardError("entity plan changed before the claim committed; retry")
             plan_text = plan_bytes.decode("utf-8")
             if _remote.uses_origin_upstream(repo) and not _remote.public_safe_plan_token(
                 plan_token
             ):
                 raise _board.BoardError(
-                    "project plan locator is not public-safe for remote claim transport"
+                    "entity plan locator is not public-safe for remote claim transport"
                 )
             if not args.entity:
                 # Normalize/register this exact bounded entity before claiming.

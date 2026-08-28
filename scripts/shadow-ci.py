@@ -58,7 +58,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     )),
     (("browser/", "bin/shadow-browse"), (
         "tests.test_browser", "tests.test_browser_shell", "tests.test_status_focus",
-        "tests.test_root_board", "tests.test_config_defaults",
+        "tests.test_root_board", "tests.test_config_defaults", "tests.test_plan_location",
     )),
     (("scripts/shadow-lint.py", "scripts/shadow_task_lib.py", "scripts/shadow-init.py"), (
         "tests.test_shadow_lint", "tests.test_shadow_init", "tests.test_grammar_contract",

@@ -19,6 +19,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -124,8 +125,24 @@ class Fixture:
 
     @staticmethod
     def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        env = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.startswith("GIT_")
+        }
+        env.update({
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+            "XDG_CONFIG_HOME": os.devnull,
+        })
         result = subprocess.run(
-            ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=False
+            ["git", "-c", "core.hooksPath=/dev/null", *args],
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode:
             raise AssertionError(result.stdout + result.stderr)
@@ -735,7 +752,11 @@ class LiveTwoSeatProof(unittest.TestCase):
     def test_host_cannot_register_or_mutate_an_outside_repository(self) -> None:
         context = tempfile.TemporaryDirectory()
         root = Path(context.name).resolve()
-        fixture = Fixture(root)
+        operator_xdg = root / "operator-xdg"
+        (operator_xdg / "git").mkdir(parents=True)
+        (operator_xdg / "git" / "ignore").write_text(".claude/\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(operator_xdg)}):
+            fixture = Fixture(root)
         outside = root / "outside-product"
         outside.mkdir()
         Fixture._git(outside, "init", "-q")
@@ -755,7 +776,7 @@ class LiveTwoSeatProof(unittest.TestCase):
         result = run_harness(
             fixture.script,
             fixture.operator_home,
-            "--live", "--goal-file", str(fixture.goal), "--timeout-seconds", "10", "--json",
+            "--live", "--goal-file", str(fixture.goal), "--timeout-seconds", "30", "--json",
             extra_env={
                 "SHADOW_CLAUDE_CODE_BIN": str(claude),
                 "SHADOW_CODEX_BIN": str(codex),
@@ -769,6 +790,38 @@ class LiveTwoSeatProof(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual((outside / "PLAN.md").read_bytes(), before_plan)
             self.assertEqual(Fixture._git(outside, "rev-parse", "HEAD").stdout.strip(), before_head)
+            fixture.assert_operator_state_untouched(self)
+
+    def test_operator_xdg_ignore_cannot_hide_dirty_source(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            fixture = Fixture(root)
+            operator_xdg = root / "operator-xdg"
+            (operator_xdg / "git").mkdir(parents=True)
+            (operator_xdg / "git" / "ignore").write_text(
+                ".operator-xdg-hidden/\n",
+                encoding="utf-8",
+            )
+            hidden = fixture.checkout / ".operator-xdg-hidden"
+            hidden.mkdir()
+            (hidden / "settings.json").write_text("{}\n", encoding="utf-8")
+            missing_host = root / "missing-host"
+
+            result = run_harness(
+                fixture.script,
+                fixture.operator_home,
+                "--live", "--goal-file", str(fixture.goal), "--json",
+                extra_env={
+                    "XDG_CONFIG_HOME": str(operator_xdg),
+                    "SHADOW_CLAUDE_CODE_BIN": str(missing_host),
+                    "SHADOW_CODEX_BIN": str(missing_host),
+                },
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            data = receipt(result)
+            self.assertEqual(data["failure"], "source_dirty")
+            assert_closed_receipt(self, data, [str(root), GOAL])
             fixture.assert_operator_state_untouched(self)
 
     def test_launch_failure_and_dirty_source_return_closed_receipts(self) -> None:
