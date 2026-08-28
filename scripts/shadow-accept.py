@@ -23,9 +23,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
+import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -56,6 +58,13 @@ _LINT_SPEC = importlib.util.spec_from_file_location(
 _lint = importlib.util.module_from_spec(_LINT_SPEC)
 sys.modules.setdefault("shadow_accept_lint", _lint)
 _LINT_SPEC.loader.exec_module(_lint)
+
+_HOST_SPEC = importlib.util.spec_from_file_location(
+    "shadow_accept_host", ROOT / "scripts" / "shadow-host.py"
+)
+_host = importlib.util.module_from_spec(_HOST_SPEC)
+sys.modules.setdefault("shadow_accept_host", _host)
+_HOST_SPEC.loader.exec_module(_host)
 
 
 ROW_ID_RE = _grammar.ROW_ID_RE
@@ -88,6 +97,35 @@ OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
     r"local\.shadow\.invalid/(?P<digest>[0-9a-f]{12})"
 )
 LOCAL_SOURCE_RECEIPT_CUTOVER = "2026-08-28T04:29:56Z"
+PROOF_RESULT_SCHEMA = "shadow.proof-result.v1"
+PROOF_MARKER_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,79}")
+PROOF_FLOOR_RE = re.compile(r"[1-9][0-9]{0,8}")
+PROPOSAL_ATTEMPT_MAX_BYTES = 64 * 1024
+PROPOSAL_ATTEMPT_FIELDS = {
+    "schema",
+    "revision",
+    "host",
+    "execution_policy",
+    "task_id",
+    "task_sha256",
+    "status",
+    "summary",
+    "proof_ref",
+    "changed_paths",
+    "ignored_artifact_paths",
+    "tests",
+    "host_exit_code",
+    "timed_out",
+    "duration_s",
+    "stdout_bytes",
+    "stderr_bytes",
+    "command_shape",
+    "blocked",
+    "unreviewed_claim",
+    "accepted_by_lead",
+    "projection_is_usage",
+    "authority_proposal",
+}
 
 
 _shell_script_index = _grammar.shell_script_index
@@ -96,6 +134,171 @@ _shell_operators = _grammar.shell_operators
 
 class AcceptError(ValueError):
     """Fail closed; nothing was changed."""
+
+
+def _strict_json_object(content: bytes, label: str) -> dict:
+    if len(content) > PROPOSAL_ATTEMPT_MAX_BYTES:
+        raise AcceptError(f"{label} exceeds the bounded JSON size")
+    try:
+        text = content.decode("utf-8")
+        value = json.loads(
+            text,
+            object_pairs_hook=lambda pairs: _unique_json_object(pairs, label),
+        )
+    except UnicodeError as exc:
+        raise AcceptError(f"{label} is not UTF-8 JSON") from exc
+    except json.JSONDecodeError as exc:
+        raise AcceptError(f"{label} is not one exact JSON object") from exc
+    if not isinstance(value, dict):
+        raise AcceptError(f"{label} is not one exact JSON object")
+    return value
+
+
+def _strict_json_file(path: Path, label: str) -> dict:
+    """Read one bounded regular JSON file without following its final symlink."""
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise AcceptError(f"{label} could not be read") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise AcceptError(f"{label} must be one regular file")
+        if metadata.st_size > PROPOSAL_ATTEMPT_MAX_BYTES:
+            raise AcceptError(f"{label} exceeds the bounded JSON size")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            content = stream.read(PROPOSAL_ATTEMPT_MAX_BYTES + 1)
+    except OSError as exc:
+        raise AcceptError(f"{label} could not be read") from exc
+    finally:
+        os.close(descriptor)
+    return _strict_json_object(content, label)
+
+
+def _unique_json_object(
+    pairs: list[tuple[str, object]],
+    label: str,
+) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise AcceptError(f"{label} repeats JSON field {key}")
+        value[key] = item
+    return value
+
+
+def proposal_attempt_path(repo: Path, supplied: Path) -> Path:
+    """Resolve one regular attempt below the source checkout's evidence root."""
+    state = repo / ".shadow"
+    evidence = state / "evidence"
+    candidate = supplied.expanduser()
+    if not candidate.is_absolute():
+        candidate = repo / candidate
+    candidate = Path(os.path.abspath(candidate))
+    try:
+        relative = candidate.relative_to(evidence)
+    except ValueError as exc:
+        raise AcceptError("proposal attempt must stay inside .shadow/evidence") from exc
+    if not relative.parts:
+        raise AcceptError("proposal attempt must name one evidence file")
+    current = state
+    for part in ("evidence", *relative.parts):
+        current = current / part
+        if current.is_symlink():
+            raise AcceptError("proposal attempt path crosses a symlink")
+    if not candidate.is_file():
+        raise AcceptError("proposal attempt must be one regular file")
+    return candidate
+
+
+def load_authority_proposal(repo: Path, supplied: Path) -> dict[str, object]:
+    """Load one successful sealed Codex attempt and revalidate its proposal."""
+    path = proposal_attempt_path(repo, supplied)
+    raw = _strict_json_file(path, "proposal attempt")
+    if set(raw) != PROPOSAL_ATTEMPT_FIELDS:
+        raise AcceptError("proposal attempt fields are invalid")
+    revision = raw.get("revision")
+    if (
+        raw.get("schema") != _host.ATTEMPT_SCHEMA
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision != 1
+    ):
+        raise AcceptError("proposal attempt schema is invalid")
+    if raw.get("host") != "codex":
+        raise AcceptError("proposal acceptance supports sealed Codex attempts only")
+    policy = raw.get("execution_policy")
+    if (
+        not isinstance(policy, dict)
+        or set(policy)
+        != {
+            "schema",
+            "work_class",
+            "requested_model",
+            "observed_model",
+            "delegation",
+            "requested_child_capability",
+            "observed_child_spans",
+            "observation",
+        }
+        or policy.get("schema") != _host.POLICY_VERSION
+    ):
+        raise AcceptError("proposal attempt execution policy is invalid")
+    work_class = policy.get("work_class")
+    delegation = policy.get("delegation")
+    if (
+        work_class not in _host.WORK_CLASSES
+        or delegation not in _host.DELEGATION_MODES
+    ):
+        raise AcceptError("proposal attempt execution policy is invalid")
+    try:
+        route = _host.resolve_route("codex", work_class)
+        capability = _host.delegation_capability("codex", delegation)
+    except _host.ExecutionPolicyError as exc:
+        raise AcceptError("proposal attempt execution policy is invalid") from exc
+    if (
+        policy.get("requested_model") != route.model
+        or policy.get("observed_model") is not None
+        or policy.get("requested_child_capability") != capability
+        or policy.get("observed_child_spans") is not None
+        or policy.get("observation") != "owner-local-gauntlet-required"
+    ):
+        raise AcceptError("proposal attempt execution policy is invalid")
+    command_shape = raw.get("command_shape")
+    if command_shape != _host.public_command_shape("codex", delegation=delegation):
+        raise AcceptError("proposal attempt did not use the workspace-write sandbox")
+    tests = raw.get("tests")
+    host_exit_code = raw.get("host_exit_code")
+    if (
+        raw.get("status") != "ok"
+        or isinstance(host_exit_code, bool)
+        or not isinstance(host_exit_code, int)
+        or host_exit_code != 0
+        or raw.get("timed_out") is not False
+        or raw.get("blocked") is not None
+        or raw.get("unreviewed_claim") is not True
+        or raw.get("accepted_by_lead") is not False
+        or raw.get("projection_is_usage") is not False
+        or not isinstance(tests, list)
+        or not tests
+        or any(
+            not isinstance(item, dict)
+            or set(item) != {"name", "status"}
+            or item.get("status") != "pass"
+            for item in tests
+        )
+    ):
+        raise AcceptError("proposal attempt is not one successful unreviewed result")
+    try:
+        proposal = _host.validate_authority_proposal(raw["authority_proposal"])
+    except _host.HostError as exc:
+        raise AcceptError(f"proposal attempt is invalid: {exc.detail}") from exc
+    return proposal
 
 
 def proof_argv(command: str) -> list[str]:
@@ -454,6 +657,95 @@ def local_plan_with_origin(plan_text: str, source_identity: str) -> str:
     return "".join(lines)
 
 
+def proposal_row_contract(
+    plan_text: str,
+    row_id: str,
+) -> tuple[str, str, str, str, str, int]:
+    """Return the exact canonical row contract used by proposal acceptance."""
+    _, row_line, state, proof, needs = find_row(plan_text, row_id)
+    row = ROW_LINE_RE.fullmatch(row_line)
+    if row is None:
+        raise AcceptError(f"{row_id} does not match the task-row grammar")
+    fields = dict(FIELD_RE.findall(row.group("tail") or ""))
+    marker = fields.get("marker")
+    floor_text = fields.get("floor")
+    if marker is None and floor_text is None:
+        raise AcceptError(
+            f"{row_id} is not proposal-enabled; its canonical row needs marker and floor"
+        )
+    if marker is None or floor_text is None:
+        raise AcceptError(
+            f"{row_id} must declare both marker and floor for proposal acceptance"
+        )
+    marker = marker.strip()
+    floor_text = floor_text.strip()
+    if PROOF_MARKER_RE.fullmatch(marker) is None:
+        raise AcceptError(f"{row_id} has an invalid proposal proof marker")
+    if PROOF_FLOOR_RE.fullmatch(floor_text) is None:
+        raise AcceptError(f"{row_id} has an invalid proposal execution floor")
+    return row_line, state, proof, needs, marker, int(floor_text)
+
+
+def row_requires_proposal(plan_text: str, row_id: str) -> bool:
+    """Whether either proposal-only authority field is present on the row."""
+    _, row_line, _, _, _ = find_row(plan_text, row_id)
+    row = ROW_LINE_RE.fullmatch(row_line)
+    if row is None:
+        return False
+    fields = dict(FIELD_RE.findall(row.group("tail") or ""))
+    return "marker" in fields or "floor" in fields
+
+
+def local_plan_root_snapshot(plan_path: Path) -> _plan_store.PlanSnapshot:
+    try:
+        return _board.open_plan(plan_path)
+    except _board.BoardError as exc:
+        raise AcceptError(f"local plan root cannot be opened: {exc}") from exc
+
+
+def plan_object_digests(plan_path: Path) -> set[str]:
+    root = plan_path.parent / "PLAN.d" / "objects" / "sha256"
+    if not root.exists():
+        return set()
+    if root.is_symlink() or not root.is_dir():
+        raise AcceptError("local plan object store is unsafe")
+    digests: set[str] = set()
+    for path in root.glob("*/*"):
+        if path.is_symlink() or not path.is_file():
+            raise AcceptError("local plan object store contains an unsafe entry")
+        if re.fullmatch(r"[0-9a-f]{64}", path.name) is None:
+            raise AcceptError("local plan object store contains a malformed digest")
+        digests.add(path.name)
+    return digests
+
+
+def restore_local_authority(
+    plan_path: Path,
+    root_bytes: bytes,
+    object_digests: set[str],
+) -> None:
+    """CAS-restore exact local plan bytes and remove only new unreachable objects."""
+    try:
+        current = plan_path.read_bytes()
+        if current != root_bytes:
+            _plan_store.restore_exact_root(
+                plan_path,
+                expected_current_root=hashlib.sha256(current).hexdigest(),
+                target_root_bytes=root_bytes,
+            )
+        added = plan_object_digests(plan_path) - object_digests
+        if added:
+            _plan_store.discard_unreachable(plan_path, added)
+        restored = local_plan_root_snapshot(plan_path)
+        if restored.root_bytes != root_bytes:
+            raise AcceptError("local authority rollback readback did not match")
+        restored.materialize()
+        if plan_object_digests(plan_path) != object_digests:
+            raise AcceptError("local authority rollback left object-store drift")
+    except (OSError, _plan_store.PlanStoreError, AcceptError) as exc:
+        raise AcceptError("local authority could not be restored exactly") from exc
+
+
 def atomic_write_text(
     path: Path,
     text: str,
@@ -622,20 +914,76 @@ def commit_completed_plan(
         return claim_token, completed_token, completed_text
 
 
-def proof_passes(worktree: Path, proof: list[str], timeout_seconds: int) -> bool:
+def run_proof(
+    worktree: Path,
+    proof: list[str],
+    timeout_seconds: int,
+    *,
+    environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[bytes] | None:
+    proof_environment = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        **(environment or {}),
+    }
     try:
-        result = subprocess.run(
+        return subprocess.run(
             proof,
             cwd=worktree,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            env=proof_environment,
             stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=timeout_seconds,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def proof_passes(worktree: Path, proof: list[str], timeout_seconds: int) -> bool:
+    result = run_proof(worktree, proof, timeout_seconds)
+    return result is not None and result.returncode == 0
+
+
+def review_checkout_is_clean(worktree: Path, expected_head: str) -> bool:
+    status = git_completed(
+        worktree,
+        "status",
+        "--porcelain=v1",
+        "--ignored=matching",
+        "--untracked-files=all",
+    )
+    if status.returncode or status.stdout.strip():
         return False
-    return result.returncode == 0
+    try:
+        require_frozen_review_head(worktree, expected_head)
+    except AcceptError:
+        return False
+    return True
+
+
+def grade_proof_result(
+    result: subprocess.CompletedProcess[bytes],
+    marker: str,
+    floor: int,
+) -> None:
+    if result.returncode != 0:
+        raise AcceptError("the proposal proof exited non-zero; nothing was changed")
+    proof_result = _strict_json_object(result.stdout, "proposal proof result")
+    if set(proof_result) != {"schema", "result", "marker", "executed"}:
+        raise AcceptError("proposal proof result fields are invalid")
+    executed = proof_result.get("executed")
+    if (
+        proof_result.get("schema") != PROOF_RESULT_SCHEMA
+        or proof_result.get("result") != "pass"
+        or proof_result.get("marker") != marker
+        or isinstance(executed, bool)
+        or not isinstance(executed, int)
+        or executed < floor
+    ):
+        raise AcceptError(
+            "proposal proof result did not satisfy the canonical marker and floor"
+        )
 
 
 # Moved verbatim from the retired Drive engine (scripts/shadow-drive.py):
@@ -661,21 +1009,10 @@ def lead_review_passes(
 ) -> bool:
     if not proof_passes(worktree / proof_directory, proof, timeout_seconds):
         return False
-    status = git_completed(
+    return expected_head is None or review_checkout_is_clean(
         worktree,
-        "status",
-        "--porcelain=v1",
-        "--ignored=matching",
-        "--untracked-files=all",
+        expected_head,
     )
-    if status.returncode or status.stdout.strip():
-        return False
-    if expected_head is not None:
-        try:
-            require_frozen_review_head(worktree, expected_head)
-        except AcceptError:
-            return False
-    return True
 
 
 def remove_review_worktree(repo: Path, destination: Path) -> None:
@@ -763,6 +1100,245 @@ def completed_proof_review(
             pass
 
 
+def require_clean_source_checkout(repo: Path) -> None:
+    status = git_completed(
+        repo,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    )
+    if status.returncode or status.stdout.strip():
+        raise AcceptError(
+            "proposal acceptance requires one clean committed source checkout"
+        )
+
+
+def accept_local_proposal(
+    repo: Path,
+    plan_path: Path,
+    entity_id: str,
+    row_id: str,
+    owner: str,
+    proposal_path: Path,
+    timeout_seconds: int,
+) -> int:
+    """Accept one untrusted completion proposal against machine-local authority."""
+    proposal = load_authority_proposal(repo, proposal_path)
+    if proposal["entity_id"] != entity_id:
+        raise AcceptError("proposal entity does not match --entity")
+    if proposal["row_id"] != row_id:
+        raise AcceptError("proposal row does not match --row")
+    if proposal["owner"] != owner:
+        raise AcceptError("proposal owner does not match --by")
+    try:
+        plan_path.resolve().relative_to(repo.resolve())
+    except ValueError:
+        pass
+    else:
+        raise AcceptError(
+            "proposal acceptance requires machine-local authority outside the source checkout"
+        )
+
+    with _board.project_lock(plan_path):
+        try:
+            resolved = _board.resolve_entity(entity_id)
+        except _board.BoardError as exc:
+            raise AcceptError(f"proposal entity cannot be resolved: {exc}") from exc
+        if (
+            resolved is None
+            or resolved["plan"] is None
+            or resolved["plan"].resolve() != plan_path.resolve()
+            or not _board.is_local_plan(plan_path)
+        ):
+            raise AcceptError("proposal entity no longer resolves to this machine-local plan")
+
+        root_snapshot = local_plan_root_snapshot(plan_path)
+        root_bytes = root_snapshot.root_bytes
+        original_objects = plan_object_digests(plan_path)
+        try:
+            plan_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
+            plan_text = plan_bytes.decode("utf-8")
+        except (_board.BoardError, OSError, UnicodeError) as exc:
+            raise AcceptError(f"local plan cannot be frozen before proposal proof: {exc}") from exc
+        if root_snapshot.materialize() != plan_bytes:
+            raise AcceptError("local plan root and logical content disagree")
+        if proposal["base"]["plan_root_sha256"] != root_snapshot.root_sha256:
+            raise AcceptError("proposal plan root is stale")
+
+        source_identity = bind_local_plan_to_proof_repo(plan_text, repo, row_id)
+        source_head = frozen_source_head(repo)
+        if proposal["base"]["source_head"] != source_head:
+            raise AcceptError("proposal source HEAD is stale")
+        require_clean_source_checkout(repo)
+
+        contract = proposal_row_contract(plan_text, row_id)
+        row_line, state, proof, needs, marker, floor = contract
+        if state not in {"pending", "in_progress"}:
+            raise AcceptError("proposal transition requires a pending or in-progress row")
+        claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+        if claim is None:
+            raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
+        blocked_by = unmet_needs(plan_text, needs)
+        if blocked_by:
+            raise AcceptError(f"{row_id} still needs {', '.join(blocked_by)}")
+        challenged = contradiction_challenges(plan_text, row_id, needs)
+        if challenged:
+            raise AcceptError(
+                f"{row_id} is under a written acceptance challenge: {challenged[0]}"
+            )
+        if not proof.startswith("cmd "):
+            raise AcceptError("proposal acceptance supports cmd proofs only")
+        argv = proof_argv(proof[4:])
+        if not argv:
+            raise AcceptError("the proposal proof command is empty")
+        offenders = _shell_operators(proof[4:])
+        if offenders:
+            raise AcceptError(
+                f"the proposal proof passes {' '.join(offenders)} as literal shell operators"
+            )
+
+        pool = repo.parent / f"{repo.name}-shadow-accept"
+        pool.mkdir(exist_ok=True)
+        git_completed(repo, "worktree", "prune", timeout=15)
+        review = create_lead_review_worktree(
+            repo,
+            pool,
+            row_id.lstrip("~"),
+            source_head,
+        )
+        updated: str | None = None
+        try:
+            issue = script_operand_issue(argv, review)
+            if issue:
+                raise AcceptError(f"the proposal proof's {issue}; nothing was changed")
+            with tempfile.TemporaryDirectory(
+                prefix=".shadow-proof-home.",
+                dir=pool,
+            ) as proof_home:
+                proof_root = Path(proof_home) / ".shadow"
+                proof_root.mkdir()
+                proof_board = proof_root / "board.json"
+                proof_board.write_text("{}\n", encoding="utf-8")
+                os.chmod(proof_board, 0o400)
+                os.chmod(proof_root, 0o500)
+                try:
+                    proof_result = run_proof(
+                        review,
+                        argv,
+                        timeout_seconds,
+                        environment={"HOME": proof_home},
+                    )
+                finally:
+                    os.chmod(proof_root, 0o700)
+                    os.chmod(proof_board, 0o600)
+            if proof_result is None:
+                raise AcceptError("the proposal proof could not finish; nothing was changed")
+            grade_proof_result(proof_result, marker, floor)
+            if not review_checkout_is_clean(review, source_head):
+                raise AcceptError(
+                    "the proposal proof changed its detached checkout; nothing was changed"
+                )
+            if frozen_source_head(repo) != source_head:
+                raise AcceptError("the source HEAD changed while proposal proof ran")
+            require_clean_source_checkout(repo)
+
+            fresh_root = local_plan_root_snapshot(plan_path)
+            fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
+            fresh_text = fresh_bytes.decode("utf-8")
+            if (
+                fresh_root.root_sha256 != root_snapshot.root_sha256
+                or fresh_root.root_bytes != root_bytes
+                or fresh_token != plan_token
+                or fresh_text != plan_text
+            ):
+                raise AcceptError("the local plan changed while proposal proof ran")
+            try:
+                fresh_resolved = _board.resolve_entity(entity_id)
+            except _board.BoardError as exc:
+                raise AcceptError(f"proposal entity changed while proof ran: {exc}") from exc
+            if (
+                fresh_resolved is None
+                or fresh_resolved["plan"] is None
+                or fresh_resolved["plan"].resolve() != plan_path.resolve()
+            ):
+                raise AcceptError("proposal entity changed while proof ran")
+            fresh_claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+            if fresh_claim != claim:
+                raise AcceptError("the owned claim changed while proposal proof ran")
+            fresh_contract = proposal_row_contract(fresh_text, row_id)
+            if fresh_contract != contract or fresh_contract[0] != row_line:
+                raise AcceptError("the canonical row changed while proposal proof ran")
+            if unmet_needs(fresh_text, fresh_contract[3]) or contradiction_challenges(
+                fresh_text,
+                row_id,
+                fresh_contract[3],
+            ):
+                raise AcceptError("the canonical row is no longer ready")
+
+            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            updated = completed_local_plan_text(
+                fresh_text,
+                row_id,
+                argv,
+                stamp,
+                source_identity,
+                source_head,
+            )
+            refuse_lint_blocked_plan(
+                updated,
+                plan_path,
+                proof_root=review,
+                row_id=row_id,
+            )
+            require_frozen_review_head(review, source_head)
+        except BaseException:
+            restore_local_authority(plan_path, root_bytes, original_objects)
+            raise
+        finally:
+            remove_review_worktree(repo, review)
+            try:
+                pool.rmdir()
+            except OSError:
+                pass
+
+        if updated is None:
+            raise AcceptError("proposal acceptance produced no canonical transition")
+        if frozen_source_head(repo) != source_head:
+            raise AcceptError("the source HEAD changed before proposal publication")
+        require_clean_source_checkout(repo)
+        try:
+            atomic_write_text(plan_path, updated)
+            completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
+            completed_text = completed_bytes.decode("utf-8")
+            if completed_text != updated:
+                raise AcceptError("proposal publication readback did not match")
+            completed_plan = _amp._parse(completed_text)
+            completed_plan["claimed"] = set()
+            _board.release(
+                plan_path,
+                row_id,
+                owner=owner,
+                reason="completed",
+                resumes=_amp._candidate_ids(completed_plan),
+                expected_plan=completed_token,
+                expected_text=completed_text,
+                expected_claim=claim,
+            )
+        except BaseException as exc:
+            restore_local_authority(plan_path, root_bytes, original_objects)
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            raise AcceptError(
+                "proposal completion could not finalize; prior authority was restored"
+            ) from exc
+
+    print(
+        f"accepted {row_id}: sealed Codex proposal proved marker {marker} "
+        f"at floor {floor}; machine-local authority flipped at source HEAD {source_head}"
+    )
+    return 0
+
+
 def accept_local_plan(
     repo: Path,
     plan_path: Path,
@@ -788,6 +1364,10 @@ def accept_local_plan(
         row_id,
     )
     _, _, state, proof, needs = find_row(plan_text, row_id)
+    if row_requires_proposal(plan_text, row_id):
+        raise AcceptError(
+            f"{row_id} declares proposal-only proof authority; rerun with --proposal"
+        )
     claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
     if state == "completed":
         if not proof.startswith("cmd "):
@@ -1785,6 +2365,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--row", required=True)
     parser.add_argument("--by", required=True, help="stable owner of the existing claim")
+    parser.add_argument(
+        "--proposal",
+        type=Path,
+        help=(
+            "sealed Codex attempt below --repo/.shadow/evidence; supported only "
+            "with exact --entity and --repo selectors for machine-local authority"
+        ),
+    )
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--no-push", action="store_true",
                         help="commit without pushing (an unpushed flip is invisible to other seats)")
@@ -1795,6 +2383,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if ROW_ID_RE.fullmatch(row_id) is None:
             raise AcceptError("row must be a ~hash id, four base36 chars")
+        if args.proposal is not None and (
+            args.entity is None or args.repo is None
+        ):
+            raise AcceptError(
+                "--proposal requires both exact --entity and --repo selectors"
+            )
+        if args.proposal is not None and args.no_push:
+            raise AcceptError(
+                "--proposal accepts machine-local authority and does not take --no-push"
+            )
         try:
             owner = _board.validate_owner(args.by)
         except _board.BoardError as exc:
@@ -1816,6 +2414,16 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     source_root = proof_source_checkout(args.repo)
                     owned_claim(_board.entity_state(plan_path), row_id, owner)
+                    if args.proposal is not None:
+                        return accept_local_proposal(
+                            source_root,
+                            plan_path,
+                            args.entity,
+                            row_id,
+                            owner,
+                            args.proposal,
+                            args.timeout_seconds,
+                        )
                     return accept_local_plan(
                         source_root,
                         plan_path,
@@ -1828,6 +2436,10 @@ def main(argv: list[str] | None = None) -> int:
                         "Git-backed --entity recovery does not take --repo; "
                         "--repo may accompany --entity only for a "
                         "machine-local entity plan"
+                    )
+                if args.proposal is not None:
+                    raise AcceptError(
+                        "--proposal supports machine-local authority only"
                     )
             else:
                 repo = args.repo.resolve()
@@ -1871,6 +2483,11 @@ def main(argv: list[str] | None = None) -> int:
         except (_board.BoardError, AcceptError, OSError, UnicodeError) as exc:
             raise AcceptError(f"plan must be one committed authority before proof: {exc}") from exc
         _, row_line, state, proof, needs = find_row(plan_text, row_id)
+        if row_requires_proposal(plan_text, row_id):
+            raise AcceptError(
+                f"{row_id} declares proposal-only proof authority, which "
+                "Git-backed acceptance does not support"
+            )
         claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
         if state == "completed":
             if git_completed(
