@@ -5,6 +5,66 @@ makes reversible operating decisions, challenges weak assumptions, finishes
 and proves valuable work, records what changed, and continues without asking
 the user to supervise the system.
 
+## Person interface
+
+The person does exactly three things:
+
+1. Set a goal
+2. Read a brief
+3. Answer one decision
+
+Nothing else. Never ask them to type a Shadow command, name a seat, quote a
+row, or recover a claim. Claim, proof, return, accept, and recovery are
+agent-only. If the board needs janitor work, the agent does it or parks with
+one wake. It is never the person's homework.
+
+## 10x scoreboard
+
+Grade only these three questions. Do not expand 10x into extra commands,
+dashboards, or a second task list.
+
+- **A — Cold resume.** Can a cold agent continue without the person explaining
+  anything?
+- **B — Brief.** Does one cold-reader brief state the outcome, the risk, and
+  the one decision, with no branch names, row IDs, hashes, paths, or commands?
+- **C — No person recovery.** Does the board ever require the person to type a
+  recovery command? The answer must be never.
+
+This computer runs Shadow **1.2.0 as current remote main**. Local uncommitted
+source is not authority. Measured on the live board:
+
+- **A: partly.** `shadow status --json` reaches `~/.shadow`. A cold agent can
+  find the portfolio. The generated dump is still agent jargon, so resume is
+  not proven end to end.
+- **B: fail.** The live status dump fails all four cold-reader checks
+  (outcome, risk, one decision, jargon). The 2026-08-19 morning brief also
+  fails: many next actions, identifiers throughout, and it tells a person to
+  run recovery. Rewrite before showing the person. B is the 10x lever.
+- **C: invariant, currently violated by the product surface.** Status still
+  prints a claim command as the next step. This file forbids handing that to
+  the person. Fixing the product smell is an upstream request, not work for
+  this computer.
+
+Agent throughput, flag count, and recovery tooling are receipts or debt.
+They are never the score.
+
+## The brief the person reads
+
+Write one brief in ordinary product language. It answers:
+
+1. What are we trying to change for a person?
+2. What is already moving, including parallel work?
+3. What changed, and why does it matter?
+4. What decisions were already made on their behalf?
+5. What is stalled, and what single condition restarts it?
+6. What should they be challenged to reconsider?
+7. What is the next evidence checkpoint, and how confident is it?
+
+**Grade the brief only on B:** outcome present, risk present, exactly one
+decision or an explicit “none,” and zero jargon leak. A generated status
+dump is evidence for agents. If it fails B, rewrite it. Do not show the
+dump as the brief.
+
 ## Authority and hierarchy
 
 There is one private local Shadow board per computer at `~/.shadow`. It owns only
@@ -61,6 +121,8 @@ its paired Progress receipt through `shadow accept --by <seat>`. Source-tested,
 merged, installed or deployed, and live-proven are separate receipts.
 
 ## The operating loop
+
+Agents only. Never give these steps to the person.
 
 1. Establish one stable public seat name and run `shadow status --by <seat>`
    from any directory.
@@ -130,6 +192,10 @@ appends the completed tombstone, and only then releases the local claim.
 outcome emits no packet and retains the exact local claim so a retry can resolve
 the same intended ref instead of manufacturing an orphan.
 
+These verbs stay inside the agent loop. Current remote main still requires them
+for agents. They are never a person step, and a missing auto-release is not
+fixed by teaching the person a new flag.
+
 ## Verification and release
 
 Proof starts with the first usable slice. Feature and team-agent lanes run the
@@ -167,6 +233,9 @@ checkpoint. Make reversible operational decisions from the recorded intent.
 Ask only for credentials, money, external publishing or messages, destructive
 action, or irrecoverable product intent. Park one blocker with one wake and
 continue elsewhere.
+
+Never ask the person to type `throw`, `return`, `accept`, or any other claim or
+recovery verb, and never invent one to hand them.
 
 Prefer reuse and deletion. Add no daemon, scheduler, transcript store, router,
 credential relay, cloud authority, or parallel state database. The browser is a
