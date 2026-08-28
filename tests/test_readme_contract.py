@@ -94,12 +94,19 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "`- Plans: plans/*/PLAN.md`",
             "`shadow lint PLAN.md plans/<entity>/PLAN.md`",
             "`shadow status --root <portfolio-root> --by <seat>`",
-            "There is no one-to-many project-map migration",
+            "shadow plan map-migrate /ABS/PLAN.md --dry-run",
+            "shadow plan map-rollback /ABS/PLAN.md --apply",
+            "verified local-only",
+            "Routing is derived from that target-plan membership",
+            "receipt remains byte-identical after success",
+            "rerun the same apply command",
+            "rerun the same rollback command",
             "remain only in the producer plan",
         ):
             self.assertIn(phrase, text)
         self.assertNotIn("project-map.json` is canonical", text)
         self.assertNotIn("shadow lint --repo . PLAN.md", text)
+        self.assertNotIn("--row-map", text)
 
         commands = (ROOT / "docs" / "reference" / "commands.md").read_text(
             encoding="utf-8"
@@ -109,6 +116,12 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "those entity-plan pointers into the board",
             commands,
         )
+        self.assertIn("Routing derives from exact target-plan membership", commands)
+
+        help_text = (ROOT / "bin" / "shadow").read_text(encoding="utf-8")
+        self.assertNotIn("--row-map", help_text)
+        self.assertIn("same apply command resumes safely", help_text)
+        self.assertIn("same rollback command also resumes", help_text)
         self.assertNotIn("never bypasses or writes the board", commands)
 
         grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(
