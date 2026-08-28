@@ -72,6 +72,12 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         self.assertIn("tests.test_status_fast_path", selected.modules)
         self.assertIn("tests.test_throw", selected.modules)
 
+    def test_browser_changes_select_declared_plan_location_proof(self) -> None:
+        selected = ci.select_paths(["browser/server.py"])
+        self.assertFalse(selected.run_all)
+        self.assertIn("tests.test_browser", selected.modules)
+        self.assertIn("tests.test_plan_location", selected.modules)
+
     def test_unknown_or_empty_changes_fall_back_to_full(self) -> None:
         for paths in ([], ["new-unmapped-root/file.xyz"]):
             selected = ci.select_paths(paths)

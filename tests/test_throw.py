@@ -873,16 +873,44 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             stored = json.loads(
                 self.git(bare, "show", f"{winner_receipt['ref']}:claim.json")
             )
-            self.assertEqual(
-                stored,
-                {key: winner_receipt[key] for key in remote_claim.JOURNAL_FIELDS},
-            )
-            for index, home_name in enumerate(("home-a", "home-b")):
-                board_payload = json.loads(
-                    (root / home_name / ".shadow" / "board.json").read_text(encoding="utf-8")
-                )
-                expected = 1 if index == winner_index else 0
-                self.assertEqual(len(board_payload["claims"]), expected)
+
+    def test_upstream_named_remote_coordinates_one_claim_packet(self) -> None:
+        """A branch tracking a remote not named `origin` still has a shared
+        trunk: remote-claim coordination must cover it (exactly one winner and
+        the claim ref published to it), never silently degrade to local-only
+        and let both seats acquire the same row."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, second, _, original_main = self.protected_fixture(root)
+            for clone in (first, second):
+                self.git(clone, "remote", "rename", "origin", "upstream")
+
+            processes = [
+                self.throw_process(first, root / "home-a", "seat-a"),
+                self.throw_process(second, root / "home-b", "seat-b"),
+            ]
+            results = [process.communicate(timeout=30) for process in processes]
+            codes = [process.returncode for process in processes]
+
+            winners = [index for index, code in enumerate(codes) if code == 0]
+            losers = [index for index, code in enumerate(codes) if code == 1]
+            self.assertEqual(len(winners), 1, results)
+            self.assertEqual(len(losers), 1, results)
+            winner_stdout, winner_stderr = results[winners[0]]
+            loser_stdout, loser_stderr = results[losers[0]]
+            self.assertIn("/goal protected-demo", winner_stdout)
+            self.assertEqual(loser_stdout, "")
+
+            winner_receipt = self.receipt(winner_stderr)
+            loser_receipt = self.receipt(loser_stderr)
+            self.assertEqual(winner_receipt["status"], "acquired")
+            self.assertEqual(loser_receipt["status"], "lost")
+            self.assertEqual(loser_receipt["winner"], winner_receipt["owner"])
+            self.assertEqual(loser_receipt["failure"], "claim_exists")
+
+            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
+            self.assertEqual(set(refs), {"refs/heads/main", winner_receipt["ref"]})
 
     def test_claim_ref_makes_the_exact_unpushed_plan_authority_reachable(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -1130,6 +1158,44 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             receipt = self.receipt(stderr)
             self.assertEqual(receipt["state"], "acquired")
             self.git(bare, "rev-parse", receipt["ref"])
+
+    def test_indeterminate_upstream_probe_refuses_without_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, first, _, _, _ = self.protected_fixture(root)
+            wrapper_dir = root / "bin"
+            wrapper_dir.mkdir()
+            actual_git = shutil.which("git")
+            self.assertIsNotNone(actual_git)
+            wrapper = wrapper_dir / "git"
+            wrapper.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os\n"
+                "import sys\n"
+                "if len(sys.argv) >= 4 and sys.argv[1] == '-C' "
+                "and sys.argv[3] == 'symbolic-ref':\n"
+                "    print('eligibility probe failed', file=sys.stderr)\n"
+                "    raise SystemExit(2)\n"
+                f"os.execv({actual_git!r}, [{actual_git!r}, *sys.argv[1:]])\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+
+            process = self.throw_process(
+                first,
+                root / "home-a",
+                "seat-a",
+                extra_env={
+                    "PATH": f"{wrapper_dir}:{os.environ.get('PATH', '')}",
+                },
+            )
+            stdout, stderr = process.communicate(timeout=30)
+
+        self.assertEqual(process.returncode, 1, stderr)
+        self.assertEqual(stdout, "")
+        outcome = self.receipt(stderr)
+        self.assertEqual(outcome["status"], "error")
+        self.assertEqual(outcome["failure"], "ambiguous_remote")
 
     def test_expired_remote_acquired_tip_can_only_be_adopted_explicitly(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

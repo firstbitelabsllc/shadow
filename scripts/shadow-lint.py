@@ -224,6 +224,29 @@ def lint_plan(
         if value not in LEGAL_MODES:
             kind = "legacy mode" if value in LEGACY_MODES else "illegal mode"
             findings.append(_finding("MODE-ILLEGAL", number, "blocking", f"{kind}: {value}"))
+    origin_hits = [
+        (number, (_grammar.ORIGIN_LINE_RE.fullmatch(line).group("value") or "").strip())
+        for number, line in _section(sections, "Brief")
+        if _grammar.ORIGIN_LINE_RE.fullmatch(line)
+    ]
+    if len(origin_hits) > 1:
+        findings.append(_finding(
+            "ORIGIN-IDENTITY",
+            origin_hits[1][0],
+            "blocking",
+            "the plan has more than one Origin",
+        ))
+    elif origin_hits:
+        number, raw = origin_hits[0]
+        try:
+            _board.well_formed_proof_origin(raw)
+        except ValueError:
+            findings.append(_finding(
+                "ORIGIN-IDENTITY",
+                number,
+                "blocking",
+                "Origin must be one normalized Git identity",
+            ))
     mode_ship = any(
         MODE_RE.match(l) and MODE_RE.match(l).group("value").strip() == "ship"
         for _, l in _section(sections, "Brief")

@@ -91,6 +91,11 @@ computer board → project → entity → milestone → checkpoint
 - A checkpoint is the smallest claim and proof unit. It describes a state the
   world reaches and carries a proof that can refuse bad work.
 
+The board membership is the project map. There is no coordinator database or
+rollup plan that copies child rows. Related entity plans repeat the same
+`Project:` slug while keeping their own rows, proof, and resume. Plan-tree
+objects scale one entity's bytes; they never become independent authorities.
+
 Chats, dashboards, worktree copies, provider-private plans, native host plans,
 and archives are projections or evidence. They never become another authority.
 Store each fact once and point to it everywhere else.
@@ -104,7 +109,9 @@ Contradictions, and append-only Progress receipts.
 
 A checkpoint has one typed proof:
 
-- `cmd <runnable>` — mechanically rerun in a clean checkout.
+- `cmd <runnable>` — launched with a detached committed checkout as its initial
+  working directory; source state is frozen, but the trusted process is not
+  filesystem-confined.
 - `read <artifact or URL> -> <expected observation>` — re-observe the real
   surface and record what was seen.
 - `gate <owner> resume: <predicate>` — a hard rail with an exact wake.

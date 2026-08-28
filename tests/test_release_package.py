@@ -159,6 +159,16 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("scripts/shadow_telemetry.py", mod.REQUIRED_FILES)
         self.assertIn("docs/reference/telemetry.md", mod.REQUIRED_FILES)
 
+    def test_native_execution_policy_ships_with_host_and_evidence_contract(self) -> None:
+        for path in (
+            "scripts/shadow-host.py",
+            "scripts/shadow_execution_policy.py",
+            "scripts/dev/shadow-routing-gauntlet.py",
+            "docs/reference/execution-policy.md",
+            "docs/reference/execution-policy-evidence-2026-08-26.md",
+        ):
+            self.assertIn(path, mod.REQUIRED_FILES)
+
     def test_disposable_fixture_commit_waits_for_git_maintenance(self) -> None:
         project = Path("/unused-fixture")
         with mock.patch.object(mod, "command") as observed:
