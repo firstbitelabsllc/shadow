@@ -88,11 +88,12 @@ class Sink:
                 file=sys.stderr,
             )
             raise SystemExit(2)
+        self.host = host.rstrip("/")
         self.endpoint = host.rstrip("/") + "/api/public/otel/v1/traces"
         token = base64.b64encode(f"{public}:{secret}".encode()).decode()
         self.auth = f"Basic {token}"
 
-    def send_spans(self, spans: list[dict]) -> None:
+    def send_spans(self, spans: list[dict]) -> bool:
         payload = {
             "resourceSpans": [{
                 "resource": {"attributes": [_attr("service.name", "shadow-observed-gauntlet")]},
@@ -108,12 +109,31 @@ class Sink:
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(request, timeout=30):
-                    return
+                    return True
             except (urllib.error.URLError, OSError) as exc:
                 if attempt == 2:
                     print(f"shadow-observed-gauntlet: trace delivery failed: {exc}", file=sys.stderr)
-                    return
+                    return False
                 time.sleep(2 * (attempt + 1))
+
+    def verify_trace(self, trace_id: str, *, attempts: int = 8, delay_s: float = 5.0) -> bool:
+        """The doc contract: accepted HTTP without an exact trace-ID readback is red."""
+        request = urllib.request.Request(
+            f"{self.host}/api/public/traces/{trace_id}",
+            headers={"Authorization": self.auth},
+        )
+        for attempt in range(attempts):
+            try:
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    return response.status == 200
+            except urllib.error.HTTPError as exc:
+                if exc.code not in (404, 429, 500, 502, 503):
+                    return False
+            except (urllib.error.URLError, OSError):
+                pass
+            if attempt + 1 < attempts:
+                time.sleep(delay_s)
+        return False
 
 
 def _now_ns() -> int:
@@ -179,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
 
     events_env = os.environ.get("SHADOW_LANGFUSE_EVENTS", "")
     failures = 0
+    delivery_failures = 0
     for round_number in range(1, args.rounds + 1):
         trace_id = secrets.token_hex(16)
         root_span = secrets.token_hex(8)
@@ -224,12 +245,18 @@ def main(argv: list[str] | None = None) -> int:
                 _attr("shadow.failures", failures),
             ],
         }, *job_spans]
-        sink.send_spans(spans)
+        delivered = sink.send_spans(spans)
         if events_env:
             count = forward_events(sink, Path(events_env), trace_id, root_span)
             if count:
                 print(f"[round {round_number}] forwarded {count} local event(s)")
-    return 1 if failures else 0
+        if not delivered:
+            delivery_failures += 1
+            print(f"[round {round_number}] RED: trace delivery failed; no readback possible", file=sys.stderr)
+        elif not sink.verify_trace(trace_id):
+            delivery_failures += 1
+            print(f"[round {round_number}] RED: accepted but trace {trace_id} never read back", file=sys.stderr)
+    return 1 if (failures or delivery_failures) else 0
 
 
 if __name__ == "__main__":
