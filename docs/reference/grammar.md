@@ -56,6 +56,14 @@ rows and their receipts, while Brief `Origin:` remains the sole durable binding
 authority. Every later accept requires the supplied checkout to normalize to
 that exact identity.
 
+Accepted command receipts older than the source-binding cutover at
+`2026-08-28T04:29:56Z` may remain legacy-unbound when no truthful historical
+source HEAD exists. Their task proof must still match the immutable
+`pass (accept)` argv exactly; Shadow never manufactures a `SOURCE` receipt for
+them. The first new accepted row persists the permanent `Origin:` and its own
+exact source HEAD. A missing `SOURCE` receipt at or after the cutover always
+fails closed.
+
 An `Origin:` value is never a working-tree path, basename, or project slug.
 Once present, missing, duplicate, malformed, or different values fail closed.
 SSH and HTTPS spellings of the same remote normalize to one identity. Acceptance
