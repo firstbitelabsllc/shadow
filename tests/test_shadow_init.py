@@ -34,8 +34,8 @@ def run(*args: str, cwd: Path, home: Path) -> subprocess.CompletedProcess[str]:
 
 
 class InitTests(unittest.TestCase):
-    def make_repo(self, root: Path) -> Path:
-        repo = root / "useful-project"
+    def make_repo(self, root: Path, name: str = "useful-project") -> Path:
+        repo = root / name
         repo.mkdir()
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         return repo
@@ -63,6 +63,35 @@ class InitTests(unittest.TestCase):
         self.assertNotIn("smallest", plan.lower())
         self.assertNotIn(" ".join(("one", "bounded")), plan.lower())
         self.assertNotIn("- Origin:", plan)
+
+    def test_long_repo_name_separates_plan_storage_from_project_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            name = "shadow-pex-root-isolation-20260828-long-checkout-name"
+            repo = self.make_repo(root, name)
+            home = root / "home"
+            storage_slug = shadow_init.board.local_plan_slug(name)
+            project_id = storage_slug[:32]
+            destination = home / ".shadow" / "plans" / storage_slug / "PLAN.md"
+            result = run("--here", cwd=repo, home=home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, f"created local PLAN.md: {destination}\n")
+            plan = destination.read_text(encoding="utf-8")
+            board = json.loads(
+                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            resolved = shadow_init.board.local_plan_for_repo(repo, home=home)
+        self.assertGreater(len(name), 48)
+        self.assertEqual(
+            storage_slug, "shadow-pex-root-isolation-20260828-long-checkout"
+        )
+        self.assertEqual(project_id, "shadow-pex-root-isolation-202608")
+        self.assertEqual(len(storage_slug), 48)
+        self.assertEqual(len(project_id), 32)
+        self.assertIn(f"- Project: {project_id}\n", plan)
+        self.assertEqual(board["entities"][0]["project"], project_id)
+        self.assertEqual(board["entities"][0]["plan"], str(destination.resolve()))
+        self.assertEqual(resolved, destination.resolve())
 
     def test_writes_normalized_origin_from_ssh_or_https(self) -> None:
         urls = (
