@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 import re
 import subprocess
@@ -32,6 +33,7 @@ PROJECT: Final = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 STAMP: Final = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 RECOVERY: Final = "probe-proof-then-adopt-park-or-close"
 TIMEOUT_SECONDS: Final = 20
+GIT_EXECUTION_FAILURE: Final = 255
 MAX_RECEIPT_BYTES: Final = 8 * 1024
 MAX_RELATIVE_BYTES: Final = 240
 MAX_DISCOVERY_ROWS: Final = 128
@@ -62,6 +64,14 @@ GIT_INJECTION_VARS: Final = {
 
 class RemoteClaimError(RuntimeError):
     """A remote claim projection could not be authenticated completely."""
+
+
+class RemoteEligibility(str, Enum):
+    """Whether remote claim transport is required for the current checkout."""
+
+    REMOTE = "REMOTE"
+    VERIFIED_LOCAL_ONLY = "VERIFIED_LOCAL_ONLY"
+    UNKNOWN = "UNKNOWN"
 
 
 def _is_git_injection(name: str) -> bool:
@@ -101,23 +111,61 @@ def _git(
             env=env,
         )
     except (OSError, subprocess.SubprocessError):
-        return subprocess.CompletedProcess(args, 1, b"", b"")
+        return subprocess.CompletedProcess(args, GIT_EXECUTION_FAILURE, b"", b"")
+
+
+def _missing_git_value(result: subprocess.CompletedProcess[bytes]) -> bool:
+    return result.returncode == 1 and not result.stdout and not result.stderr
+
+
+def _one_git_value(result: subprocess.CompletedProcess[bytes]) -> str | None:
+    try:
+        values = result.stdout.decode("utf-8").splitlines()
+    except UnicodeError:
+        return None
+    if len(values) != 1 or not values[0].strip():
+        return None
+    return values[0].strip()
+
+
+def origin_upstream_eligibility(repo: Path) -> RemoteEligibility:
+    """Classify origin tracking without treating an unreadable probe as local-only."""
+    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if _missing_git_value(branch):
+        return RemoteEligibility.VERIFIED_LOCAL_ONLY
+    if branch.returncode:
+        return RemoteEligibility.UNKNOWN
+    name = _one_git_value(branch)
+    if name is None:
+        return RemoteEligibility.UNKNOWN
+    remote = _git(repo, "config", "--get", f"branch.{name}.remote")
+    if _missing_git_value(remote):
+        return RemoteEligibility.VERIFIED_LOCAL_ONLY
+    if remote.returncode:
+        return RemoteEligibility.UNKNOWN
+    remote_name = _one_git_value(remote)
+    if remote_name is None:
+        return RemoteEligibility.UNKNOWN
+    if remote_name != "origin":
+        return RemoteEligibility.VERIFIED_LOCAL_ONLY
+    merge = _git(repo, "config", "--get", f"branch.{name}.merge")
+    if _missing_git_value(merge):
+        return RemoteEligibility.VERIFIED_LOCAL_ONLY
+    if merge.returncode:
+        return RemoteEligibility.UNKNOWN
+    merge_ref = _one_git_value(merge)
+    if merge_ref is None:
+        return RemoteEligibility.UNKNOWN
+    return (
+        RemoteEligibility.REMOTE
+        if merge_ref.startswith("refs/heads/")
+        else RemoteEligibility.VERIFIED_LOCAL_ONLY
+    )
 
 
 def uses_origin_upstream(repo: Path) -> bool:
-    """Only clones tracking origin opt into remote claim transport."""
-    branch = _git(repo, "symbolic-ref", "--short", "HEAD")
-    name = branch.stdout.decode("utf-8", errors="replace").strip()
-    if branch.returncode or not name:
-        return False
-    remote = _git(repo, "config", "--get", f"branch.{name}.remote")
-    merge = _git(repo, "config", "--get", f"branch.{name}.merge")
-    return (
-        not remote.returncode
-        and remote.stdout.decode().strip() == "origin"
-        and not merge.returncode
-        and merge.stdout.decode().strip().startswith("refs/heads/")
-    )
+    """Compatibility predicate for callers that do not own transport state."""
+    return origin_upstream_eligibility(repo) is RemoteEligibility.REMOTE
 
 
 def _configured_origin_merge_refs(repo: Path) -> list[str]:
@@ -240,16 +288,47 @@ def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None
     return snapshot[0] if snapshot is not None else None
 
 
-def managed_repo_for_plan(plan: Path) -> Path | None:
-    """Return the configured-origin repository for a plan, else local-only."""
+def _has_git_marker(path: Path) -> bool | None:
+    try:
+        current = path.resolve(strict=True)
+    except OSError:
+        return None
+    for directory in (current, *current.parents):
+        marker = directory / ".git"
+        try:
+            marker.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+        return True
+    return False
+
+
+def managed_repo_for_plan(
+    plan: Path,
+) -> tuple[RemoteEligibility, Path | None]:
+    """Return explicit remote eligibility and its repository when managed."""
+    marker = _has_git_marker(plan.parent)
+    if marker is False:
+        return RemoteEligibility.VERIFIED_LOCAL_ONLY, None
+    if marker is None:
+        return RemoteEligibility.UNKNOWN, None
     top = _git(plan.parent, "rev-parse", "--show-toplevel")
     if top.returncode or not top.stdout.strip():
-        return None
+        return RemoteEligibility.UNKNOWN, None
     try:
-        repo = Path(top.stdout.decode("utf-8").strip()).resolve(strict=True)
+        top_value = _one_git_value(top)
+        if top_value is None:
+            return RemoteEligibility.UNKNOWN, None
+        repo = Path(top_value).resolve(strict=True)
     except (OSError, UnicodeError):
-        return None
-    return repo if uses_origin_upstream(repo) else None
+        return RemoteEligibility.UNKNOWN, None
+    eligibility = origin_upstream_eligibility(repo)
+    return (
+        eligibility,
+        repo if eligibility is RemoteEligibility.REMOTE else None,
+    )
 
 
 def claim_ref(entity: str, row: str) -> str:
@@ -527,6 +606,7 @@ def discover_active_batch(
     *,
     requests: list[dict[str, Any]],
     recover_detached: bool = False,
+    verified_eligibility: RemoteEligibility | None = None,
 ) -> dict[str, list[dict[str, Any]] | None] | None:
     """Project active remote locks for known PLAN rows in one repository.
 
@@ -534,10 +614,12 @@ def discover_active_batch(
     conventional refs make one repository query deterministic; arbitrary
     branches are never enumerated.
     """
-    if not uses_origin_upstream(repo) and not (
-        recover_detached and _configured_origin_merge_refs(repo)
-    ):
-        return None
+    eligibility = verified_eligibility or origin_upstream_eligibility(repo)
+    if eligibility is RemoteEligibility.UNKNOWN:
+        raise RemoteClaimError("remote claim eligibility is unavailable")
+    if eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
+        if not (recover_detached and _configured_origin_merge_refs(repo)):
+            return None
     if not isinstance(requests, list):
         raise RemoteClaimError("remote claim discovery input is invalid")
     active: dict[str, list[dict[str, Any]] | None] = {}
@@ -688,7 +770,8 @@ def acquire(
     adopt_expired: bool = False,
 ) -> dict[str, Any] | None:
     """Return None for local-only repos, else one closed public outcome."""
-    if not uses_origin_upstream(repo):
+    eligibility = origin_upstream_eligibility(repo)
+    if eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
         return None
     ref = claim_ref(entity, row)
     if not public_safe_plan_token(plan_token):
@@ -726,6 +809,8 @@ def acquire(
         winner=owner,
         failure=None,
     )
+    if eligibility is RemoteEligibility.UNKNOWN:
+        return _result(acquired, "error", winner=None, failure="ambiguous_remote")
     tip = _remote_tip(
         repo, ref=ref, entity=entity, row=row, project=project, plan_token=None
     )
@@ -810,10 +895,10 @@ def transition(
     recover_detached: bool = False,
 ) -> dict[str, Any] | None:
     """CAS one acquired journal tip to released/completed."""
-    if not uses_origin_upstream(repo) and not (
-        recover_detached and _configured_origin_merge_refs(repo)
-    ):
-        return None
+    eligibility = origin_upstream_eligibility(repo)
+    if eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
+        if not (recover_detached and _configured_origin_merge_refs(repo)):
+            return None
     if not public_safe_plan_token(plan_token):
         return _unsafe_plan_result(
             entity=entity, row=row, owner=owner, project=project,
@@ -826,6 +911,8 @@ def transition(
         return_by=claim["return_by"], recovery=claim["recovery"], state=state,
         reason=reason, winner=owner, failure=None,
     )
+    if eligibility is RemoteEligibility.UNKNOWN:
+        return _result(desired, "error", winner=None, failure="ambiguous_remote")
     tip = _remote_tip(repo, ref=ref, entity=entity, row=row, project=project)
     if tip is None:
         return _result(desired, "error", winner=None, failure="ambiguous_remote")
