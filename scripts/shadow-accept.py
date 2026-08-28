@@ -87,6 +87,7 @@ LEGACY_LOCAL_SOURCE_ID_RE = re.compile(r"local-git@(?P<digest>[0-9a-f]{12})")
 OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
     r"local\.shadow\.invalid/(?P<digest>[0-9a-f]{12})"
 )
+LOCAL_SOURCE_RECEIPT_CUTOVER = "2026-08-28T04:29:56Z"
 
 
 _shell_script_index = _grammar.shell_script_index
@@ -211,7 +212,10 @@ def bind_local_plan_to_proof_repo(
     declared = local_plan_source_identity(plan_text)
     checkout = public_source_identity(source_root)
     if declared is None:
-        if OPAQUE_LOCAL_SOURCE_ID_RE.fullmatch(checkout):
+        if (
+            OPAQUE_LOCAL_SOURCE_ID_RE.fullmatch(checkout)
+            or has_unbound_legacy_local_acceptance(plan_text)
+        ):
             return checkout
         raise AcceptError("the local plan has no Origin")
     if checkout != declared:
@@ -300,6 +304,43 @@ def local_source_receipt(
     return canonical_source_identity(receipts[0][1]), receipts[0][2]
 
 
+def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
+    """Whether a current completed row has one exact pre-cutover acceptance."""
+    progress_lines = _board.section_lines(plan_text, "Progress")
+    task_rows = {
+        row.group("id")
+        for line in _board.section_lines(plan_text, "Tasks")
+        if (row := ROW_LINE_RE.fullmatch(line)) is not None
+    }
+    for line in progress_lines:
+        receipt = _grammar.progress_proof_receipt(line)
+        match = _grammar.PROOF_RECEIPT_RE.fullmatch(line)
+        if (
+            receipt is not None
+            and match is not None
+            and receipt[2] == "pass (accept)"
+            and match.group("ts") < LOCAL_SOURCE_RECEIPT_CUTOVER
+            and receipt[0] in task_rows
+        ):
+            _, _, state, proof, _ = find_row(plan_text, receipt[0])
+            if state != "completed" or not proof.startswith("cmd "):
+                continue
+            argv = proof_argv(proof[4:])
+            source_lines = [
+                candidate
+                for candidate in progress_lines
+                if f" {receipt[0]} SOURCE " in candidate
+            ]
+            if (
+                receipt[1] == shlex.join(argv)
+                and not source_lines
+                and _receipt_stamps(plan_text, receipt[0], argv)
+                == [match.group("ts")]
+            ):
+                return True
+    return False
+
+
 def local_plan_source_identity(plan_text: str) -> str | None:
     """Return the plan-owned source identity, including after lifecycle archive."""
     values = _grammar.brief_origin_values(plan_text)
@@ -313,18 +354,25 @@ def local_plan_source_identity(plan_text: str) -> str | None:
             raise AcceptError(
                 "the local plan Origin is not a normalized Git identity"
             ) from exc
-    accepted_receipts: list[tuple[str, str]] = []
+    accepted_receipts: list[tuple[str, str, str]] = []
     for line in _board.section_lines(plan_text, "Progress"):
         receipt = _grammar.progress_proof_receipt(line)
-        if receipt is not None and receipt[2] == "pass (accept)":
-            accepted_receipts.append((receipt[0], receipt[1]))
+        match = _grammar.PROOF_RECEIPT_RE.fullmatch(line)
+        if (
+            receipt is not None
+            and match is not None
+            and receipt[2] == "pass (accept)"
+        ):
+            accepted_receipts.append(
+                (match.group("ts"), receipt[0], receipt[1])
+            )
     task_rows = {
         row.group("id")
         for line in _board.section_lines(plan_text, "Tasks")
         if (row := ROW_LINE_RE.fullmatch(line)) is not None
     }
     identities = {declared} if declared is not None else set()
-    for row_id, accepted_proof in accepted_receipts:
+    for accepted_at, row_id, accepted_proof in accepted_receipts:
         if row_id not in task_rows:
             continue
         _, _, state, proof, _ = find_row(plan_text, row_id)
@@ -337,6 +385,17 @@ def local_plan_source_identity(plan_text: str) -> str | None:
             raise AcceptError(
                 f"{row_id} task proof no longer matches its canonical accept PROOF"
             )
+        source_lines = [
+            line
+            for line in _board.section_lines(plan_text, "Progress")
+            if f" {row_id} SOURCE " in line
+        ]
+        if not source_lines and accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER:
+            if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
+                raise AcceptError(
+                    f"{row_id} has no single canonical legacy accept PROOF"
+                )
+            continue
         source_identity, _ = local_source_receipt(
             plan_text,
             row_id,
