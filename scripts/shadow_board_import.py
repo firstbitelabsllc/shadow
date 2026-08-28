@@ -284,6 +284,16 @@ def reconcile_portfolio(
     home: Path | None = None,
 ) -> dict:
     """Import exactly the plans returned by shipped bounded discovery."""
+    with board.repository_identity_cache():
+        return _reconcile_portfolio(root, amp, home=home)
+
+
+def _reconcile_portfolio(
+    root: Path,
+    amp: ModuleType,
+    *,
+    home: Path | None = None,
+) -> dict:
     from browser.server import (
         BrowserError,
         _archive_veto_text,
