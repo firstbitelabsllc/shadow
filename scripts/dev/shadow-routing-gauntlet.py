@@ -735,6 +735,12 @@ def _changed_paths(repo: Path) -> tuple[str, ...]:
     return tuple(sorted(path for path in paths if path != ".shadow-eval-prompt.txt"))
 
 
+def _completion_observed(sentinel: str, final_text: str, exit_code: int | None, error: str | None) -> bool:
+    """The terminal token only counts from a clean run: an error response that
+    echoes the prompt carries the sentinel verbatim and must not score."""
+    return sentinel in final_text and exit_code == 0 and error is None
+
+
 def run_one(job: MatrixJob, sink: LangfuseSink, fixture_parent: Path, timeout: int) -> tuple[RunObservation, Grade]:
     run_id = secrets.token_hex(8)
     run_tag = f"eval-{run_id}"
@@ -787,7 +793,9 @@ def run_one(job: MatrixJob, sink: LangfuseSink, fixture_parent: Path, timeout: i
         exit_code=exit_code,
         timed_out=timed_out,
         completion_sentinel=job.scenario.completion_sentinel,
-        completion_observed=job.scenario.completion_sentinel in final_text,
+        completion_observed=_completion_observed(
+            job.scenario.completion_sentinel, final_text, exit_code, error
+        ),
         expected_paths=job.scenario.expected_paths,
         changed_paths=_changed_paths(repo),
         deterministic_checks=checks,

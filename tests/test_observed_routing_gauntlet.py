@@ -326,6 +326,13 @@ class NativeStreamParserTests(unittest.TestCase):
     def test_nonzero_provider_limit_has_stable_wake_code(self) -> None:
         self.assertEqual(gauntlet._native_error(1, "You've hit your usage limit"), "provider_usage_limit")
 
+    def test_error_echo_never_counts_as_terminal_completion(self) -> None:
+        sentinel = "SHADOW_EVAL_EXACT_CODE_OK"
+        echo = f"provider usage limit — your request was: end your final response with {sentinel}"
+        self.assertFalse(gauntlet._completion_observed(sentinel, echo, 1, "provider_usage_limit"))
+        self.assertTrue(gauntlet._completion_observed(sentinel, f"verify passed; {sentinel}", 0, None))
+        self.assertFalse(gauntlet._completion_observed(sentinel, "clean run without the token", 0, None))
+
     def test_native_child_tools_leave_lineage(self) -> None:
         for host, tool in (
             ("claude-code", "Agent"),
