@@ -487,28 +487,33 @@ class ShadowAcceptTests(unittest.TestCase):
         source_head = "a" * 40
         source_a = "source-a.invalid/repository"
         source_b = "source-b.invalid/repository"
+        modern_stamp = "2026-08-28T05:00:00Z"
+        legacy_stamp = "2026-08-28T04:29:55Z"
+        cutover_stamp = accept.LOCAL_SOURCE_RECEIPT_CUTOVER
         pending = PLAN.replace(
             "### M — file speaks\n",
             "### M — file speaks\n"
             "- [in_progress] establish the source binding ~ef56 | proof: cmd true\n"
-            "- [in_progress] establish another source binding ~gh78 | proof: cmd true\n",
+            "- [in_progress] establish another source binding ~gh78 | proof: cmd true\n"
+            "- [in_progress] preserve legacy source-less acceptance ~cd90 | proof: cmd true\n"
+            "- [in_progress] reject cutover source-less acceptance ~ij90 | proof: cmd true\n",
         )
         missing = accept.completed_plan_text(
             pending,
             "~ef56",
             ["true"],
-            "2026-08-27T12:00:00Z",
+            modern_stamp,
         )
         malformed = accept.append_progress_line(
             missing,
-            "- 2026-08-27T12:00:00Z ~ef56 SOURCE source-a HEAD malformed "
+            f"- {modern_stamp} ~ef56 SOURCE source-a HEAD malformed "
             "-> proof and final lint (accept)\n",
         )
         valid = accept.completed_local_plan_text(
             pending,
             "~ef56",
             ["true"],
-            "2026-08-27T12:00:00Z",
+            modern_stamp,
             source_a,
             source_head,
         )
@@ -526,6 +531,35 @@ class ShadowAcceptTests(unittest.TestCase):
             "~ef56 | proof: cmd false",
             1,
         )
+        legacy_only = accept.completed_plan_text(
+            pending,
+            "~cd90",
+            ["true"],
+            legacy_stamp,
+        )
+        legacy = accept.completed_plan_text(
+            valid,
+            "~cd90",
+            ["true"],
+            legacy_stamp,
+        )
+        legacy_proof_changed = legacy.replace(
+            "~cd90 | proof: cmd true",
+            "~cd90 | proof: cmd false",
+            1,
+        )
+        orphaned_legacy_receipt = legacy_only.replace(
+            "- [completed] preserve legacy source-less acceptance "
+            "~cd90 | proof: cmd true\n",
+            "",
+            1,
+        )
+        cutover_missing = accept.completed_plan_text(
+            pending,
+            "~ij90",
+            ["true"],
+            cutover_stamp,
+        )
         archived = (
             "\n".join(
                 line for line in valid.splitlines()
@@ -538,9 +572,9 @@ class ShadowAcceptTests(unittest.TestCase):
                 valid,
                 "~gh78",
                 ["true"],
-                "2026-08-27T12:01:00Z",
+                "2026-08-28T05:01:00Z",
             ),
-            f"- 2026-08-27T12:01:00Z ~gh78 SOURCE {source_b} "
+            f"- 2026-08-28T05:01:00Z ~gh78 SOURCE {source_b} "
             f"HEAD {source_head} -> proof and final lint (accept)\n",
         )
 
@@ -549,6 +583,46 @@ class ShadowAcceptTests(unittest.TestCase):
                 accept.local_plan_source_identity(archived),
                 source_a,
             )
+
+        with self.subTest(name="legacy completion stays honest"):
+            self.assertIsNone(
+                accept.local_plan_source_identity(legacy_only),
+            )
+            with mock.patch.object(
+                accept,
+                "public_source_identity",
+                return_value=source_a,
+            ):
+                self.assertEqual(
+                    accept.bind_local_plan_to_proof_repo(
+                        legacy_only,
+                        Path("/unused"),
+                        "~cd90",
+                    ),
+                    source_a,
+                )
+            self.assertEqual(
+                accept.local_plan_source_identity(legacy),
+                source_a,
+            )
+
+        with self.subTest(name="orphaned legacy receipt cannot bind"):
+            self.assertIsNone(
+                accept.local_plan_source_identity(orphaned_legacy_receipt),
+            )
+            with mock.patch.object(
+                accept,
+                "public_source_identity",
+                return_value=source_a,
+            ), self.assertRaisesRegex(
+                accept.AcceptError,
+                r"the local plan has no Origin",
+            ):
+                accept.bind_local_plan_to_proof_repo(
+                    orphaned_legacy_receipt,
+                    Path("/unused"),
+                    "~ij90",
+                )
 
         cases = [
             (
@@ -570,6 +644,16 @@ class ShadowAcceptTests(unittest.TestCase):
                 "proof changed",
                 proof_changed,
                 r"~ef56 task proof no longer matches its canonical accept PROOF",
+            ),
+            (
+                "legacy proof changed",
+                legacy_proof_changed,
+                r"~cd90 task proof no longer matches its canonical accept PROOF",
+            ),
+            (
+                "exact cutover missing",
+                cutover_missing,
+                r"~ij90 has 0 canonical SOURCE receipts",
             ),
             (
                 "conflicting",
