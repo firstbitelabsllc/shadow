@@ -174,7 +174,10 @@ def source_ref(live: bool) -> str:
         # else so the clean-source invariant keeps its teeth.
         HOST_STATE_PATHS = {".claude/settings.json"}
         for entry in porcelain.splitlines():
-            path = entry[3:].strip()
+            parts = entry.strip().split(None, 1)
+            if len(parts) != 2:
+                raise HarnessError("source_dirty")
+            path = parts[1].strip()
             if path not in HOST_STATE_PATHS:
                 raise HarnessError("source_dirty")
     return value
