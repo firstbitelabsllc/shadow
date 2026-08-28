@@ -10,6 +10,7 @@ authority or a source-controlled queue.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
@@ -49,6 +50,7 @@ HOT_PLAN_MAX_BYTES = 256 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
 HOT_TASK_ROW_RE = _grammar.HOT_TASK_ROW_RE
+GIT_TIMEOUT_SECONDS = 30
 
 
 class BoardError(ValueError):
@@ -59,6 +61,40 @@ class AlreadyClaimed(BoardError):
     def __init__(self, owner: str):
         super().__init__(f"claimed by {owner}")
         self.owner = owner
+
+
+class _RepositoryIdentityCache:
+    def __init__(self) -> None:
+        self.origins: dict[str, str] = {}
+        self.plan_parts: dict[str, tuple[str, str]] = {}
+        self.repositories: dict[str, Path] = {}
+
+    def clear(self) -> None:
+        self.origins.clear()
+        self.plan_parts.clear()
+        self.repositories.clear()
+
+
+_REPOSITORY_IDENTITIES: ContextVar[_RepositoryIdentityCache | None] = ContextVar(
+    "shadow_repository_identities",
+    default=None,
+)
+
+
+@contextmanager
+def repository_identity_cache() -> Iterator[None]:
+    """Reuse immutable Git identity metadata within one reconciliation pass."""
+    token = _REPOSITORY_IDENTITIES.set(_RepositoryIdentityCache())
+    try:
+        yield
+    finally:
+        _REPOSITORY_IDENTITIES.reset(token)
+
+
+def _refresh_repository_identity_cache() -> None:
+    cache = _REPOSITORY_IDENTITIES.get()
+    if cache is not None:
+        cache.clear()
 
 
 def _directory(home: Path | None = None) -> Path:
@@ -174,7 +210,7 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
             command,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=GIT_TIMEOUT_SECONDS,
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -583,6 +619,11 @@ def validate_owner(owner: object) -> str:
 
 
 def origin_of(repo: Path) -> str:
+    repo = Path(os.path.abspath(repo)).resolve()
+    cache = _REPOSITORY_IDENTITIES.get()
+    cache_key = str(repo)
+    if cache is not None and cache_key in cache.origins:
+        return cache.origins[cache_key]
     marker = _git_marker(repo)
     try:
         result = subprocess.run(
@@ -600,6 +641,8 @@ def origin_of(repo: Path) -> str:
         else ""
     )
     if origin:
+        if cache is not None:
+            cache.origins[cache_key] = origin
         return origin
     # Linked worktrees share one common Git directory even when the repository
     # has no remote.  The checkout path does not: using it let two worktrees of
@@ -621,10 +664,16 @@ def origin_of(repo: Path) -> str:
         common_path = Path(common.stdout.strip())
         if not common_path.is_absolute():
             common_path = repo / common_path
-        return f"local-git:{common_path.resolve()}"
+        origin = f"local-git:{common_path.resolve()}"
+        if cache is not None:
+            cache.origins[cache_key] = origin
+        return origin
     if marker is not None:
         raise BoardError("project Git identity could not be read; retry when Git is available")
-    return str(repo.resolve())
+    origin = str(repo.resolve())
+    if cache is not None:
+        cache.origins[cache_key] = origin
+    return origin
 
 
 def origin_repo_name(origin: str) -> str:
@@ -739,16 +788,38 @@ def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[s
     if require_regular and not regular_plan(plan):
         raise BoardError("entity identity requires a regular, non-symlink PLAN.md")
     plan = Path(os.path.abspath(plan))
+    cache = _REPOSITORY_IDENTITIES.get()
+    cache_key = str(plan)
+    if cache is not None and cache_key in cache.plan_parts:
+        return cache.plan_parts[cache_key]
     local_root = _local_plan_root_containing(plan)
     if local_root is not None:
         try:
-            return f"local-plan:{local_root}", plan.resolve().relative_to(local_root).as_posix()
+            parts = (
+                f"local-plan:{local_root}",
+                plan.resolve().relative_to(local_root).as_posix(),
+            )
         except (OSError, ValueError) as exc:
             raise BoardError("local plan identity could not be read") from exc
+        if cache is not None:
+            cache.plan_parts[cache_key] = parts
+        return parts
     marker = _git_marker(plan.parent)
-    result = _git(plan.parent, "rev-parse", "--show-toplevel")
-    if result.returncode == 0 and result.stdout.strip():
-        repo = Path(result.stdout.strip()).resolve()
+    marker_key = str(Path(os.path.abspath(marker))) if marker is not None else None
+    repo = cache.repositories.get(marker_key) if cache is not None and marker_key else None
+    git_repository = repo is not None
+    if repo is None:
+        result = _git(plan.parent, "rev-parse", "--show-toplevel")
+        if result.returncode == 0 and result.stdout.strip():
+            repo = Path(result.stdout.strip()).resolve()
+            git_repository = True
+            if cache is not None and marker_key is not None:
+                cache.repositories[marker_key] = repo
+        elif marker is not None:
+            raise BoardError("project Git identity could not be read; retry when Git is available")
+        else:
+            repo = plan.parent
+    if git_repository:
         try:
             relative = plan.relative_to(repo).as_posix()
         except ValueError:
@@ -756,11 +827,12 @@ def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[s
                 relative = (plan.parent.resolve() / plan.name).relative_to(repo).as_posix()
             except ValueError:
                 relative = plan.name
-    elif marker is not None:
-        raise BoardError("project Git identity could not be read; retry when Git is available")
     else:
-        repo, relative = plan.parent, plan.name
-    return origin_of(repo), relative
+        relative = plan.name
+    parts = origin_of(repo), relative
+    if cache is not None:
+        cache.plan_parts[cache_key] = parts
+    return parts
 
 
 def entity_id(plan: Path) -> str:
@@ -777,20 +849,20 @@ def logical_entity_id(origin: str, relative: str) -> str:
 def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     """Return the exact PLAN bytes stored at HEAD, independent of worktree dirt."""
     if not regular_plan(plan):
-        raise BoardError("project plan must be a regular, non-symlink PLAN.md")
+        raise BoardError("entity plan must be a regular, non-symlink PLAN.md")
     plan = plan.resolve()
     top = _git(plan.parent, "rev-parse", "--show-toplevel")
     if top.returncode or not top.stdout.strip():
-        raise BoardError("project plan must be committed in a Git repository")
+        raise BoardError("entity plan must be committed in a Git repository")
     repo = Path(top.stdout.strip()).resolve()
     try:
         relative = plan.relative_to(repo).as_posix()
     except ValueError as exc:
-        raise BoardError("project plan is outside its Git repository") from exc
+        raise BoardError("entity plan is outside its Git repository") from exc
     head = _git(repo, "rev-parse", "HEAD")
     blob = _git(repo, "rev-parse", f"HEAD:{relative}")
     if head.returncode or blob.returncode:
-        raise BoardError("project plan is not present at the current Git HEAD")
+        raise BoardError("entity plan is not present at the current Git HEAD")
     try:
         frozen = subprocess.run(
             ["git", "-C", str(repo), "cat-file", "blob", blob.stdout.strip()],
@@ -799,12 +871,12 @@ def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise BoardError("project plan HEAD bytes could not be frozen") from exc
+        raise BoardError("entity plan HEAD bytes could not be frozen") from exc
     if frozen.returncode:
-        raise BoardError("project plan HEAD bytes could not be frozen")
+        raise BoardError("entity plan HEAD bytes could not be frozen")
     head_after = _git(repo, "rev-parse", "HEAD")
     if head_after.returncode or head_after.stdout.strip() != head.stdout.strip():
-        raise BoardError("project plan ref changed while it was being read; retry")
+        raise BoardError("entity plan ref changed while it was being read; retry")
     return (
         {
             "repo": str(repo),
@@ -829,9 +901,9 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
         )
     status = _git(repo, "status", "--porcelain=v1", "--", *tracked_paths)
     if status.returncode:
-        raise BoardError("project plan Git state could not be read")
+        raise BoardError("entity plan Git state could not be read")
     if status.stdout.strip():
-        raise BoardError("project plan or its staged index changed; commit or restore it first")
+        raise BoardError("entity plan or its staged index changed; commit or restore it first")
     try:
         root_content = plan.read_bytes()
         hashed = subprocess.run(
@@ -841,12 +913,12 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
             check=False,
         )
     except OSError as exc:
-        raise BoardError("project plan bytes could not be frozen") from exc
+        raise BoardError("entity plan bytes could not be frozen") from exc
     if hashed.returncode or hashed.stdout.decode("ascii", errors="ignore").strip() != token["blob"]:
-        raise BoardError("project plan changed or is uncommitted; retry from one committed ref")
+        raise BoardError("entity plan changed or is uncommitted; retry from one committed ref")
     head_after = _git(repo, "rev-parse", "HEAD")
     if head_after.returncode or head_after.stdout.strip() != token["head"]:
-        raise BoardError("project plan ref changed while it was being read; retry")
+        raise BoardError("entity plan ref changed while it was being read; retry")
     try:
         content = snapshot.materialize()
     except _plan_store.PlanStoreError as exc:
@@ -883,7 +955,6 @@ def project_lock(plan: Path) -> Iterator[None]:
         raise BoardError("project lifecycle lock requires a regular, non-symlink PLAN.md")
     if is_local_plan(plan):
         common_dir = plan.parent
-        lock = common_dir / ".shadow-lifecycle.lock"
     else:
         common = _git(plan.parent, "rev-parse", "--git-common-dir")
         if common.returncode or not common.stdout.strip():
@@ -893,7 +964,7 @@ def project_lock(plan: Path) -> Iterator[None]:
             common_dir = (plan.parent / common_dir).resolve()
         if common_dir.is_symlink() or not common_dir.is_dir():
             raise BoardError("project Git common directory is unsafe")
-        lock = common_dir / ".shadow-lifecycle.lock"
+    lock = common_dir / f".shadow-lifecycle-{entity_id(plan)}.lock"
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(lock, flags, 0o600)
@@ -1029,11 +1100,14 @@ def _replace(source: str | os.PathLike[str], destination: str | os.PathLike[str]
     os.replace(source, destination)
 
 
-def _write(path: Path, payload: dict) -> None:
-    encoded = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+def _encoded_board(payload: dict) -> bytes:
+    return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _write_bytes(path: Path, encoded: bytes) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=".board.", dir=path.parent)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        with os.fdopen(descriptor, "wb") as stream:
             os.fchmod(stream.fileno(), 0o600)
             stream.write(encoded)
             stream.flush()
@@ -1047,6 +1121,75 @@ def _write(path: Path, payload: dict) -> None:
             os.close(directory)
     finally:
         Path(temporary).unlink(missing_ok=True)
+
+
+def _write(path: Path, payload: dict) -> None:
+    _write_bytes(path, _encoded_board(payload))
+
+
+def _journal_head(root: Path) -> str:
+    result = _git(root, "rev-parse", "--verify", "HEAD")
+    if result.returncode or not result.stdout.strip():
+        raise BoardError("root board journal head could not be read")
+    return result.stdout.strip()
+
+
+def _commit_parent(root: Path, revision: str) -> str | None:
+    result = _git(root, "rev-list", "--parents", "-n", "1", revision)
+    if result.returncode:
+        raise BoardError("root board journal ancestry could not be read")
+    parts = result.stdout.split()
+    if len(parts) == 1:
+        return None
+    if len(parts) != 2:
+        raise BoardError("root board journal ancestry is not linear")
+    return parts[1]
+
+
+def _journal_parent(root: Path) -> str | None:
+    return _commit_parent(root, "HEAD")
+
+
+def _write_and_commit(root: Path, path: Path, payload: dict, message: str) -> None:
+    """Publish one board value and its journal commit or restore both exactly."""
+    try:
+        previous = path.read_bytes()
+    except OSError as exc:
+        raise BoardError("root board could not freeze its previous value") from exc
+    before_head = _journal_head(root)
+    encoded = _encoded_board(payload)
+    try:
+        _write_bytes(path, encoded)
+        _commit(root, message)
+        if (
+            path.read_bytes() != encoded
+            or _git(root, "diff", "--quiet", "HEAD", "--", BOARD_NAME).returncode
+        ):
+            raise BoardError("root board journal did not preserve the published value")
+    except BaseException as exc:
+        restored = _git(root, "reset", "--hard", "--quiet", before_head)
+        if restored.returncode:
+            raise BoardError(
+                "root board journal failed and exact recovery also failed"
+            ) from exc
+        try:
+            if path.read_bytes() != previous:
+                _write_bytes(path, previous)
+        except OSError as recovery_exc:
+            raise BoardError(
+                "root board journal failed and exact recovery also failed"
+            ) from recovery_exc
+        status = _git(root, "status", "--porcelain=v1", "--", BOARD_NAME)
+        if (
+            _journal_head(root) != before_head
+            or path.read_bytes() != previous
+            or status.returncode
+            or status.stdout.strip()
+        ):
+            raise BoardError(
+                "root board journal failed and exact recovery also failed"
+            ) from exc
+        raise
 
 
 def _initialize_git(root: Path) -> None:
@@ -1157,6 +1300,73 @@ def snapshot(*, home: Path | None = None) -> dict | None:
     if (root / ".git").exists():
         raise BoardError("root board history exists but board.json is missing")
     return None
+
+
+def board_file_sha256(*, home: Path | None = None) -> str:
+    """Hash the exact canonical board bytes without exposing its private path."""
+    path = _safe_root(home) / BOARD_NAME
+    if not path.is_file() or path.is_symlink():
+        raise BoardError("root board is missing, unreadable, or unsafe")
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise BoardError("root board could not be frozen") from exc
+
+
+def board_authority_sha256(payload: dict) -> str:
+    """Hash board authority while excluding only its monotonic revision."""
+    validated = json.loads(json.dumps(_validate(payload)))
+    validated.pop("revision")
+    encoded = json.dumps(
+        validated,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def seat_board_entities(
+    payload: dict,
+    seat: str,
+    *,
+    inspected_entities: set[str] | None = None,
+) -> tuple[set[str], int]:
+    """Return every locally owned entity or the next cold-seat board candidate."""
+    seat = validate_owner(seat)
+    inspected = set(inspected_entities or ())
+    known = {entity["id"] for entity in payload["entities"]}
+    if any(ENTITY_ID.fullmatch(identity) is None for identity in inspected):
+        raise BoardError("inspected entities must be logical entity ids")
+    if not inspected.issubset(known):
+        raise BoardError("inspected entity is absent from this root board snapshot")
+    owned = {
+        claim["entity"]
+        for claim in payload["claims"]
+        if claim["owner"] == seat
+    }
+    if owned:
+        return owned, len(owned)
+    priorities = {
+        project["id"]: project["priority"]
+        for project in payload["projects"]
+    }
+    ordered = sorted(
+        payload["entities"],
+        key=lambda entity: (
+            priorities[entity["project"]],
+            entity["project"],
+            entity["id"],
+        ),
+    )
+    remaining = [
+        entity for entity in ordered
+        if entity["id"] not in inspected
+    ]
+    candidate = next(
+        (entity for entity in remaining if entity["resume"] is not None),
+        remaining[0] if remaining else None,
+    )
+    return ({candidate["id"]} if candidate is not None else set()), 0
 
 
 def _identity_index(payload: dict) -> dict[str, list[dict]]:
@@ -1422,7 +1632,7 @@ def claim(
     if expected_plan is not None:
         preflight_plan, preflight_content = frozen_plan_snapshot(plan, home=home)
         if preflight_plan != expected_plan:
-            raise BoardError("project plan changed before the claim committed; retry")
+            raise BoardError("entity plan changed before the claim committed; retry")
     else:
         preflight_content = read_plan_bytes(plan)
     assert_hot_plan_budget(preflight_content)
@@ -1430,7 +1640,7 @@ def claim(
         if expected_plan is not None:
             observed, observed_content = frozen_plan_snapshot(plan, home=home)
             if observed != expected_plan:
-                raise BoardError("project plan changed before the claim committed; retry")
+                raise BoardError("entity plan changed before the claim committed; retry")
         else:
             observed_content = read_plan_bytes(plan)
         assert_hot_plan_budget(observed_content)
@@ -2072,6 +2282,7 @@ def reconcile(
         payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
         payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        _refresh_repository_identity_cache()
         assert_seed_content()
         assert_repair_states()
         assert_seed_witnesses()
@@ -2090,7 +2301,7 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
         try:
             text = read_plan_text(plan)
         except BoardError as exc:
-            raise BoardError("claim return needs a readable project plan") from exc
+            raise BoardError("claim return needs a readable entity plan") from exc
     row_matches = []
     for line in text.splitlines():
         match = re.match(
@@ -2103,9 +2314,9 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
     if not row_matches:
         if reason == "orphan":
             return
-        raise BoardError("claim return row is missing from the project plan")
+        raise BoardError("claim return row is missing from the entity plan")
     if len(row_matches) != 1:
-        raise BoardError("claim return row id is duplicated in the project plan")
+        raise BoardError("claim return row id is duplicated in the entity plan")
     if reason == "orphan":
         raise BoardError("orphan return requires the claim row to be absent")
     row_match = row_matches[0]
@@ -2193,7 +2404,7 @@ def _reserve_claim_receipt(
         if expected_plan is not None:
             observed, _ = frozen_plan_snapshot(plan, home=home)
             if observed != expected_plan:
-                raise BoardError("project plan changed while its proof ran; retry")
+                raise BoardError("entity plan changed while its proof ran; retry")
         entity = _entity_for(payload, plan)
         if entity is None:
             raise BoardError("entity is not registered on this computer")
@@ -2267,9 +2478,9 @@ def release(
             try:
                 observed_text = observed_bytes.decode("utf-8")
             except UnicodeError as exc:
-                raise BoardError("claim return needs a UTF-8 project plan") from exc
+                raise BoardError("claim return needs a UTF-8 entity plan") from exc
             if observed != expected_plan or observed_text != expected_text:
-                raise BoardError("project plan changed before the claim return committed; retry")
+                raise BoardError("entity plan changed before the claim return committed; retry")
         entity = _entity_for(payload, plan, exact_on_conflict=True)
         if entity is None:
             return None
@@ -2340,6 +2551,584 @@ def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict
         _write(path, payload)
         _commit(root, f"shadow board: set project priority {priority}")
         return json.loads(json.dumps(payload))
+
+
+def _migration_plan_rows(expected: object) -> set[str]:
+    if not isinstance(expected, dict) or set(expected) != {
+        "relative",
+        "entity_id",
+        "head",
+        "blob",
+        "logical_sha256",
+        "rows",
+        "candidates",
+    }:
+        raise BoardError("project-map migration plan receipt is malformed")
+    relative = expected["relative"]
+    relative_path = Path(relative) if isinstance(relative, str) else Path()
+    if (
+        not isinstance(relative, str)
+        or relative_path.is_absolute()
+        or relative_path.name != "PLAN.md"
+        or any(part in {"", ".", ".."} for part in relative_path.parts)
+        or not isinstance(expected["entity_id"], str)
+        or ENTITY_ID.fullmatch(expected["entity_id"]) is None
+        or not isinstance(expected["head"], str)
+        or not expected["head"]
+        or not isinstance(expected["blob"], str)
+        or not expected["blob"]
+        or not isinstance(expected["logical_sha256"], str)
+        or ENTITY_ID.fullmatch(expected["logical_sha256"]) is None
+    ):
+        raise BoardError("project-map migration plan receipt is malformed")
+    rows = expected["rows"]
+    candidates = expected["candidates"]
+    if (
+        not isinstance(rows, list)
+        or not isinstance(candidates, list)
+        or any(not isinstance(row, str) or ROW_ID.fullmatch(row) is None for row in rows)
+        or any(
+            not isinstance(row, str) or ROW_ID.fullmatch(row) is None
+            for row in candidates
+        )
+        or len(rows) != len(set(rows))
+        or len(candidates) != len(set(candidates))
+        or not set(candidates).issubset(rows)
+    ):
+        raise BoardError("project-map migration rows are malformed")
+    return set(rows)
+
+
+def _migration_destinations(
+    plans: dict[str, object],
+    row_map: object,
+) -> dict[str, str]:
+    source_rows = _migration_plan_rows(plans["source"])
+    root_rows = _migration_plan_rows(plans["root"])
+    child_rows = _migration_plan_rows(plans["child"])
+    if root_rows.intersection(child_rows) or root_rows.union(child_rows) != source_rows:
+        raise BoardError(
+            "project-map migration plans do not partition the source rows"
+        )
+    derived = {
+        row: "root" if row in root_rows else "child"
+        for row in source_rows
+    }
+    if not isinstance(row_map, list):
+        raise BoardError("project-map migration row map is malformed")
+    declared: dict[str, str] = {}
+    for item in row_map:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"row", "destination"}
+            or not isinstance(item["row"], str)
+            or ROW_ID.fullmatch(item["row"]) is None
+            or item["destination"] not in {"root", "child"}
+            or item["row"] in declared
+        ):
+            raise BoardError("project-map migration row map is malformed")
+        declared[item["row"]] = item["destination"]
+    if declared != derived:
+        raise BoardError(
+            "project-map migration row map does not match actual plan membership"
+        )
+    return derived
+
+
+def _migration_plan_matches(plan: Path, expected: dict[str, object]) -> bytes:
+    _migration_plan_rows(expected)
+    if set(expected) != {
+        "relative",
+        "entity_id",
+        "head",
+        "blob",
+        "logical_sha256",
+        "rows",
+        "candidates",
+    }:
+        raise BoardError("project-map migration plan receipt is malformed")
+    token, content = committed_plan_snapshot(plan)
+    logical_sha256 = hashlib.sha256(content).hexdigest()
+    if (
+        token["relative"] != expected["relative"]
+        or token["head"] != expected["head"]
+        or token["blob"] != expected["blob"]
+        or entity_id(plan) != expected["entity_id"]
+        or logical_sha256 != expected["logical_sha256"]
+    ):
+        raise BoardError("project-map migration plan changed; rerun the dry run")
+    observed_rows = {
+        match.group("id")
+        for line in content.decode("utf-8").splitlines()
+        if (match := _grammar.ROW_RE.fullmatch(line)) is not None
+    }
+    if observed_rows != set(expected["rows"]):
+        raise BoardError("project-map migration plan rows changed")
+    if _grammar.candidate_row_ids(content.decode("utf-8")) != expected["candidates"]:
+        raise BoardError("project-map migration resume candidates changed")
+    return content
+
+
+def _safe_migration_claims(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        raise BoardError("project-map migration claims are malformed")
+    claims = json.loads(json.dumps(value))
+    for claim in claims:
+        if not isinstance(claim, dict) or set(claim) != {
+            "entity",
+            "row",
+            "owner",
+            "claimed_at",
+            "return_by",
+            "recovery",
+        }:
+            raise BoardError("project-map migration claims are malformed")
+    return claims
+
+
+def apply_project_map_migration(
+    root_plan: Path,
+    child_plan: Path,
+    prepared: dict[str, object],
+    *,
+    home: Path | None = None,
+) -> dict:
+    """Atomically add one child entity and rekey explicitly mapped claims."""
+    root_plan = root_plan.resolve()
+    child_plan = child_plan.resolve()
+    if prepared.get("schema") != "shadow.project-map-migration.v1":
+        raise BoardError("project-map migration receipt schema is not supported")
+    board_receipt = prepared.get("board")
+    plans = prepared.get("plans")
+    row_map = prepared.get("row_map")
+    if (
+        not isinstance(board_receipt, dict)
+        or not isinstance(plans, dict)
+        or set(plans) != {"source", "root", "child"}
+    ):
+        raise BoardError("project-map migration receipt is malformed")
+    before = board_receipt.get("before")
+    if not isinstance(before, dict) or set(before) != {
+        "revision",
+        "raw_sha256",
+        "authority_sha256",
+        "project",
+        "root_entity",
+        "claims",
+        "journal_head",
+    }:
+        raise BoardError("project-map migration board receipt is malformed")
+    expected_project = before["project"]
+    expected_root = before["root_entity"]
+    if (
+        not isinstance(expected_project, dict)
+        or set(expected_project) != {"id", "priority"}
+        or not isinstance(expected_root, dict)
+        or set(expected_root) != {"id", "project", "resume"}
+        or not isinstance(before["journal_head"], str)
+    ):
+        raise BoardError("project-map migration authority receipt is malformed")
+    expected_claims = _safe_migration_claims(before["claims"])
+    destinations = _migration_destinations(plans, row_map)
+    _migration_plan_matches(root_plan, plans["root"])
+    _migration_plan_matches(child_plan, plans["child"])
+    with _transaction(home) as (root, path, payload):
+        try:
+            raw_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise BoardError("root board could not be frozen") from exc
+        if (
+            payload["revision"] != before["revision"]
+            or raw_sha256 != before["raw_sha256"]
+            or board_authority_sha256(payload) != before["authority_sha256"]
+            or _journal_head(root) != before["journal_head"]
+        ):
+            raise BoardError("root board changed during project-map migration")
+        _migration_plan_matches(root_plan, plans["root"])
+        _migration_plan_matches(child_plan, plans["child"])
+        root_entity = next(
+            (item for item in payload["entities"] if item["id"] == expected_root["id"]),
+            None,
+        )
+        if root_entity is None or {
+            "id": root_entity["id"],
+            "project": root_entity["project"],
+            "resume": root_entity["resume"],
+        } != expected_root or root_entity["plan"] != str(root_plan):
+            raise BoardError("root entity changed during project-map migration")
+        project = next(
+            (item for item in payload["projects"] if item["id"] == expected_project["id"]),
+            None,
+        )
+        if project != expected_project:
+            raise BoardError("project priority changed during project-map migration")
+        current_claims = sorted(
+            (
+                json.loads(json.dumps(item))
+                for item in payload["claims"]
+                if item["entity"] == root_entity["id"]
+            ),
+            key=lambda item: (item["entity"], item["row"]),
+        )
+        if current_claims != sorted(
+            expected_claims,
+            key=lambda item: (item["entity"], item["row"]),
+        ):
+            raise BoardError("claims changed during project-map migration")
+        missing_mapping = next(
+            (claim["row"] for claim in current_claims if claim["row"] not in destinations),
+            None,
+        )
+        if missing_mapping is not None:
+            raise BoardError(
+                f"project-map migration claim {missing_mapping} has no destination"
+            )
+        child_id = plans["child"]["entity_id"]
+        if any(item["id"] == child_id for item in payload["entities"]):
+            raise BoardError("project-map migration child is already registered")
+        for claim in payload["claims"]:
+            if (
+                claim["entity"] == root_entity["id"]
+                and destinations.get(claim["row"]) == "child"
+            ):
+                claim["entity"] = child_id
+        root_claimed = {
+            claim["row"]
+            for claim in payload["claims"]
+            if claim["entity"] == root_entity["id"]
+        }
+        child_claimed = {
+            claim["row"]
+            for claim in payload["claims"]
+            if claim["entity"] == child_id
+        }
+        previous_resume = root_entity["resume"]
+        root_entity["resume"] = _choose_resume(
+            previous_resume if destinations.get(previous_resume) == "root" else None,
+            plans["root"]["candidates"],
+            root_claimed,
+        )
+        child_entity = {
+            "id": child_id,
+            "project": root_entity["project"],
+            "plan": str(child_plan),
+            "resume": _choose_resume(
+                previous_resume if destinations.get(previous_resume) == "child" else None,
+                plans["child"]["candidates"],
+                child_claimed,
+            ),
+        }
+        payload["entities"].append(child_entity)
+        payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+        payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
+        payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        payload["revision"] += 1
+        _validate(payload)
+        _write_and_commit(
+            root,
+            path,
+            payload,
+            "shadow board: apply project-map migration",
+        )
+        return json.loads(json.dumps(payload))
+
+
+def _project_map_rollback_payload(
+    payload: dict,
+    root_plan: Path,
+    child_plan: Path,
+    before: dict[str, object],
+    plans: dict[str, object],
+    destinations: dict[str, str],
+) -> dict:
+    expected_root = before["root_entity"]
+    expected_project = before["project"]
+    expected_claims = _safe_migration_claims(before["claims"])
+    root_id = expected_root["id"]
+    child_id = plans["child"]["entity_id"]
+    if (
+        expected_root["project"] != expected_project["id"]
+        or plans["source"]["entity_id"] != root_id
+        or plans["root"]["entity_id"] != root_id
+        or child_id == root_id
+        or payload["revision"] != before["revision"] + 1
+    ):
+        raise BoardError("project-map applied authority does not match its receipt")
+    project = next(
+        (item for item in payload["projects"] if item["id"] == expected_project["id"]),
+        None,
+    )
+    root_entity = next(
+        (item for item in payload["entities"] if item["id"] == root_id),
+        None,
+    )
+    child_entity = next(
+        (item for item in payload["entities"] if item["id"] == child_id),
+        None,
+    )
+    expected_applied_claims = json.loads(json.dumps(expected_claims))
+    for claim in expected_applied_claims:
+        if destinations.get(claim["row"]) == "child":
+            claim["entity"] = child_id
+    expected_applied_claims.sort(key=lambda item: (item["entity"], item["row"]))
+    actual_applied_claims = sorted(
+        (
+            json.loads(json.dumps(item))
+            for item in payload["claims"]
+            if item["entity"] in {root_id, child_id}
+        ),
+        key=lambda item: (item["entity"], item["row"]),
+    )
+    root_claimed = {
+        claim["row"]
+        for claim in expected_applied_claims
+        if claim["entity"] == root_id
+    }
+    child_claimed = {
+        claim["row"]
+        for claim in expected_applied_claims
+        if claim["entity"] == child_id
+    }
+    previous_resume = expected_root["resume"]
+    expected_root_resume = _choose_resume(
+        previous_resume if destinations.get(previous_resume) == "root" else None,
+        plans["root"]["candidates"],
+        root_claimed,
+    )
+    expected_child_resume = _choose_resume(
+        previous_resume if destinations.get(previous_resume) == "child" else None,
+        plans["child"]["candidates"],
+        child_claimed,
+    )
+    if (
+        project != expected_project
+        or root_entity
+        != {
+            "id": root_id,
+            "project": expected_root["project"],
+            "plan": str(root_plan),
+            "resume": expected_root_resume,
+        }
+        or child_entity
+        != {
+            "id": child_id,
+            "project": expected_root["project"],
+            "plan": str(child_plan),
+            "resume": expected_child_resume,
+        }
+        or actual_applied_claims != expected_applied_claims
+    ):
+        raise BoardError("project-map state changed after apply")
+    restored = json.loads(json.dumps(payload))
+    for claim in restored["claims"]:
+        if claim["entity"] == child_id:
+            claim["entity"] = root_id
+    restored_root = next(
+        item for item in restored["entities"] if item["id"] == root_id
+    )
+    restored_root["project"] = expected_root["project"]
+    restored_root["plan"] = str(root_plan)
+    restored_root["resume"] = expected_root["resume"]
+    restored["entities"] = [
+        item for item in restored["entities"] if item["id"] != child_id
+    ]
+    restored["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+    restored["entities"].sort(key=lambda item: (item["project"], item["id"]))
+    restored["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+    _validate(restored)
+    if board_authority_sha256(restored) != before["authority_sha256"]:
+        raise BoardError("project-map rollback would not restore exact authority")
+    restored["revision"] += 1
+    _validate(restored)
+    return restored
+
+
+def validate_project_map_migration_applied(
+    root_plan: Path,
+    child_plan: Path,
+    receipt: dict[str, object],
+    *,
+    home: Path | None = None,
+) -> dict:
+    """Read-only proof that one immutable receipt names the exact applied state."""
+    root_plan = root_plan.resolve()
+    child_plan = child_plan.resolve()
+    if receipt.get("schema") != "shadow.project-map-migration.v1":
+        raise BoardError("project-map migration receipt schema is not supported")
+    board_receipt = receipt.get("board")
+    plans = receipt.get("plans")
+    row_map = receipt.get("row_map")
+    if (
+        not isinstance(board_receipt, dict)
+        or set(board_receipt) != {"before"}
+        or not isinstance(plans, dict)
+        or set(plans) != {"source", "root", "child"}
+    ):
+        raise BoardError("project-map migration receipt is malformed")
+    before = board_receipt["before"]
+    if (
+        not isinstance(before, dict)
+        or set(before) != {
+            "revision",
+            "raw_sha256",
+            "authority_sha256",
+            "project",
+            "root_entity",
+            "claims",
+            "journal_head",
+        }
+        or not isinstance(before["journal_head"], str)
+    ):
+        raise BoardError("project-map migration board receipt is malformed")
+    destinations = _migration_destinations(plans, row_map)
+    _migration_plan_matches(root_plan, plans["root"])
+    _migration_plan_matches(child_plan, plans["child"])
+    root = _safe_root(home)
+    path = root / BOARD_NAME
+    payload = snapshot(home=home)
+    if payload is None:
+        raise BoardError("root board is missing")
+    clean = _git(root, "diff", "--quiet", "HEAD", "--", BOARD_NAME)
+    if clean.returncode or _journal_parent(root) != before["journal_head"]:
+        raise BoardError("project-map state changed after apply")
+    _project_map_rollback_payload(
+        payload,
+        root_plan,
+        child_plan,
+        before,
+        plans,
+        destinations,
+    )
+    try:
+        if path.read_bytes() != _encoded_board(payload):
+            raise BoardError("project-map board bytes are not canonical")
+    except OSError as exc:
+        raise BoardError("root board could not be frozen") from exc
+    return json.loads(json.dumps(payload))
+
+
+def rollback_project_map_migration(
+    root_plan: Path,
+    child_plan: Path,
+    applied: dict[str, object],
+    *,
+    home: Path | None = None,
+) -> dict:
+    """Atomically restore one monolith and every child-owned board claim."""
+    root_plan = root_plan.resolve()
+    child_plan = child_plan.resolve()
+    if applied.get("schema") != "shadow.project-map-migration.v1":
+        raise BoardError("project-map migration receipt schema is not supported")
+    board_receipt = applied.get("board")
+    plans = applied.get("plans")
+    row_map = applied.get("row_map")
+    if (
+        not isinstance(board_receipt, dict)
+        or set(board_receipt) != {"before"}
+        or not isinstance(plans, dict)
+        or set(plans) != {"source", "root", "child"}
+    ):
+        raise BoardError("project-map rollback receipt is malformed")
+    before = board_receipt.get("before")
+    if (
+        not isinstance(before, dict)
+        or set(before) != {
+            "revision",
+            "raw_sha256",
+            "authority_sha256",
+            "project",
+            "root_entity",
+            "claims",
+            "journal_head",
+        }
+        or not isinstance(before["journal_head"], str)
+    ):
+        raise BoardError("project-map rollback board receipt is malformed")
+    destinations = _migration_destinations(plans, row_map)
+    _migration_plan_matches(root_plan, plans["source"])
+    if child_plan.exists() or child_plan.is_symlink():
+        raise BoardError("project-map rollback requires the source tree")
+    with _transaction(home) as (root, path, payload):
+        if _journal_parent(root) != before["journal_head"]:
+            raise BoardError("root board changed after project-map migration")
+        restored = _project_map_rollback_payload(
+            payload,
+            root_plan,
+            child_plan,
+            before,
+            plans,
+            destinations,
+        )
+        _write_and_commit(
+            root,
+            path,
+            restored,
+            "shadow board: roll back project-map migration",
+        )
+        return json.loads(json.dumps(restored))
+
+
+def validate_project_map_migration_rolled_back(
+    root_plan: Path,
+    child_plan: Path,
+    receipt: dict[str, object],
+    *,
+    home: Path | None = None,
+) -> dict:
+    """Read-only proof that retrying rollback observes its exact final state."""
+    root_plan = root_plan.resolve()
+    child_plan = child_plan.resolve()
+    if receipt.get("schema") != "shadow.project-map-migration.v1":
+        raise BoardError("project-map migration receipt schema is not supported")
+    board_receipt = receipt.get("board")
+    plans = receipt.get("plans")
+    row_map = receipt.get("row_map")
+    if (
+        not isinstance(board_receipt, dict)
+        or set(board_receipt) != {"before"}
+        or not isinstance(plans, dict)
+        or set(plans) != {"source", "root", "child"}
+    ):
+        raise BoardError("project-map migration receipt is malformed")
+    before = board_receipt["before"]
+    if (
+        not isinstance(before, dict)
+        or set(before) != {
+            "revision",
+            "raw_sha256",
+            "authority_sha256",
+            "project",
+            "root_entity",
+            "claims",
+            "journal_head",
+        }
+        or not isinstance(before["journal_head"], str)
+    ):
+        raise BoardError("project-map migration board receipt is malformed")
+    _migration_destinations(plans, row_map)
+    _migration_plan_matches(root_plan, plans["source"])
+    if child_plan.exists() or child_plan.is_symlink():
+        raise BoardError("project-map rollback did not remove the child plan")
+    root = _safe_root(home)
+    path = root / BOARD_NAME
+    payload = snapshot(home=home)
+    if payload is None:
+        raise BoardError("root board is missing")
+    rollback_parent = _journal_parent(root)
+    if (
+        rollback_parent is None
+        or _commit_parent(root, rollback_parent) != before["journal_head"]
+        or payload["revision"] != before["revision"] + 2
+        or board_authority_sha256(payload) != before["authority_sha256"]
+        or _git(root, "diff", "--quiet", "HEAD", "--", BOARD_NAME).returncode
+    ):
+        raise BoardError("project-map rollback final state is invalid")
+    try:
+        if path.read_bytes() != _encoded_board(payload):
+            raise BoardError("project-map board bytes are not canonical")
+    except OSError as exc:
+        raise BoardError("root board could not be frozen") from exc
+    return json.loads(json.dumps(payload))
 
 
 def migrate_to_local_plan(source: Path, destination: Path, *, home: Path | None = None) -> dict:

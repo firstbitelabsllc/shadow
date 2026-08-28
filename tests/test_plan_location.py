@@ -109,8 +109,13 @@ class DeclaredGlobs(unittest.TestCase):
             paths = sorted(r["path"] for r in discover_plans(root))
             self.assertEqual(paths, ["app/PLAN.md", "app/plans/one/PLAN.md", "app/plans/two/PLAN.md"])
 
-    def test_at_most_three_globs_are_honored(self) -> None:
-        self.assertEqual(len(declared_plan_globs(brief("a/*, b/*, c/*, d/*"))), 3)
+    def test_a_fourth_valid_glob_is_refused(self) -> None:
+        self.assertEqual(
+            declared_plan_globs(brief("a/*, b/*, c/*")),
+            ["a/*", "b/*", "c/*"],
+        )
+        with self.assertRaisesRegex(BrowserError, "more than 3 declared plan globs"):
+            declared_plan_globs(brief("a/*, b/*, c/*, d/*"))
 
     def test_an_escaping_glob_is_dropped(self) -> None:
         # A repo-relative declaration must not reach outside its own repo. This

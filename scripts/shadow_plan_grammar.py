@@ -107,6 +107,44 @@ def brief_origin_values(plan_text: str) -> list[str]:
     return values
 
 
+def candidate_row_ids(plan_text: str, claimed: set[str] | None = None) -> list[str]:
+    """Return agent-takeable rows in canonical in-progress/pending order."""
+    rows: list[tuple[str, str, dict[str, str]]] = []
+    completed: set[str] = set()
+    for line in plan_text.splitlines():
+        match = ROW_RE.fullmatch(line)
+        if match is None:
+            continue
+        fields = {
+            field.group("key"): field.group("value").strip()
+            for field in FIELD_RE.finditer(match.group("tail"))
+        }
+        row = match.group("id")
+        state = match.group("state")
+        rows.append((state, row, fields))
+        if state == "completed":
+            completed.add(row)
+    unavailable = set(claimed or ())
+    result: list[str] = []
+    for state_pass in ("in_progress", "pending"):
+        for state, row, fields in rows:
+            if (
+                state != state_pass
+                or row in unavailable
+                or fields.get("proof", "").startswith("gate ")
+                or (
+                    state_pass == "pending"
+                    and any(
+                        need not in completed
+                        for need in NEEDS_REF_RE.findall(fields.get("needs", ""))
+                    )
+                )
+            ):
+                continue
+            result.append(row)
+    return result
+
+
 def contradiction_is_open(line: str) -> bool:
     """Return whether a canonical Contradictions bullet is unresolved.
 

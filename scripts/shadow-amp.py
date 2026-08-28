@@ -239,14 +239,10 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
 
 def _candidate_ids(plan: dict) -> list[str]:
     """Every currently reachable agent row in deterministic selection order."""
-    scratch = dict(plan)
-    scratch["claimed"] = set(plan.get("claimed") or set())
-    result: list[str] = []
-    while selected := _select(scratch, None):
-        row = selected[1]["id"]
-        result.append(row)
-        scratch["claimed"].add(row)
-    return result
+    return _grammar.candidate_row_ids(
+        plan.get("text", ""),
+        set(plan.get("claimed") or ()),
+    )
 
 
 _LINT: object | None = None
