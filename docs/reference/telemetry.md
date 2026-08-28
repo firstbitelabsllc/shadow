@@ -64,3 +64,30 @@ long test jobs run against Shadow. The decision's scope, in plain terms:
   readback is red.
 - The compose file and provisioned keys live outside the repository, on the
   owner's machine only.
+
+## Sink environment contract
+
+Both owner tools refuse to run without the three required values:
+
+| Variable | Meaning |
+| --- | --- |
+| `SHADOW_LANGFUSE_HOST` | Loopback Langfuse endpoint, e.g. `http://localhost:3000`. |
+| `SHADOW_LANGFUSE_PUBLIC_KEY` | The local project's public key. |
+| `SHADOW_LANGFUSE_SECRET_KEY` | The local project's secret key. |
+
+Every written trace is verified by exact trace-ID readback; accepted HTTP
+without readback is red. The readback path differs by sink major version:
+Langfuse v3 serves it from the web API; Langfuse v4 (`events_only` mode)
+retires that API, so v4 sinks also set:
+
+| Variable | Meaning |
+| --- | --- |
+| `SHADOW_LANGFUSE_READBACK_URL` | Loopback ClickHouse HTTP endpoint, e.g. `http://localhost:8123`. |
+| `SHADOW_LANGFUSE_PROJECT_ID` | The local project id read back from `default.events_core`. |
+| `SHADOW_LANGFUSE_READBACK_USER` | ClickHouse user, when the instance requires auth. |
+| `SHADOW_LANGFUSE_READBACK_PASSWORD` | ClickHouse password. |
+
+The observed gauntlet falls back to the v3 web-API readback when the v4
+variables are unset. The routing gauntlet requires the v4 variables on any
+current sink. `SHADOW_LANGFUSE_EVENTS` optionally forwards a local event
+file as spans on the observed path.
