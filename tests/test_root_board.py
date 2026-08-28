@@ -690,6 +690,273 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
             self.assertEqual(recovery_payload["rows"][0]["id"], "~bb22")
             self.assertTrue(recovery_payload["rows"][0]["broken"])
 
+    def test_claim_journal_failure_restores_board_and_head_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            board_api.ensure(home=home)
+            board_root = home / ".shadow"
+            board_path = board_root / "board.json"
+            unrelated = board_root / "unrelated.txt"
+            unrelated.write_bytes(b"base\n")
+            subprocess.run(
+                ["git", "-C", str(board_root), "add", "-f", "--", unrelated.name],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(board_root), "commit", "--quiet", "-m", "unrelated"],
+                check=True,
+            )
+            unrelated.write_bytes(b"staged\n")
+            subprocess.run(
+                ["git", "-C", str(board_root), "add", "-f", "--", unrelated.name],
+                check=True,
+            )
+            unrelated.write_bytes(b"worktree\n")
+            untracked = board_root / "untracked.txt"
+            untracked.write_bytes(b"untracked\n")
+            before_bytes = board_path.read_bytes()
+            before_head = board_api._journal_head(board_root)
+            before_unrelated = {
+                "cached": subprocess.run(
+                    ["git", "-C", str(board_root), "diff", "--cached", "--binary"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                "worktree": subprocess.run(
+                    ["git", "-C", str(board_root), "diff", "--binary"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                "bytes": unrelated.read_bytes(),
+                "untracked": untracked.read_bytes(),
+            }
+            original_commit = board_api._commit
+
+            def fail_claim(root: Path, message: str) -> None:
+                original_commit(root, message)
+                if message == "shadow board: claim ~aa11":
+                    raise board_api.BoardError("injected claim journal failure")
+
+            with mock.patch.object(board_api, "_commit", side_effect=fail_claim):
+                with self.assertRaisesRegex(
+                    board_api.BoardError, "injected claim journal failure"
+                ):
+                    board_api.claim(
+                        repo / "PLAN.md",
+                        "~aa11",
+                        "failed-seat",
+                        project="project",
+                        priority=2,
+                        home=home,
+                    )
+
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(board_api._journal_head(board_root), before_head)
+            self.assertEqual(board(home)["claims"], [])
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(board_root),
+                        "status",
+                        "--porcelain=v1",
+                        "--",
+                        "board.json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+                "",
+            )
+            self.assertEqual(
+                {
+                    "cached": subprocess.run(
+                        ["git", "-C", str(board_root), "diff", "--cached", "--binary"],
+                        capture_output=True,
+                        check=True,
+                    ).stdout,
+                    "worktree": subprocess.run(
+                        ["git", "-C", str(board_root), "diff", "--binary"],
+                        capture_output=True,
+                        check=True,
+                    ).stdout,
+                    "bytes": unrelated.read_bytes(),
+                    "untracked": untracked.read_bytes(),
+                },
+                before_unrelated,
+            )
+
+            successor = board_api.claim(
+                repo / "PLAN.md",
+                "~aa11",
+                "successor-seat",
+                project="project",
+                priority=2,
+                home=home,
+            )
+
+            self.assertEqual(successor["claim"]["owner"], "successor-seat")
+            self.assertEqual(board(home)["claims"][0]["owner"], "successor-seat")
+
+    def test_claim_precommit_failure_unstages_only_board(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            board_api.ensure(home=home)
+            board_root = home / ".shadow"
+            board_path = board_root / "board.json"
+            before_bytes = board_path.read_bytes()
+            before_head = board_api._journal_head(board_root)
+            original_commit = board_api._commit
+
+            def fail_after_add(root: Path, message: str) -> None:
+                if message == "shadow board: claim ~aa11":
+                    added = board_api._git(root, "add", "--", board_api.BOARD_NAME)
+                    self.assertEqual(added.returncode, 0, added.stderr)
+                    raise board_api.BoardError("injected post-add failure")
+                original_commit(root, message)
+
+            with mock.patch.object(board_api, "_commit", side_effect=fail_after_add):
+                with self.assertRaisesRegex(board_api.BoardError, "post-add failure"):
+                    board_api.claim(
+                        repo / "PLAN.md",
+                        "~aa11",
+                        "failed-seat",
+                        project="project",
+                        priority=2,
+                        home=home,
+                    )
+
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(board_api._journal_head(board_root), before_head)
+            self.assertEqual(board(home)["claims"], [])
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(board_root),
+                        "status",
+                        "--porcelain=v1",
+                        "--",
+                        "board.json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+                "",
+            )
+
+    def test_claim_failure_preserves_foreign_index_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            board_api.ensure(home=home)
+            board_root = home / ".shadow"
+            board_path = board_root / "board.json"
+            index_lock = board_root / ".git" / "index.lock"
+            before_bytes = board_path.read_bytes()
+            before_head = board_api._journal_head(board_root)
+            original_commit = board_api._commit
+
+            def fail_before_add(root: Path, message: str) -> None:
+                if message == "shadow board: claim ~aa11":
+                    index_lock.write_bytes(b"foreign")
+                    original_commit(root, message)
+                    self.fail("Git unexpectedly accepted an existing index lock")
+                original_commit(root, message)
+
+            with mock.patch.object(board_api, "_commit", side_effect=fail_before_add):
+                with self.assertRaisesRegex(
+                    board_api.BoardError,
+                    "could not record its local receipt",
+                ):
+                    board_api.claim(
+                        repo / "PLAN.md",
+                        "~aa11",
+                        "failed-seat",
+                        project="project",
+                        priority=2,
+                        home=home,
+                    )
+
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(board_api._journal_head(board_root), before_head)
+            self.assertEqual(board(home)["claims"], [])
+            self.assertEqual(index_lock.read_bytes(), b"foreign")
+            index_lock.unlink()
+
+    def test_claim_failure_does_not_rewind_unexpected_child(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            board_api.ensure(home=home)
+            board_root = home / ".shadow"
+            board_path = board_root / "board.json"
+            before_bytes = board_path.read_bytes()
+            before_head = board_api._journal_head(board_root)
+            foreign_heads: list[str] = []
+            original_commit = board_api._commit
+
+            def fail_after_foreign_child(root: Path, message: str) -> None:
+                original_commit(root, message)
+                if message == "shadow board: claim ~aa11":
+                    foreign = root / "foreign.txt"
+                    foreign.write_bytes(b"foreign\n")
+                    subprocess.run(
+                        ["git", "-C", str(root), "add", "-f", "--", foreign.name],
+                        check=True,
+                    )
+                    subprocess.run(
+                        ["git", "-C", str(root), "commit", "--quiet", "-m", "foreign child"],
+                        check=True,
+                    )
+                    foreign_heads.append(board_api._journal_head(root))
+                    raise board_api.BoardError("injected foreign child")
+
+            with mock.patch.object(
+                board_api,
+                "_commit",
+                side_effect=fail_after_foreign_child,
+            ):
+                with self.assertRaisesRegex(
+                    board_api.BoardError,
+                    "exact recovery also failed",
+                ):
+                    board_api.claim(
+                        repo / "PLAN.md",
+                        "~aa11",
+                        "failed-seat",
+                        project="project",
+                        priority=2,
+                        home=home,
+                    )
+
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(len(foreign_heads), 1)
+            self.assertNotEqual(foreign_heads[0], before_head)
+            self.assertEqual(board_api._journal_head(board_root), foreign_heads[0])
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(board_root), "show", "HEAD:foreign.txt"],
+                    capture_output=True,
+                    check=True,
+                ).stdout,
+                b"foreign\n",
+            )
+
     def test_global_commit_signing_cannot_wedge_the_local_board_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4134,7 +4401,7 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
             self.assertEqual(observed, before)
             self.assertEqual(restored["claims"][0]["owner"], "seat-a")
 
-    def test_partial_git_stale_lock_and_loose_modes_recover_privately(self) -> None:
+    def test_partial_git_lock_fails_closed_until_owner_removes_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             home = root / "home"
@@ -4152,10 +4419,16 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
             os.chmod(board_root, 0o755)
             os.chmod(board_root / "board.json", 0o644)
 
-            observed = module.ensure(home=home)
+            with self.assertRaisesRegex(
+                module.BoardError,
+                "verify no Git process owns it, remove it, and retry",
+            ):
+                module.ensure(home=home)
+            self.assertTrue((board_root / ".git" / "index.lock").exists())
+            (board_root / ".git" / "index.lock").unlink()
 
+            observed = module.ensure(home=home)
             self.assertEqual(observed, initialized)
-            self.assertFalse((board_root / ".git" / "index.lock").exists())
             self.assertEqual(board_root.stat().st_mode & 0o777, 0o700)
             self.assertEqual((board_root / "board.json").stat().st_mode & 0o777, 0o600)
 
