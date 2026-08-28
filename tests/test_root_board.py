@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import importlib.util
 import json
 import os
@@ -2388,6 +2389,141 @@ class RegisteredPointerIsCanonicalBeforePortfolioParsing(unittest.TestCase):
             self.assertEqual(imported.returncode, 0, imported.stderr)
             self.assertFalse(any(key.startswith("_") for key in raw[0]))
             self.assertNotIn(str(root), json.dumps(raw))
+
+
+class RootBoardImportScale(unittest.TestCase):
+    def _importer_and_amp(self):
+        import shadow_board_import as importer
+
+        name = f"shadow_status_import_scale_test_{id(self)}"
+        spec = importlib.util.spec_from_file_location(
+            name, ROOT / "scripts" / "shadow-status.py"
+        )
+        assert spec and spec.loader
+        status = importlib.util.module_from_spec(spec)
+        sys.modules[name] = status
+        spec.loader.exec_module(status)
+        return importer, status._amp
+
+    def test_250_entity_noop_refresh_bounds_identity_git_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root, name="mega", display_name="mega")
+            git(repo, "remote", "add", "origin", "git@example.invalid:team/mega.git")
+            root_plan = repo / "PLAN.md"
+            child_text = root_plan.read_text(encoding="utf-8")
+            root_plan.write_text(
+                child_text.replace(
+                    "- Mode: ship\n",
+                    "- Mode: ship\n- Plans: entities/*/PLAN.md\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            for index in range(249):
+                child = repo / "entities" / f"e{index:04d}"
+                child.mkdir(parents=True)
+                (child / "PLAN.md").write_text(child_text, encoding="utf-8")
+            git(repo, "add", "PLAN.md", "entities")
+            git(repo, "commit", "--quiet", "-m", "seed 250 entity plans")
+            importer, amp = self._importer_and_amp()
+            importer.reconcile_portfolio(repo, amp, home=home)
+            board_path = home / ".shadow" / "board.json"
+            before_bytes = board_path.read_bytes()
+            before_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            commands: list[tuple[str, ...]] = []
+            real_run = subprocess.run
+
+            def count_git(command, *args, **kwargs):
+                if command and command[0] == "git":
+                    commands.append(tuple(str(part) for part in command))
+                return real_run(command, *args, **kwargs)
+
+            with mock.patch.object(subprocess, "run", side_effect=count_git):
+                refreshed = importer.reconcile_portfolio(repo, amp, home=home)
+
+            after_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertEqual(len(refreshed["entities"]), 250)
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(after_head, before_head)
+            config_counts = Counter(
+                command
+                for command in commands
+                if command[-3:] == ("config", "--get", "remote.origin.url")
+            )
+            top_level_count = sum(
+                command[-2:] == ("rev-parse", "--show-toplevel")
+                for command in commands
+            )
+            self.assertLessEqual(max(config_counts.values(), default=0), 2)
+            self.assertLessEqual(top_level_count, (2 * 250) + 8)
+
+    def test_repository_identity_change_before_final_cas_refuses_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root, name="identity", display_name="identity")
+            git(
+                repo,
+                "remote",
+                "add",
+                "origin",
+                "git@example.invalid:team/identity.git",
+            )
+            importer, amp = self._importer_and_amp()
+            importer.reconcile_portfolio(repo, amp, home=home)
+            board_path = home / ".shadow" / "board.json"
+            before_bytes = board_path.read_bytes()
+            before_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            real_choose_resume = importer.board._choose_resume
+
+            def mutate_origin_then_choose(*args, **kwargs):
+                git(
+                    repo,
+                    "remote",
+                    "set-url",
+                    "origin",
+                    "git@example.invalid:team/changed.git",
+                )
+                return real_choose_resume(*args, **kwargs)
+
+            with mock.patch.object(
+                importer.board,
+                "_choose_resume",
+                side_effect=mutate_origin_then_choose,
+            ):
+                with self.assertRaisesRegex(
+                    importer.board.BoardError,
+                    "identity changed during reconciliation",
+                ):
+                    importer.reconcile_portfolio(repo, amp, home=home)
+
+            after_head = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertEqual(board_path.read_bytes(), before_bytes)
+            self.assertEqual(after_head, before_head)
 
 
 class PortfolioReconciliationIsBoundedAndComplete(unittest.TestCase):

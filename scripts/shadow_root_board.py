@@ -10,6 +10,7 @@ authority or a source-controlled queue.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
@@ -60,6 +61,40 @@ class AlreadyClaimed(BoardError):
     def __init__(self, owner: str):
         super().__init__(f"claimed by {owner}")
         self.owner = owner
+
+
+class _RepositoryIdentityCache:
+    def __init__(self) -> None:
+        self.origins: dict[str, str] = {}
+        self.plan_parts: dict[str, tuple[str, str]] = {}
+        self.repositories: dict[str, Path] = {}
+
+    def clear(self) -> None:
+        self.origins.clear()
+        self.plan_parts.clear()
+        self.repositories.clear()
+
+
+_REPOSITORY_IDENTITIES: ContextVar[_RepositoryIdentityCache | None] = ContextVar(
+    "shadow_repository_identities",
+    default=None,
+)
+
+
+@contextmanager
+def repository_identity_cache() -> Iterator[None]:
+    """Reuse immutable Git identity metadata within one reconciliation pass."""
+    token = _REPOSITORY_IDENTITIES.set(_RepositoryIdentityCache())
+    try:
+        yield
+    finally:
+        _REPOSITORY_IDENTITIES.reset(token)
+
+
+def _refresh_repository_identity_cache() -> None:
+    cache = _REPOSITORY_IDENTITIES.get()
+    if cache is not None:
+        cache.clear()
 
 
 def _directory(home: Path | None = None) -> Path:
@@ -584,6 +619,11 @@ def validate_owner(owner: object) -> str:
 
 
 def origin_of(repo: Path) -> str:
+    repo = Path(os.path.abspath(repo)).resolve()
+    cache = _REPOSITORY_IDENTITIES.get()
+    cache_key = str(repo)
+    if cache is not None and cache_key in cache.origins:
+        return cache.origins[cache_key]
     marker = _git_marker(repo)
     try:
         result = subprocess.run(
@@ -601,6 +641,8 @@ def origin_of(repo: Path) -> str:
         else ""
     )
     if origin:
+        if cache is not None:
+            cache.origins[cache_key] = origin
         return origin
     # Linked worktrees share one common Git directory even when the repository
     # has no remote.  The checkout path does not: using it let two worktrees of
@@ -622,10 +664,16 @@ def origin_of(repo: Path) -> str:
         common_path = Path(common.stdout.strip())
         if not common_path.is_absolute():
             common_path = repo / common_path
-        return f"local-git:{common_path.resolve()}"
+        origin = f"local-git:{common_path.resolve()}"
+        if cache is not None:
+            cache.origins[cache_key] = origin
+        return origin
     if marker is not None:
         raise BoardError("project Git identity could not be read; retry when Git is available")
-    return str(repo.resolve())
+    origin = str(repo.resolve())
+    if cache is not None:
+        cache.origins[cache_key] = origin
+    return origin
 
 
 def origin_repo_name(origin: str) -> str:
@@ -740,16 +788,38 @@ def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[s
     if require_regular and not regular_plan(plan):
         raise BoardError("entity identity requires a regular, non-symlink PLAN.md")
     plan = Path(os.path.abspath(plan))
+    cache = _REPOSITORY_IDENTITIES.get()
+    cache_key = str(plan)
+    if cache is not None and cache_key in cache.plan_parts:
+        return cache.plan_parts[cache_key]
     local_root = _local_plan_root_containing(plan)
     if local_root is not None:
         try:
-            return f"local-plan:{local_root}", plan.resolve().relative_to(local_root).as_posix()
+            parts = (
+                f"local-plan:{local_root}",
+                plan.resolve().relative_to(local_root).as_posix(),
+            )
         except (OSError, ValueError) as exc:
             raise BoardError("local plan identity could not be read") from exc
+        if cache is not None:
+            cache.plan_parts[cache_key] = parts
+        return parts
     marker = _git_marker(plan.parent)
-    result = _git(plan.parent, "rev-parse", "--show-toplevel")
-    if result.returncode == 0 and result.stdout.strip():
-        repo = Path(result.stdout.strip()).resolve()
+    marker_key = str(Path(os.path.abspath(marker))) if marker is not None else None
+    repo = cache.repositories.get(marker_key) if cache is not None and marker_key else None
+    git_repository = repo is not None
+    if repo is None:
+        result = _git(plan.parent, "rev-parse", "--show-toplevel")
+        if result.returncode == 0 and result.stdout.strip():
+            repo = Path(result.stdout.strip()).resolve()
+            git_repository = True
+            if cache is not None and marker_key is not None:
+                cache.repositories[marker_key] = repo
+        elif marker is not None:
+            raise BoardError("project Git identity could not be read; retry when Git is available")
+        else:
+            repo = plan.parent
+    if git_repository:
         try:
             relative = plan.relative_to(repo).as_posix()
         except ValueError:
@@ -757,11 +827,12 @@ def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[s
                 relative = (plan.parent.resolve() / plan.name).relative_to(repo).as_posix()
             except ValueError:
                 relative = plan.name
-    elif marker is not None:
-        raise BoardError("project Git identity could not be read; retry when Git is available")
     else:
-        repo, relative = plan.parent, plan.name
-    return origin_of(repo), relative
+        relative = plan.name
+    parts = origin_of(repo), relative
+    if cache is not None:
+        cache.plan_parts[cache_key] = parts
+    return parts
 
 
 def entity_id(plan: Path) -> str:
@@ -2116,6 +2187,7 @@ def reconcile(
         payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
         payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
+        _refresh_repository_identity_cache()
         assert_seed_content()
         assert_repair_states()
         assert_seed_witnesses()
