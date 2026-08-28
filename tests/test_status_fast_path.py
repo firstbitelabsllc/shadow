@@ -6,6 +6,7 @@ from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -96,6 +97,69 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         ):
             code = status.main(list(args))
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def batched_remote_records(
+        self,
+        root: Path,
+        payload: dict,
+        tips: dict[tuple[str, str], tuple[str, str]],
+    ) -> tuple[list[dict], list[tuple[str, ...]]]:
+        repo = (root / "repo").resolve()
+        claim = {
+            key: payload["claims"][0][key]
+            for key in ("claimed_at", "return_by", "recovery")
+        }
+        payload["claims"] = []
+        commit_id = "a" * 40
+        receipts = {
+            status._remote_claim.claim_ref(entity, row): {
+                "row": row,
+                "owner": owner,
+                "claim": claim,
+                "plan": {"relative": relative},
+                "state": "acquired",
+            }
+            for (entity, row), (owner, relative) in tips.items()
+        }
+
+        def git(_repo, *args, **_kwargs):
+            if args[:3] == ("ls-remote", "--refs", "origin"):
+                output = "".join(
+                    f"{commit_id}\t{ref}\n"
+                    for ref in args[3:]
+                    if ref in receipts
+                )
+                return subprocess.CompletedProcess(args, 0, output.encode(), b"")
+            if args[0] == "fetch":
+                return subprocess.CompletedProcess(args, 0, b"", b"")
+            self.fail(f"unexpected git call: {args}")
+
+        def validated(_repo, *, ref, **_kwargs):
+            return receipts[ref]
+
+        with (
+            mock.patch.object(
+                status._remote_claim, "managed_repo_for_plan", return_value=repo
+            ),
+            mock.patch.object(
+                status._remote_claim, "uses_origin_upstream", return_value=True
+            ),
+            mock.patch.object(
+                status._board,
+                "frozen_plan_snapshot",
+                return_value=({"repo": str(repo), "relative": "PLAN.md"}, b""),
+            ),
+            mock.patch.object(
+                status._remote_claim, "_git", side_effect=git
+            ) as remote_git,
+            mock.patch.object(
+                status._remote_claim,
+                "_validated_tip_commit",
+                side_effect=validated,
+            ),
+        ):
+            records = status.board_records(payload)
+        return records, [call.args[1:] for call in remote_git.call_args_list]
 
     def test_explicit_root_bypasses_the_machine_board_fast_path(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -382,6 +446,76 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         reconcile.assert_not_called()
         read.assert_not_called()
         project.assert_not_called()
+
+    def test_exhaustive_batches_remote_discovery_once_per_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, _, _ = self.fixture(root)
+            first, second = payload["entities"]
+            records, calls = self.batched_remote_records(
+                root,
+                payload,
+                {(first["id"], first["resume"]): ("remote-owned", "PLAN.md")},
+            )
+
+        ls_remote_calls = [call for call in calls if call[0] == "ls-remote"]
+        self.assertEqual(len(ls_remote_calls), 1, ls_remote_calls)
+        refs = ls_remote_calls[0][3:]
+        self.assertEqual(len(refs), 4)
+        self.assertEqual({ref.split("/")[-2] for ref in refs}, {first["id"], second["id"]})
+        self.assertEqual(
+            [[claim["owner"] for claim in record["live_claims"]] for record in records],
+            [["remote-owned"], []],
+        )
+
+    def test_exhaustive_isolates_invalid_remote_receipt_per_entity(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, _, _ = self.fixture(root)
+            first, second = payload["entities"]
+            records, calls = self.batched_remote_records(
+                root,
+                payload,
+                {
+                    (first["id"], first["resume"]): (
+                        "invalid-owner",
+                        "wrong/PLAN.md",
+                    ),
+                    (first["id"], "~zz99"): ("must-not-restore", "PLAN.md"),
+                    (second["id"], second["resume"]): (
+                        "healthy-owner",
+                        "PLAN.md",
+                    ),
+                },
+            )
+
+        self.assertEqual(len([call for call in calls if call[0] == "ls-remote"]), 1)
+        self.assertEqual(len([call for call in calls if call[0] == "fetch"]), 1)
+        self.assertTrue(records[0]["broken"])
+        self.assertIn(status.REMOTE_DISCOVERY_ISSUE, records[0]["resume"])
+        self.assertNotIn("must-not-restore", str(records[0]))
+        self.assertFalse(records[1].get("broken", False), records[1])
+        self.assertEqual(records[1]["owner"], "healthy-owner")
+        self.assertEqual(
+            [claim["owner"] for claim in records[1]["live_claims"]],
+            ["healthy-owner"],
+        )
+
+    def test_single_entity_discovery_reraises_invalid_batch_value(self) -> None:
+        entity = "a" * 64
+        with mock.patch.object(
+            status._remote_claim,
+            "discover_active_batch",
+            return_value={entity: None},
+        ):
+            with self.assertRaises(status._remote_claim.RemoteClaimError):
+                status._remote_claim.discover_active(
+                    Path("."),
+                    entity=entity,
+                    project="owned",
+                    rows=["~aa11"],
+                    relative="PLAN.md",
+                )
 
     def test_exhaustive_surfaces_still_reconcile_and_fail_closed(self) -> None:
         cases = (

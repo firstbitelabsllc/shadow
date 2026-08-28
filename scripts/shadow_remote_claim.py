@@ -24,6 +24,7 @@ JOURNAL_FIELDS: Final = {
 }
 PLAN_FIELDS: Final = {"head", "blob", "relative"}
 CLAIM_FIELDS: Final = {"claimed_at", "return_by", "recovery"}
+DISCOVERY_FIELDS: Final = {"entity", "project", "rows", "relative"}
 HEX_OBJECT: Final = re.compile(r"[0-9a-f]{40,64}\Z")
 ENTITY: Final = re.compile(r"[0-9a-f]{64}\Z")
 ROW: Final = re.compile(r"~[0-9a-z]{4}\Z")
@@ -521,38 +522,53 @@ def _remote_tip(
     )
 
 
-def discover_active(
+def discover_active_batch(
     repo: Path,
     *,
-    entity: str,
-    project: str,
-    rows: list[str],
-    relative: str,
+    requests: list[dict[str, Any]],
     recover_detached: bool = False,
-) -> list[dict[str, Any]] | None:
-    """Project active remote locks for known local PLAN rows without coaching.
+) -> dict[str, list[dict[str, Any]] | None] | None:
+    """Project active remote locks for known PLAN rows in one repository.
 
-    The local PLAN bounds the query to at most the Method's hot-row limit. The
-    conventional refs make the lookup deterministic; arbitrary branches are
-    never enumerated. Returned journals are observations only and must not be
-    written into the local root board.
+    Each local PLAN bounds its refs to the Method's hot-row limit. The
+    conventional refs make one repository query deterministic; arbitrary
+    branches are never enumerated.
     """
     if not uses_origin_upstream(repo) and not (
         recover_detached and _configured_origin_merge_refs(repo)
     ):
         return None
-    unique_rows = sorted(set(rows))
-    if (
-        ENTITY.fullmatch(entity) is None
-        or PROJECT.fullmatch(project) is None
-        or not isinstance(relative, str)
-        or len(unique_rows) > MAX_DISCOVERY_ROWS
-        or any(ROW.fullmatch(row) is None for row in unique_rows)
-    ):
+    if not isinstance(requests, list):
         raise RemoteClaimError("remote claim discovery input is invalid")
-    if not unique_rows:
-        return []
-    expected = {claim_ref(entity, row): row for row in unique_rows}
+    active: dict[str, list[dict[str, Any]] | None] = {}
+    expected: dict[str, tuple[str, str, str, str]] = {}
+    for request in requests:
+        if not isinstance(request, dict) or set(request) != DISCOVERY_FIELDS:
+            raise RemoteClaimError("remote claim discovery input is invalid")
+        entity = request["entity"]
+        project = request["project"]
+        rows = request["rows"]
+        relative = request["relative"]
+        if not isinstance(rows, list) or any(not isinstance(row, str) for row in rows):
+            raise RemoteClaimError("remote claim discovery input is invalid")
+        unique_rows = sorted(set(rows))
+        if (
+            not isinstance(entity, str)
+            or ENTITY.fullmatch(entity) is None
+            or entity in active
+            or not isinstance(project, str)
+            or PROJECT.fullmatch(project) is None
+            or not isinstance(relative, str)
+            or len(unique_rows) > MAX_DISCOVERY_ROWS
+            or any(ROW.fullmatch(row) is None for row in unique_rows)
+        ):
+            raise RemoteClaimError("remote claim discovery input is invalid")
+        active[entity] = []
+        for row in unique_rows:
+            ref = claim_ref(entity, row)
+            expected[ref] = (entity, row, project, relative)
+    if not expected:
+        return active
     listed = _git(repo, "ls-remote", "--refs", "origin", *expected)
     if listed.returncode:
         raise RemoteClaimError("remote claim discovery is unavailable")
@@ -571,28 +587,59 @@ def discover_active(
             raise RemoteClaimError("remote claim discovery returned an invalid listing")
         tips[fields[1]] = fields[0]
     if not tips:
-        return []
+        return active
     fetched = _git(
         repo, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
         "origin", *tips,
     )
     if fetched.returncode:
         raise RemoteClaimError("remote claim discovery could not authenticate its receipts")
-    active: list[dict[str, Any]] = []
     for ref, commit_id in sorted(tips.items()):
+        entity, row, project, relative = expected[ref]
         receipt = _validated_tip_commit(
             repo,
             commit_id=commit_id,
             ref=ref,
             entity=entity,
-            row=expected[ref],
+            row=row,
             project=project,
         )
         if receipt is None or receipt["plan"]["relative"] != relative:
-            raise RemoteClaimError("remote claim discovery found an unauthenticated receipt")
-        if receipt["state"] == "acquired":
-            active.append(receipt)
+            active[entity] = None
+            continue
+        if active[entity] is not None and receipt["state"] == "acquired":
+            active[entity].append(receipt)
     return active
+
+
+def discover_active(
+    repo: Path,
+    *,
+    entity: str,
+    project: str,
+    rows: list[str],
+    relative: str,
+    recover_detached: bool = False,
+) -> list[dict[str, Any]] | None:
+    """Project active remote locks for one known local PLAN."""
+    active = discover_active_batch(
+        repo,
+        requests=[
+            {
+                "entity": entity,
+                "project": project,
+                "rows": rows,
+                "relative": relative,
+            }
+        ],
+        recover_detached=recover_detached,
+    )
+    if active is None:
+        return None
+    observed = active[entity]
+    if observed is None:
+        raise RemoteClaimError("remote claim discovery found an unauthenticated receipt")
+    return observed
 
 
 def _push(repo: Path, ref: str, commit_id: str, previous: str | None) -> bool:
