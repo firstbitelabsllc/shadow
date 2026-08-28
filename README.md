@@ -4,15 +4,17 @@
 
 **Shadow is you, one step down.** Say what you want in any wired AI coding
 host — Claude Code, Codex, Cursor, Grok — and Shadow keeps the work
-durable: one board per computer, one `PLAN.md` per project, a proof receipt
-on every finished step. Kill any chat; the next session resumes where it stopped.
+durable: one board per computer, one authoritative `PLAN.md` per independently
+steerable entity, related entities grouped as one project map, and a proof
+receipt on every finished step. Kill any chat; the next session resumes where
+it stopped.
 
 Six words carry the system:
 
 | word | meaning |
 |---|---|
 | **board** | one small ledger per computer: ownership, priority, resume |
-| **plans** | each repo's `PLAN.md`: checkpoints, each with its proving test |
+| **plans** | each entity's `PLAN.md`: checkpoints, each with one typed `cmd`, `read`, or `gate` proof |
 | **seats** | the AI workers, each under one stable name |
 | **claim** | a seat takes a checkpoint atomically; exactly one winner |
 | **proof** | done means the checkpoint's named check passed |
@@ -41,7 +43,8 @@ PLAN=$(shadow init --here | awk -F': ' '{print $2}')  # never overwrites a plan
 $EDITOR "$PLAN"                    # fill the Brief; keep 2-7 tasks per milestone
 shadow status --by your-seat      # prints the exact throw command — run it
 # do the work, then close out:
-shadow accept --repo . --row '~a1b2' --by your-seat   # cmd proofs flip here
+shadow accept --repo . --row '~a1b2' --by your-seat   # Git-backed plan
+shadow accept --entity ID --repo . --row '~a1b2' --by your-seat  # machine-local plan
 # read/gate proofs instead: record the observation in the plan, then shadow return
 ```
 
@@ -71,6 +74,28 @@ Git coordination lock under `refs/heads/shadow/claims/v1/<entity>/<row>`: it
 carries no task or proof text and never becomes authority. With no upstream
 the same flow stays local-only.
 Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
+Large projects scale by adding entity plans under the same `Project:` slug;
+the board membership is the map, while each plan keeps its own truth and local
+dependencies. See **[Project maps](https://firstbitelabsllc.github.io/shadow/reference/project-maps)**.
+
+## Route hard work deliberately
+
+Sealed native-host runs require one of four semantic work classes—`planning`,
+`coding`, `review`, or `lightweight`—plus an explicit execution shape:
+`--delegation direct|required`. Shadow maps the chosen host and class to a
+small checked-in native model policy—Fable/Opus/Sonnet for Claude Code,
+Sol/Terra/Luna for Codex, Fable/Opus/Cursor Grok/Auto for Cursor, and Grok
+4.6/4.5 for Grok. Required delegation enables the host's verified native child
+door; unsupported child capability fails closed. Shadow does not inspect prompt
+text, select accounts, or silently fall back after a quota failure.
+
+Requested selection is not observed execution. The owner-local evaluation
+gauntlet runs 12 real jobs through all four headless CLIs and requires exact
+model and usage evidence, scoped edits, deterministic verification, native
+child lineage where required, plus Langfuse write and exact readback. See
+**[Native execution policy](https://firstbitelabsllc.github.io/shadow/reference/execution-policy)**.
+The [dated 48-row evidence and cold takeover](https://firstbitelabsllc.github.io/shadow/reference/execution-policy-evidence-2026-08-26)
+publishes the exact falsifiers, corrections, hashes, and remaining wakes.
 
 ## Docs
 

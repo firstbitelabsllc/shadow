@@ -58,7 +58,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     )),
     (("browser/", "bin/shadow-browse"), (
         "tests.test_browser", "tests.test_browser_shell", "tests.test_status_focus",
-        "tests.test_root_board", "tests.test_config_defaults",
+        "tests.test_root_board", "tests.test_config_defaults", "tests.test_plan_location",
     )),
     (("scripts/shadow-lint.py", "scripts/shadow_task_lib.py", "scripts/shadow-init.py"), (
         "tests.test_shadow_lint", "tests.test_shadow_init", "tests.test_grammar_contract",
@@ -75,7 +75,14 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_two_seat_harness", "tests.test_gauntlet", "tests.test_release_package",
         "tests.test_readme_contract", "tests.test_public_ready_grep_gate",
     )),
-    (("scripts/shadow-host.py",), ("tests.test_shadow_host", "tests.test_verify_host")),
+    ((
+        "scripts/shadow-host.py",
+        "scripts/shadow_execution_policy.py",
+        "scripts/dev/shadow-routing-gauntlet.py",
+    ), (
+        "tests.test_shadow_host", "tests.test_observed_routing_gauntlet",
+        "tests.test_verify_host", "tests.test_release_package",
+    )),
     (("scripts/shadow-release-package.py", ".gitattributes", "VERSION", ".claude-plugin/"), (
         "tests.test_release_package", "tests.test_grammar_contract", "tests.test_standing_goal",
     )),

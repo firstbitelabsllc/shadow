@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Shadow',
   description:
-    'One durable workboard per computer, PLAN.md per project, atomic claims and proof receipts — stop any AI coding chat and resume without losing the work',
+    'One durable workboard per computer, authoritative PLAN.md per entity, project maps, atomic claims, and proof receipts — stop any AI coding chat and resume without losing the work',
   base: process.env.DOCS_BASE || '/',
   srcExclude: ['plan-archive/**', 'superpowers/**'],
   themeConfig: {
@@ -38,6 +38,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { text: 'Plan grammar', link: '/reference/grammar' },
+            { text: 'Project maps', link: '/reference/project-maps' },
             { text: 'Plan scale', link: '/reference/plan-scale' },
             { text: 'Amp', link: '/reference/amp' },
           ],
@@ -56,6 +57,8 @@ export default defineConfig({
           items: [
             { text: 'Host integration', link: '/reference/host-integration' },
             { text: 'Native hosts', link: '/reference/native-hosts' },
+            { text: 'Execution policy', link: '/reference/execution-policy' },
+            { text: 'Execution evidence', link: '/reference/execution-policy-evidence-2026-08-26' },
           ],
         },
         {

@@ -1,16 +1,17 @@
 # Shadow — plan file grammar
 
-Machine-readable grammar for `AGENT.md`. Project work remains headings and
-list lines in `PLAN.md`; the computer root board is one bounded JSON pointer
-ledger. Nothing requires a database, daemon, queue, or scheduler.
-`scripts/shadow-lint.py` enforces project plans.
+Machine-readable grammar for `PLAN.md`. Project work remains headings and list
+lines in that file; the computer root board is one bounded JSON pointer ledger.
+Nothing requires a database, daemon, queue, or scheduler.
+`scripts/shadow-lint.py` enforces entity plans.
 
 ## Sections, in order
 
 ```markdown
 ## Brief
-- Project: <name>             required; the project is the grep across plans
+- Project: <name>             required; groups this entity under one board project
 - Mode: explore | ship        required; the only legal values
+- Origin: <normalized identity> machine-local plans; one path-free proof source
 - Priority: 1-5               optional; steering-default rank
 - Loop: /<skill>              only when it differs from /<project>-loop
 
@@ -38,8 +39,36 @@ ledger. Nothing requires a database, daemon, queue, or scheduler.
 ## Brief law
 
 `Project:` values match `^[a-z][a-z0-9-]{1,31}$` — lowercase slug, no spaces,
-no paths. Multi-repo projects repeat the same line in each member plan; the
-project view is the grep across them.
+no paths. Multi-repo or multi-outcome projects repeat the same line in each
+member plan; board membership is the project map. Every member plan remains
+the sole authority for its own rows and proof. Plan-tree storage objects remain
+one logical entity and never become member plans. The split policy lives in
+[Project maps](project-maps.md), not in this syntax contract.
+
+`Origin:` is the machine-local plan's permanent proof-source identity.
+`shadow init` writes a public normalized origin such as
+`github.com/org/repo` when one exists. A local-only checkout begins without the
+line; its first explicit `shadow accept --entity ID --repo PATH` writes one
+opaque `local.shadow.invalid/<12-hex>` identity into the Brief and a matching
+row-level `SOURCE` receipt. The opaque value derives from the canonical local
+Git identity but exposes no working-tree path. Lifecycle may archive completed
+rows and their receipts, while Brief `Origin:` remains the sole durable binding
+authority. Every later accept requires the supplied checkout to normalize to
+that exact identity.
+
+Accepted command receipts older than the source-binding cutover at
+`2026-08-28T04:29:56Z` may remain legacy-unbound when no truthful historical
+source HEAD exists. Their task proof must still match the immutable
+`pass (accept)` argv exactly; Shadow never manufactures a `SOURCE` receipt for
+them. The first new accepted row persists the permanent `Origin:` and its own
+exact source HEAD. A missing `SOURCE` receipt at or after the cutover always
+fails closed.
+
+An `Origin:` value is never a working-tree path, basename, or project slug.
+Once present, missing, duplicate, malformed, or different values fail closed.
+SSH and HTTPS spellings of the same remote normalize to one identity. Acceptance
+revalidates the exact frozen Brief under the lifecycle lock before publishing.
+A `--repo`-only accept does not read this line.
 
 ## Plan location
 
@@ -149,8 +178,13 @@ plan.
   -> expected observation>` (a human or agent re-reads the real surface), or
   `gate <owner> resume: <predicate>` (person-gated; closes agent-side with a
   handoff). Bare prose proof is a lint finding. No proof, no completed.
-- `needs: ~hash[, ~hash]` is the only readiness gate: a task is ready when it
-  is pending and every needs-target is completed. A discovered task's paired
+- `needs: ~hash[, ~hash]` is the only dependency edge and dependency-readiness
+  gate: references are local to the same entity plan, and a task is
+  dependency-ready when it is pending and every needs-target is completed.
+  A `gate` proof row remains person-gated and is not agent-takeable even when
+  its local `needs:` are complete. A producer owned by another entity is
+  observed through a consumer-owned proof or named as an exact Deferred/gate
+  wake; its row is never copied into the consumer. A discovered task's paired
   Progress line names its origin task.
 - Every new task answers two questions before it lands: why now, and what
   does it contradict? A live conflict becomes a Contradictions row.

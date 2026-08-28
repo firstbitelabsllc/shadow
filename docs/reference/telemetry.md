@@ -42,15 +42,52 @@ long test jobs run against Shadow. The decision's scope, in plain terms:
 - **The product still sends nothing, ever.** The ~obsv verdict — Langfuse
   KILLED as a product dependency, because Shadow makes zero network calls —
   stands untouched. No product verb gains network code.
-- **The sink is owner tooling**: `scripts/dev/shadow-observed-gauntlet.py`
-  runs long test jobs and ships their traces (and, optionally, the already
-  allowlisted local event file) to the local Langfuse over OTLP. It refuses
-  to run unless `SHADOW_LANGFUSE_HOST`, `SHADOW_LANGFUSE_PUBLIC_KEY`, and
-  `SHADOW_LANGFUSE_SECRET_KEY` are all set. A machine without those set —
-  every user machine — behaves exactly as it does today.
+- **The sinks are owner tooling**: `scripts/dev/shadow-observed-gauntlet.py`
+  covers lifecycle events, while `scripts/dev/shadow-routing-gauntlet.py`
+  runs the real 12-scenario by four-host model-policy evaluation. Both refuse
+  to run without explicit local Langfuse endpoint and project credentials. A
+  machine without those values — every ordinary user machine — behaves exactly
+  as it does today.
 - **The approved field subset** for forwarded events is exactly the closed
   vocabulary above — the forwarder adds job name, exit code, pass/fail,
   duration, and a home-path-redacted output tail for its own test jobs, and
   nothing else.
+- **Routing-evaluation summaries use a separate closed schema**: policy
+  version, random run ID, host, scenario, semantic class, requested execution
+  shape, requested and observed model labels, exit/timeout, bounded usage and
+  cost when the native host supplies them, native-child count, one stable error
+  code, and pass/fail.
+  Raw prompts, transcripts, tool payloads, file contents, repository paths,
+  credentials, account/session identifiers, and provider responses are never
+  sent. The routing gauntlet refuses non-loopback Langfuse and readback URLs.
+  Every write must be followed by exact trace-ID readback; accepted HTTP without
+  readback is red.
 - The compose file and provisioned keys live outside the repository, on the
   owner's machine only.
+
+## Sink environment contract
+
+Both owner tools refuse to run without the three required values:
+
+| Variable | Meaning |
+| --- | --- |
+| `SHADOW_LANGFUSE_HOST` | Loopback Langfuse endpoint, e.g. `http://localhost:3000`. |
+| `SHADOW_LANGFUSE_PUBLIC_KEY` | The local project's public key. |
+| `SHADOW_LANGFUSE_SECRET_KEY` | The local project's secret key. |
+
+Every written trace is verified by exact trace-ID readback; accepted HTTP
+without readback is red. The readback path differs by sink major version:
+Langfuse v3 serves it from the web API; Langfuse v4 (`events_only` mode)
+retires that API, so v4 sinks also set:
+
+| Variable | Meaning |
+| --- | --- |
+| `SHADOW_LANGFUSE_READBACK_URL` | Loopback ClickHouse HTTP endpoint, e.g. `http://localhost:8123`. |
+| `SHADOW_LANGFUSE_PROJECT_ID` | The local project id read back from `default.events_core`. |
+| `SHADOW_LANGFUSE_READBACK_USER` | ClickHouse user, when the instance requires auth. |
+| `SHADOW_LANGFUSE_READBACK_PASSWORD` | ClickHouse password. |
+
+The observed gauntlet falls back to the v3 web-API readback when the v4
+variables are unset. The routing gauntlet requires the v4 variables on any
+current sink. `SHADOW_LANGFUSE_EVENTS` optionally forwards a local event
+file as spans on the observed path.

@@ -87,15 +87,23 @@ Use the active host directly for normal work. For each claimed handoff, use:
 
 ```bash
 shadow host run --host codex|claude-code|cursor|grok \
+  --work-class planning|coding|review|lightweight \
+  --delegation direct|required \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
   --allowed-path <exact-path> \
   --out <project>/.shadow/evidence/<id>.json
 ```
 
 The task file is frozen, the worktree must be clean, allowed paths are exact,
-and the host must emit a scoped receipt with passing tests. Which provider
-or account the host uses is the host CLI's own business — Shadow passes no
-selector and records none.
+and the host must emit a scoped receipt with passing tests. The lead chooses
+the host, semantic work class, and explicit execution shape; Shadow
+deterministically supplies that pair's native model selector and enables or
+disables the verified native child door. `required` fails closed on Cursor
+until its headless CLI exposes observable child lineage. The host CLI still
+owns authentication, account choice, quota, and provider execution. Requested
+model and observed model are distinct: the private attempt records the former,
+while observed-model and child-lineage proof require the owner-local gauntlet
+documented in `docs/reference/execution-policy.md`.
 
 Review the diff and reproduce important tests before accepting the result.
 Do not put credentials, prompts, transcripts, private paths, or provider output
@@ -103,13 +111,20 @@ in a task receipt.
 
 ## Flip a task
 
-`shadow accept --row '~hash' --repo <project> --by <seat>` is the only code path that flips
-a source-backed task to completed: it reruns the task's `cmd` proof in a
-detached clean checkout of HEAD and, only on a pass, rewrites the source plan
-and appends its paired PROOF line. Infrastructure plans remain local under
-`~/.shadow/plans/` and are never committed. `read` and `gate`
-proofs are person judgments — re-observe them yourself and append the PROOF
-line with the flip.
+`shadow accept --row '~hash' --repo <project> --by <seat>` is the only code
+path that flips a Git-backed task to completed. A machine-local entity requires
+both its exact `--entity ID` and the `--repo <source-checkout>` whose committed
+HEAD supplies proof; repo-only input is refused rather than guessing among
+sibling plans. Shadow launches the task's `cmd` proof with a detached checkout
+of verified `HEAD^{commit}` as its initial working directory and keeps that
+checkout through final lint and publication, rechecking its detached HEAD after
+proof and immediately before the private plan write. This freezes source state
+but does not confine the trusted proof process to that directory. Only on a
+pass does it rewrite the plan and append the paired PROOF line; a private plan
+also records a path-free source identity and full SHA. Infrastructure plans
+remain local under `~/.shadow/plans/` and are never committed. `read` and
+`gate` proofs are person judgments — re-observe them yourself and append the
+PROOF line with the flip.
 
 ## Goal chaining
 
@@ -194,8 +209,10 @@ around which provider a native host uses.
 Shadow owns a single product identity and one authority hierarchy: the
 per-computer root board for coordination, entity `PLAN.md` files for milestone
 and checkpoint detail/proof, and project-local evidence paths. Native Codex,
-Claude Code, Cursor, and Grok own model authentication and execution. Do not add a
-router, daemon, scheduler, cloud executor, credential relay, transcript store,
+Claude Code, Cursor, and Grok own model authentication and execution. Shadow's
+four semantic work classes plus `direct|required` are a deterministic execution
+policy, not a prompt classifier or scheduler. Do not add a router, daemon, scheduler, cloud
+executor, credential relay, transcript store,
 or parallel status database.
 Thermo and Ponytail remain separate review disciplines rather than runtime
 roles.

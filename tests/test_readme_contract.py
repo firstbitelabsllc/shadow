@@ -29,11 +29,24 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         # The board's authority is per computer, and the work is durable across
         # a killed chat: the two claims a stranger must read before installing.
         self.assertRegex(text, r"one\s+board per computer")
+        self.assertIn("one authoritative `PLAN.md` per independently", text)
+        self.assertIn("project map", text)
+        self.assertNotIn("one `PLAN.md` per project", text)
         self.assertIn("durable", text)
         self.assertIn("2-7 tasks", text)
         self.assertNotIn("one task with its proof", text)
         self.assertNotIn("npm test", text)
         self.assertNotIn("/Users/", text)
+        config = (ROOT / "docs" / ".vitepress" / "config.ts").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("authoritative PLAN.md per entity", config)
+        self.assertIn("/reference/project-maps", config)
+        self.assertNotIn("PLAN.md per project", config)
+        generation = (ROOT / "claudux.json").read_text(encoding="utf-8")
+        self.assertIn("authoritative PLAN.md per entity", generation)
+        self.assertIn("project maps", generation)
+        self.assertNotIn("PLAN.md per project", generation)
 
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("Every Shadow chat response ends with a compact `Ongoing tasks` projection", skill)
@@ -69,6 +82,55 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             self.assertIn("does not enumerate every reachable or waiting row", text)
         self.assertNotIn("group other reachable or waiting work", skill)
 
+    def test_project_map_contract_keeps_one_authority_per_fact(self) -> None:
+        text = (ROOT / "docs" / "reference" / "project-maps.md").read_text(
+            encoding="utf-8"
+        )
+        for phrase in (
+            "Board membership is the project map",
+            "`needs:` is deliberately plan-local",
+            "Do not split a live authority in place",
+            "There is no project-map file",
+            "`- Plans: plans/*/PLAN.md`",
+            "`shadow lint PLAN.md plans/<entity>/PLAN.md`",
+            "`shadow status --root <portfolio-root> --by <seat>`",
+            "shadow plan map-migrate /ABS/PLAN.md --dry-run",
+            "shadow plan map-rollback /ABS/PLAN.md --apply",
+            "verified local-only",
+            "Routing is derived from that target-plan membership",
+            "receipt remains byte-identical after success",
+            "rerun the same apply command",
+            "rerun the same rollback command",
+            "remain only in the producer plan",
+        ):
+            self.assertIn(phrase, text)
+        self.assertNotIn("project-map.json` is canonical", text)
+        self.assertNotIn("shadow lint --repo . PLAN.md", text)
+        self.assertNotIn("--row-map", text)
+
+        commands = (ROOT / "docs" / "reference" / "commands.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "`--root` instead changes the bounded discovery root and reconciles "
+            "those entity-plan pointers into the board",
+            commands,
+        )
+        self.assertIn("Routing derives from exact target-plan membership", commands)
+
+        help_text = (ROOT / "bin" / "shadow").read_text(encoding="utf-8")
+        self.assertNotIn("--row-map", help_text)
+        self.assertIn("same apply command resumes safely", help_text)
+        self.assertIn("same rollback command also resumes", help_text)
+        self.assertNotIn("never bypasses or writes the board", commands)
+
+        grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("only dependency edge and dependency-readiness", grammar)
+        self.assertIn("not agent-takeable", grammar)
+        self.assertNotIn("`needs: ~hash[, ~hash]` is the only readiness gate", grammar)
+
     def test_the_two_seat_harness_stays_written_down(self) -> None:
         commands = (ROOT / "docs" / "reference" / "commands.md").read_text(encoding="utf-8")
         self.assertIn("scripts/shadow-verify-two-seat.py", commands)
@@ -96,8 +158,47 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertNotIn("proof: cmd npm test", text)
         # Never send a reader back to a repo-root PLAN.md: no such file exists.
         self.assertNotIn("shadow lint PLAN.md", text)
+        host_example = text.split("## 3. Work through a bounded host", 1)[1].split(
+            "## 4. Close the loop", 1
+        )[0]
+        self.assertIn("--work-class coding", host_example)
+        self.assertIn("--delegation direct", host_example)
+
+    def test_acceptance_docs_describe_the_proof_boundary(self) -> None:
+        quickstart = (ROOT / "docs" / "guide" / "quickstart.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("proof argv cds there itself", quickstart)
+        self.assertIn(
+            "detached checkout as its initial working directory",
+            quickstart,
+        )
+        self.assertIn(
+            "rechecks detached HEAD after the proof",
+            " ".join(quickstart.split()),
+        )
+        skill_text = " ".join(
+            (ROOT / "SKILL.md").read_text(encoding="utf-8").split()
+        )
+        self.assertIn("does not confine the trusted proof process", skill_text)
 
     def test_public_help_is_quiet_and_advertises_supported_flags(self) -> None:
+        top_level = subprocess.run(
+            [str(SHADOW), "--help"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(top_level.returncode, 0, top_level.stderr)
+        self.assertEqual("", top_level.stderr)
+        self.assertTrue(
+            top_level.stdout.startswith(
+                "shadow — one local computer board coordinating entity plans and proof\n"
+            ),
+            top_level.stdout,
+        )
+        self.assertNotIn("project plan", top_level.stdout.casefold())
+        self.assertNotIn("project-plan", top_level.stdout.casefold())
+        self.assertNotIn("project pointer", top_level.stdout.casefold())
+
         verbs = (
             "browse", "status", "init", "lint", "goal", "amp", "throw",
             "return", "priority", "accept", "lifecycle", "read", "host", "slots",
@@ -124,6 +225,42 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         )
         self.assertIn("--install|--remove", goal.stdout)
         self.assertIn("--host HOST", goal.stdout)
+
+        throw = subprocess.run(
+            [str(SHADOW), "help", "throw"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertIn("entity-plan pointer", throw.stdout)
+        self.assertIn("entity plan mid-merge", throw.stdout)
+        self.assertNotIn("project pointer", throw.stdout)
+        self.assertNotIn("project plan", throw.stdout)
+
+        live_throw = subprocess.run(
+            [str(SHADOW), "throw", "--help"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(live_throw.returncode, 0, live_throw.stderr)
+        self.assertIn("checkpoint row from one entity plan", live_throw.stdout)
+        self.assertNotIn("project-plan row", live_throw.stdout)
+
+        priority = subprocess.run(
+            [str(SHADOW), "help", "priority"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertIn("without rewriting any entity PLAN.md", priority.stdout)
+        self.assertNotIn("project PLAN.md", priority.stdout)
+
+        accept = subprocess.run(
+            [str(SHADOW), "help", "accept"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertIn(
+            "--entity ID --repo PATH --row '~hash' --by OWNER",
+            accept.stdout,
+        )
+        self.assertIn("machine-local entity plan", accept.stdout)
+        self.assertIn("verified committed HEAD", accept.stdout)
+        self.assertIn("does not confine", accept.stdout)
 
     def test_banner_honors_reduced_motion(self) -> None:
         text = (ROOT / "assets" / "shadow-banner.svg").read_text(encoding="utf-8")
