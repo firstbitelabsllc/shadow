@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import atexit
 import hashlib
 import importlib.util
 import json
@@ -36,6 +37,15 @@ plan_api = importlib.util.module_from_spec(_PLAN_SPEC)
 assert _PLAN_SPEC and _PLAN_SPEC.loader
 sys.modules[_PLAN_SPEC.name] = plan_api
 _PLAN_SPEC.loader.exec_module(plan_api)
+
+
+# Machine-local pex-based shims can keep writing their bootstrap cache into a
+# fixture HOME after the test that spawned them returns; that races
+# TemporaryDirectory cleanup. Pin PEX_ROOT outside every fixture so the
+# background writer and the fixture never share a directory.
+_PEX_ROOT = Path(tempfile.mkdtemp(prefix="shadow-test-pex-root-"))
+os.environ.setdefault("PEX_ROOT", str(_PEX_ROOT))
+atexit.register(lambda: shutil.rmtree(_PEX_ROOT, ignore_errors=True))
 
 
 def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> None:
