@@ -4,8 +4,9 @@
 This is deliberately a thin transport seam. It does not choose a host or
 provider, create a queue, accept a result, or write a durable plan. The caller
 supplies the host, one semantic work class, a clean worktree, a task file, and
-exact allowed paths. Shadow resolves only that host/class pair to the native
-model selector. The host must return a ``shadow.host-receipt.v1`` JSON fence;
+exact allowed paths — or a machine-local ``~/.shadow/host-defaults.json`` may
+fill the sealed host/class/delegation triple. Shadow resolves only that
+host/class pair to the native model selector. The host must return a ``shadow.host-receipt.v1`` JSON fence;
 otherwise the attempt is blocked or failed closed.
 """
 
@@ -71,6 +72,8 @@ CLAUDE_EVIDENCE_AGENT = {
 
 
 ENVIRONMENTAL_KINDS = frozenset({"host_failed", "host_launch_failed", "host_timeout"})
+HOST_DEFAULTS_ENV = "SHADOW_HOST_DEFAULTS"
+HOST_DEFAULTS_NAME = "host-defaults.json"
 
 
 class HostError(ValueError):
@@ -115,6 +118,41 @@ def _refusal_status(kind: str) -> str:
     return "failed" if kind in ENVIRONMENTAL_KINDS else "blocked"
 
 
+def host_defaults_path() -> Path:
+    override = os.environ.get(HOST_DEFAULTS_ENV)
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".shadow" / HOST_DEFAULTS_NAME
+
+
+def load_host_defaults(path: Path | None = None) -> dict[str, str]:
+    """Read optional machine-local host/class/delegation defaults.
+
+    A missing or invalid file is an empty default set: flags stay required.
+    This never invents a host. Only an exact sealed triple is accepted.
+    """
+
+    source = path or host_defaults_path()
+    try:
+        if source.is_symlink() or not source.is_file():
+            return {}
+        raw = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    host = raw.get("host")
+    work_class = raw.get("work_class")
+    delegation = raw.get("delegation")
+    if host not in HOSTS or work_class not in WORK_CLASSES or delegation not in DELEGATION_MODES:
+        return {}
+    defaults = {"host": host, "work_class": work_class, "delegation": delegation}
+    seat = raw.get("seat")
+    if isinstance(seat, str) and ID_RE.fullmatch(seat):
+        defaults["seat"] = seat
+    return defaults
+
+
 def resolve_binary(host: str, explicit: str | None) -> str:
     candidate = explicit or os.environ.get(f"SHADOW_{host.upper().replace('-', '_')}_BIN")
     if candidate:
@@ -126,7 +164,7 @@ def resolve_binary(host: str, explicit: str | None) -> str:
         resolved = shutil.which(candidate)
     else:
         resolved = shutil.which(
-            {"claude-code": "claude", "cursor": "cursor-agent"}.get(host, host)
+            {"claude-code": "claude", "cursor": "cursor-agent", "zai": "opencode"}.get(host, host)
         )
     if not resolved:
         raise HostError("host_unavailable", f"{host} executable is unavailable")
@@ -392,6 +430,17 @@ def public_command_shape(host: str, *, delegation: str) -> list[str]:
         ]
         shape[0:0] = ["--max-turns", "20"] if delegation == "required" else ["--no-subagents"]
         return shape
+    if host == "zai":
+        return [
+            "run",
+            "--model",
+            "--format",
+            "json",
+            "--dir",
+            "--auto",
+            "--variant",
+            "max",
+        ]
     raise HostError("host_unknown", f"unsupported host: {host}")
 
 
@@ -427,6 +476,7 @@ def launch_command(
             "codex": ["--disable", "multi_agent"],
             "cursor": [],
             "grok": ["--no-subagents"],
+            "zai": [],
         }[host]
     else:
         delegation_argv = {
@@ -437,6 +487,7 @@ def launch_command(
             "codex": ["--enable", "multi_agent"],
             "cursor": [],  # Rejected by delegation_capability above.
             "grok": ["--max-turns", "20"],
+            "zai": [],  # Rejected by delegation_capability above.
         }[host]
 
     if host == "codex":
@@ -503,6 +554,22 @@ def launch_command(
             "acceptEdits",
             "--prompt-file",
             str(prompt_file),
+        ]
+    if host == "zai":
+        if prompt_file is None:
+            raise HostError("host_unknown", "zai requires a prompt file")
+        return [
+            binary,
+            "run",
+            *model_argv,
+            "--format",
+            "json",
+            "--dir",
+            str(repo),
+            "--auto",
+            "--variant",
+            "max",
+            prompt_file.read_text(encoding="utf-8"),
         ]
     raise HostError("host_unknown", f"unsupported host: {host}")
 
@@ -1259,9 +1326,25 @@ def parser() -> argparse.ArgumentParser:
     probe_parser.add_argument("--json", action="store_true")
     probe_parser.set_defaults(handler=probe)
     run_parser = sub.add_parser("run", help="run a claimed packet through a native host")
-    run_parser.add_argument("--host", choices=sorted(HOSTS), required=True)
-    run_parser.add_argument("--work-class", choices=WORK_CLASSES, required=True)
-    run_parser.add_argument("--delegation", choices=DELEGATION_MODES, required=True)
+    defaults = load_host_defaults()
+    run_parser.add_argument(
+        "--host",
+        choices=sorted(HOSTS),
+        required="host" not in defaults,
+        default=defaults.get("host"),
+    )
+    run_parser.add_argument(
+        "--work-class",
+        choices=WORK_CLASSES,
+        required="work_class" not in defaults,
+        default=defaults.get("work_class"),
+    )
+    run_parser.add_argument(
+        "--delegation",
+        choices=DELEGATION_MODES,
+        required="delegation" not in defaults,
+        default=defaults.get("delegation"),
+    )
     run_parser.add_argument("--binary")
     run_parser.add_argument("--authority-proposal", action="store_true")
     run_parser.add_argument("--repo", default=os.getcwd())

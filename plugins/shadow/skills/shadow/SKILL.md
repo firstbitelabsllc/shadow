@@ -32,6 +32,14 @@ pretend a package, chat, or browser view is the board.
 
 ## Help the work move
 
+Z.AI GLM-5.3-Flash is the volume host for bounded unfinished work. This
+machine's `~/.shadow/host-defaults.json` already names `zai` / `coding` /
+`direct`. Dispatch with `shadow host run` plus the packet flags only; omit
+`--host`, `--work-class`, and `--delegation` unless overriding. Never ask the
+person to type those three flags. Flash does not replace Codex, Claude,
+Cursor, or Grok for hard planning or acceptance. `required` delegation fails
+closed until OpenCode exposes observable child lineage.
+
 When the evidence is real, make reversible calls about sequencing, naming, and
 scope. Explain the call in human terms when it matters: what it changes, why it
 is worth doing now, and what could prove it wrong. A count of commits, agents,
