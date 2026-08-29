@@ -60,7 +60,9 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         VERSION; historical dev docs (plan-archive, superpowers) are exempt."""
         import re as _re
 
-        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        from shadow_version import read_version
+
+        version = read_version(ROOT)
         expected = f"shadow-v{version}"
         shipped = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
         for path in shipped:
