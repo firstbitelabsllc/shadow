@@ -13,6 +13,7 @@ import unittest
 from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
+from tests.proc_fixture import git as proc_git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -123,14 +124,11 @@ class MilestoneShapeMatchesLifecycle(unittest.TestCase):
 
 
 def commit_fixture(root: Path, *paths: str) -> None:
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
-    subprocess.run(["git", "-C", str(root), "config", "user.name", "Shadow Test"], check=True)
-    subprocess.run(
-        ["git", "-C", str(root), "config", "user.email", "shadow@example.invalid"],
-        check=True,
-    )
-    subprocess.run(["git", "-C", str(root), "add", "--", *paths], check=True)
-    subprocess.run(["git", "-C", str(root), "commit", "-qm", "proof fixture"], check=True)
+    proc_git(root, "init", "-q")
+    proc_git(root, "config", "user.name", "Shadow Test")
+    proc_git(root, "config", "user.email", "shadow@example.invalid")
+    proc_git(root, "add", "--", *paths)
+    proc_git(root, "commit", "-qm", "proof fixture")
 
 
 class PartitionedPlanLintParity(unittest.TestCase):
