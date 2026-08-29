@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "shadow.acceptance-case-manifest.v1",
+  "title": "Shadow Independent Acceptance Case Manifest v1",
+  "description": "One development-only sealed case manifest. OPEN or READY is derived by the validator and never self-declared.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "corpus_version",
+    "protocol_commit",
+    "case_id",
+    "source",
+    "commitments",
+    "identifiers",
+    "source_bundle",
+    "labels",
+    "adjudication",
+    "baselines",
+    "mutation",
+    "mutation_confirmations"
+  ],
+  "properties": {
+    "schema": { "const": "shadow.acceptance-case-manifest.v1" },
+    "corpus_version": { "const": "acceptance-corpus-v1" },
+    "protocol_commit": { "const": "225c5a6f963381ff71284cef01fb6c5847977b06" },
+    "case_id": {
+      "enum": [
+        "CR-01", "CR-02", "CR-03", "CR-04", "CR-05", "CR-06",
+        "CR-07", "CR-08", "CR-09", "CR-10", "CR-11", "CR-12",
+        "PR-01", "PR-02", "PR-03", "PR-04", "PR-05", "PR-06",
+        "PR-07", "PR-08", "PR-09", "PR-10", "PR-11", "PR-12",
+        "AA-01", "AA-02", "AA-03", "AA-04", "AA-05", "AA-06",
+        "AA-07", "AA-08", "AA-09", "AA-10", "AA-11", "AA-12"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alias",
+        "repository_commitment_sha256",
+        "immutable_refs_commitment_sha256",
+        "license_commitment_sha256",
+        "redistribution_basis_commitment_sha256"
+      ],
+      "properties": {
+        "alias": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^REPO-[0-9]{3}$" }
+          ]
+        },
+        "repository_commitment_sha256": { "$ref": "#/$defs/nullableSha256" },
+        "immutable_refs_commitment_sha256": { "$ref": "#/$defs/nullableSha256" },
+        "license_commitment_sha256": { "$ref": "#/$defs/nullableSha256" },
+        "redistribution_basis_commitment_sha256": { "$ref": "#/$defs/nullableSha256" }
+      }
+    },
+    "commitments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility_sha256",
+        "negative_control_sha256",
+        "discriminating_fact_sha256"
+      ],
+      "properties": {
+        "eligibility_sha256": { "$ref": "#/$defs/nullableSha256" },
+        "negative_control_sha256": { "$ref": "#/$defs/nullableSha256" },
+        "discriminating_fact_sha256": { "$ref": "#/$defs/nullableSha256" }
+      }
+    },
+    "identifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_kinds", "target_ids", "proof_ids", "evidence_ids", "risk_ids"],
+      "properties": {
+        "action_kinds": { "$ref": "#/$defs/identifierList" },
+        "target_ids": { "$ref": "#/$defs/identifierList" },
+        "proof_ids": { "$ref": "#/$defs/identifierList" },
+        "evidence_ids": { "$ref": "#/$defs/identifierList" },
+        "risk_ids": { "$ref": "#/$defs/identifierList" }
+      }
+    },
+    "source_bundle": { "$ref": "#/$defs/nullableArtifact" },
+    "labels": {
+      "type": "array",
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/labeledArtifact" }
+    },
+    "adjudication": { "$ref": "#/$defs/nullableArtifact" },
+    "baselines": {
+      "type": "array",
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/baselineArtifact" }
+    },
+    "mutation": { "$ref": "#/$defs/nullableArtifact" },
+    "mutation_confirmations": {
+      "type": "array",
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/labeledArtifact" }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableSha256": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sha256" }
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^/\\\\\\u0000][^\\\\\\u0000]*$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32000000
+        }
+      }
+    },
+    "nullableArtifact": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/artifact" }
+      ]
+    },
+    "opaqueCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_-]{2,31}$"
+    },
+    "labeledArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label_code", "artifact"],
+      "properties": {
+        "label_code": { "$ref": "#/$defs/opaqueCode" },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "baselineArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["condition_code", "artifact"],
+      "properties": {
+        "condition_code": {
+          "enum": ["C01", "C02", "C03", "C04", "C05", "C06"]
+        },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "identifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "commitment_sha256"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9._:-]{0,63}$"
+        },
+        "commitment_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "identifierList": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/identifier" }
+    }
+  }
+}
