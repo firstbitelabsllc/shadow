@@ -22,6 +22,7 @@ if str(ROOT / "scripts") not in sys.path:
 # that board.open_plan and shadow-read both call. A second exec-loaded copy
 # made the patch load-order-dependent and turned three tests into ghosts.
 import shadow_plan_store as store  # noqa: E402
+from tests.plan_tree_fixture import install_plan_tree
 import shadow_root_board as board  # noqa: E402
 
 READ_SCRIPT = ROOT / "scripts" / "shadow-read.py"
@@ -70,25 +71,13 @@ def source(*, archive: bool = False) -> bytes:
 """.encode("utf-8")
 
 
-def install_tree(root: Path, content: bytes) -> tuple[Path, object]:
-    build = store.build_tree(content)
-    plan = root / "PLAN.md"
-    plan.write_bytes(build.root_bytes)
-    object_root = root / "PLAN.d" / "objects" / "sha256"
-    for digest, body in build.objects.items():
-        bucket = object_root / digest[:2]
-        bucket.mkdir(parents=True, exist_ok=True)
-        (bucket / digest).write_bytes(body)
-    return plan, build
-
-
 class PlanReadCliTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.authority = self.root / "authority"
         self.authority.mkdir()
-        self.plan, self.build = install_tree(self.authority, source())
+        self.plan, self.build = install_plan_tree(self.authority, source(), return_build=True)
         self.root_sha256 = hashlib.sha256(self.plan.read_bytes()).hexdigest()
         self.home = self.root / "home"
         self.home.mkdir()
@@ -245,7 +234,7 @@ class PlanReadCliTests(unittest.TestCase):
         self.assertNotIn("S044", result.stderr)
 
     def test_projection_never_follows_archive_tombstones_or_spill_files(self) -> None:
-        self.plan, self.build = install_tree(self.authority, source(archive=True))
+        self.plan, self.build = install_plan_tree(self.authority, source(archive=True), return_build=True)
         outside = self.root / "must-not-be-read.txt"
         outside.write_text("PRIVATE_SPILL_SENTINEL", encoding="utf-8")
         archive = self.authority / "docs" / "plan-archive" / "old.md"
@@ -268,7 +257,7 @@ class PlanReadCliTests(unittest.TestCase):
             b"disposition native non-passes",
             b"WRONG AUTHORITY CONTENT",
         )
-        other_plan, _ = install_tree(other_root, other_source)
+        other_plan, _ = install_plan_tree(other_root, other_source, return_build=True)
         other_entity = board.entity_id(other_plan)
         self.write_board(
             [(self.entity, self.plan), (other_entity, other_plan)]
@@ -488,7 +477,7 @@ class PlanReadCliTests(unittest.TestCase):
             b"## Tasks\n",
             (distractor + visual + "## Tasks\n").encode("utf-8"),
         )
-        self.plan, self.build = install_tree(self.authority, content)
+        self.plan, self.build = install_plan_tree(self.authority, content, return_build=True)
         self.root_sha256 = hashlib.sha256(self.plan.read_bytes()).hexdigest()
 
         result = self.cli(
@@ -535,7 +524,7 @@ class PlanReadCliTests(unittest.TestCase):
         content = source().replace(
             b"## Tasks\n", (repeated + "## Tasks\n").encode("utf-8")
         )
-        self.plan, self.build = install_tree(self.authority, content)
+        self.plan, self.build = install_plan_tree(self.authority, content, return_build=True)
 
         result = self.cli("--find", "Michael Girdley")
 

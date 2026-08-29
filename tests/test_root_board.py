@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as board_api  # noqa: E402
 from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
+from tests.proc_fixture import git
 
 _PLAN_SPEC = importlib.util.spec_from_file_location(
     "shadow_map_plan_test",
@@ -46,18 +47,6 @@ _PLAN_SPEC.loader.exec_module(plan_api)
 _PEX_ROOT = Path(tempfile.mkdtemp(prefix="shadow-test-pex-root-"))
 os.environ.setdefault("PEX_ROOT", str(_PEX_ROOT))
 atexit.register(lambda: shutil.rmtree(_PEX_ROOT, ignore_errors=True))
-
-
-def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> None:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, **env} if env else None,
-    )
-    if result.returncode:
-        raise AssertionError(result.stderr)
 
 
 def project(
