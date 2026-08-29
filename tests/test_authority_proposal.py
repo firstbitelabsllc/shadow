@@ -18,6 +18,7 @@ import unittest
 from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
+from tests.proc_fixture import git
 from tests.test_shadow_host import make_host, make_repo, run_host
 
 
@@ -83,18 +84,6 @@ def proposal_plan() -> str:
 - 2026-08-28T12:00:00Z {PREREQUISITE_ROW} PROOF true -> pass
 - 2026-08-28T12:01:00Z NOTE proposal acceptance fixture created
 """
-
-
-def git(repo: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise AssertionError(result.stderr)
-    return result.stdout.strip()
 
 
 @dataclass

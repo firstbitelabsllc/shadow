@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from tests.proc_fixture import git
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -32,15 +33,6 @@ def baseline() -> tuple[dict, dict, set[str]]:
         "files": [{"path": path} for path in sorted(paths)],
     }
     return plugin, pack, paths
-
-
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
 
 
 class ReleasePackageTests(unittest.TestCase):
