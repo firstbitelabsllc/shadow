@@ -27,6 +27,38 @@ from browser import server as board_server  # noqa: E402
 
 
 class GrammarContractTests(unittest.TestCase):
+    def test_candidate_rows_live_only_in_the_tasks_section(self) -> None:
+        text = """# Plan
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### Build
+- [pending] first step ~aa11 | proof: cmd true
+- [pending] second step ~bb22 | proof: cmd true
+- [pending] blocked step ~cc33 | proof: cmd true | needs: ~aa11x
+
+## Contradictions
+
+- quoted row prose | winner: none
+- [pending] this is prose quoting a row, not a checkpoint ~dd44 | proof: cmd true
+
+## Progress
+
+- 2026-08-29T00:00:00Z ~aa11 PROOF cmd true -> pass
+- [pending] progress prose is not a row either ~ee55 | proof: cmd true
+"""
+        candidates = grammar.candidate_row_ids(text)
+        self.assertEqual(candidates, ["~aa11", "~bb22"])
+        # The canonical needs regex (shared with the accept gate) reads ~aa11
+        # out of the malformed ~aa11x, so this row waits on it — the old
+        # amp-side word-boundary regex read nothing and called the row ready.
+        self.assertNotIn("~cc33", candidates)
+
     def test_one_predicate_owns_open_vs_explicitly_resolved_contradictions(self) -> None:
         self.assertFalse(grammar.contradiction_is_open("not a list item"))
         self.assertFalse(grammar.contradiction_is_open("- None recorded yet."))
