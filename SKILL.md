@@ -106,6 +106,12 @@ while observed-model and child-lineage proof require the owner-local gauntlet
 documented in `docs/reference/execution-policy.md`.
 
 Review the diff and reproduce important tests before accepting the result.
+
+For a proposal-enabled machine-local `cmd` row, commit the reviewed source
+slice first, then run a separate Codex-only no-change pass with
+`--authority-proposal`, no `--allowed-path`, and one `.shadow/evidence/`
+output. The mode refuses native binary overrides and any source or Git
+control-state drift before its proposal can be accepted.
 Do not put credentials, prompts, transcripts, private paths, or provider output
 in a task receipt.
 
