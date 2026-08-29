@@ -42,6 +42,7 @@ from shadow_root_board import (
     origin_repo_name as _origin_repo_name,
 )
 import shadow_root_board as _root_board
+from shadow_git import sanitized_git_env as _sanitized_git_env
 import shadow_board_import as _board_import
 import importlib.util as _ilu
 _LINT_SPEC = _ilu.spec_from_file_location("shadow_lint", SCRIPTS / "shadow-lint.py")
@@ -1225,11 +1226,15 @@ def resolve_plan(root: Path, value: Any) -> Path:
 
 def repository_root(plan: Path) -> Path:
     plan = plan.resolve()
+    # The server inherits its shell's environment: an ambient GIT_DIR or
+    # GIT_WORK_TREE would resolve the plan into a different repository, so
+    # the probe runs under the same sanitized boundary as every other probe.
     result = subprocess.run(
         ["git", "-C", str(plan.parent), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         check=False,
+        env=_sanitized_git_env(),
     )
     if result.returncode:
         raise BrowserError("plan is not inside a Git worktree")
