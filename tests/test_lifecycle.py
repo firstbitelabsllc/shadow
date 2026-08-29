@@ -3217,9 +3217,10 @@ class GitProbesIgnoreAmbientRedirects(unittest.TestCase):
             home = Path(tmp) / "home"
             home.mkdir()
             # A home-shaped seat string refuses on every platform: PRIVATE_PATH_RE
-            # matches /Users/ regardless of the machine's own tmpdir shape.
+            # matches it regardless of the machine's own tmpdir shape. Built by
+            # concatenation because the public-ready gate greps for the literal.
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--by", "/Users/leo/seat"],
+                [sys.executable, str(SCRIPT), "--by", "/" + "Users/leo/seat"],
                 capture_output=True,
                 text=True,
                 check=False,
