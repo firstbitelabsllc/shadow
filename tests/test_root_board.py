@@ -284,6 +284,45 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             self.assertTrue(first.endswith("/PLAN.md"), first)
             self.assertTrue(second.endswith("/plans/child/PLAN.md"), second)
 
+    def test_commit_times_answers_many_plans_in_one_git_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            plans = [repo / "PLAN.md"]
+            for index in range(3):
+                child = repo / "plans" / f"child{index}"
+                child.mkdir(parents=True)
+                (child / "PLAN.md").write_text(
+                    (repo / "PLAN.md").read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+                plans.append(child / "PLAN.md")
+            git(repo, "add", "plans")
+            git(repo, "commit", "--quiet", "-m", "child plans")
+
+            module = fresh_board_module("shadow_commit_times_batch")
+            calls: list[tuple[str, ...]] = []
+            real_git = module._git
+
+            def counting_git(git_root: Path, *args: str, **kwargs):
+                calls.append(args)
+                return real_git(git_root, *args, **kwargs)
+
+            module._git = counting_git
+            try:
+                times = module.plan_commit_times(repo, plans)
+            finally:
+                module._git = real_git
+
+            log_calls = [args for args in calls if args and args[0] == "log"]
+            self.assertEqual(len(log_calls), 1, calls)
+            self.assertIn("--name-only", log_calls[0])
+            self.assertEqual(len(times), len(plans))
+            self.assertTrue(all(isinstance(value, int) for value in times.values()))
+            latest = git(repo, "log", "-1", "--format=%ct", "--", "PLAN.md")
+            self.assertEqual(
+                times[str(Path(os.path.abspath(repo / "PLAN.md")))], int(latest)
+            )
+
     def test_one_repo_resolves_toplevel_and_head_once_per_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
