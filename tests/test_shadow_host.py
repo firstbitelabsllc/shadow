@@ -269,7 +269,7 @@ class ShadowHostTests(unittest.TestCase):
         # probe/run argparse and launch. A host set without grok must fail here.
         self.assertGreaterEqual(
             set(shadow_host.HOSTS),
-            {"codex", "claude-code", "cursor", "grok", "zai"},
+            {"codex", "claude-code", "cursor", "grok", "zai", "codex-zai"},
         )
         with self.assertRaises(SystemExit):
             shadow_host.parser().parse_args(["probe", "--host", "not-a-host"])
@@ -285,7 +285,7 @@ class ShadowHostTests(unittest.TestCase):
             text=True,
             check=False,
         ).stdout
-        for host in ("codex", "claude-code", "cursor", "grok", "zai"):
+        for host in ("codex", "claude-code", "cursor", "grok", "zai", "codex-zai"):
             self.assertIn(host, skill, f"SKILL.md handoff lost {host}")
             self.assertIn(host, help_text, f"shadow help host lost {host}")
             with mock.patch.object(shadow_host, "load_host_defaults", return_value={}):
@@ -466,6 +466,76 @@ class ShadowHostTests(unittest.TestCase):
                 "max",
             ],
         )
+    def test_codex_zai_routes_every_class_to_glm_flash(self) -> None:
+        for work_class in shadow_host.WORK_CLASSES:
+            route = shadow_host.resolve_route("codex-zai", work_class)
+            self.assertEqual(route.model, "glm-5.3-flash")
+            self.assertTrue(route.matches_observed_model("glm-5.3-flash"))
+            self.assertFalse(route.matches_observed_model("gpt-5.6-luna"))
+            self.assertEqual(
+                shadow_host.native_model_argv("codex-zai", work_class),
+                ["--model", "glm-5.3-flash"],
+            )
+
+    def test_codex_zai_resolves_the_codexz_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            launcher = Path(temp) / "codexz"
+            launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            launcher.chmod(0o755)
+            with mock.patch.dict(os.environ, {"PATH": temp}, clear=False):
+                os.environ.pop("SHADOW_CODEX_ZAI_BIN", None)
+                self.assertEqual(
+                    shadow_host.resolve_binary("codex-zai", None),
+                    str(launcher.resolve()),
+                )
+            with mock.patch.dict(os.environ, {"PATH": temp, "SHADOW_CODEX_ZAI_BIN": str(launcher)}):
+                self.assertEqual(
+                    shadow_host.resolve_binary("codex-zai", None),
+                    str(launcher.resolve()),
+                )
+
+    def test_codex_zai_argv_mirrors_codex_exactly(self) -> None:
+        repo = Path("/workspace/repo")
+        final_message = Path("/tmp/final-message.txt")
+        for delegation, flag in (("direct", "--disable"), ("required", "--enable")):
+            codex = shadow_host.command_shape(
+                "codex", "codex", repo, final_message,
+                work_class="lightweight", delegation=delegation,
+            )
+            zai = shadow_host.command_shape(
+                "codex-zai", "codexz", repo, final_message,
+                work_class="lightweight", delegation=delegation,
+            )
+            self.assertEqual(zai[0], "codexz")
+            self.assertEqual(zai[1:4], ["exec", flag, "multi_agent"])
+            self.assertEqual(zai[4:6], ["--model", "glm-5.3-flash"])
+            # Same shape as codex after the binary and model selector.
+            self.assertEqual(zai[6:], codex[6:])
+            self.assertEqual(
+                shadow_host.public_command_shape("codex-zai", delegation=delegation),
+                shadow_host.public_command_shape("codex", delegation=delegation),
+            )
+            self.assertNotIn("frozen task", zai)
+
+    def test_codex_zai_receives_the_task_on_stdin_then_stdin_closes(self) -> None:
+        # `codex exec` with no positional prompt reads instructions from stdin
+        # and waits for EOF. The runner must write the frozen task and close
+        # stdin, or the host blocks for the whole timeout. A DEVNULL stdin
+        # would be an empty prompt, so the contract is write-then-close.
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            echo = repo / "echo-stdin.py"
+            echo.write_text(
+                "import sys\ndata = sys.stdin.read()\nsys.stdout.write(data)\n",
+                encoding="utf-8",
+            )
+            result = shadow_host.run_bounded(
+                [sys.executable, str(echo)], "frozen task PONG", repo, 20
+            )
+        self.assertEqual(result["returncode"], 0)
+        self.assertFalse(result["timed_out"])
+        self.assertIsNone(result["launch_error"])
+        self.assertEqual(result["stdout"], b"frozen task PONG")
 
     def test_required_delegation_enables_only_verified_native_capabilities(self) -> None:
         repo = Path("/workspace/repo")
@@ -892,9 +962,10 @@ class ShadowHostTests(unittest.TestCase):
                 # output flag would still pass every other assertion here.
                 argv = json.loads(binary.with_suffix(".argv.json").read_text(encoding="utf-8"))
                 resolved = str(repo.resolve())
-                if host == "codex":
+                if host in ("codex", "codex-zai"):
+                    model = "glm-5.3-flash" if host == "codex-zai" else "gpt-5.6-sol"
                     self.assertEqual(argv[1:12], [
-                        "exec", "--disable", "multi_agent", "--model", "gpt-5.6-sol",
+                        "exec", "--disable", "multi_agent", "--model", model,
                         "--json", "--ephemeral", "--sandbox", "workspace-write", "-C", resolved,
                     ])
                     self.assertEqual(argv[12], "--output-last-message")
