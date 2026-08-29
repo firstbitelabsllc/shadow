@@ -217,7 +217,6 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
     """Return (milestone, row): the in_progress row first, else the first
     ready pending row, milestone order — the same order a cycle resumes in.
     Person-gated rows are never auto-selected."""
-    done = _completed_ids(plan["milestones"])
     if task_id:
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
@@ -225,14 +224,13 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
                     return milestone, row
         return None
     claimed = plan.get("claimed") or set()
-    for state_pass in ("in_progress", "pending"):
+    # The canonical candidate ordering owns ready/gated/universe semantics —
+    # re-implementing it here already drifted the needs regex and the row
+    # universe away from the gate once.
+    for row_id in _grammar.candidate_row_ids(plan.get("text", ""), set(claimed)):
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
-                if row["id"] in claimed:
-                    continue
-                if row["state"] == state_pass and not _gated(row) and (
-                    state_pass == "in_progress" or _ready(row, done)
-                ):
+                if row["id"] == row_id:
                     return milestone, row
     return None
 
@@ -514,18 +512,15 @@ def _read_superpowers_snapshot(
 
 
 def _pack_root_override() -> tuple[str, str]:
-    """(variable, value) for the strongest set pack-root override.
+    """(variable, value) for the pack-root override, or the empty default.
 
     Amp-core configuration — the superpowers slot is gone (2026-08-15) while
-    the delegation guard stays core. Legacy names honored one release train.
-    Whitespace-only values fall through instead of masking a set legacy name.
+    the delegation guard stays core. A whitespace-only value falls through
+    instead of masking an unset variable.
     """
-    for variable in (
-        "SHADOW_AMP_PACK_ROOT",
-    ):
-        value = os.environ.get(variable, "").strip()
-        if value:
-            return variable, value
+    value = os.environ.get("SHADOW_AMP_PACK_ROOT", "").strip()
+    if value:
+        return "SHADOW_AMP_PACK_ROOT", value
     return "SHADOW_AMP_PACK_ROOT", ""
 
 def _superpowers_snapshot(

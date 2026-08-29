@@ -2457,13 +2457,7 @@ def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
         "retirement": retirement_boundary(),
     }
     if wanted is None:
-        eligible = []
-        for item in milestones(text.splitlines(keepends=True)):
-            try:
-                validate_milestone(item, text.splitlines(keepends=True))
-            except LifecycleError:
-                continue
-            eligible.append(item.heading)
+        eligible = eligible_milestones(text)
         base.update(
             {
                 "ok": before["within_limits"],
