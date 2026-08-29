@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from browser import server
+from tests.proc_fixture import git
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,17 +29,6 @@ PLAN = """# M20 — Shadow releases itself safely
 - [pending] Fresh-home migration survives rollback ~aa11 | proof: cmd true
 - [pending] Installed Shadow survives the release story ~bb22 (DoD) | proof: read release receipt -> every story passed | needs: ~aa11
 """
-
-
-def git(repo: Path, *args: str) -> None:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise AssertionError(result.stderr)
 
 
 class PlainOutcomeNamesLeadEveryHumanSurface(unittest.TestCase):

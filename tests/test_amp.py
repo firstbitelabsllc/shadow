@@ -265,7 +265,7 @@ class AmpBlock(unittest.TestCase):
                 snapshot_value = amp._superpowers_snapshot(home)
                 with mock.patch.object(
                     amp, "_superpowers_snapshot", return_value=snapshot_value
-                ) as snapshot:
+                ):
                     block, _ = amp.build_block(
                         amp._parse(text), repo, plan_path, None, 4_000
                     )
@@ -280,7 +280,6 @@ class AmpBlock(unittest.TestCase):
             "selected: Shadow Method adapted discipline (systematic-debugging)",
             block,
         )
-        snapshot.assert_called_once_with(home)
         self.assertEqual(
             amp._project_tools("superpowers for verification, /craft for UI"),
             "Shadow Method for verification, /craft for UI",

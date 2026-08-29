@@ -21,6 +21,7 @@ CLI = ROOT / "bin" / "shadow"
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_remote_claim as remote_claim  # noqa: E402
 import shadow_root_board as board  # noqa: E402
+from tests.proc_fixture import git
 RETURN_SPEC = importlib.util.spec_from_file_location("shadow_return_test", ROOT / "scripts" / "shadow-return.py")
 return_mod = importlib.util.module_from_spec(RETURN_SPEC)
 assert RETURN_SPEC and RETURN_SPEC.loader
@@ -44,17 +45,6 @@ PLAN = """# Return fixture
 
 - 2026-08-10T00:00:00Z NOTE seeded
 """
-
-
-def git(repo: Path, *args: str) -> None:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise AssertionError(result.stderr)
 
 
 def fixture(root: Path, *, remote: bool = False) -> tuple[Path, Path, dict[str, str]]:

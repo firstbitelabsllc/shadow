@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -157,14 +158,29 @@ class ReleaseTrainTriggersAreDeterministic(unittest.TestCase):
         self.assertTrue(release_plan["full_gauntlet"])
         self.assertFalse(feature_plan["full_gauntlet"])
 
-    def test_gauntlet_names_every_expensive_stage_once(self) -> None:
-        source = (ROOT / "scripts" / "shadow-ci.py").read_text(encoding="utf-8")
-        for stage in (
-            "story-e2e-pass-1", "story-e2e-pass-2", "adversarial-and-crash",
-            "migration-and-lifecycle", "capability-and-rotation",
+    def test_gauntlet_runs_every_expensive_stage_once_in_order(self) -> None:
+        expected = (
+            "story-e2e-pass-1", "story-e2e-pass-2", "migration-and-lifecycle",
+            "adversarial-and-crash", "capability-and-rotation",
             "rollback-and-upgrade", "release-package-and-install",
-        ):
-            self.assertEqual(source.count(f'("{stage}"'), 1, stage)
+        )
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            ci, "_run", side_effect=lambda command, *, home: calls.append((command, home))
+        ), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            ci.run_gauntlet(Path(tmp) / "scratch")
+        lines = [
+            line.removeprefix("release stage: ")
+            for line in stdout.getvalue().splitlines()
+            if line.startswith("release stage: ")
+        ]
+        self.assertEqual(tuple(lines), expected)
+        self.assertEqual(len(calls), len(expected))
+        self.assertEqual(
+            len({call[1].name for call in calls}),
+            len(expected),
+            "every stage runs in its own scratch home",
+        )
 
     def test_lifecycle_changes_select_their_focused_dependency_closure(self) -> None:
         selected = ci.select_paths(["scripts/shadow-lifecycle.py"])
