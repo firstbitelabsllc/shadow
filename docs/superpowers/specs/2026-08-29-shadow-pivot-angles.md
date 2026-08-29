@@ -74,6 +74,16 @@ cases. The surface was cut instead of polished again.
 That becomes the pivot standard: repository health, safety, and internal
 dogfood are necessary evidence, never evidence of demand or usefulness.
 
+### 5. Engineering depth is not adoption
+
+As of 2026-08-29, the public repository has 716 non-merge commits since
+2026-07-21, 214 tracked files, 64,365 lines of Python, and 1,188 Python test
+methods. It has zero stars, one fork, and zero watchers.
+
+Those numbers prove unusually deep single-user dogfood. They do not prove that
+another person wants the bundle. The next product must earn external repeated
+use before the repository earns another large subsystem.
+
 ## Product laws worth carrying forward
 
 These are the reusable discoveries. Everything else is negotiable.
@@ -144,6 +154,110 @@ one decision that still belongs to a person.
 
 The buyer would be an engineering leader whose review burden grows as agents
 produce more changes, reports, and conflicting recommendations.
+
+## Market reality on 2026-08-29
+
+The broad versions of all three hypotheses are already occupied. The
+opportunity, if one exists, is a smaller trust contract that incumbents do not
+yet make explicit.
+
+### Agent execution and orchestration are not open territory
+
+[GitHub Copilot cloud agent](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent)
+already researches repositories, makes changes on branches, runs tests in
+ephemeral environments, and opens pull requests. [GitHub Agent
+HQ](https://github.blog/news-insights/company-news/welcome-home-agents/)
+explicitly positions GitHub as the place to assign, steer, and track agents
+from OpenAI, Anthropic, Google, Cognition, xAI, and others. It also promises
+agent identity, branch controls, code review, governance, and organizational
+metrics.
+
+[Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) likewise run from
+desktop, web, mobile, Slack, GitHub, Bitbucket, Linear, and an API, then push a
+branch back for handoff. Cursor owns the VM, network controls, environment
+history, transcripts, and run diagnostics.
+
+**Implication:** Shadow must not compete as a command center, launcher, host
+router, worktree manager, or agent dashboard. GitHub and the coding-agent
+vendors own those surfaces and distribute them inside existing subscriptions.
+
+### Conversation and session handoff are rapidly commoditizing
+
+[VS Code sessions and
+handoff](https://code.visualstudio.com/docs/agents/concepts/sessions) can
+discover sessions created in Claude Code, Codex, Copilot CLI, and the GitHub
+Copilot app. It can hand a live session from one harness to another with the
+full conversation and context, and sync sessions across devices through the
+user's GitHub account.
+
+The [Agent Client Protocol session
+specification](https://agentclientprotocol.com/protocol/v1/session-setup)
+already standardizes loading and resuming agent sessions across client
+instances.
+
+**Implication:** “Continue this chat in another agent” is not a viable company
+by itself. A continuity capsule survives only if it is different in kind:
+transcript-free, repository-native, bound to exact source and evidence, safe to
+inspect as untrusted data, and useful even when no vendor session can be
+loaded.
+
+### Broad AI-SDLC governance is already a funded category
+
+[GitHub rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
+already enforce branch, push, review, commit-metadata, and application-bypass
+rules. GitHub is adding dedicated AI controls and agent-aware review.
+
+[Cycode](https://cycode.com/adlc-security/) sells visibility, governance,
+guardrails, AI inventory, and validation of agent output before commit.
+[Kosli](https://docs.kosli.com/understand_kosli/what_is_kosli) records
+immutable software-delivery evidence and evaluates it against compliance
+controls; its [admission-control case
+study](https://www.kosli.com/case-studies/how_norsk_tipping_made_compliance_their_engine_for_faster_software_delivery/)
+shows deployments blocked when required proof is absent.
+
+**Implication:** a broad “acceptance firewall” would enter a crowded enterprise
+platform market. The only credible wedge is developer-first and narrower than
+security posture or compliance: independently bind a task claim, evidence,
+scope, and verdict to the exact proposed source, then let the forge's existing
+required-check mechanism enforce it. If native rules plus attestations already
+express the complete policy, kill the angle.
+
+### Summaries and general agent evaluation are commodities
+
+[Slack AI](https://slack.com/help/articles/25076892548883-Guide-to-AI-features-in-Slack)
+already provides conversation summaries, recaps, answers with citations, and
+source drill-down. A prettier engineering update is not differentiated.
+
+[LangSmith](https://docs.langchain.com/langsmith/evaluate-complex-agent) and
+[Braintrust](https://www.braintrust.dev/docs/best-practices/agents) already
+evaluate final answers, individual steps, and agent trajectories against
+datasets and production traces.
+
+**Implication:** the decision brief survives only if it catches stale evidence,
+material omissions, and contradictory recommendations that ordinary summaries
+miss. A reliability product survives only if it measures coding-work takeover
+and acceptance—not generic prompt or trajectory quality.
+
+## The narrow gap
+
+The market does not need another place to run agents, another session viewer,
+another compliance platform, another summary, or another generic eval system.
+
+The unresolved question is whether teams need a **proof-carrying work
+artifact** that is:
+
+- provider-neutral;
+- transcript-free;
+- bound to an exact repository state;
+- explicit about what each piece of evidence proves;
+- independently verifiable;
+- capable of refusing stale, forged, or unsupported completion claims;
+- readable by a new agent and compressible into one human decision.
+
+That artifact could become the core of an acceptance gate, a continuity
+capsule, or a coding-work reliability benchmark. The research must determine
+which buyer and distribution path make it a product rather than a protocol in
+search of a market.
 
 ## Scoring contract
 
