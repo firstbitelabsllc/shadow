@@ -292,8 +292,6 @@ def normalized_origin(origin: str) -> str:
     return _shadow_git.normalized_origin(origin)
 
 
-def normalized_repo_origin(repo: Path, origin: str) -> str:
-    return _shadow_git.normalized_repo_origin(repo, origin)
 
 
 def regular_plan(plan: Path) -> bool:
@@ -743,7 +741,12 @@ def public_plan_locator(plan: Path) -> str:
         relative = candidate.relative_to(repo).as_posix()
     except ValueError:
         relative = candidate.name
-    origin = origin_of(repo)
+    try:
+        origin = origin_of(repo)
+    except BoardError:
+        # The contract above is never-raises: a transient identity read
+        # degrades to the local digest shape, never a crashed render.
+        origin = str(repo)
     if origin.startswith("local-") or origin.startswith("/"):
         digest = hashlib.sha256(origin.encode("utf-8")).hexdigest()[:8]
         prefix = f"{repo.name}@{digest}"
@@ -754,13 +757,6 @@ def public_plan_locator(plan: Path) -> str:
         digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
         return f"entity@{digest}/PLAN.md"
     return public
-
-
-def plan_mtime(repo: Path) -> float:
-    try:
-        return (repo / "PLAN.md").stat().st_mtime
-    except OSError:
-        return 0.0
 
 
 def plan_commit_time(plan: Path) -> int | None:
@@ -1726,10 +1722,6 @@ def _state_for_entity(payload: dict, entity: dict | None) -> dict:
     }
 
 
-def entity_state_by_id(identity: str, *, home: Path | None = None) -> dict | None:
-    """Resolve a board-issued entity id, refusing stale ids after identity moves."""
-    resolved = resolve_entity(identity, home=home)
-    return resolved["state"] if resolved is not None else None
 
 
 def _resolve_entity_payload(
@@ -1793,9 +1785,6 @@ def locked_entity_plan_by_id_at_revision(
         yield resolved["plan"]
 
 
-def canonical_plan_by_id(identity: str, *, home: Path | None = None) -> Path:
-    """Return the regular canonical pointer for one current board entity id."""
-    return canonical_plan_by_id_at_revision(identity, home=home)
 
 
 def canonical_plan_by_id_at_revision(
@@ -2856,11 +2845,7 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
             raise BoardError("claim return needs a readable entity plan") from exc
     row_matches = []
     for line in text.splitlines():
-        match = re.match(
-            r"^- \[(pending|in_progress|blocked|completed)] .+? "
-            r"(?P<id>~[0-9a-z]{4})(?: \(DoD\))?(?: \| .*)?$",
-            line,
-        )
+        match = _grammar.ROW_RE.match(line)
         if match is not None and match.group("id") == row:
             row_matches.append(match)
     if not row_matches:
@@ -3190,16 +3175,6 @@ def _migration_destinations(
 
 def _migration_plan_matches(plan: Path, expected: dict[str, object]) -> bytes:
     _migration_plan_rows(expected)
-    if set(expected) != {
-        "relative",
-        "entity_id",
-        "head",
-        "blob",
-        "logical_sha256",
-        "rows",
-        "candidates",
-    }:
-        raise BoardError("project-map migration plan receipt is malformed")
     token, content = committed_plan_snapshot(plan)
     logical_sha256 = hashlib.sha256(content).hexdigest()
     if (
@@ -3966,10 +3941,3 @@ def discard_missing_unclaimed_aliases(
         return len(repairs)
 
 
-def claimed_rows(plan: Path, *, home: Path | None = None) -> set[str]:
-    state = entity_state(plan, home=home)
-    return (
-        {item["row"] for item in state["claims"]}
-        if state is not None and state["entity"] is not None
-        else set()
-    )
