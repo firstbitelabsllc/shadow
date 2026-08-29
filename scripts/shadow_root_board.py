@@ -72,11 +72,13 @@ class _RepositoryIdentityCache:
         self.origins: dict[str, str] = {}
         self.plan_parts: dict[str, tuple[str, str]] = {}
         self.repositories: dict[str, Path] = {}
+        self.heads: dict[str, str] = {}
 
     def clear(self) -> None:
         self.origins.clear()
         self.plan_parts.clear()
         self.repositories.clear()
+        self.heads.clear()
 
 
 _REPOSITORY_IDENTITIES: ContextVar[_RepositoryIdentityCache | None] = ContextVar(
@@ -830,20 +832,41 @@ def logical_entity_id(origin: str, relative: str) -> str:
     return hashlib.sha256(logical).hexdigest()
 
 
-def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
-    """Return the exact PLAN bytes stored at HEAD, independent of worktree dirt."""
+def head_plan_snapshot(
+    plan: Path,
+    *,
+    repo: Path | None = None,
+) -> tuple[dict[str, str], bytes]:
+    """Return the exact PLAN bytes stored at HEAD, independent of worktree dirt.
+
+    A caller that already authenticated the repo (e.g. status, via the
+    upstream binding) passes it in and skips the redundant resolution; the
+    plan-in-repo containment check and the post-read HEAD race-guard stay.
+    """
     if not regular_plan(plan):
         raise BoardError("entity plan must be a regular, non-symlink PLAN.md")
     plan = plan.resolve()
-    top = _git(plan.parent, "rev-parse", "--show-toplevel")
-    if top.returncode or not top.stdout.strip():
-        raise BoardError("entity plan must be committed in a Git repository")
-    repo = Path(top.stdout.strip()).resolve()
+    if repo is not None:
+        repo = repo.resolve()
+    cache = _REPOSITORY_IDENTITIES.get()
+    if repo is None:
+        top = _git(plan.parent, "rev-parse", "--show-toplevel")
+        if top.returncode or not top.stdout.strip():
+            raise BoardError("entity plan must be committed in a Git repository")
+        repo = Path(top.stdout.strip()).resolve()
     try:
         relative = plan.relative_to(repo).as_posix()
     except ValueError as exc:
         raise BoardError("entity plan is outside its Git repository") from exc
-    head = _git(repo, "rev-parse", "HEAD")
+    repo_key = str(repo)
+    if cache is not None and repo_key in cache.heads:
+        head = subprocess.CompletedProcess(
+            ["git"], 0, cache.heads[repo_key] + "\n", ""
+        )
+    else:
+        head = _git(repo, "rev-parse", "HEAD")
+        if not head.returncode and cache is not None:
+            cache.heads[repo_key] = head.stdout.strip()
     blob = _git(repo, "rev-parse", f"HEAD:{relative}")
     if head.returncode or blob.returncode:
         raise BoardError("entity plan is not present at the current Git HEAD")
@@ -864,9 +887,13 @@ def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     )
 
 
-def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
+def committed_plan_snapshot(
+    plan: Path,
+    *,
+    repo: Path | None = None,
+) -> tuple[dict[str, str], bytes]:
     """Return worktree bytes and the exact Git object that serves them, or refuse."""
-    token, _ = head_plan_snapshot(plan)
+    token, _ = head_plan_snapshot(plan, repo=repo)
     repo = Path(token["repo"])
     relative = token["relative"]
     snapshot = open_plan(plan)
@@ -897,7 +924,12 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     return token, content
 
 
-def frozen_plan_snapshot(plan: Path, *, home: Path | None = None) -> tuple[dict[str, str], bytes]:
+def frozen_plan_snapshot(
+    plan: Path,
+    *,
+    home: Path | None = None,
+    repo: Path | None = None,
+) -> tuple[dict[str, str], bytes]:
     """Freeze either a product's committed plan or one local-only plan.
 
     Product repositories remain free to keep a release plan with their source.
@@ -905,7 +937,7 @@ def frozen_plan_snapshot(plan: Path, *, home: Path | None = None) -> tuple[dict[
     their authority lives below ``~/.shadow/plans`` and is never committed.
     """
     if not is_local_plan(plan, home=home):
-        return committed_plan_snapshot(plan)
+        return committed_plan_snapshot(plan, repo=repo)
     content = read_plan_bytes(plan)
     digest = hashlib.sha256(content).hexdigest()
     return (
