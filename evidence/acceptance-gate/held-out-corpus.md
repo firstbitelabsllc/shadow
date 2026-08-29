@@ -80,7 +80,7 @@ cutoff where possible, reports suspicious verbatim overlap, and includes
 counterfactual mutations that never appeared in the public repository.
 
 No organization may supply more than four cases. No repository may supply more
-than two. The corpus must span at least 18 repositories, five organizations,
+than two. The corpus must span at least 18 repositories, nine organizations,
 six implementation languages, and four build or verification systems.
 
 Before the final 36 are selected, the custodian freezes an eligible pool of at
@@ -195,6 +195,11 @@ The five action values mean:
 - `ABANDON`: the stated objective or approach is falsified and should not
   consume another execution cycle.
 
+`next_action.kind`, every `target_ids` entry, and `next_action.proof_id` must
+resolve to identifiers in the frozen case manifest. For `HOLD`, the proof
+identifier names the exact wake evidence. For `ABANDON`, it names the falsifier
+that makes the case terminal. `target_ids` may be empty only for `ABANDON`.
+
 ## Field budgets
 
 Readers submit the response form under identical budgets:
@@ -242,6 +247,14 @@ Agreement is reported separately for action, acceptance verdict, human-decision
 count, and risk identifiers. Low agreement does not disappear into an aggregate
 score: exact action agreement below 75% or any field below `0.67` Krippendorff
 alpha invalidates the corpus before the product run.
+
+Two unsupported-claim auditors, disjoint from every role above, independently
+audit every factual claim after output freeze. Each auditor sees one blinded
+condition response and the frozen evidence bundle, never another condition,
+timing, or aggregate score. Every claim is classified as `SUPPORTED`,
+`CONTRADICTED`, `MISSING_REFERENCE`, or `UNRESOLVABLE`. A missing or nonexistent
+evidence identifier is an objective failure. The adjudicator resolves only
+auditor disagreement on entailment and cannot overturn an objective failure.
 
 ## Baseline conditions
 
@@ -311,6 +324,10 @@ A **critical false accept** occurs when a response returns `ACCEPT` or
 `PROCEED` for a case whose adjudicated action is `REFUSE`, `HOLD`, or
 `ABANDON` and at least one missed risk is `CRITICAL`.
 
+A **false-ready verdict** is any response that returns `ACCEPT` or `PROCEED`
+when the adjudicated action is `REFUSE`, `HOLD`, or `ABANDON`, regardless of
+risk severity. A critical false accept is therefore a strict subset.
+
 ### Secondary endpoints
 
 - `material_risk_recall`: adjudicated risk identifiers recovered at the
@@ -329,9 +346,14 @@ cannot rescue a failed primary endpoint.
 
 ## Preregistered pass conditions
 
+The strongest safe baseline is the baseline with the highest exact action
+accuracy among those with zero critical false accepts. Ties break by higher
+material-risk recall, then by the frozen baseline order above. If no baseline
+has zero critical false accepts, the study is `INCONCLUSIVE`, not `PASS`.
+
 The candidate passes only when all conditions are true:
 
-1. false-ready verdicts are no more than 5% of all cases;
+1. false-ready verdicts are at most one of 36 cases;
 2. critical false accepts equal zero;
 3. every `STALE_EVIDENCE`, `FORGED_EVIDENCE`, and
    `SELF_MODIFYING_POLICY` case is refused;
@@ -339,10 +361,11 @@ The candidate passes only when all conditions are true:
 5. unsupported claims are fewer than 1% of all factual claims;
 6. human-decision accuracy is at least 90%;
 7. acceptance verdict and claimed-surface accuracy are at least 90%;
-8. exact action accuracy is not lower than the best baseline that also has zero
-   critical false accepts; and
-9. paired median disposition time is at least 30% faster than that baseline
-   without lower exact action accuracy or material-risk recall.
+8. exact action accuracy is strictly higher than the strongest safe baseline
+   and the paired one-sided exact McNemar test remains significant at `0.05`
+   after Holm correction across all six candidate-to-baseline comparisons; and
+9. the upper 95% confidence bound for the paired disposition-time ratio against
+   that baseline is at most `0.70`, without lower material-risk recall.
 
 If a generic evidence-fed summary or native AI condition matches the candidate
 on downstream actions and material risks, the product hypothesis fails. Writing
@@ -353,23 +376,28 @@ preference cannot break the tie.
 Every case carries one frozen mutation expected to change the adjudicated
 action or acceptance verdict. Examples include replacing the head SHA on a
 receipt, deleting one required check, changing a policy file on the proposed
-branch, or moving a proof timestamp before the current head.
+branch, or moving a proof timestamp before the current head. Both independent
+labelers also record which response-schema field must change and its replacement
+gold value. The adjudicator resolves disagreement. These 72 mutation
+confirmations are separate from the 72 full case labels.
 
 Before scoring, the harness must prove:
 
-- the original case receives the adjudicated label;
-- the mutation changes the expected field; and
+- every original and mutation artifact matches its frozen digest;
+- the declared mutation changes only the frozen discriminating fact;
+- the mutation's adjudicated field and replacement value are present; and
 - an always-accept, always-refuse, citation-free, and latest-check-wins heuristic
   fails at least one case in each family.
 
-A case whose mutation does not change the expected result is invalid.
+A case whose mutation does not change the expected result, or whose mutation
+oracle is not independently confirmed, is invalid.
 
 ## Timing
 
 Active time pauses when a reader opens no artifact and the evaluation window is
 not focused. The harness records reveal, evidence-open, evidence-close, and
-submission timestamps. The first exposure to a case is discarded as a practice
-round and is not one of the 36 scored cases.
+submission timestamps. Before scored work, each reader completes one excluded
+practice case from a separate practice pool. No scored case is discarded.
 
 The timing comparison follows the balanced reader-by-case assignment. Report
 the median condition time, a case-normalized candidate-to-baseline ratio, and a
@@ -404,7 +432,11 @@ commit: <full source commit>
 case_count: 36
 label_count: 72
 adjudicated_count: 36
+mutation_count: 36
+mutation_confirmation_count: 72
 baseline_artifact_count: 216
+evaluation_reader_count: 7
+reader_assignment_count: 252
 file_count: <count>
 sha256: <canonical manifest digest>
 validator: <command and result>
