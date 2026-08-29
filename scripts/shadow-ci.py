@@ -38,7 +38,11 @@ BROWSER_BASELINE = {
 }
 
 GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
-    (("scripts/shadow_root_board.py", "scripts/shadow_board_import.py"), (
+    ((
+        "scripts/shadow_root_board.py",
+        "scripts/shadow_board_import.py",
+        "scripts/shadow_git.py",
+    ), (
         "tests.test_root_board", "tests.test_status_focus", "tests.test_throw",
         "tests.test_return", "tests.test_amp", "tests.test_shadow_accept",
     )),
@@ -47,7 +51,11 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_root_board", "tests.test_browser", "tests.test_throw",
     )),
     (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_throw", "tests.test_status_focus")),
-    (("scripts/shadow-throw.py", "scripts/shadow_remote_claim.py"), (
+    ((
+        "scripts/shadow-throw.py",
+        "scripts/shadow_remote_claim.py",
+        "scripts/shadow_git.py",
+    ), (
         "tests.test_throw", "tests.test_root_board", "tests.test_gauntlet",
         "tests.test_telemetry", "tests.test_return", "tests.test_shadow_accept",
     )),
@@ -116,6 +124,7 @@ RELEASE_PATHS = (
     "scripts/shadow-verify-two-seat.py",
     "scripts/shadow_process_lib.py",
     "scripts/shadow_telemetry.py",
+    "scripts/shadow_git.py",
     "scripts/shadow_remote_claim.py",
     ".github/workflows/ci.yml",
     "scripts/shadow-release-package.py",
@@ -321,7 +330,8 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
     )
     risky = (
         ".github/workflows/", ".claude-plugin/", "SECURITY.md", "VERSION", "install.sh",
-        "scripts/shadow-host", "scripts/shadow-release-package.py", "scripts/shadow_root_board.py",
+        "scripts/shadow-host", "scripts/shadow-release-package.py", "scripts/shadow_git.py",
+        "scripts/shadow_root_board.py",
     )
     paths = changed.stdout.splitlines()
     risk = "high" if any(_matches(path, risky) for path in paths) else "none"

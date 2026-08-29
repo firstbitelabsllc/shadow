@@ -41,6 +41,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_remote_claim as _remote_claim  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 from shadow_cmd_proof import script_operand_issue  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
@@ -2021,7 +2022,7 @@ def ensure_completion_published(
     summary: str,
 ) -> int | None:
     """Publish on a tracking branch or authenticate an already-merged retry."""
-    tracking = _remote_claim.uses_origin_upstream(repo)
+    tracking = _remote_claim.uses_remote_upstream(repo)
     try:
         snapshot = _remote_claim.published_plan_snapshot(repo, plan_token)
     except _remote_claim.RemoteClaimError:
@@ -2029,7 +2030,7 @@ def ensure_completion_published(
     if snapshot is None:
         if not tracking:
             raise AcceptError(
-                "completion is not published on the configured origin; "
+                "completion is not published on the tracked upstream; "
                 "remote claim retained"
             )
         result = publish_completion(
@@ -2051,7 +2052,7 @@ def ensure_completion_published(
             ) from exc
         if snapshot is None:
             raise AcceptError(
-                "completion is not published on the configured origin default; "
+                "completion is not published on the tracked upstream default; "
                 "remote claim retained"
             )
     published_bytes, default_tip = snapshot
@@ -2060,12 +2061,14 @@ def ensure_completion_published(
         _, _, local_state, local_proof, _ = find_row(plan_text, row_id)
     except (UnicodeError, AcceptError) as exc:
         raise AcceptError(
-            "current origin default PLAN no longer carries the completed row and "
+            "current tracked-upstream default PLAN no longer carries the "
+            "completed row and "
             "matching accept proof; remote claim retained"
         ) from exc
     if local_state != "completed" or not local_proof.startswith("cmd "):
         raise AcceptError(
-            "current origin default PLAN no longer carries the completed row and "
+            "current tracked-upstream default PLAN no longer carries the "
+            "completed row and "
             "matching accept proof; remote claim retained"
         )
     if completion_matches(published_text, row_id, local_proof):
@@ -2076,7 +2079,8 @@ def ensure_completion_published(
         if (row := ROW_LINE_RE.match(line)) is not None
     ):
         raise AcceptError(
-            "current origin default PLAN no longer carries the accepted completion; "
+            "current tracked-upstream default PLAN no longer carries the "
+            "accepted completion; "
             "it carries a conflicting live row; "
             "remote claim retained"
         )
@@ -2090,7 +2094,8 @@ def ensure_completion_published(
     ):
         return None
     raise AcceptError(
-        "current origin default PLAN no longer carries the completed row and "
+        "current tracked-upstream default PLAN no longer carries the completed "
+        "row and "
         "matching accept proof; remote claim retained"
     )
 
@@ -2367,7 +2372,7 @@ def finalize_completed_retry_without_local_claim(
 
 
 def main(argv: list[str] | None = None) -> int:
-    _remote_claim.sanitize_process_git_env()
+    _shadow_git.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow accept", description=__doc__)
     parser.add_argument(
         "--repo",

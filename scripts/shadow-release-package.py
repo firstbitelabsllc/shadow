@@ -31,9 +31,8 @@ CANONICAL_ORIGIN = re.compile(
     r"firstbitelabsllc/shadow(?:\.git)?/?",
     re.IGNORECASE,
 )
-# M26 adds the canonical plan-tree store, migration door, benchmark, and their
-# checked-in contract. Keep a small explicit ceiling rather than letting the
-# release grow without review.
+# Keep a small explicit ceiling rather than letting the release grow without
+# review.
 MAX_FILE_COUNT = 120
 MAX_UNPACKED_BYTES = 2_000_000
 REQUIRED_FILES = {
@@ -56,6 +55,7 @@ REQUIRED_FILES = {
     # `shadow amp` and `shadow throw` exited 2 with "can't open file".
     "scripts/shadow-amp.py",
     "scripts/shadow-throw.py",
+    "scripts/shadow_git.py",
     "scripts/shadow_remote_claim.py",
     "scripts/shadow-return.py",
     "scripts/shadow-priority.py",

@@ -41,9 +41,9 @@ receipts, and the browser emits only scrubbed logical entity identifiers.
 The browser is loopback-only. Evidence stays inside the Git project under
 `.shadow/evidence/`. There is no remote task or proof authority, cloud
 executor, credential relay, watcher, daemon, background dispatch process, or
-transcript store. When the current branch tracks configured `origin`, the one
-deterministic claim ref is only a coordination lock; no other remote store or
-service is introduced.
+transcript store. When the current branch tracks a remote branch, the one
+deterministic claim ref on that same tracked remote is only a coordination
+lock; no other remote store or service is introduced.
 
 There is no remote telemetry transport. Shadow has a closed [local event
 vocabulary](telemetry.md). An explicit local-only opt-in may append the closed
