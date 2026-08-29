@@ -664,6 +664,7 @@ def assert_archive_immutable(
     archive_bytes: bytes,
     tombstone: re.Match[str],
 ) -> dict:
+    source_snapshot = None
     if _board.is_local_plan(plan):
         source_text = local_source_text(plan, tombstone.group("blob"))
         source_token = {
@@ -713,19 +714,33 @@ def assert_archive_immutable(
                 commit,
             ).stdout.splitlines()
         )
-        if changed != {plan_relative.as_posix(), archive_relative.as_posix()}:
+        allowed = {plan_relative.as_posix(), archive_relative.as_posix()}
+        plan_tree_prefix = (plan_relative.parent / "PLAN.d").as_posix() + "/"
+        if not all(
+            path in allowed or path.startswith(plan_tree_prefix)
+            for path in changed
+        ):
             raise LifecycleError("archive introduction changed unrelated authority")
         if (
             git_bytes(repo, "show", f"{commit}:{archive_relative.as_posix()}")
             != archive_bytes
         ):
             raise LifecycleError("archive changed after its lifecycle introduction")
-        try:
-            source_text = git_bytes(repo, "cat-file", "blob", source_blob).decode(
-                "utf-8"
-            )
-        except UnicodeDecodeError:
-            raise LifecycleError("archive source PLAN blob is not valid UTF-8") from None
+        source_root = git_bytes(repo, "cat-file", "blob", source_blob)
+        source_snapshot = _plan_store.snapshot_of_root(plan, source_root)
+        if source_snapshot.root is not None:
+            # A partitioned plan's catalog blob is not the source text; the
+            # source is the materialized generation that catalog describes.
+            source_text = source_snapshot.materialize().decode("utf-8")
+        else:
+            # A plain plan's blob IS the source text.
+            source_snapshot = None
+            try:
+                source_text = source_root.decode("utf-8")
+            except UnicodeDecodeError:
+                raise LifecycleError(
+                    "archive source PLAN blob is not valid UTF-8"
+                ) from None
         source_token = {
             "relative": plan_relative.as_posix(),
             "head": parent,
@@ -740,15 +755,19 @@ def assert_archive_immutable(
         archive_link,
         source_token,
     )
+    candidate_plan = candidate["plan"].encode("utf-8")
+    if source_snapshot is not None and source_snapshot.root is not None:
+        candidate_plan = _plan_store._with_lineage(
+            _plan_store.build_tree(candidate_plan),
+            generation=source_snapshot.root["generation"] + 1,
+            previous_root=source_snapshot.root_sha256,
+        ).root_bytes
     if (
         candidate["cas"] != tombstone.group("cas")
         or candidate["digest"] != tombstone.group("digest")
         or candidate["marker"] != tombstone.group(0)
         or candidate["archive"].encode("utf-8") != archive_bytes
-        or (
-            committed_plan is not None
-            and committed_plan != candidate["plan"].encode("utf-8")
-        )
+        or (committed_plan is not None and committed_plan != candidate_plan)
     ):
         raise LifecycleError("archive cannot be regenerated from its recorded source")
     return candidate

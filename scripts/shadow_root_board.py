@@ -2345,9 +2345,14 @@ def reconcile(
             try:
                 content = read_plan_bytes(Path(seed["plan"]))
             except BoardError as exc:
-                raise BoardError(
-                    "bounded discovery entity changed during reconciliation; retry"
-                ) from exc
+                # A quarantined seed declares its plan unreadable with None
+                # markers; reconcile must tolerate exactly that, never demand
+                # a successful read of the file discovery already quarantined.
+                if seed["expected_sha256"] is not None:
+                    raise BoardError(
+                        "bounded discovery entity changed during reconciliation; retry"
+                    ) from exc
+                continue
             try:
                 assert_hot_plan_budget(content)
             except BoardError:
