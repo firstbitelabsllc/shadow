@@ -1019,6 +1019,61 @@ def lead_review_passes(
     )
 
 
+def require_accept_ready_row(
+    plan_path: Path,
+    plan_text: str,
+    row_id: str,
+    owner: str,
+) -> tuple[dict, str, str, str, list[str]]:
+    """The one readiness gate every accept path must pass verbatim.
+
+    Claim, needs, written challenge, cmd-only proof, non-empty argv, and no
+    unwrapped shell operators. Three accept paths used to carry three copies
+    of this gate with three different refusal texts; a gate that drifts
+    between paths is how a false green slips through one of them.
+    """
+    _, _, state, proof, needs = find_row(plan_text, row_id)
+    claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+    if claim is None:
+        raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
+    blocked_by = unmet_needs(plan_text, needs)
+    if blocked_by:
+        raise AcceptError(
+            f"{row_id} still needs {', '.join(blocked_by)} — a row is ready only when "
+            "every needs-target is completed; finish those first"
+        )
+    challenged = contradiction_challenges(plan_text, row_id, needs)
+    if challenged:
+        raise AcceptError(
+            f"{row_id} or its needs-ancestry is under a written challenge scoped as an "
+            "acceptance challenge and must not "
+            f"flip silently; resolve the Contradictions entry first: {challenged[0]}"
+        )
+    if not proof.startswith("cmd "):
+        kind = proof.split(" ", 1)[0]
+        raise AcceptError(
+            f"only cmd proofs are machine-rerunnable; this row is {kind}-classed — "
+            "re-observe it yourself and append the PROOF line with the flip"
+        )
+    argv = proof_argv(proof[4:])
+    if not argv:
+        raise AcceptError("the proof command is empty")
+    # The same refusal lint makes, made here too. Accept runs the proof
+    # with NO shell, so `&&`, `|`, `;` and `$(...)` reach argv[0] as
+    # literal arguments: `cmd echo done && shadow --version` would run
+    # `echo`, exit 0, and flip the row while `shadow` never ran. Lint alone
+    # is not enough — a plan can reach accept without lint having run, and
+    # two gates that disagree are how the false green got here.
+    offenders = _shell_operators(proof[4:])
+    if offenders:
+        raise AcceptError(
+            f"the proof passes {' '.join(offenders)} to `{argv[0]}` as a literal "
+            "argument — accept runs proofs without a shell, so the rest of the command "
+            f"would never execute. Wrap it: cmd bash -c '<the whole command>'"
+        )
+    return claim, state, proof, needs, argv
+
+
 def remove_review_worktree(repo: Path, destination: Path) -> None:
     status = git_completed(
         destination,
@@ -1194,27 +1249,9 @@ def accept_local_proposal(
         row_line, state, proof, needs, marker, floor = contract
         if state not in {"pending", "in_progress"}:
             raise AcceptError("proposal transition requires a pending or in-progress row")
-        claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
-        if claim is None:
-            raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
-        blocked_by = unmet_needs(plan_text, needs)
-        if blocked_by:
-            raise AcceptError(f"{row_id} still needs {', '.join(blocked_by)}")
-        challenged = contradiction_challenges(plan_text, row_id, needs)
-        if challenged:
-            raise AcceptError(
-                f"{row_id} is under a written acceptance challenge: {challenged[0]}"
-            )
-        if not proof.startswith("cmd "):
-            raise AcceptError("proposal acceptance supports cmd proofs only")
-        argv = proof_argv(proof[4:])
-        if not argv:
-            raise AcceptError("the proposal proof command is empty")
-        offenders = _shell_operators(proof[4:])
-        if offenders:
-            raise AcceptError(
-                f"the proposal proof passes {' '.join(offenders)} as literal shell operators"
-            )
+        claim, _, _, _, argv = require_accept_ready_row(
+            plan_path, plan_text, row_id, owner
+        )
 
         pool = repo.parent / f"{repo.name}-shadow-accept"
         pool.mkdir(exist_ok=True)
@@ -1432,25 +1469,7 @@ def accept_local_plan(
             "root claim reconciled"
         )
         return 0
-    if claim is None:
-        raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
-    blocked_by = unmet_needs(plan_text, needs)
-    if blocked_by:
-        raise AcceptError(f"{row_id} still needs {', '.join(blocked_by)}")
-    challenged = contradiction_challenges(plan_text, row_id, needs)
-    if challenged:
-        raise AcceptError(
-            f"{row_id} is under a written challenge scoped as a current-row "
-            f"acceptance challenge: {challenged[0]}"
-        )
-    if not proof.startswith("cmd "):
-        raise AcceptError("only cmd proofs are machine-rerunnable")
-    argv = proof_argv(proof[4:])
-    if not argv:
-        raise AcceptError("the proof command is empty")
-    offenders = _shell_operators(proof[4:])
-    if offenders:
-        raise AcceptError(f"the proof passes {' '.join(offenders)} as literal shell operators")
+    _, _, _, _, argv = require_accept_ready_row(plan_path, plan_text, row_id, owner)
     source_head = frozen_source_head(repo)
     pool = repo.parent / f"{repo.name}-shadow-accept"
     pool.mkdir(exist_ok=True)
@@ -2592,43 +2611,9 @@ def main(argv: list[str] | None = None) -> int:
                     "completed proof reran in its clean source checkout; "
                     "root claim reconciled",
                 )
-        if claim is None:
-            raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
-        blocked_by = unmet_needs(plan_text, needs)
-        if blocked_by:
-            raise AcceptError(
-                f"{row_id} still needs {', '.join(blocked_by)} — a row is ready only when "
-                "every needs-target is completed; finish those first"
-            )
-        challenged = contradiction_challenges(plan_text, row_id, needs)
-        if challenged:
-            raise AcceptError(
-                f"{row_id} or its needs-ancestry is under a written challenge scoped as an "
-                "acceptance challenge and must not "
-                f"flip silently; resolve the Contradictions entry first: {challenged[0]}"
-            )
-        if not proof.startswith("cmd "):
-            kind = proof.split(" ", 1)[0]
-            raise AcceptError(
-                f"only cmd proofs are machine-rerunnable; this row is {kind}-classed — "
-                "re-observe it yourself and append the PROOF line with the flip"
-            )
-        argv_proof = proof_argv(proof[4:])
-        if not argv_proof:
-            raise AcceptError("the proof command is empty")
-        # The same refusal lint makes, made here too. Accept runs the proof
-        # with NO shell, so `&&`, `|`, `;` and `$(...)` reach argv[0] as
-        # literal arguments: `cmd echo done && shadow --version` would run
-        # `echo`, exit 0, and flip the row while `shadow` never ran. Lint alone
-        # is not enough — a plan can reach accept without lint having run, and
-        # two gates that disagree are how the false green got here.
-        offenders = _shell_operators(proof[4:])
-        if offenders:
-            raise AcceptError(
-                f"the proof passes {' '.join(offenders)} to `{argv_proof[0]}` as a literal "
-                "argument — accept runs proofs without a shell, so the rest of the command "
-                f"would never execute. Wrap it: cmd bash -c '<the whole command>'"
-            )
+        _, _, _, _, argv_proof = require_accept_ready_row(
+            plan_path, plan_text, row_id, owner
+        )
         head = plan_token["head"]
         pool = repo.parent / f"{repo.name}-shadow-accept"
         pool.mkdir(exist_ok=True)
