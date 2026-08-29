@@ -16,15 +16,12 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SHADOW = ROOT / "bin" / "shadow"
-MODULE = ROOT / "scripts" / "shadow_plan_store.py"
-SPEC = importlib.util.spec_from_file_location("shadow_plan_store_for_read", MODULE)
-assert SPEC and SPEC.loader
-store = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = store
-SPEC.loader.exec_module(store)
-
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
+# One canonical module object: the tamper tests patch the exact PlanSnapshot
+# that board.open_plan and shadow-read both call. A second exec-loaded copy
+# made the patch load-order-dependent and turned three tests into ghosts.
+import shadow_plan_store as store  # noqa: E402
 import shadow_root_board as board  # noqa: E402
 
 READ_SCRIPT = ROOT / "scripts" / "shadow-read.py"

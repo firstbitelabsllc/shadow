@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -14,12 +13,12 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE = ROOT / "scripts" / "shadow_plan_store.py"
-SPEC = importlib.util.spec_from_file_location("shadow_plan_store", MODULE)
-assert SPEC and SPEC.loader
-store = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = store
-SPEC.loader.exec_module(store)
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+# One canonical module object: board, read, and every test must patch the
+# same PlanSnapshot the projection actually calls — an exec-loaded copy
+# poisons every test that runs after this one (order-dependent red).
+import shadow_plan_store as store  # noqa: E402
 
 
 def plan(*, duplicate: bool = False, dangling: bool = False) -> bytes:
