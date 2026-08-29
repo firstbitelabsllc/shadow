@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -12,6 +12,7 @@ import re
 import subprocess
 from typing import Any, Final
 
+import shadow_git as _shadow_git
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 
 
@@ -38,28 +39,6 @@ MAX_RECEIPT_BYTES: Final = 8 * 1024
 MAX_RELATIVE_BYTES: Final = 240
 MAX_DISCOVERY_ROWS: Final = 128
 MAX_PLAN_BYTES: Final = 1_000_000
-GIT_INJECTION_VARS: Final = {
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_COMMON_DIR",
-    "GIT_CONFIG",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_GLOBAL",
-    "GIT_CONFIG_NOSYSTEM",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_SYSTEM",
-    "GIT_DIR",
-    "GIT_GRAFT_FILE",
-    "GIT_IMPLICIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_INTERNAL_SUPER_PREFIX",
-    "GIT_NAMESPACE",
-    "GIT_NO_REPLACE_OBJECTS",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_PREFIX",
-    "GIT_REPLACE_REF_BASE",
-    "GIT_SHALLOW_FILE",
-    "GIT_WORK_TREE",
-}
 
 
 class RemoteClaimError(RuntimeError):
@@ -74,18 +53,18 @@ class RemoteEligibility(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-def _is_git_injection(name: str) -> bool:
-    return name in GIT_INJECTION_VARS or re.fullmatch(
-        r"GIT_CONFIG_(?:KEY|VALUE)_\d+", name
-    ) is not None
+@dataclass(frozen=True)
+class UpstreamBinding:
+    """One verified decision about eligibility, transport, and publication refs."""
+
+    eligibility: RemoteEligibility
+    endpoint: str | None = None
+    public_identity: str | None = None
+    merge_refs: frozenset[str] = frozenset()
 
 
-def sanitize_process_git_env() -> None:
-    """Remove repository/config redirection without disabling normal auth."""
-    for name in tuple(os.environ):
-        if _is_git_injection(name):
-            os.environ.pop(name)
-    os.environ["GIT_TERMINAL_PROMPT"] = "0"
+LOCAL_ONLY = UpstreamBinding(RemoteEligibility.VERIFIED_LOCAL_ONLY)
+UNKNOWN = UpstreamBinding(RemoteEligibility.UNKNOWN)
 
 
 def _git(
@@ -94,13 +73,7 @@ def _git(
     input_bytes: bytes | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
-    env = dict(os.environ)
-    for name in tuple(env):
-        if _is_git_injection(name):
-            env.pop(name)
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    env["GIT_ASKPASS"] = "/usr/bin/false"
-    env.update(extra_env or {})
+    env = _shadow_git.sanitized_git_env(extra_env)
     try:
         return subprocess.run(
             ["git", "-C", str(repo), *args],
@@ -128,66 +101,189 @@ def _one_git_value(result: subprocess.CompletedProcess[bytes]) -> str | None:
     return values[0].strip()
 
 
-def _upstream_remote_name(repo: Path) -> str | None:
-    """The current branch's upstream remote name, or None when indeterminate.
-
-    Mirrors the eligibility probe discipline: a failed or ambiguous probe
-    never resolves to a transport remote."""
-    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
-    if branch.returncode:
+def remote_endpoint(
+    repo: Path,
+    remote_name: str,
+    *,
+    missing_ok: bool = False,
+) -> tuple[str, str, tuple[str, ...]] | None:
+    """Resolve one fetch/push-consistent endpoint and normalized identity."""
+    if remote_name == ".":
+        common = _git(
+            repo,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        )
+        common_dir = _one_git_value(common) if not common.returncode else None
+        if common_dir is None:
+            raise RemoteClaimError("remote endpoint configuration is unavailable")
+        identity = _shadow_git.local_git_identity(repo, common_dir)
+        return ".", identity, ("local-git", identity)
+    configured = _git(repo, "config", "--get-all", f"remote.{remote_name}.url")
+    if _missing_git_value(configured) and missing_ok:
         return None
-    name = _one_git_value(branch)
-    if name is None:
-        return None
-    remote = _git(repo, "config", "--get", f"branch.{name}.remote")
-    if remote.returncode:
-        return None
-    return _one_git_value(remote)
+    if configured.returncode or _one_git_value(configured) is None:
+        raise RemoteClaimError("remote endpoint configuration is unavailable")
+    fetch = _git(repo, "remote", "get-url", "--all", "--", remote_name)
+    push = _git(repo, "remote", "get-url", "--push", "--all", "--", remote_name)
+    fetch_url = _one_git_value(fetch) if not fetch.returncode else None
+    push_url = _one_git_value(push) if not push.returncode else None
+    if fetch_url is None or push_url is None:
+        raise RemoteClaimError("remote endpoint configuration is unavailable")
+    fetch_identity = _shadow_git.normalized_repo_origin(repo, fetch_url)
+    push_identity = _shadow_git.normalized_repo_origin(repo, push_url)
+    fetch_transport = _shadow_git.transport_fingerprint(repo, fetch_url)
+    push_transport = _shadow_git.transport_fingerprint(repo, push_url)
+    if (
+        not fetch_identity
+        or fetch_identity != push_identity
+        or fetch_transport != push_transport
+    ):
+        raise RemoteClaimError("remote fetch and push endpoints do not match")
+    return push_url, push_identity, push_transport
 
 
-def _transport_remote(repo: Path) -> str:
-    """The remote claim transport speaks to the branch's upstream remote;
-    falling back to the historical name preserves every existing failure mode
-    for checkouts with no configured upstream."""
-    return _upstream_remote_name(repo) or "origin"
+def _configured_branch_heads(repo: Path) -> list[tuple[str, str, str]]:
+    """Return configured tracked branch heads after one strict Git parse."""
+    configured = _git(
+        repo,
+        "config",
+        "--null",
+        "--get-regexp",
+        r"^branch\..*\.(remote|merge)$",
+    )
+    if _missing_git_value(configured):
+        return []
+    if configured.returncode:
+        raise RemoteClaimError("configured upstream branches are unavailable")
+    try:
+        records = configured.stdout.split(b"\0")
+        if records.pop() != b"":
+            raise ValueError
+        entries: list[tuple[str, str]] = []
+        for record in records:
+            key, separator, value = record.partition(b"\n")
+            if not separator:
+                raise ValueError
+            entries.append((key.decode("utf-8"), value.decode("utf-8")))
+    except UnicodeError as exc:
+        raise RemoteClaimError("configured upstream branches are unavailable") from exc
+    except ValueError as exc:
+        raise RemoteClaimError("configured upstream branches are malformed") from exc
+    remotes: dict[str, list[str]] = {}
+    merges: dict[str, list[str]] = {}
+    for key, value in entries:
+        matched = re.fullmatch(r"branch\.(.+)\.(remote|merge)", key)
+        if (
+            matched is None
+            or not value
+            or not value.isprintable()
+            or any(char.isspace() for char in value)
+        ):
+            raise RemoteClaimError("configured upstream branches are malformed")
+        branch, kind = matched.groups()
+        target = remotes if kind == "remote" else merges
+        target.setdefault(branch, []).append(value)
+    heads: list[tuple[str, str, str]] = []
+    for branch in sorted(set(remotes) | set(merges)):
+        remote_names = remotes.get(branch, [])
+        merge_refs = merges.get(branch, [])
+        if len(remote_names) > 1 or (merge_refs and len(remote_names) != 1):
+            raise RemoteClaimError("configured upstream branches are malformed")
+        if remote_names:
+            heads.extend(
+                (branch, remote_names[0], merge_ref)
+                for merge_ref in merge_refs
+                if merge_ref.startswith("refs/heads/")
+            )
+    return heads
 
 
-def origin_upstream_eligibility(repo: Path) -> RemoteEligibility:
-    """Classify origin tracking without treating an unreadable probe as local-only."""
-    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
-    if _missing_git_value(branch):
-        return RemoteEligibility.VERIFIED_LOCAL_ONLY
-    if branch.returncode:
-        return RemoteEligibility.UNKNOWN
-    name = _one_git_value(branch)
-    if name is None:
-        return RemoteEligibility.UNKNOWN
-    remote = _git(repo, "config", "--get", f"branch.{name}.remote")
-    if _missing_git_value(remote):
-        return RemoteEligibility.VERIFIED_LOCAL_ONLY
-    if remote.returncode:
-        return RemoteEligibility.UNKNOWN
-    remote_name = _one_git_value(remote)
-    if remote_name is None:
-        return RemoteEligibility.UNKNOWN
-    merge = _git(repo, "config", "--get", f"branch.{name}.merge")
-    if _missing_git_value(merge):
-        return RemoteEligibility.VERIFIED_LOCAL_ONLY
-    if merge.returncode:
-        return RemoteEligibility.UNKNOWN
-    merge_ref = _one_git_value(merge)
-    if merge_ref is None:
-        return RemoteEligibility.UNKNOWN
-    return (
-        RemoteEligibility.REMOTE
-        if merge_ref.startswith("refs/heads/")
-        else RemoteEligibility.VERIFIED_LOCAL_ONLY
+def _binding_for_heads(
+    repo: Path,
+    heads: list[tuple[str, str, str]],
+    *,
+    selected_remote: str | None = None,
+) -> UpstreamBinding:
+    if not heads:
+        return LOCAL_ONLY
+    endpoints: dict[str, tuple[str, str, tuple[str, ...]]] = {}
+    for remote_name in sorted({remote for _, remote, _ in heads}):
+        resolved = remote_endpoint(repo, remote_name)
+        assert resolved is not None
+        endpoints[remote_name] = resolved
+    if selected_remote is None:
+        fingerprints = {resolved[2] for resolved in endpoints.values()}
+        if len(fingerprints) != 1:
+            return UNKNOWN
+        selected_remote = min(endpoints)
+    selected = endpoints.get(selected_remote)
+    if selected is None:
+        return UNKNOWN
+    endpoint, public_identity, fingerprint = selected
+    refs = frozenset(
+        merge_ref
+        for _, remote_name, merge_ref in heads
+        if endpoints[remote_name][2] == fingerprint
+    )
+    if not refs:
+        return LOCAL_ONLY
+    return UpstreamBinding(
+        RemoteEligibility.REMOTE,
+        endpoint,
+        public_identity,
+        refs,
     )
 
 
-def uses_origin_upstream(repo: Path) -> bool:
-    """Compatibility predicate for callers that do not own transport state."""
-    return origin_upstream_eligibility(repo) is RemoteEligibility.REMOTE
+def _configured_upstream_binding(
+    repo: Path,
+    heads: list[tuple[str, str, str]] | None = None,
+) -> UpstreamBinding:
+    try:
+        configured_heads = heads if heads is not None else _configured_branch_heads(repo)
+        return _binding_for_heads(repo, configured_heads)
+    except RemoteClaimError:
+        return UNKNOWN
+
+
+def upstream_binding(
+    repo: Path,
+    *,
+    recover_detached: bool = False,
+) -> UpstreamBinding:
+    """Bind eligibility and transport to one verified repository endpoint."""
+    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
+    if _missing_git_value(branch):
+        return _configured_upstream_binding(repo) if recover_detached else LOCAL_ONLY
+    if branch.returncode:
+        return UNKNOWN
+    name = _one_git_value(branch)
+    if name is None:
+        return UNKNOWN
+    try:
+        heads = _configured_branch_heads(repo)
+        current = [head for head in heads if head[0] == name]
+        if not current:
+            return (
+                _configured_upstream_binding(repo, heads)
+                if recover_detached
+                else LOCAL_ONLY
+            )
+        return _binding_for_heads(repo, heads, selected_remote=current[0][1])
+    except RemoteClaimError:
+        return UNKNOWN
+
+
+def upstream_eligibility(repo: Path) -> RemoteEligibility:
+    """Classify branch tracking without treating an unreadable probe as local-only."""
+    return upstream_binding(repo).eligibility
+
+
+def uses_remote_upstream(repo: Path) -> bool:
+    """Compatibility predicate for callers that do not own bound transport state."""
+    return upstream_eligibility(repo) is RemoteEligibility.REMOTE
 
 
 def managed_for_release(
@@ -198,35 +294,14 @@ def managed_for_release(
     """Require a definite local-only verdict before release skips remote state."""
     if authenticated_receipt:
         return True
-    eligibility = origin_upstream_eligibility(repo)
+    eligibility = upstream_eligibility(repo)
     if eligibility is RemoteEligibility.UNKNOWN:
         raise RemoteClaimError("remote claim eligibility is unavailable")
     return eligibility is RemoteEligibility.REMOTE
 
 
-def _configured_origin_merge_refs(repo: Path) -> list[str]:
-    configured = _git(repo, "config", "--get-regexp", r"^branch\..*\.remote$")
-    if configured.returncode:
-        return []
-    remote_name = _transport_remote(repo)
-    refs: set[str] = set()
-    for line in configured.stdout.decode("utf-8", errors="replace").splitlines():
-        fields = line.split(maxsplit=1)
-        if len(fields) != 2 or fields[1] != remote_name:
-            continue
-        key = fields[0]
-        if not key.startswith("branch.") or not key.endswith(".remote"):
-            continue
-        branch = key[len("branch.") : -len(".remote")]
-        merge = _git(repo, "config", "--get", f"branch.{branch}.merge")
-        value = merge.stdout.decode("utf-8", errors="replace").strip()
-        if not merge.returncode and value.startswith("refs/heads/"):
-            refs.add(value)
-    return sorted(refs)
-
-
-def _origin_default(repo: Path) -> tuple[str, str]:
-    listed = _git(repo, "ls-remote", "--symref", _transport_remote(repo), "HEAD")
+def _remote_default(repo: Path, endpoint: str) -> tuple[str, str]:
+    listed = _git(repo, "ls-remote", "--symref", endpoint, "HEAD")
     if listed.returncode:
         raise RemoteClaimError("published completion could not be authenticated")
     default_ref: str | None = None
@@ -293,12 +368,19 @@ def published_plan_snapshot(
     """Read the bounded current PLAN and retain its authenticated default tip."""
     if not public_safe_plan_token(plan_token):
         return None
-    head = plan_token["head"]
-    configured = set(_configured_origin_merge_refs(repo))
-    if not configured:
+    binding = upstream_binding(
+        repo,
+        recover_detached=True,
+    )
+    if binding.eligibility is RemoteEligibility.UNKNOWN:
+        raise RemoteClaimError("published completion remote is unavailable")
+    if binding.endpoint is None:
         return None
-    default_ref, default_tip = _origin_default(repo)
-    if default_ref not in configured:
+    head = plan_token["head"]
+    if not binding.merge_refs:
+        return None
+    default_ref, default_tip = _remote_default(repo, binding.endpoint)
+    if default_ref not in binding.merge_refs:
         return None
     fetched = _git(
         repo,
@@ -306,12 +388,12 @@ def published_plan_snapshot(
         "--quiet",
         "--no-tags",
         "--no-write-fetch-head",
-        _transport_remote(repo),
+        binding.endpoint,
         default_ref,
     )
     if fetched.returncode:
         raise RemoteClaimError("published completion could not be authenticated")
-    if _origin_default(repo) != (default_ref, default_tip):
+    if _remote_default(repo, binding.endpoint) != (default_ref, default_tip):
         raise RemoteClaimError("published completion changed during authentication")
     if _git(repo, "merge-base", "--is-ancestor", head, default_tip).returncode:
         return None
@@ -361,7 +443,7 @@ def managed_repo_for_plan(
         repo = Path(top_value).resolve(strict=True)
     except (OSError, UnicodeError):
         return RemoteEligibility.UNKNOWN, None
-    eligibility = origin_upstream_eligibility(repo)
+    eligibility = upstream_eligibility(repo)
     return (
         eligibility,
         repo if eligibility is RemoteEligibility.REMOTE else None,
@@ -605,13 +687,14 @@ def _validated_tip_commit(
 def _remote_tip(
     repo: Path,
     *,
+    endpoint: str,
     ref: str,
     entity: str,
     row: str,
     project: str,
     plan_token: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, Any] | None] | None:
-    listed = _git(repo, "ls-remote", "--refs", _transport_remote(repo), ref)
+    listed = _git(repo, "ls-remote", "--refs", endpoint, ref)
     if listed.returncode:
         return None
     listing = listed.stdout.decode("ascii", errors="ignore").strip()
@@ -621,7 +704,7 @@ def _remote_tip(
     if len(fields) != 2 or HEX_OBJECT.fullmatch(fields[0]) is None or fields[1] != ref:
         return None
     commit_id = fields[0]
-    fetched = _git(repo, "fetch", "--quiet", "--no-tags", _transport_remote(repo), ref)
+    fetched = _git(repo, "fetch", "--quiet", "--no-tags", endpoint, ref)
     if fetched.returncode:
         return None
     return (
@@ -651,12 +734,20 @@ def discover_active_batch(
     conventional refs make one repository query deterministic; arbitrary
     branches are never enumerated.
     """
-    eligibility = verified_eligibility or origin_upstream_eligibility(repo)
-    if eligibility is RemoteEligibility.UNKNOWN:
+    binding = upstream_binding(
+        repo,
+        recover_detached=recover_detached,
+    )
+    if (
+        verified_eligibility is not None
+        and binding.eligibility is not verified_eligibility
+    ):
+        raise RemoteClaimError("remote claim eligibility changed during discovery")
+    if binding.eligibility is RemoteEligibility.UNKNOWN:
         raise RemoteClaimError("remote claim eligibility is unavailable")
-    if eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
-        if not (recover_detached and _configured_origin_merge_refs(repo)):
-            return None
+    if binding.eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
+        return None
+    assert binding.endpoint is not None
     if not isinstance(requests, list):
         raise RemoteClaimError("remote claim discovery input is invalid")
     active: dict[str, list[dict[str, Any]] | None] = {}
@@ -688,7 +779,7 @@ def discover_active_batch(
             expected[ref] = (entity, row, project, relative)
     if not expected:
         return active
-    listed = _git(repo, "ls-remote", "--refs", _transport_remote(repo), *expected)
+    listed = _git(repo, "ls-remote", "--refs", binding.endpoint, *expected)
     if listed.returncode:
         raise RemoteClaimError("remote claim discovery is unavailable")
     lines = listed.stdout.decode("ascii", errors="ignore").splitlines()
@@ -709,7 +800,7 @@ def discover_active_batch(
         return active
     fetched = _git(
         repo, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
-        _transport_remote(repo), *tips,
+        binding.endpoint, *tips,
     )
     if fetched.returncode:
         raise RemoteClaimError("remote claim discovery could not authenticate its receipts")
@@ -761,9 +852,22 @@ def discover_active(
     return observed
 
 
-def _push(repo: Path, ref: str, commit_id: str, previous: str | None) -> bool:
+def _push(
+    repo: Path,
+    endpoint: str,
+    ref: str,
+    commit_id: str,
+    previous: str | None,
+) -> bool:
     lease = f"--force-with-lease={ref}:{previous or ''}"
-    return _git(repo, "push", "--porcelain", lease, _transport_remote(repo), f"{commit_id}:{ref}").returncode == 0
+    return _git(
+        repo,
+        "push",
+        "--porcelain",
+        lease,
+        endpoint,
+        f"{commit_id}:{ref}",
+    ).returncode == 0
 
 
 def _result(
@@ -807,8 +911,8 @@ def acquire(
     adopt_expired: bool = False,
 ) -> dict[str, Any] | None:
     """Return None for local-only repos, else one closed public outcome."""
-    eligibility = origin_upstream_eligibility(repo)
-    if eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
+    binding = upstream_binding(repo)
+    if binding.eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
         return None
     ref = claim_ref(entity, row)
     if not public_safe_plan_token(plan_token):
@@ -846,10 +950,17 @@ def acquire(
         winner=owner,
         failure=None,
     )
-    if eligibility is RemoteEligibility.UNKNOWN:
+    if binding.eligibility is RemoteEligibility.UNKNOWN:
         return _result(acquired, "error", winner=None, failure="ambiguous_remote")
+    assert binding.endpoint is not None
     tip = _remote_tip(
-        repo, ref=ref, entity=entity, row=row, project=project, plan_token=None
+        repo,
+        endpoint=binding.endpoint,
+        ref=ref,
+        entity=entity,
+        row=row,
+        project=project,
+        plan_token=None,
     )
     if tip is None:
         return _result(acquired, "error", winner=None, failure="ambiguous_remote")
@@ -868,10 +979,11 @@ def acquire(
         acquired["reason"] = "adopt"
     commit_id = _commit_receipt(repo, acquired, claimed_at, previous)
     if commit_id is not None:
-        if _push(repo, ref, commit_id, previous):
+        if _push(repo, binding.endpoint, ref, commit_id, previous):
             return acquired
     observed = _remote_tip(
         repo,
+        endpoint=binding.endpoint,
         ref=ref,
         entity=entity,
         row=row,
@@ -932,10 +1044,12 @@ def transition(
     recover_detached: bool = False,
 ) -> dict[str, Any] | None:
     """CAS one acquired journal tip to released/completed."""
-    eligibility = origin_upstream_eligibility(repo)
-    if eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
-        if not (recover_detached and _configured_origin_merge_refs(repo)):
-            return None
+    binding = upstream_binding(
+        repo,
+        recover_detached=recover_detached,
+    )
+    if binding.eligibility is RemoteEligibility.VERIFIED_LOCAL_ONLY:
+        return None
     if not public_safe_plan_token(plan_token):
         return _unsafe_plan_result(
             entity=entity, row=row, owner=owner, project=project,
@@ -948,17 +1062,34 @@ def transition(
         return_by=claim["return_by"], recovery=claim["recovery"], state=state,
         reason=reason, winner=owner, failure=None,
     )
-    if eligibility is RemoteEligibility.UNKNOWN:
+    if binding.eligibility is RemoteEligibility.UNKNOWN:
         return _result(desired, "error", winner=None, failure="ambiguous_remote")
-    tip = _remote_tip(repo, ref=ref, entity=entity, row=row, project=project)
+    assert binding.endpoint is not None
+    tip = _remote_tip(
+        repo,
+        endpoint=binding.endpoint,
+        ref=ref,
+        entity=entity,
+        row=row,
+        project=project,
+    )
     if tip is None:
         return _result(desired, "error", winner=None, failure="ambiguous_remote")
     previous, current = tip
     if not previous and current is None:
         commit_id = _commit_receipt(repo, desired, claim["claimed_at"])
-        if commit_id is not None and _push(repo, ref, commit_id, None):
+        if commit_id is not None and _push(
+            repo, binding.endpoint, ref, commit_id, None
+        ):
             return desired
-        observed = _remote_tip(repo, ref=ref, entity=entity, row=row, project=project)
+        observed = _remote_tip(
+            repo,
+            endpoint=binding.endpoint,
+            ref=ref,
+            entity=entity,
+            row=row,
+            project=project,
+        )
         if observed is not None and observed[1] == _journal(desired):
             return desired
         return _result(desired, "error", winner=None, failure="ambiguous_remote")
@@ -978,9 +1109,18 @@ def transition(
     if current["owner"] != owner or current["claim"] != desired["claim"]:
         return _result(desired, "lost", winner=current["owner"], failure="claim_changed")
     commit_id = _commit_receipt(repo, desired, claim["claimed_at"], previous)
-    if commit_id is not None and _push(repo, ref, commit_id, previous):
+    if commit_id is not None and _push(
+        repo, binding.endpoint, ref, commit_id, previous
+    ):
         return desired
-    observed = _remote_tip(repo, ref=ref, entity=entity, row=row, project=project)
+    observed = _remote_tip(
+        repo,
+        endpoint=binding.endpoint,
+        ref=ref,
+        entity=entity,
+        row=row,
+        project=project,
+    )
     if observed is not None and observed[1] == _journal(desired):
         return desired
     return _result(desired, "error", winner=None, failure="ambiguous_remote")

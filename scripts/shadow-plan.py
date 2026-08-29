@@ -253,7 +253,7 @@ def _map_git_context(plan: Path) -> tuple[Path, Path, str, str]:
         raise PlanStoreError("project-map migration requires one completely clean checkout")
     branch = _git_value(repo, "current branch", "symbolic-ref", "--quiet", "HEAD")
     head = _git_value(repo, "current HEAD", "rev-parse", "HEAD")
-    eligibility = remote_claim.origin_upstream_eligibility(repo)
+    eligibility = remote_claim.upstream_eligibility(repo)
     if eligibility is not remote_claim.RemoteEligibility.VERIFIED_LOCAL_ONLY:
         raise PlanStoreError(
             "project-map migration requires a verified local-only branch"

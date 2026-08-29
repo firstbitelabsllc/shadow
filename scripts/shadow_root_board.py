@@ -24,8 +24,9 @@ import stat
 import subprocess
 import tempfile
 from typing import Callable, Iterator
-from urllib.parse import unquote, urlsplit
 
+import shadow_git as _shadow_git
+import shadow_remote_claim as _remote_claim
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 import shadow_plan_grammar as _grammar
 import shadow_plan_store as _plan_store
@@ -181,10 +182,12 @@ def local_plan_for_repo(repo: Path, *, home: Path | None = None) -> Path | None:
         for entity in (snapshot(home=home) or {}).get("entities", [])
     }
     directories = [repo.name, local_plan_slug(repo.name)]
-    origin = _git(repo, "config", "--get", "remote.origin.url")
-    if origin.returncode == 0 and origin.stdout.strip():
-        identity = normalized_origin(origin.stdout.strip())
-        remote_name = identity.rstrip("/").rsplit("/", 1)[-1]
+    try:
+        identity = origin_of(repo)
+    except BoardError:
+        identity = ""
+    if identity:
+        remote_name = origin_repo_name(identity)
         if remote_name:
             directories.extend((remote_name, local_plan_slug(remote_name)))
     for directory in dict.fromkeys(directories):
@@ -215,9 +218,21 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
             text=True,
             timeout=GIT_TIMEOUT_SECONDS,
             check=False,
+            env=_shadow_git.sanitized_git_env(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return subprocess.CompletedProcess(command, 124, "", str(exc))
+
+
+def _optional_git_value(result: subprocess.CompletedProcess[str]) -> str | None:
+    if result.returncode == 1 and not result.stdout and not result.stderr:
+        return None
+    if result.returncode:
+        raise BoardError("project Git identity could not be read; retry when Git is available")
+    values = result.stdout.splitlines()
+    if len(values) != 1 or not values[0].strip():
+        raise BoardError("project Git identity could not be read; retry when Git is available")
+    return values[0].strip()
 
 
 def _git_bytes(
@@ -233,6 +248,7 @@ def _git_bytes(
             capture_output=True,
             timeout=GIT_TIMEOUT_SECONDS,
             check=False,
+            env=_shadow_git.sanitized_git_env(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return subprocess.CompletedProcess(command, 124, b"", str(exc).encode())
@@ -269,49 +285,11 @@ def well_formed_proof_origin(value: str) -> str:
 
 
 def normalized_origin(origin: str) -> str:
-    """Return one offline identity for common Git remote spellings."""
-    if not origin:
-        return ""
-    text = origin.strip()
-    if "://" in text:
-        parsed = urlsplit(text)
-        scheme = parsed.scheme.lower()
-        host = (parsed.hostname or "").lower()
-        try:
-            port = parsed.port
-        except ValueError:
-            port = None
-        if port == {"ssh": 22, "https": 443, "http": 80, "git": 9418}.get(scheme):
-            port = None
-        authority = host + (f":{port}" if port is not None else "")
-        path = parsed.path.rstrip("/").removesuffix(".git")
-        return authority + path
-    # SCP-style and local remotes are not URL-parsed, but query/fragment data
-    # is still never identity or display data. In particular, credential query
-    # parameters must not enter board ids, status, or browser JSON.
-    text = text.split("#", 1)[0].split("?", 1)[0]
-    text = text.rstrip("/").removesuffix(".git")
-    text = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", text)
-    text = re.sub(r"^[^/@]+@", "", text)
-    text = re.sub(r"^([^/:]+):(?!/)", r"\1/", text)
-    host, slash, path = text.partition("/")
-    return host.lower() + slash + path
+    return _shadow_git.normalized_origin(origin)
 
 
 def normalized_repo_origin(repo: Path, origin: str) -> str:
-    """Normalize a configured remote, resolving filesystem forms at the repo."""
-    raw = origin.strip()
-    if not raw:
-        return ""
-    if raw.lower().startswith("file://"):
-        parsed = urlsplit(raw)
-        return f"local-remote:{Path(unquote(parsed.path)).resolve()}"
-    if "://" in raw or re.match(r"^[^/@:]+@?[^/:]+:(?!/)", raw):
-        return normalized_origin(raw)
-    local = Path(raw).expanduser()
-    if not local.is_absolute():
-        local = repo / local
-    return f"local-remote:{local.resolve()}"
+    return _shadow_git.normalized_repo_origin(repo, origin)
 
 
 def regular_plan(plan: Path) -> bool:
@@ -646,53 +624,32 @@ def origin_of(repo: Path) -> str:
     if cache is not None and cache_key in cache.origins:
         return cache.origins[cache_key]
     marker = _git_marker(repo)
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        result = None
-    origin = (
-        normalized_repo_origin(repo, result.stdout.strip())
-        if result is not None and result.returncode == 0
-        else ""
+    if marker is None:
+        origin = str(repo)
+        if cache is not None:
+            cache.origins[cache_key] = origin
+        return origin
+    binding = _remote_claim.upstream_binding(
+        repo,
+        recover_detached=True,
     )
-    if not origin:
-        branch = subprocess.run(
-            ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
+    if binding.eligibility is _remote_claim.RemoteEligibility.UNKNOWN:
+        raise BoardError(
+            "project Git identity could not be read; retry when Git is available"
         )
-        remote = (
-            subprocess.run(
-                ["git", "-C", str(repo), "config", "--get", f"branch.{branch.stdout.strip()}.remote"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
+    origin = binding.public_identity
+    if origin is None:
+        try:
+            fallback = _remote_claim.remote_endpoint(
+                repo,
+                "origin",
+                missing_ok=True,
             )
-            if branch.returncode == 0 and branch.stdout.strip()
-            else None
-        )
-        upstream_url = (
-            subprocess.run(
-                ["git", "-C", str(repo), "config", "--get", f"remote.{remote.stdout.strip()}.url"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-            if remote is not None and remote.returncode == 0 and remote.stdout.strip()
-            else None
-        )
-        if upstream_url is not None and upstream_url.returncode == 0 and upstream_url.stdout.strip():
-            origin = normalized_repo_origin(repo, upstream_url.stdout.strip())
+        except _remote_claim.RemoteClaimError as exc:
+            raise BoardError(
+                "project Git identity could not be read; retry when Git is available"
+            ) from exc
+        origin = fallback[1] if fallback is not None else None
     if origin:
         if cache is not None:
             cache.origins[cache_key] = origin
@@ -700,30 +657,12 @@ def origin_of(repo: Path) -> str:
     # Linked worktrees share one common Git directory even when the repository
     # has no remote.  The checkout path does not: using it let two worktrees of
     # one local repository both claim the same logical row.
-    try:
-        common = subprocess.run(
-            [
-                "git", "-C", str(repo), "rev-parse", "--path-format=absolute",
-                "--git-common-dir",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        common = None
-    if common is not None and common.returncode == 0 and common.stdout.strip():
-        common_path = Path(common.stdout.strip())
-        if not common_path.is_absolute():
-            common_path = repo / common_path
-        origin = f"local-git:{common_path.resolve()}"
-        if cache is not None:
-            cache.origins[cache_key] = origin
-        return origin
-    if marker is not None:
+    common = _optional_git_value(
+        _git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    )
+    if common is None:
         raise BoardError("project Git identity could not be read; retry when Git is available")
-    origin = str(repo.resolve())
+    origin = _shadow_git.local_git_identity(repo, common)
     if cache is not None:
         cache.origins[cache_key] = origin
     return origin
@@ -771,17 +710,8 @@ def public_discovery_locator(identity: object, display: object) -> str:
 def public_plan_locator(plan: Path) -> str:
     """Return a stable human locator without exposing an absolute home path."""
     candidate = Path(os.path.abspath(plan))
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(candidate.parent), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        result = None
-    if result is None or result.returncode or not result.stdout.strip():
+    result = _git(candidate.parent, "rev-parse", "--show-toplevel")
+    if result.returncode or not result.stdout.strip():
         public = f"{candidate.parent.name}/PLAN.md"
         if SECRET_SHAPE_RE.search(public) or PRIVATE_PATH_RE.search(public):
             digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
@@ -916,15 +846,7 @@ def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     blob = _git(repo, "rev-parse", f"HEAD:{relative}")
     if head.returncode or blob.returncode:
         raise BoardError("entity plan is not present at the current Git HEAD")
-    try:
-        frozen = subprocess.run(
-            ["git", "-C", str(repo), "cat-file", "blob", blob.stdout.strip()],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise BoardError("entity plan HEAD bytes could not be frozen") from exc
+    frozen = _git_bytes(repo, "cat-file", "blob", blob.stdout.strip())
     if frozen.returncode:
         raise BoardError("entity plan HEAD bytes could not be frozen")
     head_after = _git(repo, "rev-parse", "HEAD")
@@ -959,14 +881,9 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
         raise BoardError("entity plan or its staged index changed; commit or restore it first")
     try:
         root_content = plan.read_bytes()
-        hashed = subprocess.run(
-            ["git", "-C", str(repo), "hash-object", "--stdin"],
-            input=root_content,
-            capture_output=True,
-            check=False,
-        )
     except OSError as exc:
         raise BoardError("entity plan bytes could not be frozen") from exc
+    hashed = _git_bytes(repo, "hash-object", "--stdin", content=root_content)
     if hashed.returncode or hashed.stdout.decode("ascii", errors="ignore").strip() != token["blob"]:
         raise BoardError("entity plan changed or is uncommitted; retry from one committed ref")
     head_after = _git(repo, "rev-parse", "HEAD")
@@ -1364,7 +1281,7 @@ def _write_and_commit(
             )
         ):
             raise BoardError("root board journal did not preserve the published value")
-    except BaseException as exc:
+    except BaseException:
         try:
             if path.read_bytes() != previous:
                 _write_bytes(path, previous)
@@ -1451,9 +1368,7 @@ def _initialize_git(root: Path) -> None:
     git_dir = root / ".git"
     if git_dir.is_symlink() or (git_dir.exists() and not git_dir.is_dir()):
         raise BoardError("root board Git directory must not be a symlink or file")
-    result = subprocess.run(
-        ["git", "init", "--quiet", str(root)], capture_output=True, text=True, check=False
-    )
+    result = _git(root, "init", "--quiet")
     if result.returncode:
         raise BoardError("root board Git repository could not be initialized")
     index_lock = git_dir / "index.lock"
@@ -2402,7 +2317,7 @@ def reconcile(
                 ) from exc
             try:
                 assert_hot_plan_budget(content)
-            except BoardError as exc:
+            except BoardError:
                 # Quarantine, never blank the board: the entity registers
                 # unhealthy and every claim and plan-write path still
                 # enforces the budget at its own gate.
@@ -2489,7 +2404,6 @@ def reconcile(
         assert_seed_witnesses()
         assert_retired_content()
         original_payload = json.loads(json.dumps(payload))
-        changed = False
         identity_index = _identity_index(payload)
         if registration_reference is not None and prepared[0]["id"] in identity_index:
             exact = [
@@ -2535,7 +2449,6 @@ def reconcile(
                 raise
             return json.loads(json.dumps(payload))
         prepared_by_id = {seed["id"]: seed for seed in prepared}
-        original_entities = json.loads(json.dumps(payload["entities"]))
         original_claims = json.loads(json.dumps(payload["claims"]))
 
         for seed in prepared:
@@ -2577,7 +2490,6 @@ def reconcile(
                 grouping = {"id": slug, "priority": priority}
                 payload["projects"].append(grouping)
                 project_by_id[slug] = grouping
-                changed = True
 
         for identity, aliases in identity_index.items():
             if identity in retired_ids:
@@ -2740,8 +2652,6 @@ def reconcile(
             )
         payload["entities"] = final_entities
         payload["claims"] = final_claims
-        if payload["entities"] != original_entities or payload["claims"] != original_claims:
-            changed = True
         by_id = {entity["id"]: entity for entity in payload["entities"]}
 
         import_ids = new_ids
@@ -2775,7 +2685,6 @@ def reconcile(
                         "recovery": RECOVERY_ACTION,
                     }
                 )
-                changed = True
         claims_by_entity: dict[str, set[str]] = {}
         for item in payload["claims"]:
             claims_by_entity.setdefault(item["entity"], set()).add(item["row"])
@@ -2792,14 +2701,12 @@ def reconcile(
             )
             if entity["resume"] != resume:
                 entity["resume"] = resume
-                changed = True
 
         used_projects = {entity["project"] for entity in payload["entities"]}
         if any(project["id"] not in used_projects for project in payload["projects"]):
             payload["projects"] = [
                 project for project in payload["projects"] if project["id"] in used_projects
             ]
-            changed = True
 
         payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
         payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
