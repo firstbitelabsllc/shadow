@@ -246,6 +246,59 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             board_api.normalized_origin("http://example.test/org/repo.git"),
         )
 
+    def test_one_repo_resolves_toplevel_and_head_once_per_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            child = repo / "plans" / "child"
+            child.mkdir(parents=True)
+            (child / "PLAN.md").write_text(
+                (repo / "PLAN.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            git(repo, "add", "plans")
+            git(repo, "commit", "--quiet", "-m", "child plan")
+
+            module = fresh_board_module("shadow_snapshot_cache_count")
+            calls: list[tuple[str, ...]] = []
+            real_git = module._git
+
+            def counting_git(git_root: Path, *args: str, **kwargs):
+                calls.append(args)
+                return real_git(git_root, *args, **kwargs)
+
+            module._git = counting_git
+            try:
+                with module.repository_identity_cache():
+                    first_token, first_bytes = module.head_plan_snapshot(
+                        repo / "PLAN.md", repo=repo
+                    )
+                    second_token, second_bytes = module.head_plan_snapshot(
+                        child / "PLAN.md", repo=repo
+                    )
+                    # No authenticated repo: the fallback still resolves it.
+                    module.head_plan_snapshot(repo / "PLAN.md")
+            finally:
+                module._git = real_git
+
+            self.assertEqual(first_bytes, second_bytes)
+            self.assertEqual(first_token["repo"], second_token["repo"])
+            self.assertEqual(first_token["head"], second_token["head"])
+            self.assertNotEqual(first_token["relative"], second_token["relative"])
+            toplevels = sum(
+                1 for args in calls if args[:2] == ("rev-parse", "--show-toplevel")
+            )
+            heads = sum(
+                1 for args in calls if args[:2] == ("rev-parse", "HEAD")
+            )
+            # The authenticated caller never re-resolves the repo; only the
+            # fallback call probes the toplevel, exactly once.
+            self.assertEqual(toplevels, 1, calls)
+            # First read memoized per repo; the post-read race-guard recheck
+            # stays a real probe on every call — three calls, three rechecks,
+            # plus the one memoized initial read. Uncached this is six.
+            self.assertEqual(heads, 4, calls)
+
     def test_a_plan_owned_origin_must_already_be_normalized(self) -> None:
 
         self.assertEqual(
