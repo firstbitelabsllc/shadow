@@ -5,13 +5,13 @@ import http.client
 import os
 from pathlib import Path
 import stat
-import subprocess
 import tempfile
 import threading
 import unittest
 from unittest import mock
 
 from browser import board_projection, server
+from tests.proc_fixture import git
 
 
 PLAN = """# Release notes
@@ -54,12 +54,6 @@ PLAN = """# Release notes
 
 - 2026-08-03: The bounded implementation is ready for a decision.
 """
-
-
-def git(repo: Path, *args: str) -> None:
-    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
-    if result.returncode:
-        raise AssertionError(result.stderr)
 
 
 class BrowserTests(unittest.TestCase):
