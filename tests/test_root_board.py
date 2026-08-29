@@ -5499,12 +5499,6 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
             self.assertEqual(payload["claims"], [before_claim])
 
 
-if __name__ == "__main__":
-
-
-    unittest.main()
-
-
 class BoundedDiscoveryNamesItsDuplicateSeeds(unittest.TestCase):
     """The duplicate-entity refusal must not fire on one plan seen twice.
 
@@ -5579,3 +5573,33 @@ class BoundedDiscoveryNamesItsDuplicateSeeds(unittest.TestCase):
             message = str(caught.exception)
             self.assertIn("duplicate logical entity", message)
             self.assertIn(str(a), message)
+
+
+class ReleaseStateSpeaksTheOneGrammar(unittest.TestCase):
+    def test_a_row_the_grammar_rejects_is_not_validated(self) -> None:
+        # Before the delegation, a hand-rolled twin accepted any "| ..." tail:
+        # release could validate a claim-return row that lint cannot see.
+        text = (
+            "# P\n\n## Tasks\n\n### M1 — live\n"
+            "- [pending] t ~aa11 | notafield\n"
+        )
+        with self.assertRaisesRegex(board_api.BoardError, "claim return row is missing"):
+            board_api._release_state(Path("plan.md"), "~aa11", "return", text=text)
+
+
+class LocatorNeverRaises(unittest.TestCase):
+    def test_a_transient_origin_read_degrades_to_the_digest_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp), name="repo")
+            with mock.patch.object(
+                board_api,
+                "origin_of",
+                side_effect=board_api.BoardError("identity unavailable"),
+            ):
+                locator = board_api.public_plan_locator(repo / "PLAN.md")
+            self.assertTrue(locator.startswith("repo@"), locator)
+            self.assertTrue(locator.endswith("/PLAN.md"), locator)
+
+
+if __name__ == "__main__":
+    unittest.main()
