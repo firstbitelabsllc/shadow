@@ -1006,6 +1006,30 @@ def discover_plans(
             instances.setdefault(
                 (origin, logical_relative), []).append(path)
 
+    # One git log per repo answers every plan's commit time; per-plan
+    # `git log -1` was the whole subprocess cost of a large reconcile.
+    # Registered pointers are stored resolved while discovered paths may not
+    # be — cover both forms, because the veto receipt dates each.
+    registered_paths = list(registered.values())
+    for repo in candidates:
+        resolved_repo = repo.resolve()
+        candidates_for_repo = list(plans_by_repo[repo]) + [
+            pointer
+            for pointer in registered_paths
+            if pointer.resolve().is_relative_to(resolved_repo)
+        ]
+        missing = [
+            path
+            for path in dict.fromkeys(candidates_for_repo)
+            if str(Path(os.path.abspath(path))) not in commit_dates
+        ]
+        if not missing:
+            continue
+        times = _root_board.plan_commit_times(repo, missing)
+        for path in missing:
+            key = str(Path(os.path.abspath(path)))
+            commit_dates[key] = (_plan_change_stamp(path), times.get(key))
+
     for repo in candidates:
         origin, prefix = identities[repo]
         for path in plans_by_repo[repo]:
