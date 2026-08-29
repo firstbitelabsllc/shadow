@@ -14,7 +14,7 @@ import re
 
 
 POLICY_VERSION = "shadow.execution-policy.v2"
-HOSTS = ("claude-code", "codex", "cursor", "grok")
+HOSTS = ("claude-code", "codex", "cursor", "grok", "zai")
 WORK_CLASSES = ("planning", "coding", "review", "lightweight")
 DELEGATION_MODES = ("direct", "required")
 
@@ -23,6 +23,7 @@ _DELEGATION_CAPABILITIES = {
     "codex": "multi_agent",
     "cursor": None,
     "grok": "spawn_subagent",
+    "zai": None,
 }
 
 
@@ -123,6 +124,20 @@ _ROUTES = {
     ("grok", "lightweight"): _route(
         "grok", "lightweight", "grok-4.5", r"grok-4\.5(?:-build)?", "only lower Grok tier exposed"
     ),
+    # Z.AI currently exposes GLM-5.3-Flash as the volume coding lane. The
+    # policy names that one model instead of inventing a richer roster.
+    ("zai", "planning"): _route(
+        "zai", "planning", "zai/glm-5.3-flash", r"zai/glm-5\.3-flash|glm-5\.3-flash", "GLM-5.3-Flash volume planning"
+    ),
+    ("zai", "coding"): _route(
+        "zai", "coding", "zai/glm-5.3-flash", r"zai/glm-5\.3-flash|glm-5\.3-flash", "GLM-5.3-Flash volume implementation"
+    ),
+    ("zai", "review"): _route(
+        "zai", "review", "zai/glm-5.3-flash", r"zai/glm-5\.3-flash|glm-5\.3-flash", "GLM-5.3-Flash volume review"
+    ),
+    ("zai", "lightweight"): _route(
+        "zai", "lightweight", "zai/glm-5.3-flash", r"zai/glm-5\.3-flash|glm-5\.3-flash", "GLM-5.3-Flash volume lane"
+    ),
 }
 
 
@@ -149,6 +164,11 @@ def delegation_capability(host: str, mode: str) -> str | None:
         raise ExecutionPolicyError(f"unsupported delegation mode: {mode}")
     capability = _DELEGATION_CAPABILITIES[host]
     if mode == "required" and capability is None:
+        if host == "zai":
+            raise ExecutionPolicyError(
+                "zai has no verified structured native-child capability; "
+                "wake when OpenCode exposes observable child lineage"
+            )
         raise ExecutionPolicyError(
             "cursor has no verified structured native-child capability; "
             "wake when Cursor CLI exposes observable child lineage"
