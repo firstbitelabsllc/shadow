@@ -86,7 +86,7 @@ That text never changes; only what the plans point at does.
 Use the active host directly for normal work. For each claimed handoff, use:
 
 ```bash
-shadow host run --host codex|claude-code|cursor|grok \
+shadow host run --host codex|claude-code|cursor|grok|zai \
   --work-class planning|coding|review|lightweight \
   --delegation direct|required \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \
@@ -94,12 +94,16 @@ shadow host run --host codex|claude-code|cursor|grok \
   --out <project>/.shadow/evidence/<id>.json
 ```
 
+When `~/.shadow/host-defaults.json` names a sealed host, work_class, and
+delegation triple, those three flags may be omitted. Explicit flags still win.
+Do not ask the person to type the defaulted flags.
+
 The task file is frozen, the worktree must be clean, allowed paths are exact,
 and the host must emit a scoped receipt with passing tests. The lead chooses
 the host, semantic work class, and explicit execution shape; Shadow
 deterministically supplies that pair's native model selector and enables or
-disables the verified native child door. `required` fails closed on Cursor
-until its headless CLI exposes observable child lineage. The host CLI still
+disables the verified native child door. `required` fails closed on Cursor and Z.AI
+until those headless CLIs expose observable child lineage. The host CLI still
 owns authentication, account choice, quota, and provider execution. Requested
 model and observed model are distinct: the private attempt records the former,
 while observed-model and child-lineage proof require the owner-local gauntlet
@@ -215,7 +219,7 @@ around which provider a native host uses.
 Shadow owns a single product identity and one authority hierarchy: the
 per-computer root board for coordination, entity `PLAN.md` files for milestone
 and checkpoint detail/proof, and project-local evidence paths. Native Codex,
-Claude Code, Cursor, and Grok own model authentication and execution. Shadow's
+Claude Code, Cursor, Grok, and Z.AI own model authentication and execution. Shadow's
 four semantic work classes plus `direct|required` are a deterministic execution
 policy, not a prompt classifier or scheduler. Do not add a router, daemon, scheduler, cloud
 executor, credential relay, transcript store,
