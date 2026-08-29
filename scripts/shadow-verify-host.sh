@@ -386,27 +386,40 @@ elif [[ "${HOST}" == "cursor" ]]; then
   ok "the Cursor repository root exposes source-controlled ${CURSOR_INSTRUCTION}"
 elif [[ ! -f "${DIRECTIVE}" ]]; then
   bad "no instruction file — run: shadow goal --install"
-elif ! "${ROOT}/bin/shadow" goal | head -1 | grep -qF "$(head -1 <("${ROOT}/bin/shadow" goal))" 2>/dev/null; then
-  bad "could not read the standing goal from this checkout"
 else
-  anchor="$("${ROOT}/bin/shadow" goal | head -1)"
-  copies="$(grep -cF "${anchor}" "${DIRECTIVE}" || true)"
-  if [[ "${copies}" -eq 0 ]]; then
-    bad "the standing goal is not in this host's instruction file — run: shadow goal --install"
-  elif [[ "${copies}" -gt 1 ]]; then
-    bad "${copies} copies of the standing goal — the host reads the first one"
-  elif "${ROOT}/bin/shadow" goal | grep -qF "$(sed -n '1p' <("${ROOT}/bin/shadow" goal))" && \
-       python3 - "${DIRECTIVE}" "${ROOT}" <<'PY'
-import subprocess, sys
-directive, root = sys.argv[1], sys.argv[2]
-block = subprocess.run([f"{root}/bin/shadow", "goal"], capture_output=True, text=True).stdout.strip()
-sys.exit(0 if block and block in open(directive, encoding="utf-8").read() else 1)
+  # `shadow doctor` owns the authoritative comparison; verify reports the
+  # same fact per host through the same importlib door steps 1-2 use, so the
+  # two can never rule opposite ways on one file again.
+  GOAL_VERDICT="$(python3 - "${HOST}" "${ROOT}" <<'PY' 2>&1
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+host, root = sys.argv[1], Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location(
+    "shadow_doctor_verify_goal",
+    root / "scripts" / "shadow-doctor.py",
+)
+if spec is None or spec.loader is None:
+    raise SystemExit("doctor module is unavailable")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+for item in module.host_goal_checks():
+    if item["name"] == f"standing goal: {host}":
+        print(json.dumps({"state": item["state"], "detail": item["detail"]}))
+        break
+else:
+    print(json.dumps({"state": "fail", "detail": f"doctor does not cover host {host}"}))
 PY
-  then
-    ok "the standing goal is present and current"
-  else
-    bad "the standing goal is stale — run: shadow goal --install"
-  fi
+)"
+  goal_state="$(printf '%s' "${GOAL_VERDICT}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
+  goal_detail="$(printf '%s' "${GOAL_VERDICT}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["detail"])')"
+  case "${goal_state}" in
+    pass) ok "${goal_detail}" ;;
+    warn) warn "${goal_detail}" ;;
+    *) bad "${goal_detail}" ;;
+  esac
 fi
 
 # 5. The command a cold session actually reaches. A session types `shadow`, so
