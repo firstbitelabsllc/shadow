@@ -26,6 +26,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
 
 
@@ -89,6 +90,7 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or "Git command failed"
@@ -101,6 +103,7 @@ def git_bytes(repo: Path, *args: str) -> bytes:
         ["git", "-C", str(repo), *args],
         capture_output=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode:
         detail = result.stderr.decode("utf-8", "replace").strip() or "Git command failed"
@@ -978,6 +981,7 @@ def optional_index_bytes(repo: Path, relative: Path) -> bytes | None:
     result = subprocess.run(
         ["git", "-C", str(repo), "show", f":{relative.as_posix()}"],
         capture_output=True,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if result.returncode == 0:
@@ -1555,6 +1559,7 @@ def ref_contains(repo: Path, head: str, reference: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode:
         raise LifecycleError("retirement target head is not recoverable from its declared ref")
@@ -1575,6 +1580,7 @@ def target_branch(target: Path) -> str | None:
         capture_output=True,
         text=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode == 0:
         return result.stdout.strip()
@@ -2626,6 +2632,7 @@ def _rollback_archive_apply(
         ["git", "-C", str(repo), "reset", "--quiet", "HEAD", "--", *reset_paths],
         capture_output=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if not parent_existed:
         try:
@@ -2720,7 +2727,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.apply and not args.by:
             raise LifecycleError("--apply requires --by for the successor claim")
         if args.by:
-            _board.validate_owner(args.by)
+            try:
+                _board.validate_owner(args.by)
+            except _board.BoardError as exc:
+                raise LifecycleError(f"--by is unsafe: {exc}") from exc
         repo = args.repo or Path.cwd()
         if args.progress_before:
             report = (
