@@ -99,6 +99,34 @@ class ThrowRefusesAmbiguousWork(unittest.TestCase):
             self.assertEqual(proofless.returncode, 1)
             self.assertIn("has no proof", proofless.stderr)
 
+    def test_a_git_redirect_cannot_launder_a_dirty_plan(self) -> None:
+        # The verb's own probes must read the plan's real repository: with an
+        # ambient GIT_DIR/GIT_WORK_TREE pointing at a clean repo, a dirty plan
+        # used to pass validation and claim against state nobody reviewed.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            (repo / "PLAN.md").write_text(PLAN + "\nunsafe edit\n", encoding="utf-8")
+            clean = Path(tmp) / "clean"
+            clean.mkdir()
+            subprocess.run(["git", "init", "-q", str(clean)], check=True)
+            subprocess.run(["git", "-C", str(clean), "config", "user.email", "t@t"], check=True)
+            subprocess.run(["git", "-C", str(clean), "config", "user.name", "t"], check=True)
+            # The decoy must be genuinely clean for this path: a committed,
+            # unmodified PLAN.md — anything less trips the same error for the
+            # wrong reason and cannot tell the mechanisms apart.
+            (clean / "PLAN.md").write_text("# decoy\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(clean), "add", "PLAN.md"], check=True)
+            subprocess.run(["git", "-C", str(clean), "commit", "-qm", "decoy"], check=True)
+            redirected = {
+                **env,
+                "GIT_DIR": str(clean / ".git"),
+                "GIT_WORK_TREE": str(clean),
+            }
+            result = run(THROW, repo, redirected, "--task", "~bb22", "--by", "seat-a")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("uncommitted changes", result.stderr)
+            self.assertFalse((home / ".shadow").exists())
+
     def test_dirty_or_conflicted_plan_refuses_before_the_board_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))
