@@ -848,12 +848,23 @@ def board_in_flight(payload: dict) -> list[dict]:
 def render_in_flight(rows: list[dict]) -> str:
     if not rows:
         return "Nothing in flight on this machine.\n"
+    # Discovery-failure placeholders are not in-flight work: nobody claimed
+    # them, they are the remote being unreadable. Count real rows and say the
+    # rest plainly, or "hand-claimed" labels a claim that never happened.
+    claimed = [row for row in rows if row["milestone"] != "remote claim discovery"]
+    failed = len(rows) - len(claimed)
     projects = sorted({r["project"] for r in rows})
-    out = [f"{len(rows)} row(s) in flight across {len(projects)} project(s):", ""]
+    header = f"{len(claimed)} row(s) in flight across {len(projects)} project(s)"
+    if failed:
+        header += f"; {failed} remote claim discovery failure(s)"
+    out = [header + ":", ""]
     for project in projects:
         out.append(project)
         for row in [r for r in rows if r["project"] == project]:
-            kind = f"thrown {row['thrown_at']}" if row["dispatched"] else "hand-claimed (no THROWN line)"
+            if row["milestone"] == "remote claim discovery" and not row["dispatched"]:
+                kind = "discovery failed"
+            else:
+                kind = f"thrown {row['thrown_at']}" if row["dispatched"] else "hand-claimed (no THROWN line)"
             # Who to talk to. With several leads on one plan this is the
             # difference between "someone has this" and a name you can address.
             if row.get("by"):
