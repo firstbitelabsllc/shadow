@@ -1339,6 +1339,29 @@ class CleanupIsDryRunFirstAndIdempotent(unittest.TestCase):
                 lifecycle._board.read_plan_text(entity / "PLAN.md"),
             )
 
+    def test_reinspecting_a_partitioned_archive_reports_already_archived(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname))
+            source = (repo / "PLAN.md").read_bytes()
+            install_plan_tree(repo, source)
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "--quiet", "-m", "partition plan")
+
+            _, preview, cas = preview_cas(repo, "--milestone", "Finished work")
+            result, report, _ = apply_with_cas(
+                repo,
+                "--milestone",
+                "Finished work",
+                cas=cas,
+            )
+            self.assertEqual(result.returncode, 0, (result.stderr, report))
+            self.assertEqual(report["action"], "archived")
+
+            # Hooke's repro: the milestone twin's own immutability re-check
+            # rejected the legitimate PLAN.d members of the archive commit.
+            inspection, _ = lifecycle.inspect(repo, "Finished work")
+            self.assertTrue(inspection["ok"], inspection)
+
     def test_apply_commits_a_partitioned_plan_root_objects_and_archive_together(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo = make_repo(Path(dirname))
