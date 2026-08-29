@@ -3,14 +3,17 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Any, Final
+from typing import Any, Final, Iterator
 
 import shadow_git as _shadow_git
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
@@ -248,12 +251,51 @@ def _configured_upstream_binding(
         return UNKNOWN
 
 
+_BINDING_MEMO: ContextVar[dict[tuple[str, bool], UpstreamBinding] | None] = (
+    ContextVar("shadow_remote_claim_binding_memo", default=None)
+)
+
+
+@contextmanager
+def upstream_binding_cache() -> Iterator[None]:
+    """Memoize verified bindings within one bounded, explicit pass.
+
+    No claim mutation path enters this scope: acquire/transition always binds
+    fresh at call time, so a mid-flight config edit can never be masked by a
+    memoized endpoint. Status and reconcile passes opt in per invocation, so
+    N entities in one repository pay one resolution instead of N."""
+    token = _BINDING_MEMO.set({})
+    try:
+        yield
+    finally:
+        _BINDING_MEMO.reset(token)
+
+
 def upstream_binding(
     repo: Path,
     *,
     recover_detached: bool = False,
 ) -> UpstreamBinding:
     """Bind eligibility and transport to one verified repository endpoint."""
+    memo = _BINDING_MEMO.get()
+    if memo is None:
+        return _upstream_binding_uncached(repo, recover_detached=recover_detached)
+    key = (str(Path(os.path.abspath(repo)).resolve()), recover_detached)
+    if key not in memo:
+        result = _upstream_binding_uncached(repo, recover_detached=recover_detached)
+        # UNKNOWN means "could not read; retry" — never memoize a transient
+        # probe failure where its peer's fresh probe would have succeeded.
+        if result.eligibility is not RemoteEligibility.UNKNOWN:
+            memo[key] = result
+        return result
+    return memo[key]
+
+
+def _upstream_binding_uncached(
+    repo: Path,
+    *,
+    recover_detached: bool = False,
+) -> UpstreamBinding:
     branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD")
     if _missing_git_value(branch):
         return _configured_upstream_binding(repo) if recover_detached else LOCAL_ONLY

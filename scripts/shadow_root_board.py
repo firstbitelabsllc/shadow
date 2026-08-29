@@ -90,7 +90,8 @@ def repository_identity_cache() -> Iterator[None]:
     """Reuse immutable Git identity metadata within one reconciliation pass."""
     token = _REPOSITORY_IDENTITIES.set(_RepositoryIdentityCache())
     try:
-        yield
+        with _remote_claim.upstream_binding_cache():
+            yield
     finally:
         _REPOSITORY_IDENTITIES.reset(token)
 
