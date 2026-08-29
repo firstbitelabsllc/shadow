@@ -88,10 +88,29 @@ class ReadbackGateTests(unittest.TestCase):
 
     def run_gauntlet(self) -> int:
         fake_job = ["-c", "print('ok')"]
-        with mock.patch.dict(os.environ, self.env, clear=False), mock.patch.object(
-            gauntlet, "JOBS", {"fake": fake_job}
+        # Ambient SHADOW_LANGFUSE_* from the operator's real opt-in must never
+        # leak into the fake harness: a leftover READBACK_URL/PROJECT_ID would
+        # point readback at the real ClickHouse and turn every fake job red.
+        scrubbed = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("SHADOW_LANGFUSE")
+        }
+        with (
+            mock.patch.dict(os.environ, {**scrubbed, **self.env}, clear=True),
+            mock.patch.object(gauntlet, "JOBS", {"fake": fake_job}),
         ):
             return gauntlet.main(["--jobs", "fake"])
+
+    def test_ambient_operator_env_cannot_leak_into_the_fake_harness(self) -> None:
+        leaked = {
+            "SHADOW_LANGFUSE_READBACK_URL": "http://localhost:8123",
+            "SHADOW_LANGFUSE_PROJECT_ID": "shadow-observability",
+            "SHADOW_LANGFUSE_READBACK_USER": "clickhouse",
+            "SHADOW_LANGFUSE_READBACK_PASSWORD": "clickhouse",
+        }
+        with mock.patch.dict(os.environ, leaked, clear=False):
+            self.assertEqual(self.run_gauntlet(), 0)
 
     def test_delivered_and_read_back_exits_zero(self) -> None:
         self.assertEqual(self.run_gauntlet(), 0)
