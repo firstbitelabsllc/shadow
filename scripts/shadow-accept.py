@@ -130,7 +130,6 @@ PROPOSAL_ATTEMPT_FIELDS = {
 }
 
 
-_shell_script_index = _grammar.shell_script_index
 _shell_operators = _grammar.shell_operators
 
 

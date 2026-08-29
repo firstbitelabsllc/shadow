@@ -712,16 +712,33 @@ def public_discovery_locator(identity: object, display: object) -> str:
 
 
 def public_plan_locator(plan: Path) -> str:
-    """Return a stable human locator without exposing an absolute home path."""
+    """Return a stable human locator without exposing an absolute home path.
+
+    The repo resolution rides the same per-pass identity cache as
+    plan_identity_parts; status used to pay one toplevel probe per entity.
+    Unlike plan_identity_parts this locator never raises: an unreadable
+    probe falls back to the display form below.
+    """
     candidate = Path(os.path.abspath(plan))
-    result = _git(candidate.parent, "rev-parse", "--show-toplevel")
-    if result.returncode or not result.stdout.strip():
-        public = f"{candidate.parent.name}/PLAN.md"
-        if SECRET_SHAPE_RE.search(public) or PRIVATE_PATH_RE.search(public):
-            digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
-            return f"entity@{digest}/PLAN.md"
-        return public
-    repo = Path(result.stdout.strip()).resolve()
+    cache = _REPOSITORY_IDENTITIES.get()
+    marker = _git_marker(candidate.parent)
+    marker_key = str(Path(os.path.abspath(marker))) if marker is not None else None
+    repo = (
+        cache.repositories.get(marker_key)
+        if cache is not None and marker_key is not None
+        else None
+    )
+    if repo is None:
+        result = _git(candidate.parent, "rev-parse", "--show-toplevel")
+        if result.returncode or not result.stdout.strip():
+            public = f"{candidate.parent.name}/PLAN.md"
+            if SECRET_SHAPE_RE.search(public) or PRIVATE_PATH_RE.search(public):
+                digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
+                return f"entity@{digest}/PLAN.md"
+            return public
+        repo = Path(result.stdout.strip()).resolve()
+        if cache is not None and marker_key is not None:
+            cache.repositories[marker_key] = repo
     try:
         relative = candidate.relative_to(repo).as_posix()
     except ValueError:
