@@ -19,3 +19,11 @@ def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
     if result.returncode:
         raise AssertionError(result.stderr)
     return result.stdout.strip()
+
+
+def example_json(relative: str) -> dict:
+    """Load one checked-in example document from the repository examples tree."""
+    import json
+
+    root = Path(__file__).resolve().parents[1]
+    return json.loads((root / "examples" / relative).read_text(encoding="utf-8"))
