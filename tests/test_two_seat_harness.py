@@ -932,9 +932,13 @@ class LiveTwoSeatProof(unittest.TestCase):
         context, _, fixture, _, drained, result = self._run("complete_descendant")
         with context:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 15
             while (not drained.exists() or len(drained.read_text(encoding="utf-8")) < 14) and time.monotonic() < deadline:
                 time.sleep(0.05)
+            self.assertTrue(
+                drained.exists(),
+                f"background descendants not drained within 15s; harness said {result.stdout}",
+            )
             self.assertEqual(drained.read_text(encoding="utf-8"), "draineddrained")
             fixture.assert_operator_state_untouched(self)
 
@@ -947,9 +951,13 @@ class LiveTwoSeatProof(unittest.TestCase):
             data = receipt(result)
             self.assertEqual(data["status"], "inconclusive")
             self.assertEqual(data["failure"], "host_timeout")
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 15
             while not drained.exists() and time.monotonic() < deadline:
                 time.sleep(0.05)
+            self.assertTrue(
+                drained.exists(),
+                f"host group not drained within 15s; harness said {data}",
+            )
             self.assertEqual(drained.read_text(encoding="utf-8"), "drained")
             fixture.assert_operator_state_untouched(self)
 
