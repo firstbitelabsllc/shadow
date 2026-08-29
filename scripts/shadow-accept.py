@@ -98,13 +98,14 @@ OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
 )
 LOCAL_SOURCE_RECEIPT_CUTOVER = "2026-08-28T04:29:56Z"
 PROOF_RESULT_SCHEMA = "shadow.proof-result.v1"
-PROOF_MARKER_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,79}")
-PROOF_FLOOR_RE = re.compile(r"[1-9][0-9]{0,8}")
-PROPOSAL_ATTEMPT_MAX_BYTES = 64 * 1024
+PROOF_MARKER_RE = _grammar.PROOF_MARKER_RE
+PROOF_FLOOR_RE = _grammar.PROOF_FLOOR_RE
+PROPOSAL_ATTEMPT_MAX_BYTES = _host.MAX_ATTEMPT_BYTES
 PROPOSAL_ATTEMPT_FIELDS = {
     "schema",
     "revision",
     "host",
+    "authority_proposal_mode",
     "execution_policy",
     "task_id",
     "task_sha256",
@@ -232,6 +233,8 @@ def load_authority_proposal(repo: Path, supplied: Path) -> dict[str, object]:
         raise AcceptError("proposal attempt schema is invalid")
     if raw.get("host") != "codex":
         raise AcceptError("proposal acceptance supports sealed Codex attempts only")
+    if raw.get("authority_proposal_mode") is not True:
+        raise AcceptError("proposal attempt did not use explicit authority proposal mode")
     policy = raw.get("execution_policy")
     if (
         not isinstance(policy, dict)
@@ -1101,13 +1104,28 @@ def completed_proof_review(
 
 
 def require_clean_source_checkout(repo: Path) -> None:
+    try:
+        _host.local_state_snapshot(repo)
+    except _host.HostError as exc:
+        raise AcceptError(
+            "proposal acceptance requires one clean committed source checkout"
+        ) from exc
     status = git_completed(
         repo,
         "status",
         "--porcelain=v1",
         "--untracked-files=all",
+        "--ignored=traditional",
     )
-    if status.returncode or status.stdout.strip():
+    dirt = [
+        line
+        for line in status.stdout.splitlines()
+        if not (
+            line[:2] in {"??", "!!"}
+            and line[3:].startswith(".shadow/evidence/")
+        )
+    ]
+    if status.returncode or dirt:
         raise AcceptError(
             "proposal acceptance requires one clean committed source checkout"
         )

@@ -210,13 +210,28 @@ sealed Codex workspace-write attempt below the source checkout's
 text, a marker, a floor, receipts, timestamps, source identity, or authority
 edits.
 
+Proposal acceptance is a two-pass flow. A worker changes source files first;
+the lead reviews and commits them; then a clean, no-change Codex attempt emits
+the proposal bound to that committed `HEAD`. The second pass uses explicit
+`shadow host run --authority-proposal` mode, accepts no source write paths,
+requires the default Codex executable, and rejects source `HEAD`, Git config,
+ref, hook, index, or exclude drift. The untracked attempt itself may remain
+beneath `.shadow/evidence/`; tracked modifications and all other source dirt
+are refused.
+
 Shadow reads the proof command, marker, floor, dependencies, contradiction
 state, and claim only from the canonical plan. The proof must exit zero and
 emit exactly one `shadow.proof-result.v1` object whose `result` is `pass`, whose
 marker exactly matches the row, and whose integer `executed` value meets the
 row's floor. Shadow binds and rechecks the entity, row, owner, claim, plan root,
 and source `HEAD` before publishing the completion and releasing the claim.
+The proof runs with an isolated temporary `HOME`, so it must be deterministic
+and cannot depend on home-scoped credentials.
 Failure restores the exact prior plan root and object store.
+
+The canonical `cmd` proof remains trusted source code selected from authority.
+Proposal acceptance separates an untrusted worker request from that proof; it
+does not turn an arbitrary malicious proof command into safe code.
 
 Proposal-enabled rows cannot fall back to legacy acceptance. Git-backed
 authority, non-Codex hosts, and `read` or `gate` proofs do not support

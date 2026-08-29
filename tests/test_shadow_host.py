@@ -31,6 +31,7 @@ SPEC.loader.exec_module(shadow_host)
 FAKE_HOST = r'''#!/usr/bin/env python3
 import json
 import pathlib
+import subprocess
 import sys
 
 if "--version" in sys.argv:
@@ -38,6 +39,7 @@ if "--version" in sys.argv:
     raise SystemExit(0)
 
 mode = pathlib.Path(__file__).with_suffix(".mode").read_text().strip() if pathlib.Path(__file__).with_suffix(".mode").exists() else "ok"
+proposal_path = pathlib.Path(__file__).with_suffix(".proposal.json")
 capture = pathlib.Path(__file__).with_suffix(".argv.json")
 capture.write_text(json.dumps(sys.argv), encoding="utf-8")
 if mode == "ok":
@@ -69,8 +71,9 @@ if mode != "missing":
         receipt["tests"] = [{"name": "private-model-marker", "status": "pass"}]
     elif mode == "unsafe-test":
         receipt["tests"] = [{"name": "fake-test", "status": "pass", "extra": "private-model-marker"}]
-    elif mode == "proposal":
-        receipt["authority_proposal"] = {
+    elif mode in {"proposal", "oversized-proposal"}:
+        receipt["changed_paths"] = []
+        receipt["authority_proposal"] = json.loads(proposal_path.read_text()) if proposal_path.exists() else {
             "schema": "shadow.authority-proposal.v1",
             "entity_id": "a" * 64,
             "row_id": "~a502",
@@ -81,6 +84,35 @@ if mode != "missing":
             },
             "request": {"transition": "complete"},
         }
+        if mode == "oversized-proposal":
+            receipt["tests"] = [
+                {"name": f"bounded-test-{index:04d}", "status": "pass"}
+                for index in range(1100)
+            ]
+    elif mode == "proposal-commit":
+        repo = pathlib.Path(sys.argv[sys.argv.index("-C") + 1])
+        (repo / "proof.py").write_text("print('compromised')\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "proof.py"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-qm", "rewrite proof"],
+            check=True,
+            capture_output=True,
+        )
+        receipt["changed_paths"] = []
+        receipt["authority_proposal"] = json.loads(proposal_path.read_text())
+    elif mode == "proposal-config":
+        repo = pathlib.Path(sys.argv[sys.argv.index("-C") + 1])
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "shadow.proposal-mutant", "true"],
+            check=True,
+            capture_output=True,
+        )
+        receipt["changed_paths"] = []
+        receipt["authority_proposal"] = json.loads(proposal_path.read_text())
     print(json.dumps(receipt))
     print("```")
 '''
@@ -106,11 +138,21 @@ def make_repo(root: Path, *, ignore_evidence: bool = True) -> Path:
     return repo
 
 
-def make_host(root: Path, mode: str = "ok") -> Path:
+def make_host(
+    root: Path,
+    mode: str = "ok",
+    *,
+    proposal: dict[str, object] | None = None,
+) -> Path:
     path = root / "fake-host"
     path.write_text(FAKE_HOST, encoding="utf-8")
     path.chmod(0o755)
     path.with_suffix(".mode").write_text(mode, encoding="utf-8")
+    if proposal is not None:
+        path.with_suffix(".proposal.json").write_text(
+            json.dumps(proposal, sort_keys=True),
+            encoding="utf-8",
+        )
     return path
 
 
@@ -125,6 +167,7 @@ def run_host(
     *,
     host: str = "cursor",
     force: bool = False,
+    authority_proposal: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -136,23 +179,49 @@ def run_host(
         "coding",
         "--delegation",
         "direct",
-        "--binary",
-        str(binary),
         "--repo",
         str(repo),
         "--task-file",
         str(task),
         "--task-id",
         "add-proof",
-        "--allowed-path",
-        "result.txt",
         "--out",
         str(output),
         "--json",
     ]
+    environment = os.environ.copy()
+    if authority_proposal:
+        bin_dir = binary.parent / ".proposal-bin"
+        bin_dir.mkdir(exist_ok=True)
+        codex = bin_dir / "codex"
+        codex.unlink(missing_ok=True)
+        codex.symlink_to(binary)
+        for suffix in (".mode", ".proposal.json"):
+            source = binary.with_suffix(suffix)
+            destination = codex.with_suffix(suffix)
+            destination.unlink(missing_ok=True)
+            if source.exists():
+                destination.symlink_to(source)
+        environment["PATH"] = f"{bin_dir}{os.pathsep}{environment.get('PATH', '')}"
+        command.append("--authority-proposal")
+    else:
+        command.extend(
+            [
+                "--binary",
+                str(binary),
+                "--allowed-path",
+                "result.txt",
+            ]
+        )
     if force:
         command.append("--force")
-    return subprocess.run(command, capture_output=True, text=True, check=False)
+    return subprocess.run(
+        command,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 class ShadowHostTests(unittest.TestCase):
@@ -378,12 +447,27 @@ class ShadowHostTests(unittest.TestCase):
         self.assertIn("with status `blocked`", prompt)
         self.assertIn("`proof_ref`: null", prompt)
         self.assertIn("Do not invoke a child agent", prompt)
+        self.assertNotIn("shadow.authority-proposal.v1", prompt)
 
         required = shadow_host.host_prompt(
             task, "bounded-task", ["result.txt"], digest, "required"
         )
         self.assertIn("Invoke one native child agent", required)
         self.assertIn("Do not merely claim", required)
+        self.assertNotIn("shadow.authority-proposal.v1", required)
+
+        proposal = shadow_host.host_prompt(
+            task,
+            "bounded-task",
+            [],
+            digest,
+            "direct",
+            authority_proposal=True,
+        )
+        self.assertIn("shadow.authority-proposal.v1", proposal)
+        self.assertIn("second, no-change pass", proposal)
+        self.assertIn('"changed_paths":[]', proposal)
+        self.assertIn("none; this proposal pass", proposal)
 
     def test_echoing_the_prompt_example_cannot_satisfy_the_real_receipt(self) -> None:
         task = "Change the bounded file."
@@ -394,7 +478,12 @@ class ShadowHostTests(unittest.TestCase):
 
         example = shadow_host.extract_host_receipt([prompt])
         with self.assertRaises(shadow_host.HostError) as raised:
-            shadow_host.validate_host_receipt(example, "bounded-task", ["result.txt"])
+            shadow_host.validate_host_receipt(
+                example,
+                "bounded-task",
+                ["result.txt"],
+                "codex",
+            )
         self.assertEqual(raised.exception.kind, "host_receipt_invalid")
 
     def test_attempt_receipt_fsyncs_its_file_and_parent_directory(self) -> None:
@@ -431,7 +520,12 @@ class ShadowHostTests(unittest.TestCase):
                 else:
                     raw["tests"][0]["name"] = value
                 with self.assertRaises(shadow_host.HostError) as raised:
-                    shadow_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
+                    shadow_host.validate_host_receipt(
+                        raw,
+                        "audit-task",
+                        ["result.txt"],
+                        "cursor",
+                    )
                 self.assertEqual(raised.exception.kind, "host_receipt_invalid")
 
     def test_receipt_rejects_unknown_test_fields_and_status(self) -> None:
@@ -451,8 +545,140 @@ class ShadowHostTests(unittest.TestCase):
             with self.subTest(test=test):
                 raw = {**base, "tests": [test]}
                 with self.assertRaises(shadow_host.HostError) as raised:
-                    shadow_host.validate_host_receipt(raw, "audit-task", ["result.txt"])
+                    shadow_host.validate_host_receipt(
+                        raw,
+                        "audit-task",
+                        ["result.txt"],
+                        "cursor",
+                    )
                 self.assertEqual(raised.exception.kind, "host_receipt_invalid")
+
+    def test_oversized_successful_proposal_becomes_a_bounded_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root, ignore_evidence=False)
+            binary = make_host(root, mode="oversized-proposal")
+            task = root / "task.txt"
+            task.write_text("Return the bounded proposal.\n", encoding="utf-8")
+            output = repo / ".shadow" / "evidence" / "attempt.json"
+
+            result = run_host(
+                repo,
+                binary,
+                task,
+                output,
+                host="codex",
+                authority_proposal=True,
+            )
+            raw = output.read_bytes()
+            payload = json.loads(raw)
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertLessEqual(len(raw), shadow_host.MAX_ATTEMPT_BYTES)
+        self.assertEqual(payload["status"], "failed")
+        self.assertIsNone(payload["proof_ref"])
+        self.assertEqual(payload["tests"], [])
+        self.assertNotIn("authority_proposal", payload)
+        self.assertEqual(
+            payload["blocked"],
+            {
+                "kind": "attempt_too_large",
+                "detail": (
+                    "successful authority proposal exceeded the "
+                    f"{shadow_host.MAX_ATTEMPT_BYTES}-byte attempt limit"
+                ),
+            },
+        )
+
+    def test_authority_proposal_mode_refuses_custom_binary_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root, ignore_evidence=False)
+            binary = make_host(root, mode="proposal")
+            task = root / "task.txt"
+            task.write_text("Return the bounded proposal.\n", encoding="utf-8")
+            output = repo / ".shadow" / "evidence" / "attempt.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "run",
+                    "--host",
+                    "codex",
+                    "--work-class",
+                    "coding",
+                    "--delegation",
+                    "direct",
+                    "--binary",
+                    str(binary),
+                    "--authority-proposal",
+                    "--repo",
+                    str(repo),
+                    "--task-file",
+                    str(task),
+                    "--task-id",
+                    "add-proof",
+                    "--out",
+                    str(output),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertFalse(output.exists())
+            self.assertFalse(binary.with_suffix(".argv.json").exists())
+            self.assertEqual(
+                json.loads(result.stdout)["blocked"]["kind"],
+                "proposal_binary_override",
+            )
+
+    def test_authority_proposal_mode_seals_head_and_git_control_state(self) -> None:
+        cases = (
+            ("proposal-commit", "source_head_changed"),
+            ("proposal-config", "git_control_changed"),
+        )
+        for mode, expected_kind in cases:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                repo = make_repo(root, ignore_evidence=False)
+                proposal = {
+                    "schema": "shadow.authority-proposal.v1",
+                    "entity_id": "a" * 64,
+                    "row_id": "~a502",
+                    "owner": "codexdk",
+                    "base": {
+                        "plan_root_sha256": "b" * 64,
+                        "source_head": shadow_host.git_value(
+                            repo,
+                            "rev-parse",
+                            "--verify",
+                            "HEAD^{commit}",
+                        ),
+                    },
+                    "request": {"transition": "complete"},
+                }
+                binary = make_host(root, mode=mode, proposal=proposal)
+                task = root / "task.txt"
+                task.write_text("Return the bounded proposal.\n", encoding="utf-8")
+                output = repo / ".shadow" / "evidence" / "attempt.json"
+
+                result = run_host(
+                    repo,
+                    binary,
+                    task,
+                    output,
+                    host="codex",
+                    authority_proposal=True,
+                )
+                payload = json.loads(output.read_text(encoding="utf-8"))
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(payload["status"], "blocked")
+                self.assertEqual(payload["blocked"]["kind"], expected_kind)
+                self.assertNotIn("authority_proposal", payload)
 
     def test_probe_is_projection_only_and_reports_available_host(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

@@ -45,6 +45,9 @@ shadow status --by your-seat      # prints the exact throw command — run it
 # do the work, then close out:
 shadow accept --repo . --row '~a1b2' --by your-seat   # Git-backed plan
 shadow accept --entity ID --repo . --row '~a1b2' --by your-seat  # machine-local plan
+shadow host run --host codex --work-class coding --delegation direct \
+  --authority-proposal --repo . --task-file /absolute/proposal-task.txt \
+  --task-id propose-a1b2 --out .shadow/evidence/attempt.json
 shadow accept --entity ID --repo . --row '~a1b2' --by your-seat \
   --proposal .shadow/evidence/attempt.json  # proposal-enabled machine-local plan
 # read/gate proofs instead: record the observation in the plan, then shadow return
@@ -54,11 +57,17 @@ Quote row ids (`'~a1b2'`) and use the id status printed. `shadow status
 --in-flight` shows every seat's live work; `shadow browse` renders the board.
 
 A proposal-enabled row keeps its proof command, result marker, and minimum
-execution floor in the canonical machine-local plan. One sealed Codex
-workspace-write attempt may request only completion; Shadow binds it to the
+execution floor in the canonical machine-local plan. Use two passes: first
+change, review, and commit the source files; then run a sealed Codex no-change
+attempt from a clean checkout that proposes completion against that committed
+`HEAD` through explicit `--authority-proposal` mode. That mode accepts no
+source write paths, refuses binary overrides before launch, and rejects any
+source `HEAD` or Git control-state drift. Shadow binds the proposal to the
 exact entity, row, owner, claim, plan root, and source `HEAD`, reruns the
-canonical proof, and performs the authority write itself. Git-backed plans,
-other hosts, and `read` or `gate` proofs do not support proposals.
+canonical proof with an isolated temporary `HOME`, and performs the authority
+write itself. Proposal proofs must be deterministic and cannot depend on
+credentials stored in the operator's home directory. Git-backed plans, other
+hosts, and `read` or `gate` proofs do not support proposals.
 
 ## Customize
 
