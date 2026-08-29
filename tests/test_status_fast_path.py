@@ -592,6 +592,58 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             {second_id},
         )
 
+    def test_one_lint_unclean_and_candidate_pass_per_entity(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            repo = root / "repo"
+            plan_path = repo / "PLAN.md"
+            repo.mkdir()
+            plan_path.write_text(plan("demo", "~aa11", "the only open row"), encoding="utf-8")
+            entity_id = "a" * 64
+            payload = {
+                "schema": "shadow.root-board.v1",
+                "revision": 42,
+                "projects": [{"id": "demo", "priority": 1}],
+                "entities": [
+                    {
+                        "id": entity_id,
+                        "project": "demo",
+                        "plan": str(plan_path),
+                        "resume": "~aa11",
+                    },
+                ],
+                "claims": [],
+            }
+            calls = {"lint": 0, "unclean": 0, "candidates": 0}
+            real_lint = status._lint.lint_plan
+            real_unclean = status._amp.unclean_note
+            real_candidates = status._amp._candidate_ids
+
+            def counting_lint(text):
+                calls["lint"] += 1
+                return real_lint(text)
+
+            def counting_unclean(parsed):
+                calls["unclean"] += 1
+                return real_unclean(parsed)
+
+            def counting_candidates(parsed):
+                calls["candidates"] += 1
+                return real_candidates(parsed)
+
+            with (
+                mock.patch.object(status._lint, "lint_plan", side_effect=counting_lint),
+                mock.patch.object(status._amp, "unclean_note", side_effect=counting_unclean),
+                mock.patch.object(status._amp, "_candidate_ids", side_effect=counting_candidates),
+            ):
+                records = status.board_records(payload)
+
+            self.assertEqual(calls, {"lint": 1, "unclean": 1, "candidates": 1}, calls)
+            self.assertFalse(records[0].get("broken", False), records[0])
+            self.assertEqual(records[0]["next_unclaimed"], "~aa11")
+
     def test_one_repo_resolves_one_upstream_binding_per_status_pass(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
