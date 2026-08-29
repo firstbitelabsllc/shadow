@@ -65,10 +65,6 @@ CLEAN_PLAN = """# Demo
 """
 
 
-def checks(plan: str) -> set[str]:
-    return {finding["check"] for finding in lint.lint_plan(plan)}
-
-
 def blocking(plan: str) -> set[str]:
     return {f["check"] for f in lint.lint_plan(plan) if f["severity"] == "blocking"}
 
@@ -198,7 +194,7 @@ class ANeedsCycleIsNamedNotSilent(unittest.TestCase):
         self.assertEqual(len(findings), 1)
 
     def test_an_acyclic_chain_stays_clean(self) -> None:
-        self.assertNotIn("NEEDS-CYCLE", checks(CLEAN_PLAN))
+        self.assertNotIn("NEEDS-CYCLE", _checks(CLEAN_PLAN))
 
 
 class TheIdGrammarMatchesTheDecisionRecordedInGrammarMd(unittest.TestCase):
@@ -503,10 +499,6 @@ class ShadowLintTests(unittest.TestCase):
         self.assertIn("clean.md: clean", result.stdout)
         self.assertIn("unreadable", result.stdout)
         self.assertIn("MODE-ILLEGAL", result.stdout)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ConflictMarkersBlock(unittest.TestCase):
@@ -1120,3 +1112,7 @@ class OriginIdentityTests(unittest.TestCase):
                 self.assertNotIn("/tmp/", detail)
                 self.assertNotIn("/Users/", detail)
                 self.assertNotIn("git@github.com", detail)
+
+
+if __name__ == "__main__":
+    unittest.main()
