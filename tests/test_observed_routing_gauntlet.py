@@ -41,7 +41,7 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(POLICY_VERSION, "shadow.execution-policy.v2")
         self.assertEqual(WORK_CLASSES, ("planning", "coding", "review", "lightweight"))
         self.assertEqual(DELEGATION_MODES, ("direct", "required"))
-        self.assertEqual(HOSTS, ("claude-code", "codex", "cursor", "grok", "zai"))
+        self.assertEqual(HOSTS, ("claude-code", "codex", "cursor", "grok", "zai", "codex-zai"))
         for host in HOSTS:
             for work_class in WORK_CLASSES:
                 route = resolve_route(host, work_class)
@@ -68,8 +68,11 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(resolve_route("grok", "lightweight").model, "grok-4.5")
         self.assertEqual(resolve_route("zai", "coding").model, "zai/glm-5.3-flash")
         self.assertEqual(resolve_route("zai", "lightweight").model, "zai/glm-5.3-flash")
+        for work_class in WORK_CLASSES:
+            self.assertEqual(resolve_route("codex-zai", work_class).model, "glm-5.3-flash")
         self.assertEqual(delegation_capability("claude-code", "required"), "Agent")
         self.assertEqual(delegation_capability("codex", "required"), "multi_agent")
+        self.assertEqual(delegation_capability("codex-zai", "required"), "multi_agent")
         self.assertEqual(delegation_capability("grok", "required"), "spawn_subagent")
         self.assertIsNone(delegation_capability("cursor", "direct"))
         with self.assertRaises(ExecutionPolicyError):
@@ -82,7 +85,7 @@ class ScenarioContractTests(unittest.TestCase):
     def test_twelve_scenarios_expand_to_exactly_sixty_real_jobs(self) -> None:
         self.assertEqual(len(gauntlet.SCENARIOS), 12)
         matrix = gauntlet.matrix_jobs()
-        self.assertEqual(len(matrix), 60)
+        self.assertEqual(len(matrix), 72)
         self.assertEqual(
             {(job.host, job.scenario.scenario_id) for job in matrix},
             {(host, scenario.scenario_id) for host in HOSTS for scenario in gauntlet.SCENARIOS},

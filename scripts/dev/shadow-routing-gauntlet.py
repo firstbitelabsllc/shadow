@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and score 12 real jobs across Claude, Codex, Cursor, Grok, and Z.AI.
+"""Run and score 12 real jobs across Claude, Codex, Cursor, Grok, Z.AI, and Codex on Z.AI.
 
 The product never imports this module.  It is owner-local evaluation tooling:
 each native CLI receives a real prompt in a disposable Git fixture; structured
@@ -709,11 +709,15 @@ def _command(
                 "--agents",
                 json.dumps(DELEGATION_AGENT, separators=(",", ":")),
             ]
-    elif host == "codex":
+    elif host in ("codex", "codex-zai"):
         otel_args, otel_env = sink.codex_config(run_tag)
         env.update(otel_env)
+        # codex-zai: the codexz launcher sets CODEX_HOME to the isolated Z.AI
+        # home before exec'ing codex; the user config there is the provider.
+        binary = "codexz" if host == "codex-zai" else "codex"
+        ignore_config = [] if host == "codex-zai" else ["--ignore-user-config"]
         command = [
-            "codex", "exec", "--ignore-user-config", *otel_args,
+            binary, "exec", *ignore_config, *otel_args,
             "--model", route.model, "--json", "--ephemeral",
             "--sandbox", "workspace-write", "--skip-git-repo-check", "-C", str(repo),
         ]
@@ -800,7 +804,7 @@ def run_one(job: MatrixJob, sink: LangfuseSink, fixture_parent: Path, timeout: i
         error = f"native host unavailable: {exc.strerror or type(exc).__name__}"
 
     observed, final_text, input_tokens, output_tokens, cost, child_spans = parse_native_output(job.host, raw)
-    if job.host == "codex":
+    if job.host in ("codex", "codex-zai"):
         observed, input_tokens, output_tokens = sink.observed_codex(run_tag)
     verify = subprocess.run(
         [sys.executable, "verify.py"], cwd=repo, capture_output=True, text=True, check=False

@@ -14,7 +14,7 @@ import re
 
 
 POLICY_VERSION = "shadow.execution-policy.v2"
-HOSTS = ("claude-code", "codex", "cursor", "grok", "zai")
+HOSTS = ("claude-code", "codex", "cursor", "grok", "zai", "codex-zai")
 WORK_CLASSES = ("planning", "coding", "review", "lightweight")
 DELEGATION_MODES = ("direct", "required")
 
@@ -24,6 +24,7 @@ _DELEGATION_CAPABILITIES = {
     "cursor": None,
     "grok": "spawn_subagent",
     "zai": None,
+    "codex-zai": "multi_agent",
 }
 
 
@@ -137,6 +138,21 @@ _ROUTES = {
     ),
     ("zai", "lightweight"): _route(
         "zai", "lightweight", "zai/glm-5.3-flash", r"zai/glm-5\.3-flash|glm-5\.3-flash", "GLM-5.3-Flash volume lane"
+    ),
+    # codex-zai is the same Codex CLI on an isolated CODEX_HOME whose only
+    # provider is Z.AI GLM-5.3-Flash. One volume model for every class; the
+    # policy says so instead of inventing tiers the provider does not expose.
+    ("codex-zai", "planning"): _route(
+        "codex-zai", "planning", "glm-5.3-flash", r"glm-5\.3-flash", "GLM-5.3-Flash via Codex, volume planning"
+    ),
+    ("codex-zai", "coding"): _route(
+        "codex-zai", "coding", "glm-5.3-flash", r"glm-5\.3-flash", "GLM-5.3-Flash via Codex, volume coding"
+    ),
+    ("codex-zai", "review"): _route(
+        "codex-zai", "review", "glm-5.3-flash", r"glm-5\.3-flash", "GLM-5.3-Flash via Codex, volume review"
+    ),
+    ("codex-zai", "lightweight"): _route(
+        "codex-zai", "lightweight", "glm-5.3-flash", r"glm-5\.3-flash", "GLM-5.3-Flash via Codex, volume lightweight"
     ),
 }
 
