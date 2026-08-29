@@ -985,6 +985,35 @@ def optional_index_bytes(repo: Path, relative: Path) -> bytes | None:
     return None
 
 
+def _lifecycle_commit(repo: Path, message: str, *pathspecs: str) -> str:
+    """One lifecycle commit identity: no hooks, no gpg, explicit author."""
+    git(
+        repo,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "maintenance.autoDetach=false",
+        "-c",
+        "gc.autoDetach=false",
+        "-c",
+        "user.name=Shadow Lifecycle",
+        "-c",
+        "user.email=shadow-lifecycle@localhost",
+        "commit",
+        "--quiet",
+        "--no-verify",
+        "--no-gpg-sign",
+        "--only",
+        "-m",
+        message,
+        "--",
+        *pathspecs,
+    )
+    return git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
 def commit_archive_candidate(
     repo: Path,
     plan_relative: Path,
@@ -1007,31 +1036,7 @@ def commit_archive_candidate(
     except _board.BoardError as exc:
         raise LifecycleError(str(exc)) from None
     git(repo, "add", "--", *pathspecs)
-    git(
-        repo,
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        "commit.gpgsign=false",
-        "-c",
-        "maintenance.autoDetach=false",
-        "-c",
-        "gc.autoDetach=false",
-        "-c",
-        "user.name=Shadow Lifecycle",
-        "-c",
-        "user.email=shadow-lifecycle@localhost",
-        "commit",
-        "--quiet",
-        "--no-verify",
-        "--no-gpg-sign",
-        "--only",
-        "-m",
-        f"shadow: archive {kind} {slug}",
-        "--",
-        *pathspecs,
-    )
-    return git(repo, "rev-parse", "HEAD").stdout.strip()
+    return _lifecycle_commit(repo, f"shadow: archive {kind} {slug}", *pathspecs)
 
 
 def recover_archive_half_state(
@@ -2024,11 +2029,7 @@ def inspect_retirement(
 
 
 def fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    _plan_store._fsync_directory(path)
 
 
 def commit_retirement_receipt(repo: Path, plan: Path, operation: dict) -> str:
@@ -2049,31 +2050,11 @@ def commit_retirement_receipt(repo: Path, plan: Path, operation: dict) -> str:
         (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
     git(repo, "add", "--", relative.as_posix())
-    git(
+    return _lifecycle_commit(
         repo,
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        "commit.gpgsign=false",
-        "-c",
-        "maintenance.autoDetach=false",
-        "-c",
-        "gc.autoDetach=false",
-        "-c",
-        "user.name=Shadow Lifecycle",
-        "-c",
-        "user.email=shadow-lifecycle@localhost",
-        "commit",
-        "--quiet",
-        "--no-verify",
-        "--no-gpg-sign",
-        "--only",
-        "-m",
         f"shadow: retire {target['kind']} {operation['manifest_sha'][:12]}",
-        "--",
         relative.as_posix(),
     )
-    return git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
 def apply_retirement(
@@ -2396,37 +2377,13 @@ def apply_progress(
                 )
             except (OSError, LifecycleError):
                 restore_plan(plan, original, plan_mode, publication)
-                archive_path.unlink(missing_ok=True)
-                reset_paths = [
-                    plan_relative.as_posix(),
-                    archive_relative.as_posix(),
-                ]
-                try:
-                    if _board.open_plan(plan).is_tree:
-                        reset_paths.append(
-                            (plan_relative.parent / "PLAN.d").as_posix()
-                        )
-                except _board.BoardError:
-                    pass
-                subprocess.run(
-                    [
-                        "git",
-                        "-C",
-                        str(repo),
-                        "reset",
-                        "--quiet",
-                        "HEAD",
-                        "--",
-                        *reset_paths,
-                    ],
-                    capture_output=True,
-                    check=False,
+                _rollback_archive_apply(
+                    repo,
+                    plan,
+                    plan_relative,
+                    archive_relative,
+                    parent_existed=parent_existed,
                 )
-                if not parent_existed:
-                    try:
-                        archive_path.parent.rmdir()
-                    except OSError:
-                        pass
                 raise
             report.update(
                 {
@@ -2623,26 +2580,13 @@ def apply_locked(
         )
     except (OSError, LifecycleError):
         restore_plan(plan, original, plan_mode, publication)
-        try:
-            archive_path.unlink()
-        except FileNotFoundError:
-            pass
-        reset_paths = [plan_relative.as_posix(), archive_relative.as_posix()]
-        try:
-            if _board.open_plan(plan).is_tree:
-                reset_paths.append((plan_relative.parent / "PLAN.d").as_posix())
-        except _board.BoardError:
-            pass
-        subprocess.run(
-            ["git", "-C", str(repo), "reset", "--quiet", "HEAD", "--", *reset_paths],
-            capture_output=True,
-            check=False,
+        _rollback_archive_apply(
+            repo,
+            plan,
+            plan_relative,
+            archive_relative,
+            parent_existed=parent_existed,
         )
-        if not parent_existed:
-            try:
-                archive_path.parent.rmdir()
-            except OSError:
-                pass
         raise
     report.update(
         {
@@ -2659,6 +2603,35 @@ def apply_locked(
         owner,
         report.get("successor_row"),
     )
+
+
+def _rollback_archive_apply(
+    repo: Path,
+    plan: Path,
+    plan_relative: Path,
+    archive_relative: Path,
+    *,
+    parent_existed: bool,
+) -> None:
+    """Undo one failed archive apply: delete it, unstage, prune its new dir."""
+    archive_path = repo / archive_relative
+    archive_path.unlink(missing_ok=True)
+    reset_paths = [plan_relative.as_posix(), archive_relative.as_posix()]
+    try:
+        if _board.open_plan(plan).is_tree:
+            reset_paths.append((plan_relative.parent / "PLAN.d").as_posix())
+    except _board.BoardError:
+        pass
+    subprocess.run(
+        ["git", "-C", str(repo), "reset", "--quiet", "HEAD", "--", *reset_paths],
+        capture_output=True,
+        check=False,
+    )
+    if not parent_existed:
+        try:
+            archive_path.parent.rmdir()
+        except OSError:
+            pass
 
 
 def print_text(report: dict, *, apply_mode: bool) -> None:
