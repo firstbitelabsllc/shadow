@@ -584,7 +584,14 @@ def main(argv: list[str] | None = None) -> int:
             continue
         plan = path.resolve()
         if proof_root is not None:
-            state = _board.entity_state(plan)
+            try:
+                state = _board.entity_state(plan)
+            except _board.BoardError as exc:
+                # Same contract as the read arm above: findings on stdout,
+                # worst exit — never a raw traceback.
+                print(f"{path}: this computer's root board is unreadable: {exc}")
+                worst = 1
+                continue
             if (
                 not _board.is_local_plan(plan)
                 or state is None
