@@ -39,12 +39,7 @@ HARNESS_SPEC.loader.exec_module(harness)
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "shadow-verify-two-seat.py"
-PYTHON = ROOT / "scripts" / "shadow-python.sh"
-GOAL = """Outcome: prove two seats share one root board.
-Authority: the scratch repositories and board created by the sealed harness.
-Resume: claim the highest reachable unclaimed checkpoint with your stable seat.
-Proof: run the row proof and accept it; do not leave an orphan claim.
-"""
+GOAL = harness.DEFAULT_GOAL
 GOAL_SHA256 = hashlib.sha256(GOAL.encode("utf-8")).hexdigest()
 
 
@@ -140,17 +135,7 @@ class Fixture:
 
     @staticmethod
     def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-        env = {
-            name: value
-            for name, value in os.environ.items()
-            if not name.startswith("GIT_")
-        }
-        env.update({
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_TERMINAL_PROMPT": "0",
-            "XDG_CONFIG_HOME": os.devnull,
-        })
+        env = harness.git_environment()
         result = subprocess.run(
             ["git", "-c", "core.hooksPath=/dev/null", *args],
             cwd=str(cwd),
