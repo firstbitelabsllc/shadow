@@ -491,7 +491,7 @@ def _prepare_status_entities(
             if repo is None:
                 item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
                 continue
-            token, _ = _board.frozen_plan_snapshot(plan_path)
+            token, _ = _board.frozen_plan_snapshot(plan_path, repo=repo)
         except (_board.BoardError, OSError, UnicodeError):
             item["discovery"] = (None, REMOTE_DISCOVERY_ISSUE)
             continue
