@@ -3216,8 +3216,10 @@ class GitProbesIgnoreAmbientRedirects(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
             home.mkdir()
+            # A home-shaped seat string refuses on every platform: PRIVATE_PATH_RE
+            # matches /Users/ regardless of the machine's own tmpdir shape.
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--by", str(Path(tmp) / "seat")],
+                [sys.executable, str(SCRIPT), "--by", "/Users/leo/seat"],
                 capture_output=True,
                 text=True,
                 check=False,
