@@ -40,6 +40,16 @@ sys.modules[_PLAN_SPEC.name] = plan_api
 _PLAN_SPEC.loader.exec_module(plan_api)
 
 
+def fresh_board_module(name: str):
+    """One isolated board-module copy for tests that patch its internals."""
+    spec = importlib.util.spec_from_file_location(name, BOARD_MODULE)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 # Machine-local pex-based shims can keep writing their bootstrap cache into a
 # fixture HOME after the test that spawned them returns; that races
 # TemporaryDirectory cleanup. Pin PEX_ROOT outside every fixture so the
@@ -204,13 +214,8 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             secret = "AKIA" + "IOSFODNN7EXAMPLE"
             git(repo, "remote", "add", "origin", f"https://github.com/org/project.git?token={secret}")
 
-            first = importlib.util.spec_from_file_location("shadow_identity", BOARD_MODULE)
-            module = importlib.util.module_from_spec(first)
-            assert first and first.loader
-            sys.modules[first.name] = module
-            first.loader.exec_module(module)
-            before = module.entity_id(repo / "PLAN.md")
-            locator = module.public_plan_locator(repo / "PLAN.md")
+            before = board_api.entity_id(repo / "PLAN.md")
+            locator = board_api.public_plan_locator(repo / "PLAN.md")
             git(
                 repo,
                 "remote",
@@ -219,42 +224,32 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
                 "https://github.com/org/project.git?token=rotated#private",
             )
 
-            self.assertEqual(module.entity_id(repo / "PLAN.md"), before)
-            self.assertEqual(module.normalized_origin(
+            self.assertEqual(board_api.entity_id(repo / "PLAN.md"), before)
+            self.assertEqual(board_api.normalized_origin(
                 f"https://github.com/org/project.git?token={secret}#private"
             ), "github.com/org/project")
             self.assertNotIn(secret, locator)
             self.assertNotIn("token=", locator)
 
     def test_default_remote_ports_do_not_split_one_logical_repository(self) -> None:
-        spec = importlib.util.spec_from_file_location("shadow_default_ports", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
 
         self.assertEqual(
-            module.normalized_origin("ssh://git@github.com:22/org/repo.git"),
-            module.normalized_origin("git@github.com:org/repo.git"),
+            board_api.normalized_origin("ssh://git@github.com:22/org/repo.git"),
+            board_api.normalized_origin("git@github.com:org/repo.git"),
         )
         self.assertEqual(
-            module.normalized_origin("https://github.com:443/org/repo.git"),
-            module.normalized_origin("https://github.com/org/repo.git"),
+            board_api.normalized_origin("https://github.com:443/org/repo.git"),
+            board_api.normalized_origin("https://github.com/org/repo.git"),
         )
         self.assertEqual(
-            module.normalized_origin("http://example.test:80/org/repo.git"),
-            module.normalized_origin("http://example.test/org/repo.git"),
+            board_api.normalized_origin("http://example.test:80/org/repo.git"),
+            board_api.normalized_origin("http://example.test/org/repo.git"),
         )
 
     def test_a_plan_owned_origin_must_already_be_normalized(self) -> None:
-        spec = importlib.util.spec_from_file_location("shadow_proof_origin", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
 
         self.assertEqual(
-            module.well_formed_proof_origin("github.com/example/widget"),
+            board_api.well_formed_proof_origin("github.com/example/widget"),
             "github.com/example/widget",
         )
         for value in (
@@ -269,7 +264,7 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
-                    module.well_formed_proof_origin(value)
+                    board_api.well_formed_proof_origin(value)
 
     def test_filesystem_remotes_are_resolved_against_each_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -282,20 +277,15 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             right = project(right_parent, name="checkout")
             git(left, "remote", "add", "origin", "../forge.git")
             git(right, "remote", "add", "origin", "../forge.git")
-            spec = importlib.util.spec_from_file_location("shadow_local_remotes", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
 
             self.assertNotEqual(
-                module.entity_id(left / "PLAN.md"),
-                module.entity_id(right / "PLAN.md"),
+                board_api.entity_id(left / "PLAN.md"),
+                board_api.entity_id(right / "PLAN.md"),
             )
             git(right, "remote", "set-url", "origin", str(left_parent / "forge.git"))
             self.assertEqual(
-                module.entity_id(left / "PLAN.md"),
-                module.entity_id(right / "PLAN.md"),
+                board_api.entity_id(left / "PLAN.md"),
+                board_api.entity_id(right / "PLAN.md"),
             )
 
     def test_git_introspection_failure_never_becomes_a_checkout_path_identity(self) -> None:
@@ -310,11 +300,7 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             ).stdout.strip()
             git(repo, "config", f"branch.{branch}.remote", "origin")
             git(repo, "config", f"branch.{branch}.merge", "refs/heads/main")
-            spec = importlib.util.spec_from_file_location("shadow_git_failure", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_git_failure")
             original = module._remote_claim._git
             probes = (
                 ("symbolic-ref", "--quiet", "--short", "HEAD"),
@@ -427,23 +413,13 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             repo = project(root)
             secret = "ghp_" + "A" * 24
             git(repo, "remote", "add", "origin", f"https://github.com/org/{secret}/repo.git")
-            spec = importlib.util.spec_from_file_location("shadow_secret_locator", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
 
-            locator = module.public_plan_locator(repo / "PLAN.md")
+            locator = board_api.public_plan_locator(repo / "PLAN.md")
 
             self.assertNotIn(secret, locator)
             self.assertRegex(locator, r"^entity@[0-9a-f]{8}/PLAN\.md$")
 
     def test_owner_is_public_safe_before_it_can_enter_the_board(self) -> None:
-        spec = importlib.util.spec_from_file_location("shadow_owner", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
         for owner in (
             str(Path("/", "Users", "leo", "private")),
             "AKIA" + "IOSFODNN7EXAMPLE",
@@ -454,7 +430,7 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             "seat\u202e-a",
         ):
             with self.assertRaises(ValueError):
-                module.validate_owner(owner)
+                board_api.validate_owner(owner)
 
 
 class SymlinkedPlansNeverBecomeAuthority(unittest.TestCase):
@@ -1101,13 +1077,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
             )
 
     def test_local_board_commit_waits_for_automatic_git_maintenance(self) -> None:
-        spec = importlib.util.spec_from_file_location(
-            "shadow_root_board_commit_test", BOARD_MODULE
-        )
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = fresh_board_module("shadow_root_board_commit_test")
         calls: list[tuple[str, ...]] = []
 
         def observe_git(_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -1138,13 +1108,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
         )
 
     def test_real_board_commit_joins_automatic_git_maintenance(self) -> None:
-        spec = importlib.util.spec_from_file_location(
-            "shadow_root_board_trace_test", BOARD_MODULE
-        )
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = fresh_board_module("shadow_root_board_trace_test")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "board"
             root.mkdir()
@@ -4534,11 +4498,7 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
             before = board(home)
             (home / ".shadow" / "board.json").unlink()
 
-            spec = importlib.util.spec_from_file_location("shadow_board_recovery", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_board_recovery")
             observed = module.ensure(home=home)
 
             restored = board(home)
@@ -4552,11 +4512,7 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
             home = root / "home"
             board_root = home / ".shadow"
             (board_root / ".git").mkdir(parents=True)
-            spec = importlib.util.spec_from_file_location("shadow_board_partial_git", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_board_partial_git")
 
             initialized = module.ensure(home=home)
             self.assertEqual(initialized["revision"], 0)
@@ -4592,11 +4548,7 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
                 ["git", "-C", str(external), "rev-parse", "HEAD"],
                 capture_output=True, text=True, check=True,
             ).stdout
-            spec = importlib.util.spec_from_file_location("shadow_board_symlink_root", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_board_symlink_root")
 
             home = root / "home"
             home.mkdir()
@@ -4911,11 +4863,7 @@ class ACrashMidClaimLeavesARecoverableBoard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = project(root)
-            spec = importlib.util.spec_from_file_location("shadow_root_board", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_root_board")
             for death in ("before-replace", "after-replace"):
                 home = root / death
                 home.mkdir()
@@ -5132,11 +5080,7 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
     """Status-time cleanup may remove only missing, claimless migration debris."""
 
     def _module(self):
-        spec = importlib.util.spec_from_file_location("shadow_missing_alias", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = fresh_board_module("shadow_missing_alias")
         return module
 
     def _seed(
