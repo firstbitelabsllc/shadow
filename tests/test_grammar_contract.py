@@ -130,6 +130,8 @@ class GrammarContractTests(unittest.TestCase):
             "explore | ship",
             "(DoD)",
             "| proof:",
+            "marker:",
+            "floor:",
             "needs:",
             "PROOF",
             "MODE",

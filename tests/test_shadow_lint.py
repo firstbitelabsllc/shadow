@@ -291,6 +291,45 @@ class ShadowLintTests(unittest.TestCase):
         plan2 = CLEAN_PLAN.replace(" | proof: cmd npm run smoke", "")
         self.assertIn("PROOF-MISSING", blocking(plan2))
 
+    def test_proposal_marker_and_floor_contract_is_enforced(self) -> None:
+        valid = CLEAN_PLAN.replace(
+            "cmd npm run smoke",
+            "cmd true | marker: proposal-pass | floor: 12",
+        )
+        self.assertNotIn("ROW-SHAPE", blocking(valid))
+        self.assertNotIn("PROOF-CLASS", blocking(valid))
+
+        cases = (
+            (
+                "missing marker",
+                valid.replace(" | marker: proposal-pass", ""),
+                "ROW-SHAPE",
+            ),
+            (
+                "missing floor",
+                valid.replace(" | floor: 12", ""),
+                "ROW-SHAPE",
+            ),
+            (
+                "invalid marker",
+                valid.replace("marker: proposal-pass", "marker: Proposal"),
+                "ROW-SHAPE",
+            ),
+            (
+                "invalid floor",
+                valid.replace("floor: 12", "floor: 0"),
+                "ROW-SHAPE",
+            ),
+            (
+                "non-cmd proof",
+                valid.replace("proof: cmd true", "proof: read receipt -> pass"),
+                "PROOF-CLASS",
+            ),
+        )
+        for label, plan, expected in cases:
+            with self.subTest(case=label):
+                self.assertIn(expected, blocking(plan))
+
     def test_milestone_dod_shape_is_enforced(self) -> None:
         plan = CLEAN_PLAN.replace(" (DoD)", "")
         self.assertIn("DOD-COUNT", blocking(plan))
