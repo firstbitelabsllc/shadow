@@ -144,10 +144,36 @@ def _local_operational_plans(home: Path | None) -> list[Path]:
     ]
 
 
+class _PlanAnalysis:
+    """Content-addressed parse/lint/candidate results for one reconcile pass.
+
+    Parse plus lint dominates the per-entity cost of a pass, and the same
+    plan bytes are analyzed twice today — once for the authority grade, once
+    for the seed. Identical bytes reuse; changed bytes re-analyze, so the CAS
+    protocol's mid-pass edit detection is untouched.
+    """
+
+    def __init__(self, amp: ModuleType) -> None:
+        self._amp = amp
+        self._by_text: dict[str, tuple[dict, str | None, list[str]]] = {}
+
+    def analyze(self, text: str) -> tuple[dict, str | None, list[str]]:
+        key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if key not in self._by_text:
+            parsed = self._amp._parse(text)
+            self._by_text[key] = (
+                parsed,
+                self._amp.unclean_note(parsed),
+                self._amp._candidate_ids(parsed),
+            )
+        return self._by_text[key]
+
+
 def _assert_authority_grade(
     content: bytes,
     *,
     amp: ModuleType,
+    analysis: _PlanAnalysis,
     declared_globs,
     operator_brief,
 ) -> None:
@@ -161,13 +187,12 @@ def _assert_authority_grade(
     if len(content) > board.MAX_PLAN_BYTES:
         raise board.BoardError("registered plan exceeds the bounded size limit")
     text = content.decode("utf-8")
-    parsed = amp._parse(text)
+    parsed, unclean, _ = analysis.analyze(text)
     if not parsed["brief"].get("Project") or not parsed["brief"].get("Mode"):
         raise board.BoardError("registered plan lacks current board fields")
-    if amp.unclean_note(parsed):
+    if unclean:
         raise board.BoardError("registered plan is not grammar-clean")
     _priority(parsed)
-    amp._candidate_ids(parsed)
     declaration = operator_brief(text).get("plans", "")
     if any(
         not candidate
@@ -182,6 +207,7 @@ def _assert_authority_grade(
 
 def _registered_state(
     amp: ModuleType,
+    analysis: _PlanAnalysis,
     *,
     home: Path | None,
     archive_veto_text,
@@ -247,6 +273,7 @@ def _registered_state(
             _assert_authority_grade(
                 content,
                 amp=amp,
+                analysis=analysis,
                 declared_globs=declared_globs,
                 operator_brief=operator_brief,
             )
@@ -317,12 +344,13 @@ def reconcile_portfolio(
 ) -> dict:
     """Import exactly the plans returned by shipped bounded discovery."""
     with board.repository_identity_cache():
-        return _reconcile_portfolio(root, amp, home=home)
+        return _reconcile_portfolio(root, amp, _PlanAnalysis(amp), home=home)
 
 
 def _reconcile_portfolio(
     root: Path,
     amp: ModuleType,
+    analysis: _PlanAnalysis,
     *,
     home: Path | None = None,
 ) -> dict:
@@ -340,6 +368,7 @@ def _reconcile_portfolio(
     historical: list[dict] = []
     registered, registered_retired, repairable, volatile = _registered_state(
         amp,
+        analysis,
         home=home,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
@@ -442,6 +471,7 @@ def _reconcile_portfolio(
             _assert_authority_grade(
                 content,
                 amp=amp,
+                analysis=analysis,
                 declared_globs=declared_plan_globs,
                 operator_brief=operator_brief,
             )
@@ -521,13 +551,12 @@ def _reconcile_portfolio(
             text = read_plan(source_path)
         except (BrowserError, OSError, UnicodeError) as exc:
             raise board.BoardError(f"{relative} cannot be read during board import") from exc
-        plan = amp._parse(text)
+        plan, unclean, candidates = analysis.analyze(text)
         # Legacy outcome plans remain visible during migration but do not have
         # project rows for the root board to point at. Status renders them from
         # the same bounded discovery result until they adopt the current Brief.
         if not plan["brief"].get("Project") or not plan["brief"].get("Mode"):
             continue
-        unclean = amp.unclean_note(plan)
         if unclean:
             raise board.BoardError(f"{relative} cannot enter the computer board: {unclean}")
         try:
@@ -540,7 +569,7 @@ def _reconcile_portfolio(
             "plan": str(source_path),
             "project": plan["brief"]["Project"],
             "priority": priority,
-            "candidates": amp._candidate_ids(plan),
+            "candidates": candidates,
             "rows": [
                 row["id"]
                 for milestone in plan["milestones"]
@@ -598,10 +627,9 @@ def _reconcile_portfolio(
                 }
             )
             continue
-        plan = amp._parse(text)
+        plan, unclean, candidates = analysis.analyze(text)
         if not plan["brief"].get("Project") or not plan["brief"].get("Mode"):
             continue
-        unclean = amp.unclean_note(plan)
         if unclean:
             # Seed the entity anyway: the status layer's bounded re-read
             # renders it broken while every healthy peer still reports.
@@ -616,7 +644,7 @@ def _reconcile_portfolio(
                 "plan": str(source_path),
                 "project": plan["brief"]["Project"],
                 "priority": _priority(plan),
-                "candidates": amp._candidate_ids(plan),
+                "candidates": candidates,
                 "rows": [
                     row["id"]
                     for milestone in plan["milestones"]
@@ -657,6 +685,7 @@ def suppression_receipts(
 
     registered, registered_retired, repairable, _ = _registered_state(
         amp,
+        _PlanAnalysis(amp),
         home=home,
         archive_veto_text=_archive_veto_text,
         declared_globs=declared_plan_globs,
