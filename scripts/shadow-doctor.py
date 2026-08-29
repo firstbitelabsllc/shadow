@@ -278,23 +278,27 @@ def skill_precedence_checks() -> list[dict[str, Any]]:
 
 
 def standing_goal() -> str:
-    """The static block, read from the doc that ships it — the same extraction
-    `shadow goal` performs, so the command and this check cannot disagree."""
+    """The static block, read from the doc that ships it.
+
+    The extraction lives in the writer, scripts/shadow-host-directives.py —
+    delegate so the command, the writer, and this check share one text. A
+    load failure reads as "no block found", the same as a missing doc.
+    """
+    import importlib.util
+
     try:
-        lines = (ROOT / "docs" / "reference" / "host-integration.md").read_text(
-            encoding="utf-8"
-        ).splitlines()
-    except OSError:
+        spec = importlib.util.spec_from_file_location(
+            "shadow_host_directives_goal",
+            ROOT / "scripts" / "shadow-host-directives.py",
+        )
+        if spec is None or spec.loader is None:
+            return ""
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        goal = module.standing_goal(ROOT / "docs" / "reference" / "host-integration.md")
+    except Exception:
         return ""
-    out: list[str] = []
-    for line in lines:
-        if line.startswith("## Shadow "):
-            out.append(line)
-        elif out:
-            if line == "```":
-                break
-            out.append(line)
-    return "\n".join(out).strip()
+    return goal if isinstance(goal, str) else ""
 
 
 def host_goal_checks() -> list[dict[str, Any]]:
