@@ -20,20 +20,18 @@ from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_version import read_version  # noqa: E402
+from shadow_git import normalized_origin, sanitized_git_env  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
 # Provenance is the host plus the path, not a suffix: an attacker-controlled
 # host serving `.../firstbitelabsllc/shadow.git` ends with the canonical path
 # and must not pass as the canonical repository.
-CANONICAL_ORIGIN = re.compile(
-    r"(?:git\+)?(?:https?://|ssh://|git://)?(?:[^@/]+@)?github\.com[:/]"
-    r"firstbitelabsllc/shadow(?:\.git)?/?",
-    re.IGNORECASE,
-)
+CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
 # Keep a small explicit ceiling rather than letting the release grow without
-# review.
-MAX_FILE_COUNT = 120
+# review. The live archive holds 118 files (2026-08-29); 160 is the reviewed
+# growth budget, not a target.
+MAX_FILE_COUNT = 160
 MAX_UNPACKED_BYTES = 2_000_000
 REQUIRED_FILES = {
     ".agents/plugins/marketplace.json",
@@ -61,6 +59,11 @@ REQUIRED_FILES = {
     "scripts/shadow-priority.py",
     "scripts/shadow-lifecycle.py",
     "scripts/shadow_board_import.py",
+    "browser/board_projection.py",
+    "browser/static/gallery.css",
+    "browser/static/gallery.html",
+    "browser/static/gallery.js",
+    "browser/static/gallery-fixtures.json",
     "scripts/shadow_root_board.py",
     "scripts/shadow-host-directives.py",
     "scripts/shadow-slots.py",
@@ -122,20 +125,45 @@ REQUIRED_FILES = {
     "scripts/shadow_task_lib.py",
     "scripts/shadow_scrub_lib.py",
 }
-FORBIDDEN_ROOTS = {
-    ".git",
-    ".github",
-    "node_modules",
-    "tests",
-    "test-results",
-    "playwright-report",
-}
-FORBIDDEN_FILES = {"PLAN.md", "package-lock.json", ".gitleaks.toml", "playwright.config.ts", "vitest.config.mjs"}
+def _export_ignored() -> tuple[set[str], set[str]]:
+    """(roots, files) the release must never contain, read from the one
+    allowlist that already owns the decision: .gitattributes export-ignore.
+
+    Read from the COMMITTED blob, not the working tree: the archive comes
+    from `git archive HEAD`, so the rulebook must come from the same commit —
+    an uncommitted .gitattributes edit must not change what "forbidden"
+    means for bytes archived from HEAD. A second hand-written list is a list
+    that drifts; a working-tree read is a list that lies."""
+    roots: set[str] = set()
+    files: set[str] = set()
+    repo = Path(__file__).resolve().parent.parent
+    blob = subprocess.run(
+        ["git", "-C", str(repo), "show", "HEAD:.gitattributes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=sanitized_git_env(),
+    )
+    text = blob.stdout if blob.returncode == 0 else (repo / ".gitattributes").read_text(
+        encoding="utf-8"
+    )
+    for line in text.splitlines():
+        path, _, marks = line.partition(" ")
+        if not path or path.startswith("#") or "export-ignore" not in marks:
+            continue
+        if path.endswith("/"):
+            roots.add(path.rstrip("/"))
+        else:
+            files.add(path)
+    return roots, files
+
+
+FORBIDDEN_ROOTS, FORBIDDEN_FILES = _export_ignored()
 FORBIDDEN_SUFFIXES = {".jsonl", ".key", ".log", ".pem", ".p12", ".token"}
 
 
 def normalize(value: str) -> str:
-    return PurePosixPath(value.replace("\\", "/").removeprefix("package/")).as_posix()
+    return PurePosixPath(value.replace("\\", "/")).as_posix()
 
 
 def source_version(root: Path) -> str:
@@ -212,7 +240,7 @@ def forbidden(path: str) -> bool:
     pure = PurePosixPath(path)
     return (
         not pure.parts
-        or pure.parts[0] in FORBIDDEN_ROOTS
+        or any(path == root or path.startswith(root + "/") for root in FORBIDDEN_ROOTS)
         or path in FORBIDDEN_FILES
         or "__pycache__" in pure.parts
         or any(part.startswith(".env") for part in pure.parts)
@@ -241,7 +269,7 @@ def validate_release_candidate(
         errors.append("plugin must be named shadow")
     if plugin.get("version") != wanted_version or pack.get("version") != wanted_version:
         errors.append("plugin, archived artifact, and VERSION must match")
-    if not CANONICAL_ORIGIN.fullmatch(str(pack.get("origin", "")).strip()):
+    if normalized_origin(str(pack.get("origin", "")).strip()).lower() != CANONICAL_ORIGIN:
         errors.append("release must be cut from the canonical public repository")
     missing = sorted(REQUIRED_FILES - files)
     if missing:
@@ -273,7 +301,12 @@ def command(
     command: list[str], cwd: Path, *, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
-        command, cwd=cwd, env=env, capture_output=True, text=True, check=False
+        command,
+        cwd=cwd,
+        env=sanitized_git_env() if env is None else env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
@@ -302,7 +335,7 @@ def dirty_files(root: Path) -> set[str]:
     while index < len(rows):
         row = rows[index].decode("utf-8", errors="surrogateescape")
         paths.add(row[3:])
-        if row[:2] in {"R ", "C ", "RM", "CM"} and index + 1 < len(rows):
+        if row[:1] in {"R", "C"} and index + 1 < len(rows):
             index += 1
             paths.add(rows[index].decode("utf-8", errors="surrogateescape"))
         index += 1
@@ -365,7 +398,7 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
     native_host = bin_dir / "codex"
     native_host.write_text("#!/bin/sh\nprintf 'codex stranger-proof\\n'\n", encoding="utf-8")
     native_host.chmod(0o755)
-    env = os.environ.copy()
+    env = sanitized_git_env()
     env.update({
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
@@ -515,12 +548,13 @@ def verify(
         second_manifest, _, second_sha = pack(
             root, second, source_ref=identity["commit"]
         )
+        dirty = sorted(dirty_files(root))
         errors = validate_release_candidate(
             plugin,
             manifest,
             version=version,
             tracked_paths=tracked_files(root),
-            dirty_paths=dirty_files(root),
+            dirty_paths=set(dirty),
             allow_dirty=allow_dirty,
             expected_version=expected_version,
         )
@@ -539,7 +573,6 @@ def verify(
         if not errors:
             stranger_install(tarball, temp, version)
             install_ok = True
-    dirty = sorted(dirty_files(root))
     return {
         "schema": "shadow.release.v1",
         "ok": not errors,
