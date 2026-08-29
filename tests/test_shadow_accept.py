@@ -591,7 +591,6 @@ class ShadowAcceptTests(unittest.TestCase):
                     accept.bind_local_plan_to_proof_repo(
                         legacy_only,
                         Path("/unused"),
-                        "~cd90",
                     ),
                     source_a,
                 )
@@ -615,7 +614,6 @@ class ShadowAcceptTests(unittest.TestCase):
                 accept.bind_local_plan_to_proof_repo(
                     orphaned_legacy_receipt,
                     Path("/unused"),
-                    "~ij90",
                 )
 
         cases = [
@@ -2428,8 +2426,6 @@ class ShadowAcceptTests(unittest.TestCase):
         self.assertEqual(commits, "2")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
@@ -4296,3 +4292,7 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             self.assertIn("Git-backed", result.stderr)
             self.assertIn("--repo", result.stderr)
             self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), before)
+
+
+if __name__ == "__main__":
+    unittest.main()
