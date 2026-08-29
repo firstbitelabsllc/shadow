@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shlex
 from pathlib import Path
 import sys
@@ -41,6 +40,11 @@ _lint_spec.loader.exec_module(_lint)
 
 REMOTE_DISCOVERY_ISSUE = "remote claim discovery is unavailable or unauthenticated"
 
+# v4_brief's unclean kwarg: None means "verified clean, do not recompute";
+# this sentinel means "compute it here" — a clean plan and a missing answer
+# are different things, and only the second may cost a lint run.
+_ANALYZE = object()
+
 
 def plain_name(value: str) -> str:
     return _board.MILESTONE_PREFIX_RE.sub( "", " ".join(value.split()))
@@ -56,6 +60,9 @@ def v4_brief(
     plan_text: str | None = None,
     parsed: dict | None = None,
     claims: list[dict] | None = None,
+    unclean: str | None | object = _ANALYZE,
+    candidates: list[str] | None = None,
+    lint_findings: list[dict] | None = None,
 ) -> dict | None:
     """Render a v4-grammar plan into a bounded status record, or None if the
     plan does not carry a v4 Brief (legacy plans fall through to the old view).
@@ -97,7 +104,9 @@ def v4_brief(
     # Lint is additive here: the brief still renders (an operator needs it),
     # but a blocking finding is stated and completion is never claimed.
     blocking = [
-        f for f in _lint.lint_plan(plan_text) if f.get("severity") == "blocking"
+        f
+        for f in (lint_findings if lint_findings is not None else _lint.lint_plan(plan_text))
+        if f.get("severity") == "blocking"
     ]
     record: dict = {
         "schema": "shadow.status.v4-brief",
@@ -128,6 +137,7 @@ def v4_brief(
         resume_id,
         claims or [],
         hide_internal=hide_internal,
+        candidates=candidates,
     )
     # Focus hides completed rows and then whole milestones. That is correct,
     # and it was silent — so the view read as the whole plan. Measured
@@ -163,9 +173,9 @@ def v4_brief(
     # A v4 Brief is not a promise that the plan reads clean: parsing is
     # tolerant, so illegal modes and malformed rows would otherwise be
     # invisible on the board. Surface them beside the resume line.
-    unclean = _amp.unclean_note(plan)
-    if unclean:
-        record["unclean"] = unclean
+    note = _amp.unclean_note(plan) if unclean is _ANALYZE else unclean
+    if note:
+        record["unclean"] = note
     return record
 
 
@@ -175,12 +185,13 @@ def milestone_rotation(
     claims: list[dict],
     *,
     hide_internal: bool = False,
+    candidates: list[str] | None = None,
 ) -> list[dict]:
     """Every live milestone and checkpoint, derived from one parsed plan."""
     owners: dict[str, list[str]] = {}
     for claim in claims:
         owners.setdefault(claim["row"], []).append(claim["owner"])
-    reachable = set(_amp._candidate_ids(plan))
+    reachable = set(candidates if candidates is not None else _amp._candidate_ids(plan))
     rotation = []
     for milestone in plan["milestones"]:
         checkpoints = []
@@ -622,6 +633,11 @@ def board_records(
                 local_claims,
             )
             entity_claims = {claim["row"] for claim in claims}
+            # One analysis per entity per pass: the same lint findings, unclean
+            # note, and candidate set serve the brief and the board record.
+            analysis_findings = _lint.lint_plan(text)
+            analysis_unclean = _amp.unclean_note(parsed)
+            analysis_candidates = _amp._candidate_ids(parsed)
             record = v4_brief(
                 plan_path,
                 locator,
@@ -631,6 +647,9 @@ def board_records(
                 plan_text=text,
                 parsed=parsed,
                 claims=claims,
+                unclean=analysis_unclean,
+                candidates=analysis_candidates,
+                lint_findings=analysis_findings,
             )
         except (_board.BoardError, OSError, UnicodeError):
             record = None
@@ -650,7 +669,7 @@ def board_records(
         record["entity"] = entity["id"]
         record["board_resume"] = entity["resume"]
         record["priority"] = str(priorities[project])
-        unclean = _amp.unclean_note(parsed) if parsed is not None else None
+        unclean = analysis_unclean if parsed is not None else None
         if unclean:
             # A quarantined unclean plan renders, but never as healthy: the
             # row is broken and the resume line carries the reason. Budget
@@ -663,7 +682,7 @@ def board_records(
                 else ""
             )
             record["resume"] = "UNHEALTHY — " + unclean + remedy
-        candidates = _amp._candidate_ids(parsed) if parsed is not None else []
+        candidates = analysis_candidates if parsed is not None else []
         rows = {
             row["id"]: row
             for milestone in (parsed or {"milestones": []})["milestones"]
