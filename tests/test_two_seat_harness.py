@@ -9,16 +9,32 @@ portfolio minted by the production harness.
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr
 import hashlib
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from unittest import mock
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+HARNESS_SPEC = importlib.util.spec_from_file_location(
+    "shadow_verify_two_seat_test",
+    Path(__file__).resolve().parent.parent / "scripts" / "shadow-verify-two-seat.py",
+)
+assert HARNESS_SPEC and HARNESS_SPEC.loader
+harness = importlib.util.module_from_spec(HARNESS_SPEC)
+sys.modules[HARNESS_SPEC.name] = harness
+HARNESS_SPEC.loader.exec_module(harness)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -479,6 +495,57 @@ class _NoCleanup:
 
     def cleanup(self) -> None:
         return
+
+
+class VerdictAndEvidence(unittest.TestCase):
+    def _run_offline(self, home: Path) -> int:
+        goal = home / "goal.md"
+        goal.write_text(GOAL, encoding="utf-8")
+        with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False):
+            return harness.main(["--goal-file", str(goal), "--json"])
+
+    def test_the_cleanup_flag_stays_so_an_orphan_writer_cannot_mask_the_verdict(self) -> None:
+        # A drained seat's fresh-session grandchild can keep writing inside
+        # the scratch tree; ENOTEMPTY on cleanup must never replace the
+        # honest HarnessError with "internal_error". Pin the mechanism.
+        seen: dict[str, object] = {}
+        real_td = harness.tempfile.TemporaryDirectory
+
+        class Recording(real_td):
+            def __init__(self, *args, **kwargs):
+                seen.update(kwargs)
+                super().__init__(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as dirname:
+            home = Path(dirname) / "home"
+            home.mkdir()
+            with mock.patch.object(harness.tempfile, "TemporaryDirectory", Recording):
+                code = self._run_offline(home)
+
+        self.assertEqual(code, 0)
+        self.assertIs(seen.get("ignore_cleanup_errors"), True)
+
+    def test_a_failure_names_which_seat_never_booted(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            home = Path(dirname) / "home"
+            home.mkdir()
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    harness,
+                    "final_facts",
+                    return_value=(
+                        {"initial_revision": 1, "final_revision": 1, "completed": 0, "claims": 0},
+                        {},
+                    ),
+                ),
+                redirect_stderr(stderr),
+            ):
+                code = self._run_offline(home)
+
+        self.assertEqual(code, 1)
+        self.assertIn("seat claude produced no output (never booted)", stderr.getvalue())
+        self.assertIn("seat codex produced no output (never booted)", stderr.getvalue())
 
 
 class ThreeSeatsCoordinateOffline(unittest.TestCase):
