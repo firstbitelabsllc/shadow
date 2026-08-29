@@ -18,7 +18,7 @@ from shadow_version import read_version, VersionError  # noqa: E402
 
 
 ROOT = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
-HOSTS = ("codex", "claude-code", "cursor", "grok")
+HOSTS = ("codex", "claude-code", "cursor", "grok", "zai")
 MOUNTS = (
     Path.home() / ".claude" / "skills" / "shadow",
     Path.home() / ".agents" / "skills" / "shadow",
