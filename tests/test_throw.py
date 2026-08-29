@@ -675,6 +675,68 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         )
         self.assertEqual(payload["claims"][0]["owner"], "seat-a")
 
+    def assert_one_remote_claim_winner(
+        self,
+        root: Path,
+        bare: Path,
+        first: Path,
+        second: Path,
+        original_main: str,
+    ) -> None:
+        processes = [
+            self.throw_process(first, root / "home-a", "seat-a"),
+            self.throw_process(second, root / "home-b", "seat-b"),
+        ]
+        results = [process.communicate(timeout=30) for process in processes]
+        codes = [process.returncode for process in processes]
+        winners = [index for index, code in enumerate(codes) if code == 0]
+        losers = [index for index, code in enumerate(codes) if code == 1]
+
+        self.assertEqual(len(winners), 1, results)
+        self.assertEqual(len(losers), 1, results)
+        winner_index = winners[0]
+        loser_index = losers[0]
+        winner_seat = ("seat-a", "seat-b")[winner_index]
+        loser_seat = ("seat-a", "seat-b")[loser_index]
+        winner_stdout, winner_stderr = results[winner_index]
+        loser_stdout, loser_stderr = results[loser_index]
+        self.assertIn("/goal protected-demo", winner_stdout)
+        self.assertEqual(loser_stdout, "")
+        self.assertIn(winner_seat, loser_stderr)
+
+        winner_receipt = self.receipt(winner_stderr)
+        loser_receipt = self.receipt(loser_stderr)
+        self.assertEqual(winner_receipt["status"], "acquired")
+        self.assertEqual(winner_receipt["owner"], winner_seat)
+        self.assertEqual(winner_receipt["winner"], winner_seat)
+        self.assertIsNone(winner_receipt["failure"])
+        self.assertEqual(loser_receipt["status"], "lost")
+        self.assertEqual(loser_receipt["owner"], loser_seat)
+        self.assertEqual(loser_receipt["winner"], winner_seat)
+        self.assertEqual(loser_receipt["failure"], "claim_exists")
+        self.assertEqual(winner_receipt["entity"], loser_receipt["entity"])
+        self.assertEqual(winner_receipt["row"], "~bb22")
+        self.assertEqual(winner_receipt["project"], "protected-demo")
+        self.assertEqual(winner_receipt["plan"], loser_receipt["plan"])
+        self.assertNotIn(str(root), winner_stderr + loser_stderr)
+
+        self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
+        refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
+        self.assertEqual(set(refs), {"refs/heads/main", winner_receipt["ref"]})
+        stored = json.loads(
+            self.git(bare, "show", f"{winner_receipt['ref']}:claim.json")
+        )
+        self.assertEqual(
+            stored,
+            {key: winner_receipt[key] for key in remote_claim.JOURNAL_FIELDS},
+        )
+        for index, home_name in enumerate(("home-a", "home-b")):
+            board_payload = json.loads(
+                (root / home_name / ".shadow" / "board.json").read_text(encoding="utf-8")
+            )
+            expected = 1 if index == winner_index else 0
+            self.assertEqual(len(board_payload["claims"]), expected)
+
     def test_remote_tip_without_named_plan_parent_is_ambiguous(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
@@ -830,87 +892,196 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             bare, first, second, _, original_main = self.protected_fixture(root)
-            processes = [
-                self.throw_process(first, root / "home-a", "seat-a"),
-                self.throw_process(second, root / "home-b", "seat-b"),
-            ]
-            results = [process.communicate(timeout=30) for process in processes]
-            codes = [process.returncode for process in processes]
-
-            winners = [index for index, code in enumerate(codes) if code == 0]
-            losers = [index for index, code in enumerate(codes) if code == 1]
-            self.assertEqual(winners, [0] if codes[0] == 0 else [1], results)
-            self.assertEqual(losers, [0] if codes[0] == 1 else [1], results)
-            winner_index = winners[0]
-            loser_index = losers[0]
-            winner_seat = ("seat-a", "seat-b")[winner_index]
-            loser_seat = ("seat-a", "seat-b")[loser_index]
-            winner_stdout, winner_stderr = results[winner_index]
-            loser_stdout, loser_stderr = results[loser_index]
-            self.assertIn("/goal protected-demo", winner_stdout)
-            self.assertEqual(loser_stdout, "")
-            self.assertIn(winner_seat, loser_stderr)
-
-            winner_receipt = self.receipt(winner_stderr)
-            loser_receipt = self.receipt(loser_stderr)
-            self.assertEqual(winner_receipt["status"], "acquired")
-            self.assertEqual(winner_receipt["owner"], winner_seat)
-            self.assertEqual(winner_receipt["winner"], winner_seat)
-            self.assertIsNone(winner_receipt["failure"])
-            self.assertEqual(loser_receipt["status"], "lost")
-            self.assertEqual(loser_receipt["owner"], loser_seat)
-            self.assertEqual(loser_receipt["winner"], winner_seat)
-            self.assertEqual(loser_receipt["failure"], "claim_exists")
-            self.assertEqual(winner_receipt["entity"], loser_receipt["entity"])
-            self.assertEqual(winner_receipt["row"], "~bb22")
-            self.assertEqual(winner_receipt["project"], "protected-demo")
-            self.assertEqual(winner_receipt["plan"], loser_receipt["plan"])
-            self.assertNotIn(str(root), winner_stderr + loser_stderr)
-
-            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
-            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
-            self.assertEqual(set(refs), {"refs/heads/main", winner_receipt["ref"]})
-            stored = json.loads(
-                self.git(bare, "show", f"{winner_receipt['ref']}:claim.json")
+            self.assert_one_remote_claim_winner(
+                root, bare, first, second, original_main
             )
 
     def test_upstream_named_remote_coordinates_one_claim_packet(self) -> None:
-        """A branch tracking a remote not named `origin` still has a shared
-        trunk: remote-claim coordination must cover it (exactly one winner and
-        the claim ref published to it), never silently degrade to local-only
-        and let both seats acquire the same row."""
+        """Distinct forks still coordinate through their tracked upstream."""
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             bare, first, second, _, original_main = self.protected_fixture(root)
-            for clone in (first, second):
+            for index, clone in enumerate((first, second)):
                 self.git(clone, "remote", "rename", "origin", "upstream")
+                self.git(clone, "remote", "add", "origin", str(root / f"fork-{index}.git"))
 
-            processes = [
-                self.throw_process(first, root / "home-a", "seat-a"),
-                self.throw_process(second, root / "home-b", "seat-b"),
-            ]
-            results = [process.communicate(timeout=30) for process in processes]
-            codes = [process.returncode for process in processes]
+            self.assert_one_remote_claim_winner(
+                root, bare, first, second, original_main
+            )
 
-            winners = [index for index, code in enumerate(codes) if code == 0]
-            losers = [index for index, code in enumerate(codes) if code == 1]
-            self.assertEqual(len(winners), 1, results)
-            self.assertEqual(len(losers), 1, results)
-            winner_stdout, winner_stderr = results[winners[0]]
-            loser_stdout, loser_stderr = results[losers[0]]
-            self.assertIn("/goal protected-demo", winner_stdout)
-            self.assertEqual(loser_stdout, "")
+    def test_same_endpoint_aliases_contribute_all_configured_merge_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, repo, _, _, _ = self.protected_fixture(root)
+            self.git(repo, "remote", "rename", "origin", "fork")
+            self.git(repo, "remote", "add", "upstream", str(bare))
+            self.git(repo, "config", "branch.main.remote", "upstream")
+            self.git(repo, "checkout", "-qb", "feature")
+            self.git(repo, "config", "branch.feature.remote", "fork")
+            self.git(repo, "config", "branch.feature.merge", "refs/heads/feature")
+            plan_token, plan_bytes = board.committed_plan_snapshot(repo / "PLAN.md")
 
-            winner_receipt = self.receipt(winner_stderr)
-            loser_receipt = self.receipt(loser_stderr)
-            self.assertEqual(winner_receipt["status"], "acquired")
-            self.assertEqual(loser_receipt["status"], "lost")
-            self.assertEqual(loser_receipt["winner"], winner_receipt["owner"])
-            self.assertEqual(loser_receipt["failure"], "claim_exists")
+            binding = remote_claim.upstream_binding(repo)
+            published = remote_claim.published_plan_snapshot(repo, plan_token)
 
-            self.assertEqual(self.git(bare, "rev-parse", "refs/heads/main"), original_main)
-            refs = self.git(bare, "for-each-ref", "--format=%(refname)").splitlines()
-            self.assertEqual(set(refs), {"refs/heads/main", winner_receipt["ref"]})
+            self.assertEqual(
+                binding.eligibility,
+                remote_claim.RemoteEligibility.REMOTE,
+            )
+            self.assertEqual(
+                binding.merge_refs,
+                frozenset({"refs/heads/main", "refs/heads/feature"}),
+            )
+            self.assertIsNotNone(published)
+            self.assertEqual(published[0], plan_bytes)
+
+    def test_multi_valued_merge_entries_are_retained(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, repo, _, _, _ = self.protected_fixture(root)
+            self.git(
+                repo,
+                "config",
+                "--add",
+                "branch.main.merge",
+                "refs/heads/release",
+            )
+
+            heads = remote_claim._configured_branch_heads(repo)
+
+            self.assertEqual(
+                heads,
+                [
+                    ("main", "origin", "refs/heads/main"),
+                    ("main", "origin", "refs/heads/release"),
+                ],
+            )
+
+    def test_different_ssh_users_are_not_the_same_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            _, repo, _, _, _ = self.protected_fixture(root)
+            self.git(
+                repo,
+                "remote",
+                "set-url",
+                "origin",
+                "ssh://fetch-user@example.invalid/team/project.git",
+            )
+            self.git(
+                repo,
+                "remote",
+                "set-url",
+                "--push",
+                "origin",
+                "ssh://push-user@example.invalid/team/project.git",
+            )
+
+            with self.assertRaisesRegex(
+                remote_claim.RemoteClaimError,
+                "fetch and push endpoints do not match",
+            ) as failure:
+                remote_claim.remote_endpoint(repo, "origin")
+
+            self.assertNotIn("fetch-user", str(failure.exception))
+            self.assertNotIn("push-user", str(failure.exception))
+
+    def test_claim_cas_binds_one_remote_before_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            origin, first, _, _, _ = self.protected_fixture(root)
+            upstream = root / "upstream.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(upstream)], check=True)
+            self.git(first, "remote", "add", "upstream", str(upstream))
+            branch = self.git(first, "symbolic-ref", "--quiet", "--short", "HEAD")
+            token, _ = board.committed_plan_snapshot(first / "PLAN.md")
+            entity = board.entity_id(first / "PLAN.md")
+            actual_git = remote_claim._git
+            switched = False
+
+            def switch_after_listing(repo: Path, *args: str, **kwargs):
+                nonlocal switched
+                result = actual_git(repo, *args, **kwargs)
+                if (
+                    not switched
+                    and args[:3] == ("ls-remote", "--refs", str(origin))
+                ):
+                    self.git(first, "config", f"branch.{branch}.remote", "upstream")
+                    switched = True
+                return result
+
+            with mock.patch.object(
+                remote_claim,
+                "_git",
+                side_effect=switch_after_listing,
+            ):
+                outcome = remote_claim.acquire(
+                    first,
+                    entity=entity,
+                    row="~bb22",
+                    owner="seat-a",
+                    project="protected-demo",
+                    plan_token=token,
+                    claimed_at="2026-08-11T12:00:00Z",
+                    return_by="2099-08-11T20:00:00Z",
+                    recovery=board.RECOVERY_ACTION,
+                )
+
+            self.assertTrue(switched)
+            self.assertEqual(outcome["status"], "acquired")
+            self.git(origin, "rev-parse", outcome["ref"])
+            absent = subprocess.run(
+                ["git", "-C", str(upstream), "show-ref", "--verify", "--quiet", outcome["ref"]],
+                check=False,
+            )
+            self.assertEqual(absent.returncode, 1)
+
+    def test_configured_branch_heads_fail_closed_on_unreadable_or_malformed_git(
+        self,
+    ) -> None:
+        failures = (
+            (subprocess.CompletedProcess((), 255, b"", b""), "unavailable"),
+            (
+                subprocess.CompletedProcess((), 0, b"malformed\0", b""),
+                "malformed",
+            ),
+            (
+                subprocess.CompletedProcess(
+                    (),
+                    0,
+                    b"branch.main.remote\norigin",
+                    b"",
+                ),
+                "malformed",
+            ),
+            (
+                subprocess.CompletedProcess(
+                    (),
+                    0,
+                    b"branch.main.remote\norigin\0"
+                    b"branch.main.remote\nupstream\0"
+                    b"branch.main.merge\nrefs/heads/main\0",
+                    b"",
+                ),
+                "malformed",
+            ),
+            (
+                subprocess.CompletedProcess(
+                    (),
+                    0,
+                    b"branch.main.merge\nrefs/heads/main\0",
+                    b"",
+                ),
+                "malformed",
+            ),
+        )
+        for result, message in failures:
+            with (
+                self.subTest(result=result),
+                mock.patch.object(remote_claim, "_git", return_value=result),
+                self.assertRaisesRegex(remote_claim.RemoteClaimError, message),
+            ):
+                remote_claim._configured_branch_heads(Path("."))
 
     def test_claim_ref_makes_the_exact_unpushed_plan_authority_reachable(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -1016,6 +1187,88 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             )
             injected_refs = self.git(second, "for-each-ref", "--format=%(refname)")
             self.assertEqual(injected_refs, "")
+
+    def test_distinct_fetch_and_push_repositories_refuse_before_claiming(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            bare, first, _, _, _ = self.protected_fixture(root)
+            push_repo = root / "push.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(push_repo)], check=True)
+            self.git(first, "remote", "set-url", "--push", "origin", str(push_repo))
+
+            process = self.throw_process(first, root / "home-a", "seat-a")
+            stdout, stderr = process.communicate(timeout=30)
+
+            self.assertEqual(process.returncode, 1, stderr)
+            self.assertEqual(stdout, "")
+            self.assertIn("project Git identity could not be read", stderr)
+            self.assertNotIn("shadow.remote-claim.v1", stderr)
+            for remote in (bare, push_repo):
+                refs = self.git(
+                    remote,
+                    "for-each-ref",
+                    "--format=%(refname)",
+                    "refs/heads/shadow/claims",
+                )
+                self.assertEqual(refs, "")
+
+    def test_detached_recovery_uses_the_unique_configured_upstream(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            upstream, first, _, _, _ = self.protected_fixture(root)
+            fork = root / "fork.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(fork)], check=True)
+            self.git(first, "remote", "rename", "origin", "upstream")
+            self.git(first, "remote", "add", "origin", str(fork))
+            token, _ = board.committed_plan_snapshot(first / "PLAN.md")
+            entity = board.entity_id(first / "PLAN.md")
+            acquired = remote_claim.acquire(
+                first,
+                entity=entity,
+                row="~bb22",
+                owner="seat-a",
+                project="protected-demo",
+                plan_token=token,
+                claimed_at="2026-08-11T12:00:00Z",
+                return_by="2099-08-11T20:00:00Z",
+                recovery=board.RECOVERY_ACTION,
+            )
+            self.assertIsNotNone(acquired)
+            self.assertEqual(acquired["status"], "acquired")
+            self.git(first, "checkout", "--detach", "-q")
+
+            released = remote_claim.transition(
+                first,
+                entity=entity,
+                row="~bb22",
+                owner="seat-a",
+                project="protected-demo",
+                plan_token=token,
+                claim=acquired["claim"],
+                state="released",
+                reason="return",
+                recover_detached=True,
+            )
+
+            self.assertIsNotNone(released)
+            self.assertEqual(released["state"], "released")
+            stored = json.loads(
+                self.git(upstream, "show", f"{released['ref']}:claim.json")
+            )
+            self.assertEqual(stored["state"], "released")
+            absent = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(fork),
+                    "show-ref",
+                    "--verify",
+                    "--quiet",
+                    released["ref"],
+                ],
+                check=False,
+            )
+            self.assertEqual(absent.returncode, 1)
 
     def test_oversized_remote_receipt_is_not_read_or_named_as_a_winner(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -1162,7 +1415,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
     def test_indeterminate_upstream_probe_refuses_without_packet(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
-            _, first, _, _, _ = self.protected_fixture(root)
+            bare, first, _, _, _ = self.protected_fixture(root)
             wrapper_dir = root / "bin"
             wrapper_dir.mkdir()
             actual_git = shutil.which("git")
@@ -1191,11 +1444,14 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             )
             stdout, stderr = process.communicate(timeout=30)
 
-        self.assertEqual(process.returncode, 1, stderr)
-        self.assertEqual(stdout, "")
-        outcome = self.receipt(stderr)
-        self.assertEqual(outcome["status"], "error")
-        self.assertEqual(outcome["failure"], "ambiguous_remote")
+            self.assertEqual(process.returncode, 1, stderr)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("eligibility probe failed", stderr)
+            self.assertNotIn("shadow.remote-claim.v1", stderr)
+            refs = self.git(
+                bare, "for-each-ref", "--format=%(refname)"
+            ).splitlines()
+            self.assertEqual(refs, ["refs/heads/main"])
 
     def test_expired_remote_acquired_tip_can_only_be_adopted_explicitly(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -1271,6 +1527,11 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             bare, first, second, _, original_main = self.protected_fixture(root)
+            for index, clone in enumerate((first, second)):
+                fork = root / f"fork-{index}.git"
+                subprocess.run(["git", "init", "-q", "--bare", str(fork)], check=True)
+                self.git(clone, "remote", "rename", "origin", "upstream")
+                self.git(clone, "remote", "add", "origin", str(fork))
             private_marker = "branch-private-" + "AKIA" + "IOSFODNN7EXAMPLE"
 
             self.git(first, "checkout", "-qb", "arbitrary-unmerged-claim")
@@ -1290,7 +1551,7 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
                 first,
                 "push",
                 "-q",
-                "origin",
+                "upstream",
                 "HEAD:refs/heads/arbitrary-unmerged-claim",
             )
             self.git(first, "checkout", "-q", "main")
@@ -1312,7 +1573,7 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
                     second,
                     "for-each-ref",
                     "--format=%(refname)",
-                    "refs/remotes/origin/shadow/claims",
+                    "refs/remotes/upstream/shadow/claims",
                 ),
                 "",
             )

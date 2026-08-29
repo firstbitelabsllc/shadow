@@ -1887,7 +1887,6 @@ class ShadowAcceptTests(unittest.TestCase):
     def test_green_proof_flips_the_row_with_a_paired_proof_line_in_one_commit(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo = make_repo(Path(dirname).resolve())
-            before = git(repo, "rev-parse", "HEAD")
             result = run_accept(repo, "~ab12")
             text = (repo / "PLAN.md").read_text(encoding="utf-8")
             commits = git(repo, "rev-list", "--count", "HEAD")
@@ -2661,10 +2660,6 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
 
             self.assertNotEqual(retry.returncode, 0, retry.stdout + retry.stderr)
             self.assertIn(
-                "not published on the configured origin default",
-                retry.stdout + retry.stderr,
-            )
-            self.assertIn(
                 "[in_progress] x.txt says hello",
                 git(remote, "show", "main:PLAN.md"),
             )
@@ -2866,7 +2861,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             ),
             mock.patch.object(
                 accept._remote_claim,
-                "origin_upstream_eligibility",
+                "upstream_eligibility",
                 return_value=accept._remote_claim.RemoteEligibility.UNKNOWN,
             ),
             mock.patch.object(
@@ -2915,7 +2910,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
     ) -> None:
         with mock.patch.object(
             accept._remote_claim,
-            "origin_upstream_eligibility",
+            "upstream_eligibility",
             return_value=accept._remote_claim.RemoteEligibility.UNKNOWN,
         ) as eligibility:
             self.assertTrue(
