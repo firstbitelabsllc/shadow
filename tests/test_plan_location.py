@@ -453,8 +453,6 @@ class StrictDiscoveryForBoardImport(unittest.TestCase):
             self.assertEqual(board.read_bytes(), before)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ADuplicateNeverBecomesASecondRow(unittest.TestCase):
@@ -897,3 +895,7 @@ class ClassificationIsDeterministic(unittest.TestCase):
                     value = record.get(field) or ""
                     self.assertNotIn(str(root), value,
                                      f"{field} leaked an absolute path, so the answer is machine-specific")
+
+
+if __name__ == "__main__":
+    unittest.main()
