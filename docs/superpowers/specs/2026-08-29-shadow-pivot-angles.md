@@ -1,11 +1,11 @@
 # Shadow pivot — three better problems
 
-Status: **RESEARCH IN PROGRESS.** This first checkpoint fixes the diagnosis,
-product laws, and scoring contract before choosing a winner. The final revision
-must recommend one primary bet, one secondary option, and one research-only
-option.
+Status: **DECISION.** Kill Shadow as a bundled local control plane. Build an
+independent acceptance gate as the company bet, publish a continuity capsule as
+the free adoption wedge, and keep evidence-backed decision intelligence as a
+downstream interface rather than a standalone company.
 
-## The call so far
+## Verdict
 
 Do not keep expanding Shadow as a general local chief of staff.
 
@@ -17,6 +17,14 @@ experience. They are not automatically the product.
 The pivot must turn that experience into a problem a buyer already feels. It
 must not ask people to adopt another task manager, another agent launcher, or
 another private operating system before receiving value.
+
+The product sequence is:
+
+1. **Sell independent acceptance.** An agent cannot certify its own work.
+2. **Distribute through continuity.** A free neutral evidence envelope makes
+   agent work portable and gives the paid gate something standard to verify.
+3. **Render one decision later.** The brief becomes the human view over trusted
+   evidence, not a separate data platform.
 
 ## What Shadow actually learned
 
@@ -123,11 +131,11 @@ Every candidate starts by removing, not preserving, these assumptions:
 Any candidate that needs most of those assumptions is Shadow with new
 positioning, not a pivot.
 
-## The three hypotheses under investigation
+## The three angles
 
-These are categories, not feature names. None is the final verdict yet.
+These are business directions, not feature names.
 
-### A. Autonomous engineering change control
+### A. Independent engineering change acceptance
 
 A provider-neutral acceptance firewall for agent-authored code. Workers can
 propose changes; a separately trusted verifier owns policy, fresh proof,
@@ -137,7 +145,7 @@ The buyer would be an engineering platform, application security, or regulated
 software team already allowing coding agents to create branches and pull
 requests.
 
-### B. Cross-agent work continuity
+### B. Proof-carrying work continuity
 
 A portable continuation capsule that lets work move between coding agents and
 computers without replaying a conversation. It carries the exact goal, source
@@ -270,15 +278,14 @@ artifact** that is:
 - capable of refusing stale, forged, or unsupported completion claims;
 - readable by a new agent and compressible into one human decision.
 
-That artifact could become the core of an acceptance gate, a continuity
-capsule, or a coding-work reliability benchmark. The research must determine
-which buyer and distribution path make it a product rather than a protocol in
-search of a market.
+That artifact becomes the common substrate. The paid product is the independent
+acceptance gate. The continuity capsule is the free format. The decision brief
+is the human projection once trusted evidence exists.
 
 ## Scoring contract
 
-Each angle will receive a 1–5 score with a written reason for every dimension.
-No weighted total may hide a fatal weakness.
+Each angle received a 1–5 score. The numbers are directional, not a weighted
+formula; the fatal risk can kill an angle regardless of its total.
 
 | Dimension | The question that must be answered |
 |---|---|
@@ -294,9 +301,283 @@ No weighted total may hide a fatal weakness.
 | Deletion | How much current Shadow surface can disappear? |
 | Fast falsifier | What test can kill the idea before a long build? |
 
+| Dimension | A: acceptance | B: continuity | C: decision intelligence |
+|---|---:|---:|---:|
+| Pain | 5 | 4 | 4 |
+| Buyer | 5 | 2 | 4 |
+| Wedge | 4 | 5 | 3 |
+| Differentiation | 3 | 3 | 2 |
+| 30-day MVP | 4 | 5 | 3 |
+| Distribution | 3 | 5 | 2 |
+| Pricing | 5 | 2 | 4 |
+| Retention | 5 | 3 | 3 |
+| Shadow reuse | 5 | 4 | 4 |
+| Deletion | 5 | 5 | 5 |
+| Fast falsifier | 5 | 5 | 5 |
+| **Fatal risk** | Native rules already solve it | No standalone budget | Summary commodity |
+
+## Primary bet — independent acceptance gate
+
+### Position
+
+**An agent cannot certify its own work.**
+
+The product is not a code reviewer, CI service, agent runtime, or broad AI
+governance platform. It is one required verdict over an agent-authored change:
+did an independent verifier evaluate the exact proposed source under protected
+policy, and is the evidence fresh, scoped, and sufficient for the claim?
+
+GitHub or GitLab remains the enforcement plane. The product emits one check and
+one tamper-evident receipt. It never merges.
+
+### Customer and buyer
+
+The initial customer is a software company with 75–1,500 engineers, protected
+repositories, at least two coding-agent providers, and enough agent-authored
+pull requests that reviewers can no longer reconstruct every run.
+
+- **Economic buyer:** Head of Platform Engineering or VP Engineering.
+- **Co-buyer:** CISO or AppSec when auditability drives the purchase.
+- **User:** repository maintainer or staff engineer responsible for safe
+  delivery.
+- **Painful job:** prove that an untrusted agent started from the claimed
+  source, changed only allowed scope, used organization-owned verification,
+  and could not manufacture its own completion evidence.
+
+### Narrowest 30-day MVP
+
+A GitHub App plus a small open CLI:
+
+1. Read acceptance policy only from the protected base branch.
+2. Freeze the repository identity, base SHA, head SHA, and diff digest.
+3. Validate allowed changed paths and required evidence.
+4. Run one allowlisted organization-owned workflow against the exact head in a
+   secretless runner with no write credential.
+5. Reject stale, forged, missing, or self-authored evidence.
+6. Emit `accepted` or `refused`, exact reasons, and an immutable JSON receipt
+   through one GitHub check.
+
+The MVP does not launch agents, manage tasks, select models, keep transcripts,
+own deployments, or create a second policy language. Existing required-check
+and ruleset mechanisms enforce the verdict.
+
+### Trust boundary
+
+- The pull-request author and coding agent are untrusted proposers.
+- Policy on the protected base branch is trusted configuration.
+- The verifier installation and its runner are trusted.
+- Proposed code receives no acceptance credential.
+- Every evidence item names its issuer, subject SHA, result, time, and the
+  surface it proves.
+- A source-tested receipt never implies reviewed, merged, deployed, or live.
+- A clean checkout is source isolation, not arbitrary-code containment. Do not
+  sell it as a sandbox.
+
+### Demo that earns attention
+
+An agent opens a pull request with three attacks:
+
+1. a forged `proof.json`;
+2. a green test result from an earlier commit;
+3. a change that weakens its own acceptance policy.
+
+The gate reads policy from the base branch, binds evaluation to the current
+head, and refuses all three with exact reasons. A corrected head reruns the
+independent proof and receives an accepted verdict.
+
+### Reusable Shadow assets
+
+| Asset | Extracted use |
+|---|---|
+| `scripts/shadow-accept.py:625` | Run proof and require a zero exit status. |
+| `scripts/shadow-accept.py:644` | Create a detached review checkout at one exact commit. |
+| `scripts/shadow-accept.py:654` | Require proof to leave the checkout clean and at the frozen head. |
+| `scripts/shadow-accept.py:710` | Rerun recorded proof before accepting a prior completion. |
+| `scripts/shadow_cmd_proof.py:119` | Identify the explicit repository script an interpreter will execute. |
+| `scripts/shadow_cmd_proof.py:154` | Verify executable proof source against the committed tree. |
+| `scripts/shadow-outcome-validate.py:16` | Reuse the bounded, closed, public-safe document boundary. |
+| `scripts/shadow-outcome-validate.py:114` | Restrict evidence locators to HTTPS or repository-relative paths. |
+
+These are source material, not a mandate to preserve their current APIs.
+Extract the invariants into a blank, smaller architecture.
+
+### Delete from the product
+
+- root board, seats, claims, leases, priorities, and resume pointers;
+- mandatory `PLAN.md` grammar and lifecycle mutation;
+- remote claim refs, tombstones, and cross-computer locking;
+- host and model routing;
+- global agent-instruction installation;
+- automatic commit, push, merge, or deployment behavior;
+- content-addressed plan trees;
+- portfolio dashboard and generic brief producer.
+
+### Distribution, pricing, and retention hypotheses
+
+Lead with a free **Agent PR Trust Audit** over twenty recent agent-authored pull
+requests. Show stale evidence, self-controlled policy, missing scope review, or
+proof-surface confusion using the team's own history. Then ask the team to make
+the gate required on one repository.
+
+First five design-partner profiles:
+
+1. an AI-native SaaS company using several coding agents;
+2. a fintech or health-software team with protected delivery controls;
+3. a developer-tools company whose own customers expect trustworthy changes;
+4. an engineering consultancy supervising agent-authored client work;
+5. a large open-source maintainer team receiving agent-generated pull requests.
+
+Test price: free audit, then a $1,000–$3,000 monthly pilot for one organization.
+If the control becomes required, test $20–$40 per active contributor with a
+$30,000 annual minimum.
+
+Retention comes from required use on every agent-authored change, accumulated
+policy, and a durable evidence history that reduces future review and incident
+reconstruction.
+
+### Two-week commercial falsifier
+
+Audit at least 100 agent-authored pull requests across five companies.
+
+Pass only if:
+
+- three companies install the gate as a required check on one repository; and
+- at least one accepts a paid pilot of $1,000 per month or an equivalent annual
+  commitment.
+
+Kill the company angle if buyers consistently say native rules, checks, and
+attestations already express the complete policy. Do not build around that
+answer.
+
+## Secondary option — proof-carrying continuity capsule
+
+This is the cleanest Shadow extraction and the best free distribution wedge.
+It is not the strongest standalone business.
+
+### Product
+
+Publish an MIT-licensed schema and CLI for one active work lane:
+
+```text
+capsule create
+capsule verify
+capsule show
+```
+
+The committed capsule contains only:
+
+1. outcome and material risk;
+2. repository identity and exact head;
+3. accepted evidence with explicit proof surfaces;
+4. blocker plus one wake condition;
+5. next action.
+
+Git transports it. Any agent can read it as untrusted data. `verify` confirms
+the source exists and evidence subjects match before the receiving agent acts.
+No global host-file writes, board, priorities, dependencies, claims, automatic
+execution, or transcript are allowed.
+
+The existing deterministic resume projection in `scripts/shadow-amp.py:1`, the
+public-safe validator in `scripts/shadow-outcome-validate.py:16`, and the
+minimal cross-computer packet named in
+`docs/guide/other-computer-handoff.md:87` are the source material.
+
+### Why keep it despite vendor handoff
+
+Native session handoff preserves a conversation inside a vendor or editor
+ecosystem. The capsule preserves semantic work state in the repository without
+the transcript.
+
+The handoff-debt study suggests structured notes can materially reduce takeover
+actions and tokens. It also shows the danger: successors can trust a summary
+too much. The capsule therefore earns its place only when verification keeps
+correct completion at least as high as the strongest native handoff.
+
+### Two-week product falsifier
+
+Ship only the schema, validator, and two agent adapters. Give twenty unfamiliar
+developers a real repository, interrupt them for 48 hours, and require
+continuation through a different agent.
+
+Compare the capsule against no handoff, a committed `HANDOFF.md`, full
+transcript, and native session handoff.
+
+Pass only if:
+
+- at least 85% take the correct first action;
+- no more than 10% require clarification;
+- nobody is given recovery homework;
+- no unsafe continuation occurs;
+- time to the first correct action improves by at least 40% over `HANDOFF.md`;
+- ten people voluntarily use it again; and
+- five ask for team synchronization.
+
+If it improves continuation but nobody will pay, keep it free as acquisition
+for the acceptance gate. If it cannot beat a plain handoff file and native
+session transfer, kill it.
+
+## Research-only option — evidence-backed decision intelligence
+
+Do not build a separate executive dashboard or general engineering-intelligence
+company.
+
+Build the decision compiler only as the human interface over trusted acceptance
+evidence. Scope the first version to one question: **is this agent-authored
+change ready to merge?**
+
+The compiler:
+
+1. reads the exact pull-request objective, diff, checks, reviews, and bounded
+   agent reports;
+2. rejects stale reports and unsupported claims;
+3. builds an evidence graph before writing prose;
+4. produces outcome, material risk, readiness, recommendation, and zero or one
+   genuinely human decision;
+5. publishes a check artifact, not an automatic comment, approval, or merge.
+
+An LLM may phrase the brief. It may not decide which evidence is current or
+invent support. The pure report boundary in `browser/chief_of_staff.py:1` and
+its private-detail filter at `browser/chief_of_staff.py:45` are worth
+extracting. The fixed requirement for exactly three choices is not.
+
+### Held-out usefulness gate
+
+Use 36 unfamiliar public-repository cases:
+
+- 12 cold resumes;
+- 12 pull-request dispositions;
+- 12 adversarial acceptance attacks.
+
+Two senior engineers independently label the correct outcome, material risks,
+next action, acceptance verdict, and whether a human decision is necessary. A
+third adjudicates disagreements. Freeze cases, prompts, schemas, and scoring
+before the run. Hide product identity and length-match outputs.
+
+Baselines:
+
+- raw GitHub state;
+- committed `HANDOFF.md`;
+- full transcript;
+- generic evidence-fed LLM summary;
+- native AI review or summary;
+- native required checks.
+
+Primary endpoint: the correct downstream action, not writing preference.
+
+The compiler passes only with:
+
+- no more than 5% false-ready verdicts;
+- at least 90% recall of material risks;
+- fewer than 1% unsupported claims;
+- at least 90% correct classification of zero versus one human decision; and
+- at least 30% faster disposition without lower accuracy.
+
+If strong summaries match it on actual decisions, stop. Do not polish the
+prose.
+
 ## Non-negotiable falsifiers
 
-A candidate is killed if any of these remain true after research:
+A candidate is killed if any of these becomes true:
 
 - The first user must migrate their task system.
 - The product needs every coding agent vendor to cooperate.
@@ -309,19 +590,64 @@ A candidate is killed if any of these remain true after research:
 - The MVP requires a daemon, fleet scheduler, hosted transcript store, or
   model-routing layer.
 
-## Decision gate
+## Company shape and sequence
 
-The final recommendation must include:
+**Free neutral continuity format → paid independent acceptance gate →
+evidence-backed decision brief later.**
 
-1. the primary bet and why it wins now;
-2. the narrowest 30-day product;
-3. the first five design-partner profiles;
-4. pricing and distribution hypotheses;
-5. the fastest test that could kill it;
-6. the Shadow assets to reuse;
-7. the Shadow surfaces to delete;
-8. one secondary option and one research-only option.
+The free capsule creates a common evidence envelope and a dramatic
+cross-agent demo. The paid gate owns a recurring control point and an existing
+platform/security budget. The decision brief becomes useful only after the
+gate supplies evidence strong enough to support it.
 
-The next checkpoint is current-market evidence: which adjacent products already
-own execution, coordination, policy, handoff, and summaries—and where a narrow
-gap remains.
+### Days 1–14 — falsify demand and usefulness
+
+- Run the five-company, 100-pull-request trust audit.
+- Build and freeze the 36-case held-out corpus.
+- Prototype the five-field capsule and two adapters.
+- Do not build a hosted service.
+
+### Days 15–30 — build only after the first signal
+
+Proceed only if at least three teams want the gate required or the audit
+surfaces a repeated failure that native controls do not express.
+
+- Implement protected-base policy loading.
+- Bind verdicts to exact base, head, and diff digests.
+- Accept one organization-owned proof workflow.
+- Emit one immutable receipt and one required check.
+- Render one evidence-backed decision brief.
+
+### Day-30 gate
+
+Continue only if:
+
+- no critical false accept appears in the held-out corpus;
+- stale, forged, and self-modifying-policy attacks are rejected every time;
+- three external repositories keep the gate required; and
+- one customer accepts a paid pilot.
+
+If those conditions fail, archive the company angle. The continuity capsule
+may survive as a small open-source tool only if its own takeover test passes.
+
+## Disposition of current Shadow
+
+Freeze the bundled product in maintenance mode while the two-week falsifiers
+run.
+
+- Merge critical correctness, security, installer, and public-trust fixes.
+- Do not add hosts, models, orchestration states, plan grammar, remote-claim
+  behavior, dashboards, brief producers, memory systems, or routing policy.
+- Keep the current repository as an evidence bank and extraction source.
+- Start the acceptance MVP from a blank package boundary; do not simplify the
+  existing control plane in place.
+- Leave proposal-only authority work unmerged while it lacks real external
+  demand and natural hostile-write dogfood.
+- Never treat the existing test suite as product validation.
+
+## Final decision
+
+**Kill Shadow as the product bundle. Keep its trust discoveries. Build the
+independent acceptance gate, distribute the continuity capsule for free, and
+allow the decision brief to exist only when trusted evidence makes it better
+than an ordinary summary.**
