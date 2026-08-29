@@ -69,6 +69,26 @@ class BrowserTests(unittest.TestCase):
         git(repo, "commit", "-qm", "fixture")
         return repo, plan
 
+    def test_repository_root_ignores_ambient_git_redirects(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo, plan = self.make_repo(root)
+            injected = root / "injected"
+            injected.mkdir()
+            git(injected, "init", "-q")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "GIT_DIR": str(injected / ".git"),
+                    "GIT_WORK_TREE": str(injected),
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "remote.origin.url",
+                    "GIT_CONFIG_VALUE_0": "git@example.invalid:wrong/repo.git",
+                },
+                clear=False,
+            ):
+                self.assertEqual(server.repository_root(plan), repo.resolve())
+
     def test_plan_projection_has_one_brief_and_three_choices(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan = self.make_repo(Path(dirname))
