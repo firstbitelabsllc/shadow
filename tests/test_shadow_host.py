@@ -315,6 +315,7 @@ class ShadowHostTests(unittest.TestCase):
         self.assertIn("shadow host run --host", skill)
         self.assertIn("--delegation direct|required", skill)
         self.assertIn("--delegation MODE", help_text)
+        self.assertIn("--authority-proposal", help_text)
         self.assertNotIn("shadow route", skill)
 
     def test_grok_command_shape_uses_prompt_file_and_coding_selector(self) -> None:
