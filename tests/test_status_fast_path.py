@@ -125,7 +125,19 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         def git(_repo, *args, **_kwargs):
             if args[:3] == ("symbolic-ref", "--quiet", "--short"):
                 return subprocess.CompletedProcess(args, 0, b"main\n", b"")
-            if args[:2] == ("config", "--get") and args[2].endswith(".remote") and not args[2].startswith("remote."):
+            if args[:3] == ("config", "--null", "--get-regexp"):
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    b"branch.main.remote\norigin\x00branch.main.merge\nrefs/heads/main\x00",
+                    b"",
+                )
+            if args == ("config", "--get-all", "remote.origin.url"):
+                return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
+            if args in (
+                ("remote", "get-url", "--all", "--", "origin"),
+                ("remote", "get-url", "--push", "--all", "--", "origin"),
+            ):
                 return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
             if args[:3] == ("ls-remote", "--refs", "origin"):
                 output = "".join(
@@ -531,12 +543,20 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
                             args, 2, b"", b"eligibility probe failed"
                         )
                     return subprocess.CompletedProcess(args, 0, b"main\n", b"")
-                if args == ("config", "--get", "branch.main.remote"):
-                    return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
-                if args == ("config", "--get", "branch.main.merge"):
+                if args[:3] == ("config", "--null", "--get-regexp"):
                     return subprocess.CompletedProcess(
-                        args, 0, b"refs/heads/main\n", b""
+                        args,
+                        0,
+                        b"branch.main.remote\norigin\x00branch.main.merge\nrefs/heads/main\x00",
+                        b"",
                     )
+                if args == ("config", "--get-all", "remote.origin.url"):
+                    return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
+                if args in (
+                    ("remote", "get-url", "--all", "--", "origin"),
+                    ("remote", "get-url", "--push", "--all", "--", "origin"),
+                ):
+                    return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
                 if args[:3] == ("ls-remote", "--refs", "origin"):
                     return subprocess.CompletedProcess(args, 0, b"", b"")
                 self.fail(f"unexpected git call: {args}")
@@ -576,8 +596,15 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         completed = subprocess.CompletedProcess
         remote_results = [
             completed(("symbolic-ref",), 0, b"main\n", b""),
+            completed(
+                ("config",),
+                0,
+                b"branch.main.remote\norigin\x00branch.main.merge\nrefs/heads/main\x00",
+                b"",
+            ),
             completed(("config",), 0, b"origin\n", b""),
-            completed(("config",), 0, b"refs/heads/main\n", b""),
+            completed(("remote",), 0, b"origin\n", b""),
+            completed(("remote",), 0, b"origin\n", b""),
         ]
         local_results = [
             completed(("symbolic-ref",), 0, b"main\n", b""),
@@ -587,17 +614,17 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         with mock.patch.object(
             status._remote_claim, "_git", side_effect=remote_results
         ):
-            remote = status._remote_claim.origin_upstream_eligibility(Path("."))
+            remote = status._remote_claim.upstream_eligibility(Path("."))
         with mock.patch.object(
             status._remote_claim, "_git", side_effect=local_results
         ):
-            local = status._remote_claim.origin_upstream_eligibility(Path("."))
+            local = status._remote_claim.upstream_eligibility(Path("."))
         with mock.patch.object(
             status._remote_claim.subprocess,
             "run",
             side_effect=subprocess.TimeoutExpired(("git",), 20),
         ):
-            unknown = status._remote_claim.origin_upstream_eligibility(Path("."))
+            unknown = status._remote_claim.upstream_eligibility(Path("."))
 
         self.assertIs(remote, status._remote_claim.RemoteEligibility.REMOTE)
         self.assertIs(

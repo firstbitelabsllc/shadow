@@ -152,7 +152,8 @@ class ReleasePackageTests(unittest.TestCase):
     def test_plan_grammar_ships_with_its_consumers(self) -> None:
         self.assertIn("scripts/shadow_plan_grammar.py", mod.REQUIRED_FILES)
 
-    def test_remote_claim_transport_ships_with_throw(self) -> None:
+    def test_remote_claim_transport_ships_with_shared_git_boundary(self) -> None:
+        self.assertIn("scripts/shadow_git.py", mod.REQUIRED_FILES)
         self.assertIn("scripts/shadow_remote_claim.py", mod.REQUIRED_FILES)
 
     def test_local_event_vocabulary_ships_without_a_transport(self) -> None:

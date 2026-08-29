@@ -15,6 +15,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as board  # noqa: E402
 import shadow_remote_claim as remote_claim  # noqa: E402
+import shadow_git  # noqa: E402
 
 SPEC = importlib.util.spec_from_file_location("shadow_return_amp", ROOT / "scripts" / "shadow-amp.py")
 amp = importlib.util.module_from_spec(SPEC)
@@ -84,7 +85,7 @@ def _remote_only_manual_completion(
         ) from exc
     if published_bytes is None:
         raise board.BoardError(
-            "completed manual proof is not published on the configured origin; "
+            "completed manual proof is not published on the tracked upstream; "
             "remote claim retained"
         )
     try:
@@ -107,7 +108,8 @@ def _remote_only_manual_completion(
     ]
     if len(matches) != 1:
         raise board.BoardError(
-            "current origin default PLAN no longer carries exactly one completed row; "
+            "current tracked-upstream default PLAN no longer carries exactly "
+            "one completed row; "
             "remote claim retained"
         )
     published_row = matches[0]
@@ -119,14 +121,15 @@ def _remote_only_manual_completion(
         or not board.progress_proof_receipts(published_text, row_id)
     ):
         raise board.BoardError(
-            "current origin default PLAN no longer carries the completed manual proof "
+            "current tracked-upstream default PLAN no longer carries the "
+            "completed manual proof "
             "and its receipt; remote claim retained"
         )
     return _claim_from_remote_receipt(receipt)
 
 
 def main(argv: list[str] | None = None) -> int:
-    remote_claim.sanitize_process_git_env()
+    shadow_git.sanitize_process_git_env()
     parser = argparse.ArgumentParser(prog="shadow return", description=__doc__)
     location = parser.add_mutually_exclusive_group()
     location.add_argument("--repo", type=Path)

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections import Counter
 import atexit
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import select
 import shlex
 import shutil
@@ -312,21 +312,125 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
     def test_git_introspection_failure_never_becomes_a_checkout_path_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = project(Path(tmp))
+            git(repo, "remote", "add", "origin", "git@example.invalid:team/project.git")
+            branch = subprocess.run(
+                ["git", "-C", str(repo), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            git(repo, "config", f"branch.{branch}.remote", "origin")
+            git(repo, "config", f"branch.{branch}.merge", "refs/heads/main")
             spec = importlib.util.spec_from_file_location("shadow_git_failure", BOARD_MODULE)
             module = importlib.util.module_from_spec(spec)
             assert spec and spec.loader
             sys.modules[spec.name] = module
             spec.loader.exec_module(module)
-            original = module._git
-            module._git = lambda *_args: subprocess.CompletedProcess([], 124, "", "timed out")
-            try:
-                with self.assertRaisesRegex(
-                    module.BoardError,
-                    "project Git identity could not be read",
-                ):
-                    module.entity_id(repo / "PLAN.md")
-            finally:
-                module._git = original
+            original = module._remote_claim._git
+            probes = (
+                ("symbolic-ref", "--quiet", "--short", "HEAD"),
+                (
+                    "config",
+                    "--null",
+                    "--get-regexp",
+                    r"^branch\..*\.(remote|merge)$",
+                ),
+                ("config", "--get-all", "remote.origin.url"),
+                ("remote", "get-url", "--all", "--", "origin"),
+                ("remote", "get-url", "--push", "--all", "--", "origin"),
+            )
+            for failed_probe in probes:
+                with self.subTest(probe=failed_probe):
+                    def fail_selected(root: Path, *args: str, **kwargs):
+                        if args == failed_probe:
+                            return subprocess.CompletedProcess(
+                                args,
+                                124,
+                                b"",
+                                b"timed out",
+                            )
+                        return original(root, *args, **kwargs)
+
+                    with mock.patch.object(
+                        module._remote_claim,
+                        "_git",
+                        side_effect=fail_selected,
+                    ):
+                        with self.assertRaisesRegex(
+                            module.BoardError,
+                            "project Git identity could not be read",
+                        ):
+                            module.entity_id(repo / "PLAN.md")
+
+    def test_git_environment_cannot_redirect_repository_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root, name="expected")
+            injected = project(root, name="injected")
+            expected = board_api.entity_id(repo / "PLAN.md")
+            expected_locator = board_api.public_plan_locator(repo / "PLAN.md")
+            expected_token, expected_content = board_api.committed_plan_snapshot(
+                repo / "PLAN.md"
+            )
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "GIT_DIR": str(injected / ".git"),
+                    "GIT_WORK_TREE": str(injected),
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "remote.origin.url",
+                    "GIT_CONFIG_VALUE_0": "git@example.invalid:wrong/repo.git",
+                },
+                clear=False,
+            ):
+                self.assertEqual(board_api.entity_id(repo / "PLAN.md"), expected)
+                self.assertEqual(
+                    board_api.public_plan_locator(repo / "PLAN.md"),
+                    expected_locator,
+                )
+                token, content = board_api.committed_plan_snapshot(repo / "PLAN.md")
+
+            self.assertEqual(token, expected_token)
+            self.assertEqual(content, expected_content)
+
+    def test_replacement_refs_cannot_substitute_committed_plan_objects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            plan = repo / "PLAN.md"
+            expected_token, expected_content = board_api.head_plan_snapshot(plan)
+            original_head = expected_token["head"]
+            plan.write_text("# substituted plan\n", encoding="utf-8")
+            git(repo, "commit", "-qam", "replacement payload")
+            replacement_head = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            git(repo, "reset", "--hard", original_head)
+            git(repo, "replace", original_head, replacement_head)
+            unsanitized_env = {
+                name: value
+                for name, value in os.environ.items()
+                if name != "GIT_NO_REPLACE_OBJECTS"
+            }
+            substituted = subprocess.run(
+                ["git", "-C", str(repo), "show", "HEAD:PLAN.md"],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=unsanitized_env,
+            )
+            self.assertEqual(substituted.stdout, "# substituted plan\n")
+
+            head_token, head_content = board_api.head_plan_snapshot(plan)
+            committed_token, committed_content = board_api.committed_plan_snapshot(plan)
+
+            self.assertEqual(head_token, expected_token)
+            self.assertEqual(committed_token, expected_token)
+            self.assertEqual(head_content, expected_content)
+            self.assertEqual(committed_content, expected_content)
 
     def test_secret_shaped_origin_path_uses_an_opaque_public_locator(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1158,6 +1262,32 @@ class LogicalIdentityOutranksCheckoutPaths(unittest.TestCase):
             self.assertEqual(len(payload["projects"]), 1)
             self.assertEqual(len(payload["entities"]), 1)
             self.assertEqual(len(payload["claims"]), 1)
+
+    def test_dot_upstreams_share_one_identity_across_linked_worktrees(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            primary_branch = subprocess.run(
+                ["git", "-C", str(repo), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            sibling = root / "sibling-worktree"
+            git(repo, "worktree", "add", "--quiet", "-b", "sibling", str(sibling), "HEAD")
+            for checkout, branch in ((repo, primary_branch), (sibling, "sibling")):
+                git(checkout, "config", f"branch.{branch}.remote", ".")
+                git(
+                    checkout,
+                    "config",
+                    f"branch.{branch}.merge",
+                    f"refs/heads/{primary_branch}",
+                )
+
+            self.assertEqual(
+                board_api.entity_id(repo / "PLAN.md"),
+                board_api.entity_id(sibling / "PLAN.md"),
+            )
 
     def test_compatible_local_entities_merge_when_their_git_identity_converges(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2746,16 +2876,32 @@ class RootBoardImportScale(unittest.TestCase):
             self.assertEqual(len(refreshed["entities"]), 250)
             self.assertEqual(board_path.read_bytes(), before_bytes)
             self.assertEqual(after_head, before_head)
-            config_counts = Counter(
-                command
+            repo_root = repo.resolve()
+
+            def inside_fixture(command: tuple[str, ...]) -> bool:
+                if len(command) < 3 or command[:2] != ("git", "-C"):
+                    return False
+                try:
+                    Path(command[2]).resolve().relative_to(repo_root)
+                except ValueError:
+                    return False
+                return True
+
+            url_probe_count = sum(
+                inside_fixture(command)
+                and len(command) >= 3
+                and command[-3:-1] == ("config", "--get-all")
+                and re.fullmatch(r"remote\..+\.url", command[-1]) is not None
                 for command in commands
-                if command[-3:] == ("config", "--get", "remote.origin.url")
             )
             top_level_count = sum(
-                command[-2:] == ("rev-parse", "--show-toplevel")
+                inside_fixture(command)
+                and command[-2:] == ("rev-parse", "--show-toplevel")
                 for command in commands
             )
-            self.assertLessEqual(max(config_counts.values(), default=0), 2)
+            # Endpoint resolution binds one tracked remote per identity
+            # computation; the bound stays constant, never per-entity.
+            self.assertLessEqual(url_probe_count, 3)
             self.assertLessEqual(top_level_count, (2 * 250) + 8)
 
     def test_repository_identity_change_before_final_cas_refuses_atomically(self) -> None:
