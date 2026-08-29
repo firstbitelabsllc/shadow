@@ -21,6 +21,7 @@ from typing import Final
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
 from shadow_cmd_proof import head_entry, script_operand_issue  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 
@@ -564,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
             capture_output=True,
             text=True,
             check=False,
+            env=_shadow_git.sanitized_git_env(),
         )
         if top.returncode or not top.stdout.strip():
             parser.error("--repo must name a Git source checkout")
