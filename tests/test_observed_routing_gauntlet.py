@@ -1,4 +1,4 @@
-"""Mutation controls for the real four-harness observed-routing gauntlet."""
+"""Mutation controls for the real five-harness observed-routing gauntlet."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(POLICY_VERSION, "shadow.execution-policy.v2")
         self.assertEqual(WORK_CLASSES, ("planning", "coding", "review", "lightweight"))
         self.assertEqual(DELEGATION_MODES, ("direct", "required"))
-        self.assertEqual(HOSTS, ("claude-code", "codex", "cursor", "grok"))
+        self.assertEqual(HOSTS, ("claude-code", "codex", "cursor", "grok", "zai"))
         for host in HOSTS:
             for work_class in WORK_CLASSES:
                 route = resolve_route(host, work_class)
@@ -66,19 +66,23 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(resolve_route("cursor", "lightweight").model, "Auto")
         self.assertEqual(resolve_route("grok", "coding").model, "grok-4.6")
         self.assertEqual(resolve_route("grok", "lightweight").model, "grok-4.5")
+        self.assertEqual(resolve_route("zai", "coding").model, "zai/glm-5.3-flash")
+        self.assertEqual(resolve_route("zai", "lightweight").model, "zai/glm-5.3-flash")
         self.assertEqual(delegation_capability("claude-code", "required"), "Agent")
         self.assertEqual(delegation_capability("codex", "required"), "multi_agent")
         self.assertEqual(delegation_capability("grok", "required"), "spawn_subagent")
         self.assertIsNone(delegation_capability("cursor", "direct"))
         with self.assertRaises(ExecutionPolicyError):
             delegation_capability("cursor", "required")
+        with self.assertRaises(ExecutionPolicyError):
+            delegation_capability("zai", "required")
 
 
 class ScenarioContractTests(unittest.TestCase):
-    def test_twelve_scenarios_expand_to_exactly_forty_eight_real_jobs(self) -> None:
+    def test_twelve_scenarios_expand_to_exactly_sixty_real_jobs(self) -> None:
         self.assertEqual(len(gauntlet.SCENARIOS), 12)
         matrix = gauntlet.matrix_jobs()
-        self.assertEqual(len(matrix), 48)
+        self.assertEqual(len(matrix), 60)
         self.assertEqual(
             {(job.host, job.scenario.scenario_id) for job in matrix},
             {(host, scenario.scenario_id) for host in HOSTS for scenario in gauntlet.SCENARIOS},
@@ -322,6 +326,14 @@ class NativeStreamParserTests(unittest.TestCase):
         ))
         observed, final, inputs, outputs, cost, _ = gauntlet.parse_native_output("grok", raw)
         self.assertEqual((observed, final, inputs, outputs, cost), ("grok-4.5-build", "GROK_DONE", 9, 4, 0.01))
+
+    def test_zai_opencode_events_model_and_usage_are_observed(self) -> None:
+        raw = "\n".join((
+            '{"type":"text","part":{"type":"text","text":"ZAI_DONE"}}',
+            '{"type":"step_finish","tokens":{"input":18,"output":4},"cost":0.001}',
+        ))
+        observed, final, inputs, outputs, cost, _ = gauntlet.parse_native_output("zai", raw)
+        self.assertEqual((observed, final, inputs, outputs, cost), ("zai/glm-5.3-flash", "ZAI_DONE", 18, 4, 0.001))
 
     def test_nonzero_provider_limit_has_stable_wake_code(self) -> None:
         self.assertEqual(gauntlet._native_error(1, "You've hit your usage limit"), "provider_usage_limit")
