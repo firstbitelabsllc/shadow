@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and score 12 real jobs across Claude, Codex, Cursor, and Grok.
+"""Run and score 12 real jobs across Claude, Codex, Cursor, Grok, and Z.AI.
 
 The product never imports this module.  It is owner-local evaluation tooling:
 each native CLI receives a real prompt in a disposable Git fixture; structured
@@ -569,6 +569,24 @@ def parse_native_output(host: str, raw: str) -> tuple[str | None, str, int | Non
         # {"type":"text","data":"..."} and usage/model in the end record.
         if host == "grok" and record.get("type") == "text" and isinstance(record.get("data"), str):
             final_text += record["data"]
+        if host == "zai":
+            part = record.get("part")
+            if record.get("type") == "text" and isinstance(part, dict) and isinstance(part.get("text"), str):
+                final_text += part["text"]
+            if observed is None and record.get("type") == "step_finish":
+                observed = "zai/glm-5.3-flash"
+            tokens = record.get("tokens") if isinstance(record.get("tokens"), dict) else None
+            if tokens is None and isinstance(part, dict) and isinstance(part.get("tokens"), dict):
+                tokens = part["tokens"]
+            if isinstance(tokens, dict):
+                if isinstance(tokens.get("input"), int):
+                    input_tokens = tokens["input"]
+                if isinstance(tokens.get("output"), int):
+                    output_tokens = tokens["output"]
+            if isinstance(record.get("cost"), (int, float)):
+                cost = float(record["cost"])
+            elif isinstance(part, dict) and isinstance(part.get("cost"), (int, float)):
+                cost = float(part["cost"])
         stats = record.get("subagent_stats")
         if isinstance(stats, dict) and isinstance(stats.get("spawned"), int):
             child_spans = max(child_spans, stats["spawned"])
@@ -716,6 +734,12 @@ def _command(
         ]
         if not scenario.delegation_required:
             command.insert(-2, "--no-subagents")
+        reads_stdin = False
+    elif host == "zai":
+        command = [
+            "opencode", "run", "--model", route.model, "--format", "json",
+            "--dir", str(repo), "--auto", "--variant", "max", prompt,
+        ]
         reads_stdin = False
     else:
         raise GauntletError(f"unknown host: {host}")

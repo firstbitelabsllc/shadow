@@ -23,7 +23,7 @@
 # repository-scoped: pass --repo PATH only when PATH is a Git repository root
 # with tracked AGENTS.md or CLAUDE.md. Without it, Cursor remains an explicit skip.
 #
-# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor|grok [--by SEAT] [--repo PATH] [--live] [--timeout-seconds N]
+# usage: scripts/shadow-verify-host.sh --host claude-code|codex|cursor|grok|zai [--by SEAT] [--repo PATH] [--live] [--timeout-seconds N]
 set -uo pipefail
 
 ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -59,7 +59,8 @@ case "${HOST}" in
   codex)       MOUNT="${HOME}/.agents/skills/shadow"; DIRECTIVE="${HOME}/.codex/AGENTS.md"; BIN="codex" ;;
   cursor)      MOUNT="${HOME}/.cursor/skills/shadow"; DIRECTIVE=""; BIN="cursor-agent" ;;
   grok)        MOUNT="${HOME}/.grok/skills/shadow"; DIRECTIVE="${HOME}/.grok/AGENTS.md"; BIN="grok" ;;
-  *) echo "verify-host: --host must be claude-code, codex, cursor, or grok" >&2; exit 2 ;;
+  zai)         MOUNT=""; DIRECTIVE=""; BIN="opencode" ;;
+  *) echo "verify-host: --host must be claude-code, codex, cursor, grok, or zai" >&2; exit 2 ;;
 esac
 
 if [[ -n "${REPO}" && "${HOST}" != "cursor" ]]; then
@@ -262,7 +263,9 @@ PY
   EXPECTED_SKILL_DIR="${ROOT}"
 fi
 
-if [[ ! -e "${MOUNT}" ]]; then
+if [[ -z "${MOUNT}" ]]; then
+  skip "no file-backed skill mount for this host; sealed host-run remains verifiable"
+elif [[ ! -e "${MOUNT}" ]]; then
   bad "no skill mount at \$HOME/${MOUNT#"${HOME}/"} — run: bash install.sh"
 elif [[ "$(cd -P "${MOUNT}" 2>/dev/null && pwd)" != "${EXPECTED_SKILL_DIR}" ]]; then
   bad "skill mount resolves elsewhere — another checkout is serving this host without the explicit election"
@@ -323,7 +326,9 @@ fi
 #    frontmatter drops the skill without saying so, so parse the block the way
 #    a host does: a terminated YAML mapping carrying name and description.
 SKILL="${MOUNT}/SKILL.md"
-if [[ ! -f "${SKILL}" ]]; then
+if [[ -z "${MOUNT}" ]]; then
+  skip "SKILL.md mount check is unsupported for this host"
+elif [[ ! -f "${SKILL}" ]]; then
   bad "no SKILL.md behind the mount"
 elif ! REASON="$(python3 - "${SKILL}" <<'PY'
 import re, sys
@@ -368,7 +373,9 @@ fi
 
 # 4. The standing goal is present and current. `shadow doctor` owns the
 #    authoritative comparison; this reports the same fact per host.
-if [[ "${HOST}" == "cursor" && -z "${REPO}" ]]; then
+if [[ "${HOST}" == "zai" ]]; then
+  skip "cold directive activation is unsupported for this host; sealed host-run remains verifiable"
+elif [[ "${HOST}" == "cursor" && -z "${REPO}" ]]; then
   # Cursor user rules live in application settings, not a file. Asserting a
   # path here would invent a convention and then report success for wiring
   # that does nothing.
@@ -449,6 +456,8 @@ fi
 #    above proves the pieces are in place for it to.
 if [[ "${LIVE}" -eq 0 ]]; then
   skip "session check (costs model quota) — re-run with --live to prove a cold session resolves the skill"
+elif [[ "${HOST}" == "zai" ]]; then
+  skip "live session check is unsupported for this host because it has no cold directive activation surface"
 elif [[ "${HOST}" == "cursor" && -z "${REPO}" ]]; then
   skip "live session check is unsupported for this host because it has no cold directive activation surface"
 elif [[ "${HOST}" == "cursor" && -n "${CURSOR_REPO_REASON}" ]]; then
