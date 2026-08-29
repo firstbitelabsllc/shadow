@@ -38,6 +38,7 @@ COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
 ROW_ID = _grammar.ROW_ID_RE
 ENTITY_ID = re.compile(r"[0-9a-f]{64}")
+MILESTONE_PREFIX_RE = re.compile(r"^[A-Za-z]+\d+\s*[—-]\s*")
 GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 PROJECT_ID = re.compile(r"[a-z][a-z0-9-]{1,31}")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
