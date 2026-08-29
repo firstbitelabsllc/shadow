@@ -456,6 +456,15 @@ def prepare_status_entities(
     verify_identity: bool = False,
 ) -> dict[str, dict]:
     """Read each selected plan once, then discover claims once per repository."""
+    with _board.repository_identity_cache():
+        return _prepare_status_entities(entities, verify_identity=verify_identity)
+
+
+def _prepare_status_entities(
+    entities: list[dict],
+    *,
+    verify_identity: bool = False,
+) -> dict[str, dict]:
     prepared: dict[str, dict] = {}
     batches: dict[Path, list[dict]] = {}
     for entity in entities:
