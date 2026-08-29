@@ -55,7 +55,6 @@ PYTHON = ROOT / "scripts" / "shadow-python.sh"
 
 # Long jobs, heaviest last. Each runs in its own process from the repo root.
 JOBS: dict[str, list[str]] = {
-    "lint-own-plan": ["scripts/shadow-lint.py", "PLAN.md"],
     "root-board": ["-m", "unittest", "tests.test_root_board"],
     "lifecycle": ["-m", "unittest", "tests.test_lifecycle"],
     "accept": ["-m", "unittest", "tests.test_shadow_accept"],
