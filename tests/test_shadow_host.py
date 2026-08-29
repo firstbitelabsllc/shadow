@@ -269,7 +269,7 @@ class ShadowHostTests(unittest.TestCase):
         # probe/run argparse and launch. A host set without grok must fail here.
         self.assertGreaterEqual(
             set(shadow_host.HOSTS),
-            {"codex", "claude-code", "cursor", "grok"},
+            {"codex", "claude-code", "cursor", "grok", "zai"},
         )
         with self.assertRaises(SystemExit):
             shadow_host.parser().parse_args(["probe", "--host", "not-a-host"])
@@ -285,13 +285,14 @@ class ShadowHostTests(unittest.TestCase):
             text=True,
             check=False,
         ).stdout
-        for host in ("codex", "claude-code", "cursor", "grok"):
+        for host in ("codex", "claude-code", "cursor", "grok", "zai"):
             self.assertIn(host, skill, f"SKILL.md handoff lost {host}")
             self.assertIn(host, help_text, f"shadow help host lost {host}")
-            with self.assertRaises(SystemExit):
-                shadow_host.parser().parse_args(
-                    ["run", "--host", host, "--task-file", "t", "--task-id", "add-proof"]
-                )
+            with mock.patch.object(shadow_host, "load_host_defaults", return_value={}):
+                with self.assertRaises(SystemExit):
+                    shadow_host.parser().parse_args(
+                        ["run", "--host", host, "--task-file", "t", "--task-id", "add-proof"]
+                    )
             args = shadow_host.parser().parse_args(
                 [
                     "run",
@@ -316,7 +317,61 @@ class ShadowHostTests(unittest.TestCase):
         self.assertIn("--delegation direct|required", skill)
         self.assertIn("--delegation MODE", help_text)
         self.assertIn("--authority-proposal", help_text)
+        self.assertIn("host-defaults.json", help_text)
         self.assertNotIn("shadow route", skill)
+
+    def test_machine_host_defaults_fill_omitted_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "host-defaults.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "host": "zai",
+                        "work_class": "coding",
+                        "delegation": "direct",
+                        "seat": "zai",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, {shadow_host.HOST_DEFAULTS_ENV: str(path)}):
+                args = shadow_host.parser().parse_args(
+                    ["run", "--task-file", "t", "--task-id", "add-proof"]
+                )
+                explicit = shadow_host.parser().parse_args(
+                    [
+                        "run",
+                        "--host",
+                        "grok",
+                        "--work-class",
+                        "review",
+                        "--delegation",
+                        "required",
+                        "--task-file",
+                        "t",
+                        "--task-id",
+                        "add-proof",
+                    ]
+                )
+        self.assertEqual(args.host, "zai")
+        self.assertEqual(args.work_class, "coding")
+        self.assertEqual(args.delegation, "direct")
+        self.assertEqual(explicit.host, "grok")
+        self.assertEqual(explicit.work_class, "review")
+        self.assertEqual(explicit.delegation, "required")
+
+    def test_invalid_machine_host_defaults_keep_flags_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "host-defaults.json"
+            path.write_text(json.dumps({"host": "not-a-host"}), encoding="utf-8")
+            with mock.patch.dict(os.environ, {shadow_host.HOST_DEFAULTS_ENV: str(path)}):
+                with self.assertRaises(SystemExit):
+                    shadow_host.parser().parse_args(
+                        ["run", "--task-file", "t", "--task-id", "add-proof"]
+                    )
+            missing = Path(tmp) / "missing.json"
+            with mock.patch.dict(os.environ, {shadow_host.HOST_DEFAULTS_ENV: str(missing)}):
+                self.assertEqual(shadow_host.load_host_defaults(), {})
 
     def test_grok_command_shape_uses_prompt_file_and_coding_selector(self) -> None:
         repo = Path("/workspace/repo")
@@ -366,6 +421,52 @@ class ShadowHostTests(unittest.TestCase):
             shadow_host.public_command_shape("grok", delegation="direct"),
         )
 
+    def test_zai_command_shape_uses_opencode_run_and_flash(self) -> None:
+        repo = Path("/workspace/repo")
+        final_message = Path("/tmp/final-message.txt")
+        with tempfile.TemporaryDirectory() as dirname:
+            prompt_file = Path(dirname) / "prompt.txt"
+            prompt_file.write_text("bounded zai task", encoding="utf-8")
+            command = shadow_host.command_shape(
+                "zai",
+                "opencode",
+                repo,
+                final_message,
+                prompt_file,
+                work_class="coding",
+                delegation="direct",
+            )
+        self.assertEqual(
+            command[:11],
+            [
+                "opencode",
+                "run",
+                "--model",
+                "zai/glm-5.3-flash",
+                "--format",
+                "json",
+                "--dir",
+                str(repo),
+                "--auto",
+                "--variant",
+                "max",
+            ],
+        )
+        self.assertEqual(command[11], "bounded zai task")
+        self.assertEqual(
+            shadow_host.public_command_shape("zai", delegation="direct"),
+            [
+                "run",
+                "--model",
+                "--format",
+                "json",
+                "--dir",
+                "--auto",
+                "--variant",
+                "max",
+            ],
+        )
+
     def test_required_delegation_enables_only_verified_native_capabilities(self) -> None:
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
@@ -399,6 +500,18 @@ class ShadowHostTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.kind, "execution_policy_invalid")
         self.assertIn("observable child lineage", raised.exception.detail)
+        with self.assertRaises(shadow_host.HostError) as zai_raised:
+            shadow_host.command_shape(
+                "zai",
+                "opencode",
+                repo,
+                final_message,
+                prompt_file,
+                work_class="planning",
+                delegation="required",
+            )
+        self.assertEqual(zai_raised.exception.kind, "execution_policy_invalid")
+        self.assertIn("zai", zai_raised.exception.detail)
 
     def test_missing_grok_binary_fail_closes_without_launching_another_host(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -702,7 +815,17 @@ class ShadowHostTests(unittest.TestCase):
                 resolved = shadow_host.resolve_binary("cursor", None)
         self.assertEqual(Path(resolved), binary.resolve())
 
-    def test_same_packet_contract_runs_through_all_four_hosts(self) -> None:
+    def test_zai_without_explicit_binary_resolves_opencode(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            binary = root / "opencode"
+            binary.write_text(FAKE_HOST, encoding="utf-8")
+            binary.chmod(0o755)
+            with mock.patch.dict(os.environ, {"PATH": str(root)}, clear=False):
+                resolved = shadow_host.resolve_binary("zai", None)
+        self.assertEqual(Path(resolved), binary.resolve())
+
+    def test_same_packet_contract_runs_through_all_sealed_hosts(self) -> None:
         for host in sorted(shadow_host.HOSTS):
             with self.subTest(host=host), tempfile.TemporaryDirectory() as dirname:
                 root = Path(dirname)
@@ -788,6 +911,13 @@ class ShadowHostTests(unittest.TestCase):
                         "--permission-mode", "acceptEdits", "--prompt-file",
                     ])
                     self.assertTrue(argv[11].endswith("prompt.txt"), argv[11])
+                elif host == "zai":
+                    self.assertEqual(argv[1:9], [
+                        "run", "--model", "zai/glm-5.3-flash", "--format", "json",
+                        "--dir", resolved, "--auto",
+                    ])
+                    self.assertEqual(argv[9:11], ["--variant", "max"])
+                    self.assertIn("Execute this bounded coding task", argv[11])
                 else:
                     self.assertEqual(argv[1:], [
                         "--model", "claude-opus-5-thinking-high", "--print",

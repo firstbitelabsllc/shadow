@@ -1,7 +1,7 @@
 # Native hosts
 
-Shadow's sealed host runner supports `codex`, `claude-code`, `cursor`, and
-`grok`. You choose the host, semantic work class, and execution shape directly:
+Shadow's sealed host runner supports `codex`, `claude-code`, `cursor`,
+`grok`, and `zai`. You choose the host, semantic work class, and execution shape directly:
 `shadow host run --host <name> --work-class <class> --delegation direct|required`
 is the complete sealed path. There is no prompt classifier, account router, or
 seat layer in front of it. The [native execution policy](execution-policy.md)
@@ -26,8 +26,8 @@ the frozen task's SHA-256, not its prompt or provider output.
 Shadow passes the checked-in model selector for the chosen host/class pair and
 configures the declared `direct|required` shape. Direct mode disables child
 spawning where the CLI exposes a control. Required mode enables Claude Code's
-`Agent`, Codex `multi_agent`, or Grok `spawn_subagent`; Cursor fails closed
-until its headless CLI exposes verifiable child lineage. The private attempt
+`Agent`, Codex `multi_agent`, or Grok `spawn_subagent`; Cursor and Z.AI fail
+closed until their headless CLIs expose verifiable child lineage. The private attempt
 records the non-secret request but does not infer that the provider honored it.
 Shadow never chooses or
 records an account, credential, session, billing identifier, prompt, or
@@ -59,6 +59,14 @@ Grok's own docs name `~/.grok/AGENTS.md` as the user-level instruction file
 and `~/.grok/rules/` as the always-scanned home rules directory. Activation
 writes the named file so doctor and verify do not depend on Claude
 compatibility loading `~/.claude/CLAUDE.md`.
+
+**Z.AI is a sealed runner, not a file-backed activation target.** The host
+binary is OpenCode (`opencode`) with model `zai/glm-5.3-flash`. OpenCode has
+no reviewed user-level instruction file Shadow can write, so `shadow goal
+--install` does not invent `~/.opencode/AGENTS.md` or a skill mount. Prove the
+binary with `shadow host probe --host zai`. Live volume work still goes
+through `shadow host run`. On a machine whose `~/.shadow/host-defaults.json`
+names the sealed `zai` / `coding` / `direct` triple, omit those three flags.
 
 **Cursor is not globally activated, by decision (2026-08-10).** Cursor's user-level
 rules live in the application's settings interface, not in a file: its own
