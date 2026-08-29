@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import threading
@@ -207,6 +208,103 @@ class TheGalleryLooksRight(unittest.TestCase):
             shots.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(shots / "gallery.png"), full_page=True)
             browser.close()
+
+    def test_production_views_render_every_milestone_with_human_text(self) -> None:
+        """The rotation contract, proven in the DOM instead of pinned in source.
+
+        A plan carrying a real ``milestones`` array must have EVERY milestone
+        iterated by the brief card, the plan page, and the board — never the
+        ``board.milestone`` single fallback — and checkpoint rows must render
+        their human text, never their ``~hash`` id.
+        """
+        plan = {
+            "id": "rotation-proof",
+            "title": "Rotation proof plan",
+            "mode": "ship",
+            "milestones": [
+                {
+                    "title": "M1 — First rotation shipped",
+                    "current": False,
+                    "counts": {"pending": 0, "in_progress": 0, "blocked": 0, "completed": 1},
+                    "checkpoints": [
+                        {
+                            "id": "~zz11",
+                            "text": "the first human checkpoint renders",
+                            "state": "completed",
+                            "availability": "completed",
+                        },
+                    ],
+                },
+                {
+                    "title": "M2 — Second rotation current",
+                    "current": True,
+                    "counts": {"pending": 1, "in_progress": 0, "blocked": 0, "completed": 1},
+                    "checkpoints": [
+                        {
+                            "id": "~zz22",
+                            "text": "the second human checkpoint renders",
+                            "state": "pending",
+                            "availability": "waiting",
+                        },
+                    ],
+                },
+            ],
+            "board": {
+                "state": "working",
+                "milestone": {"title": "FALLBACK-TITLE-MUST-NOT-RENDER"},
+            },
+            "outcome": {
+                "outcome": {
+                    "summary": "prove every milestone renders",
+                    "current_move": "keep both milestones visible",
+                },
+            },
+            "briefing": {"state": "working", "choices": []},
+        }
+        with sync_playwright() as pw:
+            browser = self._launch(pw)
+            page = browser.new_page()
+            page.goto(f"{self.base}/gallery")
+            page.wait_for_selector(".gallery-cell", timeout=10_000)
+            views = page.evaluate(
+                """(plan) => {
+                    const out = {};
+                    const probe = (root) => ({
+                        text: root.innerText,
+                        rotations: root.querySelectorAll('.milestone-rotation').length,
+                    });
+                    state.plans = [plan];
+                    renderBoardBriefCard(plan);
+                    out.brief = probe(main);
+                    main.replaceChildren();
+                    renderPlan(plan);
+                    out.plan = probe(main);
+                    renderBoard();
+                    out.board = probe(board);
+                    state.plans = [];
+                    main.replaceChildren();
+                    board.replaceChildren();
+                    return out;
+                }""",
+                plan,
+            )
+            browser.close()
+        for view, rendered in views.items():
+            with self.subTest(view=view):
+                self.assertEqual(
+                    rendered["rotations"],
+                    2,
+                    f"{view} did not iterate the full milestone rotation",
+                )
+                self.assertIn("M1 — First rotation shipped", rendered["text"])
+                self.assertIn("M2 — Second rotation current", rendered["text"])
+                self.assertIn("the first human checkpoint renders", rendered["text"])
+                self.assertIn("the second human checkpoint renders", rendered["text"])
+                self.assertNotIn("FALLBACK-TITLE-MUST-NOT-RENDER", rendered["text"])
+                self.assertIsNone(
+                    re.search(r"~[0-9a-z]{4}\b", rendered["text"]),
+                    f"{view} leaked a row id",
+                )
 
 
 if __name__ == "__main__":
