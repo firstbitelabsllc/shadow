@@ -37,6 +37,7 @@ except ModuleNotFoundError:
 from shadow_scrub_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
 from shadow_scrub_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
 from shadow_root_board import (
+    MILESTONE_PREFIX_RE as _MILESTONE_PREFIX_RE,
     origin_of as _origin_of,
     origin_repo_name as _origin_repo_name,
 )
@@ -133,7 +134,7 @@ def title(text: str, fallback: str) -> str:
     for line in text.splitlines():
         if line.startswith("# "):
             clean = " ".join(line[2:].split())
-            clean = re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", clean)
+            clean = _MILESTONE_PREFIX_RE.sub( "", clean)
             if clean and UNSAFE_TITLE_RE.search(clean) is None:
                 return clean[:120]
     return public_id(fallback).replace("-", " ").title()
@@ -284,7 +285,7 @@ def _milestone_rotation(
         rotation.append(
             {
                 "title": _rotation_text(
-                    re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", milestone["title"]),
+                    _MILESTONE_PREFIX_RE.sub( "", milestone["title"]),
                     "Milestone",
                 ),
                 "counts": counts,
