@@ -258,4 +258,4 @@ class PublishedNotesMatchTheTaggedChangelog(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaises(ValueError):
-                self._module().release_notes(root, "3.0.0")
+                module.release_notes(root, "3.0.0")

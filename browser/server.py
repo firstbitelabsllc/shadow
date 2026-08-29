@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import re
-import signal
 import subprocess
 import sys
 import tempfile
@@ -38,10 +37,8 @@ except ModuleNotFoundError:
 from shadow_scrub_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
 from shadow_scrub_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
 from shadow_root_board import (
-    normalized_origin as _normalized_origin,
     origin_of as _origin_of,
     origin_repo_name as _origin_repo_name,
-    plan_mtime as _plan_mtime,
 )
 import shadow_root_board as _root_board
 import shadow_board_import as _board_import
@@ -756,17 +753,6 @@ def _explicitly_supersedes_archives(
     return True
 
 
-def _archive_veto(paths: list[Path]) -> str | None:
-    """The self-demotion found on ANY instance of one logical plan.
-
-    Guarded exactly as `read_plan` guards the record it builds. A repo's root
-    `PLAN.md` is admitted on `is_file()`, which a symlink satisfies, so a
-    sibling checkout could point its plan anywhere on the filesystem and have
-    that content decide whether the logical plan is authority. The reader that
-    demotes must be no more permissive than the reader that renders.
-    """
-    receipt = _archive_veto_receipt(paths)
-    return receipt["match"] if receipt else None
 MAX_DECLARED_GLOBS = 3
 
 
@@ -863,11 +849,6 @@ def _pruned_segment(relative: Path) -> str | None:
         if segment in SKIP_DIRS or segment.startswith("."):
             return segment
     return None
-
-
-def is_repo(path: Path) -> bool:
-    # A worktree's .git is a FILE pointing at the real one; both are repos.
-    return (path / ".git").exists()
 
 
 def is_plan_root(path: Path) -> bool:

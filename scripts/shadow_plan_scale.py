@@ -16,7 +16,6 @@ import os
 from pathlib import Path
 import re
 import stat
-import statistics
 import sys
 import time
 from typing import Any, Callable
