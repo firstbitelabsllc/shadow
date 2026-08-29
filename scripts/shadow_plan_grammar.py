@@ -24,6 +24,8 @@ HOT_TASK_ROW_RE: Final = ROW_RE
 FIELD_RE: Final = re.compile(r"\| (?P<key>[a-z]+): (?P<value>[^|]+?)(?= \||$)")
 NEEDS_VALUE_RE: Final = re.compile(r"~[0-9a-z]{4}(?:[,\s]+~[0-9a-z]{4})*")
 PROOF_CLASS_RE: Final = re.compile(r"^(?:cmd|read|gate) \S")
+PROOF_MARKER_RE: Final = re.compile(r"[a-z0-9][a-z0-9._-]{0,79}")
+PROOF_FLOOR_RE: Final = re.compile(r"[1-9][0-9]{0,8}")
 PROOF_RECEIPT_PREFIX_RE: Final = re.compile(
     r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
     r"(?P<id>~[0-9a-z]{4}) PROOF\b"
