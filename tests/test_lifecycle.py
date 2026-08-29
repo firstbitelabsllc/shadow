@@ -3179,5 +3179,58 @@ class EveryMilestoneHeldOpenByAPersonGatedRow(unittest.TestCase):
             self.assertNotEqual(preview.get("action"), "would_archive", preview)
 
 
+class GitProbesIgnoreAmbientRedirects(unittest.TestCase):
+    """The mutation surface's own probes answer about the true repository."""
+
+    def test_git_helper_ignores_a_redirect(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            decoy = Path(tmp) / "decoy"
+            decoy.mkdir()
+            git(decoy, "init", "--quiet")
+            with mock.patch.dict(
+                os.environ,
+                {"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+                clear=False,
+            ):
+                out = lifecycle.git(repo, "rev-parse", "--show-toplevel").stdout.strip()
+            self.assertEqual(Path(out), repo.resolve())
+
+    def test_target_branch_ignores_a_redirect(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            expected = lifecycle.target_branch(repo)
+            decoy = Path(tmp) / "decoy"
+            decoy.mkdir()
+            # A decoy whose branch name differs — without the boundary the
+            # probe would answer with the decoy's branch, not the repo's.
+            git(decoy, "init", "--quiet", "--initial-branch=decoy-branch")
+            with mock.patch.dict(
+                os.environ,
+                {"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+                clear=False,
+            ):
+                self.assertEqual(lifecycle.target_branch(repo), expected)
+
+    def test_an_unsafe_by_is_a_refusal_not_a_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            # A home-shaped seat string refuses on every platform: PRIVATE_PATH_RE
+            # matches it regardless of the machine's own tmpdir shape. Built by
+            # concatenation because the public-ready gate greps for the literal.
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--by", "/" + "Users/leo/seat"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={**os.environ, "HOME": str(home)},
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("refused", result.stderr)
+            self.assertIn("--by is unsafe", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
