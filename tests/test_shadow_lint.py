@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -1110,6 +1111,53 @@ class OriginIdentityTests(unittest.TestCase):
                 self.assertNotIn("/tmp/", detail)
                 self.assertNotIn("/Users/", detail)
                 self.assertNotIn("git@github.com", detail)
+
+
+class GitProbesIgnoreAmbientRedirects(unittest.TestCase):
+    """Lint's proof authority answers about the true repository."""
+
+    def test_head_entry_reads_the_true_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            (repo / "tools").mkdir()
+            (repo / "tools" / "proof.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            commit_fixture(repo, "tools/proof.sh")
+            decoy = Path(tmp) / "decoy"
+            decoy.mkdir()
+            with mock.patch.dict(
+                os.environ,
+                {"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+                clear=False,
+            ):
+                self.assertEqual(
+                    lint.head_entry(repo, Path("tools/proof.sh")),
+                    (b"100644", b"blob"),
+                )
+
+    def test_the_repo_probe_never_hits_the_parser_refusal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            (repo / "PLAN.md").write_text(CLEAN_PLAN, encoding="utf-8")
+            commit_fixture(repo, "PLAN.md")
+            decoy = Path(tmp) / "decoy"
+            decoy.mkdir()
+            # plans is a required positional; without one argparse refuses
+            # before the probe runs and this pin proves nothing.
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(repo), str(repo / "PLAN.md")],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={
+                    **os.environ,
+                    "GIT_DIR": str(decoy / ".git"),
+                    "GIT_WORK_TREE": str(decoy),
+                },
+            )
+            self.assertNotIn("must name a Git source checkout", result.stderr)
+            self.assertIn("--repo is only valid for a registered machine-local", result.stdout)
 
 
 if __name__ == "__main__":
