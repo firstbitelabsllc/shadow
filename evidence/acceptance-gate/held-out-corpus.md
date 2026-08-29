@@ -79,6 +79,12 @@ run therefore disables network access, freezes evidence at a pre-resolution
 cutoff where possible, reports suspicious verbatim overlap, and includes
 counterfactual mutations that never appeared in the public repository.
 
+Any candidate case disclosed to the product author or a candidate implementer
+before the eligible-pool commitment is permanently excluded from held-out
+selection. It may be retained only in a separately identified development or
+practice pool, with `CONTAMINATED_BY_DISCLOSURE` recorded as the exclusion
+reason.
+
 No organization may supply more than four cases. No repository may supply more
 than two. The corpus must span at least 18 repositories, nine organizations,
 six implementation languages, and four build or verification systems.
