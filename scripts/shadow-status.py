@@ -43,7 +43,7 @@ REMOTE_DISCOVERY_ISSUE = "remote claim discovery is unavailable or unauthenticat
 
 
 def plain_name(value: str) -> str:
-    return re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", " ".join(value.split()))
+    return _board.MILESTONE_PREFIX_RE.sub( "", " ".join(value.split()))
 
 
 def v4_brief(
