@@ -328,7 +328,7 @@ class InitTests(unittest.TestCase):
             retried, stdout, stderr = self.call_main(repo, home)
 
             self.assertEqual(retried, 0, stderr)
-            self.assertEqual(stdout, f"created local PLAN.md: {destination}\n")
+            self.assertEqual(stdout, f"recognized local PLAN.md: {destination}\n")
             self.assertEqual(self.locator_state(destination), before)
             board_path = home / ".shadow" / "board.json"
             board = json.loads(board_path.read_text(encoding="utf-8"))
