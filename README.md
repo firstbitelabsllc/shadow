@@ -69,10 +69,11 @@ All configuration is deliberately small, and stress-tested that way:
   in a source-controlled repository-root `AGENTS.md` or `CLAUDE.md`, then prove
   it with the repo-scoped verifier ([how](https://firstbitelabsllc.github.io/shadow/reference/host-integration)).
 
-When your branch tracks a configured `origin`, `shadow throw` also takes one
-Git coordination lock under `refs/heads/shadow/claims/v1/<entity>/<row>`: it
-carries no task or proof text and never becomes authority. With no upstream
-the same flow stays local-only.
+When your branch tracks a remote branch, `shadow throw` also takes one Git
+coordination lock on that same tracked remote under
+`refs/heads/shadow/claims/v1/<entity>/<row>`: forks tracking one shared
+upstream coordinate there, while the lock carries no task or proof text and
+never becomes authority. With no upstream the same flow stays local-only.
 Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
 Large projects scale by adding entity plans under the same `Project:` slug;
 the board membership is the map, while each plan keeps its own truth and local

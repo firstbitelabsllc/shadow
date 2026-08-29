@@ -85,11 +85,27 @@ class DocumentedTargetTests(unittest.TestCase):
             encoding="utf-8"
         )
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        agent = (ROOT / "AGENT.md").read_text(encoding="utf-8")
+        help_text = "\n".join(
+            subprocess.run(
+                [str(ROOT / "bin" / "shadow"), "help", verb],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            for verb in ("status", "throw")
+        )
 
-        for text in (grammar, readme):
+        for text in (grammar, readme, agent):
             self.assertIn("refs/heads/shadow/claims/v1/", text)
-            self.assertRegex(text, r"configured\s+`origin`")
             self.assertIn("local-only", text)
+        self.assertRegex(help_text, r"track(?:s|ed)[ -](?:remote|upstream)")
+        self.assertIn("local-only", help_text)
+        self.assertNotRegex(
+            "\n".join((agent, help_text)),
+            r"configured\s+`?origin`?",
+        )
         self.assertIn("`PLAN.md` remains the only authority", grammar)
         self.assertIn("append-only acquired/released/completed", grammar)
         self.assertIn("no packet is emitted", grammar)
