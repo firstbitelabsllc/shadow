@@ -269,8 +269,18 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(
             encoding="utf-8"
         )
+        commands = (ROOT / "docs" / "reference" / "commands.md").read_text(
+            encoding="utf-8"
+        )
+        spec = (
+            ROOT
+            / "docs"
+            / "superpowers"
+            / "specs"
+            / "2026-08-28-proposal-only-acceptance.md"
+        ).read_text(encoding="utf-8")
 
-        for text in (readme, grammar):
+        for text in (readme, grammar, commands):
             self.assertIn("--proposal", text)
             self.assertIn("machine-local", text)
             self.assertIn("sealed Codex", text)
@@ -283,6 +293,11 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "exact prior plan root",
         ):
             self.assertIn(phrase, grammar)
+        for text in (readme, grammar, commands, spec):
+            self.assertIn("no-change", text)
+            self.assertIn("isolated temporary `HOME`", text)
+            self.assertIn("--authority-proposal", text)
+        self.assertNotIn('"entity_id": "logical-entity-id"', spec)
 
     def test_banner_honors_reduced_motion(self) -> None:
         text = (ROOT / "assets" / "shadow-banner.svg").read_text(encoding="utf-8")

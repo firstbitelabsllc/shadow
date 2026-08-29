@@ -33,6 +33,8 @@ ROW_LOOSE_RE = _grammar.ROW_LOOSE_RE
 FIELD_RE = _grammar.FIELD_RE
 NEEDS_VALUE_RE = _grammar.NEEDS_VALUE_RE
 PROOF_CLASS_RE = _grammar.PROOF_CLASS_RE
+PROOF_MARKER_RE = _grammar.PROOF_MARKER_RE
+PROOF_FLOOR_RE = _grammar.PROOF_FLOOR_RE
 PROOF_RECEIPT_PREFIX_RE = _grammar.PROOF_RECEIPT_PREFIX_RE
 # Older plans shipped receipt prose before claim return owned one canonical
 # shape. Preserve those historical completions; receipts from this cutover on
@@ -306,6 +308,33 @@ def lint_plan(
             findings.append(_finding("PROOF-CLASS", number, "blocking", "proof must be classed cmd | read | gate"))
         elif proof.startswith("cmd "):
             findings.extend(_check_cmd_proof(proof[4:], number, root, committed))
+        marker = fields.get("marker")
+        floor = fields.get("floor")
+        if (marker is None) != (floor is None):
+            findings.append(_finding(
+                "ROW-SHAPE",
+                number,
+                "blocking",
+                "proposal-enabled rows must declare marker and floor together",
+            ))
+        elif marker is not None and floor is not None:
+            if (
+                PROOF_MARKER_RE.fullmatch(marker.strip()) is None
+                or PROOF_FLOOR_RE.fullmatch(floor.strip()) is None
+            ):
+                findings.append(_finding(
+                    "ROW-SHAPE",
+                    number,
+                    "blocking",
+                    "proposal marker or execution floor is invalid",
+                ))
+            if not proof.startswith("cmd "):
+                findings.append(_finding(
+                    "PROOF-CLASS",
+                    number,
+                    "blocking",
+                    "marker and floor are reserved for cmd proofs",
+                ))
         needs_value = fields.get("needs", "").strip()
         if needs_value and NEEDS_VALUE_RE.fullmatch(needs_value) is None:
             findings.append(_finding("NEEDS-SHAPE", number, "blocking", "needs must be ~hash ids only"))

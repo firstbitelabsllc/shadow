@@ -266,7 +266,12 @@ def snapshot_authority(world: ProposalWorld) -> AuthoritySnapshot:
         board_bytes=world.board_path.read_bytes(),
         claim=claim,
         source_head=git(world.source_repo, "rev-parse", "HEAD"),
-        source_status=git(world.source_repo, "status", "--porcelain"),
+        source_status=git(
+            world.source_repo,
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+        ),
         plan_objects=objects,
     )
 
@@ -356,7 +361,7 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
     home.mkdir()
     source_root = root / "source"
     source_root.mkdir()
-    source_repo = make_repo(source_root)
+    source_repo = make_repo(source_root, ignore_evidence=False)
     git(source_repo, "remote", "add", "origin", SOURCE_REMOTE)
     proof_sentinel = root / "proof-runs.log"
     (source_repo / "proof.py").write_text(
@@ -400,9 +405,26 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
     )
     state = board.entity_state(plan_path, home=home)
     assert state is not None and state["entity"] is not None
+    source_head = git(source_repo, "rev-parse", "HEAD")
+    plan_root_sha256 = plan_store.PlanSnapshot.open(plan_path).root_sha256
+    exact_proposal = {
+        "schema": "shadow.authority-proposal.v1",
+        "entity_id": state["entity"]["id"],
+        "row_id": TARGET_ROW,
+        "owner": OWNER,
+        "base": {
+            "plan_root_sha256": plan_root_sha256,
+            "source_head": source_head,
+        },
+        "request": {"transition": "complete"},
+    }
     host_root = root / "host"
     host_root.mkdir()
-    host = make_host(host_root, mode="proposal")
+    host = make_host(
+        host_root,
+        mode="proposal",
+        proposal=exact_proposal,
+    )
     task = root / "proposal-task.txt"
     task.write_text("Return one bounded authority proposal.\n", encoding="utf-8")
     attempt_path = source_repo / ".shadow" / "evidence" / "attempt.json"
@@ -412,10 +434,13 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
         task,
         attempt_path,
         host="codex",
+        authority_proposal=True,
     )
     if host_result.returncode:
         raise AssertionError(host_result.stderr)
     attempt_template = json.loads(attempt_path.read_text(encoding="utf-8"))
+    if attempt_template.get("authority_proposal") != exact_proposal:
+        raise AssertionError("fake Codex host did not emit the exact bound proposal")
 
     world = ProposalWorld(
         root=root,
@@ -430,11 +455,10 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
         owner=OWNER,
         marker=MARKER,
         floor=FLOOR,
-        source_head=git(source_repo, "rev-parse", "HEAD"),
-        plan_root_sha256=plan_store.PlanSnapshot.open(plan_path).root_sha256,
+        source_head=source_head,
+        plan_root_sha256=plan_root_sha256,
         attempt_template=attempt_template,
     )
-    write_attempt(world)
     return world
 
 
@@ -491,7 +515,7 @@ def host_receipt(*, proposal: object = None, include_proposal: bool = True) -> d
         "status": "ok",
         "summary": "bounded task completed",
         "proof_ref": "bounded-proof",
-        "changed_paths": ["result.txt"],
+        "changed_paths": [] if include_proposal else ["result.txt"],
         "tests": [{"name": "bounded test", "status": "pass"}],
     }
     if include_proposal:
@@ -500,11 +524,19 @@ def host_receipt(*, proposal: object = None, include_proposal: bool = True) -> d
 
 
 class AuthorityProposalContract(unittest.TestCase):
-    def validate(self, receipt: dict[str, object]) -> dict[str, object]:
+    def validate(
+        self,
+        receipt: dict[str, object],
+        *,
+        host: str = "codex",
+        authority_proposal: bool = True,
+    ) -> dict[str, object]:
         return shadow_host.validate_host_receipt(
             receipt,
             "bounded-task",
-            ["result.txt"],
+            [] if authority_proposal else ["result.txt"],
+            host,
+            authority_proposal=authority_proposal,
         )
 
     def assert_invalid(self, receipt: dict[str, object]) -> None:
@@ -560,7 +592,10 @@ class AuthorityProposalContract(unittest.TestCase):
         self.assertEqual(normalized["authority_proposal"], proposal)
 
     def test_legacy_receipt_contract_is_unchanged_when_proposal_is_absent(self) -> None:
-        normalized = self.validate(host_receipt(include_proposal=False))
+        normalized = self.validate(
+            host_receipt(include_proposal=False),
+            authority_proposal=False,
+        )
 
         self.assertEqual(
             normalized,
@@ -572,6 +607,22 @@ class AuthorityProposalContract(unittest.TestCase):
                 "tests": [{"name": "bounded test", "status": "pass"}],
             },
         )
+
+    def test_non_codex_hosts_cannot_emit_authority_proposals(self) -> None:
+        for host in shadow_host.HOSTS - {"codex"}:
+            with self.subTest(host=host), self.assertRaises(
+                shadow_host.HostError
+            ) as raised:
+                self.validate(host_receipt(), host=host)
+            self.assertEqual(raised.exception.kind, "host_receipt_invalid")
+
+    def test_codex_cannot_emit_a_proposal_without_explicit_proposal_mode(self) -> None:
+        with self.assertRaises(shadow_host.HostError) as raised:
+            self.validate(
+                host_receipt(),
+                authority_proposal=False,
+            )
+        self.assertEqual(raised.exception.kind, "host_receipt_invalid")
 
     def test_attempt_receipt_carries_only_a_present_proposal(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -589,6 +640,8 @@ class AuthorityProposalContract(unittest.TestCase):
                 proposal_host,
                 task,
                 proposal_output,
+                host="codex",
+                authority_proposal=True,
             )
 
             legacy_root = root / "legacy"
@@ -609,6 +662,8 @@ class AuthorityProposalContract(unittest.TestCase):
         self.assertEqual(proposal_result.returncode, 0, proposal_result.stderr)
         self.assertEqual(legacy_result.returncode, 0, legacy_result.stderr)
         self.assertEqual(proposal_attempt["authority_proposal"], valid_proposal())
+        self.assertIs(proposal_attempt["authority_proposal_mode"], True)
+        self.assertIs(legacy_attempt["authority_proposal_mode"], False)
         self.assertNotIn("authority_proposal", legacy_attempt)
 
     def test_unknown_or_missing_fields_are_refused_at_every_level(self) -> None:
@@ -718,6 +773,10 @@ class ProposalAcceptance(unittest.TestCase):
             ("revision", set_attempt_field("revision", 2)),
             ("boolean revision", set_attempt_field("revision", True)),
             ("host", set_attempt_field("host", "cursor")),
+            (
+                "proposal mode",
+                set_attempt_field("authority_proposal_mode", False),
+            ),
             ("status", set_attempt_field("status", "blocked")),
             ("host exit", set_attempt_field("host_exit_code", 1)),
             ("boolean host exit", set_attempt_field("host_exit_code", False)),
@@ -910,6 +969,35 @@ class ProposalAcceptance(unittest.TestCase):
                 before,
                 proof_runs=0,
             )
+
+    def test_non_evidence_source_dirt_still_refuses_before_proof(self) -> None:
+        for kind in ("untracked", "tracked", "ignored"):
+            with self.subTest(kind=kind), proposal_acceptance() as world:
+                if kind == "untracked":
+                    (world.source_repo / "ordinary-dirt.txt").write_text(
+                        "not proposal evidence\n",
+                        encoding="utf-8",
+                    )
+                elif kind == "tracked":
+                    (world.source_repo / "result.txt").write_text(
+                        "tracked dirt\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    (world.source_repo / ".env").write_text(
+                        "ignored dirt\n",
+                        encoding="utf-8",
+                    )
+                before = snapshot_authority(world)
+
+                result = run_proposal_accept(world)
+
+                self.assert_refused_unchanged(
+                    world,
+                    result,
+                    before,
+                    proof_runs=0,
+                )
 
     def test_proposal_requires_exact_machine_local_selectors(self) -> None:
         with proposal_acceptance() as world:
@@ -1313,7 +1401,10 @@ class ProposalAcceptance(unittest.TestCase):
             self.assertNotEqual(after.plan_root_bytes, before.plan_root_bytes)
             self.assertNotEqual(after.board_bytes, before.board_bytes)
             self.assertEqual(after.source_head, before.source_head)
-            self.assertEqual(after.source_status, "")
+            self.assertEqual(
+                after.source_status,
+                "?? .shadow/evidence/attempt.json",
+            )
             self.assertIsNone(after.claim)
             text = after.plan_content.decode("utf-8")
             self.assertIn(

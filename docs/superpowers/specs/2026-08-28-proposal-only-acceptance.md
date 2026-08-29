@@ -24,15 +24,15 @@ Shadow to trust, a convincing result can manufacture its own completion.
 Proposal-only acceptance makes the split mechanical:
 
 ```text
-worker checkout                    trusted Shadow process
-----------------                   ----------------------
-change product files               resolve canonical authority
-run bounded tests                  verify the live claim
-request "complete"        ---->     bind plan root + source HEAD
-                                    rerun authority-owned proof
-                                    grade marker + execution floor
-                                    synthesize canonical receipts
-                                    commit one atomic transition
+source pass                         proposal pass                     trusted Shadow process
+-----------                         -------------                     ----------------------
+change product files                start from clean committed HEAD   resolve canonical authority
+run bounded tests                   change no source files            verify the live claim
+lead reviews and commits            request "complete"       ---->    bind plan root + source HEAD
+                                                                      rerun authority-owned proof
+                                                                      grade marker + execution floor
+                                                                      synthesize canonical receipts
+                                                                      commit one atomic transition
 ```
 
 The worker contributes product changes and a request. Shadow contributes every
@@ -43,8 +43,10 @@ fact that becomes authority.
 Version one is deliberately narrow:
 
 - The canonical plan is machine-local and outside the worker checkout.
-- The worker runs through Codex with a workspace-write sandbox.
-- The source checkout has one committed `HEAD`.
+- The worker runs through explicit Codex authority-proposal mode with a
+  workspace-write sandbox and the default Codex executable.
+- Source edits are reviewed and committed before a second, no-change proposal
+  attempt binds one clean `HEAD`.
 - The checkpoint has a machine-rerunnable `cmd` proof.
 - The only requested transition is `pending` or `in_progress` to `completed`.
 - Existing acceptance without a proposal keeps its current behavior.
@@ -61,7 +63,7 @@ The worker may emit exactly one proposal object inside its existing
 ```json
 {
   "schema": "shadow.authority-proposal.v1",
-  "entity_id": "logical-entity-id",
+  "entity_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "row_id": "~ab12",
   "owner": "<seat>",
   "base": {
@@ -85,6 +87,27 @@ The object is closed:
 
 The host wrapper validates and preserves the proposal as untrusted evidence.
 It never applies it.
+
+The proposal pass is an explicit host mode:
+
+```bash
+shadow host run \
+  --host codex \
+  --work-class coding \
+  --delegation direct \
+  --authority-proposal \
+  --repo . \
+  --task-file /absolute/proposal-task.txt \
+  --task-id propose-ab12 \
+  --out .shadow/evidence/ab12-attempt.json
+```
+
+That mode accepts no source write paths and requires one sealed evidence file.
+It refuses `--binary` and `SHADOW_CODEX_BIN` before launch, so the custom
+executable seam remains available for ordinary adapter tests without being a
+proposal authority path. It snapshots source `HEAD` plus Git config, refs,
+hooks, index, worktree pointers, and excludes before launch; any drift makes
+the attempt unsuccessful and strips the proposal.
 
 ## Authority-owned proof result
 
@@ -146,9 +169,16 @@ Before running proof, Shadow:
    and contradiction state only from canonical authority.
 
 Shadow then creates a detached checkout of the frozen source commit, reruns
-the proof, grades the structured result, rechecks the plan root, source
-`HEAD`, row, claim, dependencies, and contradictions, and synthesizes the
-canonical transition with the existing acceptance transaction.
+the proof with an isolated temporary `HOME`, grades the structured result,
+rechecks the plan root, source `HEAD`, row, claim, dependencies, and
+contradictions, and synthesizes the canonical transition with the existing
+acceptance transaction. Proposal proofs must be deterministic and cannot
+depend on credentials or configuration stored in the operator's home.
+
+The canonical `cmd` proof is trusted source code chosen by machine-local
+authority and reviewed at the frozen source commit. This feature protects that
+authority from the proposing worker; it does not sandbox an arbitrary malicious
+proof command.
 
 If publication or board finalization fails, Shadow restores the exact prior
 authority and retains the claim for a deterministic retry. A proposal never
@@ -160,7 +190,10 @@ Every guard needs a planted mutant that turns the focused suite red.
 
 | Mutant | Required result |
 |---|---|
+| Proposal mode names a custom Codex binary | Refuse before launch |
 | Worker writes the canonical plan | Sandbox refusal; canonical root unchanged |
+| Worker commits a changed proof or source tree | Attempt fails on source `HEAD` drift |
+| Worker rewrites Git config, refs, hooks, index, or excludes | Attempt fails on Git control-state drift |
 | Proposal uses a stale plan root | Refuse before proof |
 | Proposal names the wrong entity or row | Refuse before proof |
 | Proposal names the wrong owner or an unclaimed row | Refuse before proof |

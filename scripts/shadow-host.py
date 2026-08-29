@@ -52,6 +52,7 @@ GIT_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 JSON_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 MAX_CAPTURE_BYTES = 64 * 1024
 MAX_RECEIPT_BYTES = 64 * 1024
+MAX_ATTEMPT_BYTES = 64 * 1024
 MAX_SUMMARY_CHARS = 280
 MAX_TEST_NAME_CHARS = 160
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -229,6 +230,85 @@ def local_state_snapshot(repo: Path) -> dict[str, str]:
         if not path.is_file():
             raise HostError("worktree_unsealed", "project evidence must contain regular files only")
         snapshot[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return snapshot
+
+
+def _control_path_snapshot(
+    path: Path,
+    label: str,
+    *,
+    recursive: bool = False,
+) -> dict[str, str]:
+    if path.is_symlink():
+        raise HostError("worktree_unsealed", "Git control state contains a symlink")
+    if not path.exists():
+        return {label: "absent"}
+    mode = path.stat().st_mode & 0o777
+    if path.is_file():
+        return {
+            label: (
+                f"file:{mode:o}:"
+                f"{hashlib.sha256(path.read_bytes()).hexdigest()}"
+            )
+        }
+    if not path.is_dir():
+        raise HostError("worktree_unsealed", "Git control state is not regular")
+    snapshot = {label: f"directory:{mode:o}"}
+    if not recursive:
+        return snapshot
+    for child in sorted(path.rglob("*")):
+        relative = child.relative_to(path).as_posix()
+        key = f"{label}/{relative}"
+        if child.is_symlink():
+            raise HostError("worktree_unsealed", "Git control state contains a symlink")
+        child_mode = child.stat().st_mode & 0o777
+        if child.is_dir():
+            snapshot[key] = f"directory:{child_mode:o}"
+        elif child.is_file():
+            snapshot[key] = (
+                f"file:{child_mode:o}:"
+                f"{hashlib.sha256(child.read_bytes()).hexdigest()}"
+            )
+        else:
+            raise HostError("worktree_unsealed", "Git control state is not regular")
+    return snapshot
+
+
+def git_control_snapshot(repo: Path) -> dict[str, str]:
+    git_dir = Path(
+        git_value(repo, "rev-parse", "--path-format=absolute", "--git-dir")
+    )
+    common_dir = Path(
+        git_value(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    )
+    if not git_dir.is_absolute():
+        git_dir = repo / git_dir
+    if not common_dir.is_absolute():
+        common_dir = repo / common_dir
+    git_dir = git_dir.resolve()
+    common_dir = common_dir.resolve()
+
+    snapshot: dict[str, str] = {}
+    for label, path, recursive in (
+        ("git-marker", repo / ".git", False),
+        ("git-head", git_dir / "HEAD", False),
+        ("git-index", git_dir / "index", False),
+        ("git-commondir", git_dir / "commondir", False),
+        ("git-worktree-pointer", git_dir / "gitdir", False),
+        ("git-worktree-config", git_dir / "config.worktree", False),
+        ("git-config", common_dir / "config", False),
+        ("git-packed-refs", common_dir / "packed-refs", False),
+        ("git-refs", common_dir / "refs", True),
+        ("git-hooks", common_dir / "hooks", True),
+        ("git-exclude", common_dir / "info" / "exclude", False),
+    ):
+        snapshot.update(
+            _control_path_snapshot(
+                path,
+                label,
+                recursive=recursive,
+            )
+        )
     return snapshot
 
 
@@ -456,8 +536,12 @@ def host_prompt(
     allowed: list[str],
     task_sha256: str,
     delegation: str,
+    *,
+    authority_proposal: bool = False,
 ) -> str:
     paths = "\n".join(f"- {path}" for path in allowed)
+    if authority_proposal:
+        paths = "- none; this proposal pass must not change source files"
     delegation_contract = (
         "Do the bounded work directly. Do not invoke a child agent."
         if delegation == "direct"
@@ -466,6 +550,18 @@ def host_prompt(
             "reconciling the result. Do not merely claim that delegation occurred."
         )
     )
+    proposal_contract = ""
+    if authority_proposal:
+        proposal_contract = f"""
+This is the explicit authority-proposal pass. Add exactly one top-level
+`authority_proposal` field whose value has this closed shape:
+{{"schema":"{AUTHORITY_PROPOSAL_SCHEMA}","entity_id":"64-lowercase-hex","row_id":"~ab12","owner":"public-seat","base":{{"plan_root_sha256":"64-lowercase-hex","source_head":"40-lowercase-hex"}},"request":{{"transition":"complete"}}}}
+Never add proof text, a marker, a floor, paths, timestamps, or authority edits
+to the proposal. This is the second, no-change pass after source edits were
+reviewed and committed. Report an empty `changed_paths` list and do not change
+source files or Git control state.
+"""
+    changed_paths_example = "[]" if authority_proposal else '["one-allowed-relative-path"]'
     return f"""Execute this bounded coding task in the current worktree.
 
 Task ID: {task_id}
@@ -477,13 +573,8 @@ Delegation contract: {delegation_contract}
 
 Do not change any other path. Run the relevant tests. Finish by emitting exactly
 one JSON object with this shape and no additional JSON objects:
-{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"example-task-id","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":["one-allowed-relative-path"],"tests":[{{"name":"relevant-test","status":"pass"}}]}}
-
-When the frozen task explicitly asks to propose completion, add exactly one
-top-level `authority_proposal` field whose value has this closed shape:
-{{"schema":"{AUTHORITY_PROPOSAL_SCHEMA}","entity_id":"64-lowercase-hex","row_id":"~ab12","owner":"public-seat","base":{{"plan_root_sha256":"64-lowercase-hex","source_head":"40-lowercase-hex"}},"request":{{"transition":"complete"}}}}
-Omit `authority_proposal` otherwise. Never add proof text, a marker, a floor,
-paths, timestamps, or authority edits to the proposal.
+{{"schema":"{HOST_RECEIPT_SCHEMA}","task_id":"example-task-id","status":"ok","summary":"short result summary","proof_ref":"bounded-proof","changed_paths":{changed_paths_example},"tests":[{{"name":"relevant-test","status":"pass"}}]}}
+{proposal_contract}
 
 For a successful result, use the exact Task ID above and a lowercase proof_ref
 identifier such as `bounded-proof`. Do not use spaces or prose for proof_ref.
@@ -747,7 +838,14 @@ def validate_authority_proposal(raw: object) -> dict[str, Any]:
     }
 
 
-def validate_host_receipt(raw: dict[str, Any], task_id: str, allowed: list[str]) -> dict[str, Any]:
+def validate_host_receipt(
+    raw: dict[str, Any],
+    task_id: str,
+    allowed: list[str],
+    host: str,
+    *,
+    authority_proposal: bool = False,
+) -> dict[str, Any]:
     expected_fields = {"schema", "task_id", "status", "summary", "proof_ref", "changed_paths", "tests"}
     actual_fields = set(raw)
     if actual_fields != expected_fields and actual_fields != expected_fields | {"authority_proposal"}:
@@ -763,6 +861,11 @@ def validate_host_receipt(raw: dict[str, Any], task_id: str, allowed: list[str])
     reported_paths = raw.get("changed_paths")
     if not isinstance(reported_paths, list) or any(not isinstance(item, str) for item in reported_paths):
         raise HostError("host_receipt_invalid", "host receipt changed_paths must be a string list")
+    if authority_proposal and reported_paths:
+        raise HostError(
+            "scope_violation",
+            "authority proposal attempts must report no changed paths",
+        )
     safe_paths: list[str] = []
     for path in reported_paths:
         if not path or any(ord(character) < 32 or ord(character) == 127 for character in path):
@@ -808,12 +911,56 @@ def validate_host_receipt(raw: dict[str, Any], task_id: str, allowed: list[str])
         "tests": safe_tests,
     }
     if "authority_proposal" in raw:
+        if host != "codex" or not authority_proposal:
+            raise HostError(
+                "host_receipt_invalid",
+                "authority proposals require the explicit Codex proposal mode",
+            )
         validated["authority_proposal"] = validate_authority_proposal(raw["authority_proposal"])
+    elif authority_proposal and status == "ok":
+        raise HostError(
+            "host_receipt_invalid",
+            "successful authority proposal attempt omitted its proposal",
+        )
     return validated
 
 
+def _json_text(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+
+
+def bound_successful_proposal_attempt(payload: dict[str, Any]) -> dict[str, Any]:
+    if (
+        payload.get("status") != "ok"
+        or "authority_proposal" not in payload
+        or len(_json_text(payload).encode("utf-8")) <= MAX_ATTEMPT_BYTES
+    ):
+        return payload
+    bounded = dict(payload)
+    bounded.pop("authority_proposal", None)
+    bounded.update(
+        {
+            "status": "failed",
+            "summary": None,
+            "proof_ref": None,
+            "tests": [],
+            "blocked": {
+                "kind": "attempt_too_large",
+                "detail": (
+                    "successful authority proposal exceeded the "
+                    f"{MAX_ATTEMPT_BYTES}-byte attempt limit"
+                ),
+            },
+        }
+    )
+    if len(_json_text(bounded).encode("utf-8")) > MAX_ATTEMPT_BYTES:
+        bounded["changed_paths"] = []
+        bounded["ignored_artifact_paths"] = []
+    return bounded
+
+
 def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> None:
-    encoded = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    encoded = _json_text(payload)
     if path == "-":
         sys.stdout.write(encoded)
         return
@@ -897,10 +1044,32 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         requested_capability = delegation_capability(args.host, args.delegation)
     except ExecutionPolicyError as exc:
         raise HostError("execution_policy_invalid", str(exc)) from None
+    authority_proposal = bool(args.authority_proposal)
+    if authority_proposal:
+        if args.host != "codex":
+            raise HostError(
+                "proposal_host_invalid",
+                "authority proposal mode requires Codex",
+            )
+        if args.allowed_path:
+            raise HostError(
+                "proposal_scope_invalid",
+                "authority proposal mode accepts no source write paths",
+            )
+        if args.binary is not None or os.environ.get("SHADOW_CODEX_BIN"):
+            raise HostError(
+                "proposal_binary_override",
+                "authority proposal mode requires the default Codex executable",
+            )
     repo = Path(args.repo).expanduser().resolve()
     exact_git_root(repo)
-    allowed = normalize_allowed(repo, args.allowed_path)
+    allowed = [] if authority_proposal else normalize_allowed(repo, args.allowed_path)
     destination = validate_output_path(repo, args.out)
+    if authority_proposal and destination is None:
+        raise HostError(
+            "proposal_output_invalid",
+            "authority proposal mode requires one sealed evidence output file",
+        )
     # Refuse a would-be-clobbered receipt BEFORE the host runs: discovering it
     # only at write time throws away a completed, worktree-mutating attempt.
     if destination is not None and destination.exists() and not args.force:
@@ -910,7 +1079,14 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     except TaskError as exc:
         kind = "task_too_large" if "exceeds" in str(exc) else "task_unreadable"
         raise HostError(kind, str(exc)) from None
-    prompt = host_prompt(task, task_id, allowed, task_sha256, args.delegation)
+    prompt = host_prompt(
+        task,
+        task_id,
+        allowed,
+        task_sha256,
+        args.delegation,
+        authority_proposal=authority_proposal,
+    )
     state_before = local_state_snapshot(repo)
     before = status_paths(repo)
     source_changes = [
@@ -929,6 +1105,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     ]
     if unsafe_ignored:
         raise HostError("worktree_unsealed", "ignored files outside the packet are not allowed")
+    source_head_before = (
+        git_value(repo, "rev-parse", "--verify", "HEAD^{commit}")
+        if authority_proposal
+        else None
+    )
+    git_control_before = (
+        git_control_snapshot(repo)
+        if authority_proposal
+        else None
+    )
     binary = resolve_binary(args.host, args.binary)
     with tempfile.TemporaryDirectory(prefix="shadow-host-") as temp_dir:
         final_message = Path(temp_dir) / "final-message.txt"
@@ -951,6 +1137,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         after = status_paths(repo)
         after_all = status_paths(repo, include_ignored=True)
         state_after = local_state_snapshot(repo)
+        source_head_after = (
+            git_value(repo, "rev-parse", "--verify", "HEAD^{commit}")
+            if authority_proposal
+            else None
+        )
+        git_control_after = (
+            git_control_snapshot(repo)
+            if authority_proposal
+            else None
+        )
         changed = sorted(
             set(before).symmetric_difference(after)
             | {path for path in set(state_before) | set(state_after) if state_before.get(path) != state_after.get(path)}
@@ -969,7 +1165,28 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 raise HostError("host_launch_failed", str(result["launch_error"]))
             if result.get("returncode") != 0:
                 raise HostError("host_failed", "host exited non-zero")
-            host_receipt = validate_host_receipt(extract_host_receipt(output_texts), task_id, allowed)
+            if authority_proposal and source_head_after != source_head_before:
+                raise HostError(
+                    "source_head_changed",
+                    "authority proposal attempt changed source HEAD",
+                )
+            if authority_proposal and git_control_after != git_control_before:
+                raise HostError(
+                    "git_control_changed",
+                    "authority proposal attempt changed Git control state",
+                )
+            if authority_proposal and changed:
+                raise HostError(
+                    "scope_violation",
+                    "authority proposal attempt changed source state",
+                )
+            host_receipt = validate_host_receipt(
+                extract_host_receipt(output_texts),
+                task_id,
+                allowed,
+                args.host,
+                authority_proposal=authority_proposal,
+            )
             outside = [path for path in changed if not path_allowed(path, allowed)]
             if outside:
                 raise HostError("scope_violation", "host changed a path outside the packet")
@@ -1019,9 +1236,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "unreviewed_claim": True,
             "accepted_by_lead": False,
             "projection_is_usage": False,
+            "authority_proposal_mode": authority_proposal,
         }
-        if host_receipt is not None and "authority_proposal" in host_receipt:
+        if (
+            status == "ok"
+            and host_receipt is not None
+            and "authority_proposal" in host_receipt
+        ):
             payload["authority_proposal"] = host_receipt["authority_proposal"]
+        payload = bound_successful_proposal_attempt(payload)
+        status = payload["status"]
     write_json("-" if destination is None else str(destination), payload, force=args.force)
     return payload, 0 if status == "ok" else 1
 
@@ -1039,6 +1263,7 @@ def parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--work-class", choices=WORK_CLASSES, required=True)
     run_parser.add_argument("--delegation", choices=DELEGATION_MODES, required=True)
     run_parser.add_argument("--binary")
+    run_parser.add_argument("--authority-proposal", action="store_true")
     run_parser.add_argument("--repo", default=os.getcwd())
     run_parser.add_argument("--task-file", required=True)
     run_parser.add_argument("--task-id", required=True)
