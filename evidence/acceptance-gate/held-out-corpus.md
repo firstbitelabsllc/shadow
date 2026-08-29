@@ -190,6 +190,12 @@ fields is discarded before grading.
 `human_decision.count` is exactly `0` or `1`. When it is `1`, `question` and
 `recommendation` are required. When it is `0`, both are `null`.
 
+`claims` contains between one and eight atomic factual assertions and is the
+exhaustive factual ledger for the response. Any factual assertion in
+`outcome`, `material_risks`, `next_action`, `acceptance`, or a human
+recommendation must have an equal or narrower entry in `claims`; otherwise the
+response is invalid before scoring.
+
 The five action values mean:
 
 - `ACCEPT`: the evidence is sufficient for the explicitly claimed surface;
