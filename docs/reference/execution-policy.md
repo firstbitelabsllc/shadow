@@ -27,6 +27,20 @@ shadow host run --host codex --work-class coding --delegation direct \
   --out /absolute/project/.shadow/evidence/add-proof.json
 ```
 
+Proposal acceptance uses a separate no-change pass:
+
+```bash
+shadow host run --host codex --work-class coding --delegation direct \
+  --authority-proposal --repo /absolute/clean/worktree \
+  --task-file /absolute/frozen-proposal-task.txt --task-id propose-proof \
+  --out /absolute/project/.shadow/evidence/propose-proof.json
+```
+
+Proposal mode accepts no `--allowed-path` and refuses any native binary
+override before launch. The adapter seals source `HEAD` and Git control state,
+so the successful receipt can only request completion from the same committed
+checkout.
+
 The policy does not inspect prompt text, choose an account, retry another
 provider, or silently downgrade after a quota error. Unsupported models,
 authentication failures, and exhausted quota stay explicit failures for the
