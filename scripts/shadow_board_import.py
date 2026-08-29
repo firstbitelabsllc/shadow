@@ -579,7 +579,7 @@ def _reconcile_portfolio(
                     "identity": identity,
                     "plan": str(source_path),
                     "project": source_path.parent.name,
-                    "priority": "3",
+                    "priority": 3,
                     "candidates": [],
                     "rows": [],
                     "expected_size": None,
