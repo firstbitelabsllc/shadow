@@ -93,7 +93,7 @@ class CorruptPlanTreeBoardView(unittest.TestCase):
             blank = root / "blank"
             for path in (home, portfolio, blank):
                 path.mkdir()
-            healthy = project(portfolio, name="healthy", display_name="healthy")
+            project(portfolio, name="healthy", display_name="healthy")
             sick = project(portfolio, name="sick", display_name="sick")
             source = (sick / "PLAN.md").read_bytes()
             install_plan_tree(sick, source)
