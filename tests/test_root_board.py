@@ -246,6 +246,44 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             board_api.normalized_origin("http://example.test/org/repo.git"),
         )
 
+    def test_plan_locator_shares_one_repo_resolution_per_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            child = repo / "plans" / "child"
+            child.mkdir(parents=True)
+            (child / "PLAN.md").write_text(
+                (repo / "PLAN.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            git(repo, "add", "plans")
+            git(repo, "commit", "--quiet", "-m", "child plan")
+
+            module = fresh_board_module("shadow_locator_cache_count")
+            calls: list[tuple[str, ...]] = []
+            real_git = module._git
+
+            def counting_git(git_root: Path, *args: str, **kwargs):
+                calls.append(args)
+                return real_git(git_root, *args, **kwargs)
+
+            real = repo.resolve()
+            module._git = counting_git
+            try:
+                with module.repository_identity_cache():
+                    first = module.public_plan_locator(real / "PLAN.md")
+                    second = module.public_plan_locator(real / "plans" / "child" / "PLAN.md")
+            finally:
+                module._git = real_git
+
+            toplevels = sum(
+                1 for args in calls if args[:2] == ("rev-parse", "--show-toplevel")
+            )
+            self.assertEqual(toplevels, 1, calls)
+            self.assertTrue(first.startswith("project@"), first)
+            self.assertTrue(first.endswith("/PLAN.md"), first)
+            self.assertTrue(second.endswith("/plans/child/PLAN.md"), second)
+
     def test_one_repo_resolves_toplevel_and_head_once_per_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
