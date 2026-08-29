@@ -201,6 +201,22 @@ transcript-free, repository-native, bound to exact source and evidence, safe to
 inspect as untrusted data, and useful even when no vendor session can be
 loaded.
 
+There is nevertheless a real measured problem beneath the commoditizing
+session UI. The 2026 paper [Handoff Debt: A Framework for Measuring
+Collaboration Failures in Human-Agent
+Teams](https://arxiv.org/abs/2606.02875) reports 972 delegated software-
+engineering episodes across two repositories. Structured handoff notes reduced
+successor tool actions by 20–33% and token use by 53–59% compared with no
+handoff. Raw traces were more efficient still, but required replaying the
+entire prior history. The solve-rate effect was context-dependent, and
+structured notes sometimes hurt because the successor trusted the summary
+instead of re-observing the work.
+
+**Product implication:** the opportunity is not preserving more conversation.
+It is a compact handoff that materially lowers takeover cost while forcing the
+next worker to verify source and evidence before relying on the note. The
+primary metric must remain correct completion, with efficiency second.
+
 ### Broad AI-SDLC governance is already a funded category
 
 [GitHub rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
