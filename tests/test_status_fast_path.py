@@ -855,5 +855,39 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             self.assertIn("portfolio refresh failed", stderr)
 
 
+class InFlightLabelsAreHonest(unittest.TestCase):
+    """A remote-discovery failure is not a claim and not in-flight work."""
+
+    FAILURE = {
+        "project": "demo",
+        "entity": "entity-1",
+        "plan": "demo/PLAN.md",
+        "milestone": "remote claim discovery",
+        "id": "UNKNOWN",
+        "text": "UNKNOWN — remote claim discovery is unavailable",
+        "proof": "MISSING — retry when the tracked remote can be read",
+        "thrown_at": None,
+        "return_by": None,
+        "by": None,
+        "dispatched": False,
+        "broken": True,
+        "stale": False,
+    }
+
+    def test_a_discovery_failure_is_not_a_hand_claim(self) -> None:
+        out = status.render_in_flight([dict(self.FAILURE)])
+        self.assertNotIn("hand-claimed", out)
+        self.assertIn("discovery failed", out)
+        self.assertIn("0 row(s) in flight across 1 project(s)", out)
+        self.assertIn("; 1 remote claim discovery failure(s)", out)
+
+    def test_real_rows_still_count_and_label(self) -> None:
+        real = dict(self.FAILURE)
+        real.update({"milestone": "M1 — live", "text": "do the thing"})
+        out = status.render_in_flight([dict(self.FAILURE), real])
+        self.assertIn("1 row(s) in flight across 1 project(s)", out)
+        self.assertIn("hand-claimed (no THROWN line)", out)
+
+
 if __name__ == "__main__":
     unittest.main()
