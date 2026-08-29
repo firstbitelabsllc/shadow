@@ -102,7 +102,6 @@ import argparse
 from contextlib import contextmanager
 import errno
 import fcntl
-import importlib.util
 import os
 import re
 import secrets
