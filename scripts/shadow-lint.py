@@ -27,7 +27,6 @@ import shadow_plan_grammar as _grammar  # noqa: E402
 
 LEGAL_MODES: Final = {"explore", "ship"}
 LEGACY_MODES: Final = {"Spike", "Defer", "Challenge", "Broad", "Close"}
-STATES: Final = ("pending", "in_progress", "blocked", "completed")
 ROW_RE = _grammar.ROW_RE
 ROW_LOOSE_RE = _grammar.ROW_LOOSE_RE
 FIELD_RE = _grammar.FIELD_RE
@@ -69,7 +68,6 @@ def _finding(check: str, line: int, severity: str, detail: str) -> dict:
 # `cmd echo done && shadow --version` therefore lints clean, runs `echo`, exits
 # 0, flips the row to completed and writes `-> pass` — while `shadow` never
 # ran. Validating the class word alone cannot see that; the argv can.
-_shell_script_index = _grammar.shell_script_index
 _shell_operators = _grammar.shell_operators
 
 
