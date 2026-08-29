@@ -57,13 +57,15 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         self.assertIn("tests.test_telemetry", throw.modules)
 
     def test_remote_claim_transport_runs_throw_and_release_proof(self) -> None:
-        selected = ci.select_paths(["scripts/shadow_remote_claim.py"])
-        self.assertFalse(selected.run_all)
-        self.assertIn("tests.test_throw", selected.modules)
-        self.assertIn("tests.test_root_board", selected.modules)
-        self.assertIn("tests.test_return", selected.modules)
-        self.assertIn("tests.test_shadow_accept", selected.modules)
-        self.assertTrue(selected.release_contract)
+        for path in ("scripts/shadow_git.py", "scripts/shadow_remote_claim.py"):
+            with self.subTest(path=path):
+                selected = ci.select_paths([path])
+                self.assertFalse(selected.run_all)
+                self.assertIn("tests.test_throw", selected.modules)
+                self.assertIn("tests.test_root_board", selected.modules)
+                self.assertIn("tests.test_return", selected.modules)
+                self.assertIn("tests.test_shadow_accept", selected.modules)
+                self.assertTrue(selected.release_contract)
 
     def test_status_projection_runs_remote_claim_discovery_proof(self) -> None:
         selected = ci.select_paths(["scripts/shadow-status.py"])

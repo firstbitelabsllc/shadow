@@ -29,6 +29,7 @@ _amp_spec.loader.exec_module(_amp)
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_remote_claim as _remote  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 import shadow_telemetry as _telemetry  # noqa: E402
 
 
@@ -150,7 +151,7 @@ def _validated_target(
 
 
 def main(argv: list[str] | None = None) -> int:
-    _remote.sanitize_process_git_env()
+    _shadow_git.sanitize_process_git_env()
     started = time.monotonic()
     parser = argparse.ArgumentParser(
         prog="shadow throw",
@@ -246,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             if observed_token != plan_token:
                 raise _board.BoardError("entity plan changed before the claim committed; retry")
             plan_text = plan_bytes.decode("utf-8")
-            if _remote.uses_origin_upstream(repo) and not _remote.public_safe_plan_token(
+            if _remote.uses_remote_upstream(repo) and not _remote.public_safe_plan_token(
                 plan_token
             ):
                 raise _board.BoardError(

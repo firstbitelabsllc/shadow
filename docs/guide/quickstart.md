@@ -49,11 +49,11 @@ shadow amp --repo . --by your-seat
 
 The root board at `~/.shadow` owns the claim and lease. The entity `PLAN.md`
 still owns the row text, proof, and evidence; the board never copies them.
-When the current branch tracks configured `origin`, `shadow throw` also
-confirms one deterministic remote coordination lock before printing the work
-packet. Its closed public receipt names the row, lease, and exact PLAN objects;
-it is not another task or proof board. With no configured origin upstream,
-claiming stays local-only.
+When the current branch tracks a remote branch, `shadow throw` also confirms
+one deterministic coordination lock on that same tracked remote before
+printing the work packet. Forks tracking one shared upstream coordinate there.
+Its closed public receipt names the row, lease, and exact PLAN objects; it is
+not another task or proof board. With no upstream, claiming stays local-only.
 
 ## 3. Work through a bounded host
 
