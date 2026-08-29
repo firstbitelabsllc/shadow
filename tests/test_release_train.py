@@ -224,8 +224,6 @@ class ReleasePressureUsesTheShadowEpoch(unittest.TestCase):
         self.assertEqual(measured.get("RELEASE_BASELINE_COMMIT"), shadow_release)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class PublishedNotesMatchTheTaggedChangelog(unittest.TestCase):
@@ -275,3 +273,7 @@ class PublishedNotesMatchTheTaggedChangelog(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 module.release_notes(root, "3.0.0")
+
+
+if __name__ == "__main__":
+    unittest.main()
