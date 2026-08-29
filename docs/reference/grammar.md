@@ -228,10 +228,18 @@ only a bounded cross-computer coordination lock. It cannot rank work, supply a
 task or proof, flip a row, or replace either authority.
 
 Remote locking opts in only when the checkout's current branch configuration
-names remote `origin` and a `refs/heads/` merge target. It does not require a
-locally materialized remote-tracking ref. With no such configured `origin`
-upstream, `shadow throw` keeps the local-only per-computer behavior above and
-performs no network write. In the opted-in case, the one conventional lock is
+names a remote and a `refs/heads/` merge target. Repository identity and claim
+transport use that same tracked remote, so two forks that track one shared
+upstream coordinate as one entity even when each also has a different remote
+named `origin`. Shadow binds the tracked remote once before a claim
+compare-and-swap; a concurrent config edit cannot redirect later list, fetch,
+or push steps. A failed or malformed identity probe refuses the operation
+rather than falling back to another remote or checkout path.
+
+Remote locking does not require a locally materialized remote-tracking ref.
+With no configured upstream, `shadow throw` keeps the local-only per-computer
+behavior above and performs no network write. In the opted-in case, the one
+conventional lock is
 `refs/heads/shadow/claims/v1/<entity-id>/<row-id-without-tilde>`. Shadow first
 takes the exact local board claim, then creates that ref or compare-and-swaps
 its observed tip, and emits the work packet only after the intended acquired
@@ -255,7 +263,7 @@ bounded row ids in each registered local PLAN, authenticates their receipt and
 named PLAN source, and projects active owners without writing them into the
 computer board. It never scans arbitrary remote branches. An unavailable or
 unauthenticated remote observation makes that entity status unknown instead of
-calling the row reachable; retry when the configured origin can be read.
+calling the row reachable; retry when the tracked remote can be read.
 
 Every remote transition is create/CAS against one expected object id. After a
 nonzero, timeout, or disconnected result, Shadow reads the exact ref again:
