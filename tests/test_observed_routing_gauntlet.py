@@ -162,6 +162,23 @@ class FalseGreenMutationTests(unittest.TestCase):
         self.assert_red(langfuse_write_verified=False)
         self.assert_red(langfuse_readback_verified=False)
 
+    def test_no_langfuse_mode_reds_without_telemetry_predicates(self) -> None:
+        grade = gauntlet.grade_observation(
+            replace(self.good, langfuse_write_verified=False, langfuse_readback_verified=False),
+            require_langfuse=False,
+        )
+        self.assertTrue(grade.passed, grade.checks)
+        self.assertNotIn("langfuse_write", grade.checks)
+        self.assertNotIn("langfuse_readback", grade.checks)
+
+    def test_langfuse_mode_keeps_telemetry_predicates(self) -> None:
+        grade = gauntlet.grade_observation(
+            replace(self.good, langfuse_write_verified=False, langfuse_readback_verified=False)
+        )
+        self.assertFalse(grade.passed, grade.checks)
+        self.assertIs(grade.checks["langfuse_write"], False)
+        self.assertIs(grade.checks["langfuse_readback"], False)
+
     def test_out_of_scope_edit_is_red(self) -> None:
         self.assert_red(changed_paths=("result.txt", "outside.txt"))
 
@@ -172,6 +189,38 @@ class FalseGreenMutationTests(unittest.TestCase):
 
     def test_unavailable_capability_is_error_not_pass(self) -> None:
         self.assert_red(error="native delegation unavailable")
+
+    def test_zai_required_delegation_is_clean_unavailable_red(self) -> None:
+        scenario = next(
+            item for item in gauntlet.SCENARIOS
+            if item.scenario_id == "delegation-lineage"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            observation, grade = gauntlet.run_one(
+                gauntlet.MatrixJob("zai", scenario),
+                None,
+                Path(temp),
+                30,
+            )
+            self.assertEqual(observation.error, "native delegation unavailable")
+            self.assertFalse((Path(temp) / "delegation-lineage").exists())
+        self.assertFalse(grade.passed, grade.checks)
+
+    def test_runner_error_preserves_no_langfuse_mode(self) -> None:
+        scenario = next(
+            item for item in gauntlet.SCENARIOS
+            if item.scenario_id == "delegation-lineage"
+        )
+        observation, grade = gauntlet.run_one(
+            gauntlet.MatrixJob("zai", scenario),
+            None,
+            Path("/tmp"),
+            30,
+        )
+        self.assertEqual(observation.error, "native delegation unavailable")
+        self.assertFalse(grade.passed, grade.checks)
+        self.assertNotIn("langfuse_write", grade.checks)
+        self.assertNotIn("langfuse_readback", grade.checks)
 
 
 class LocalSinkBoundaryTests(unittest.TestCase):
@@ -335,6 +384,25 @@ class NativeStreamParserTests(unittest.TestCase):
         observed, final, inputs, outputs, cost, _ = gauntlet.parse_native_output("zai", raw)
         self.assertEqual((observed, final, inputs, outputs, cost), ("zai/glm-5.3-flash", "ZAI_DONE", 18, 4, 0.001))
 
+    def test_zai_codex_provider_log_model_is_observed(self) -> None:
+        raw = "\n".join((
+            '{"type":"thread.started","thread_id":"thread"}',
+            '{"type":"turn.started"}',
+            '{"type":"item.completed","item":{"type":"agent_message","text":"ZAI_DONE"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":18,"output_tokens":4}}',
+            'model=glm-5.3-flash slug=glm-5.3-flash',
+        ))
+        observed, final, inputs, outputs, cost, children = gauntlet.parse_native_output("zai", raw)
+        self.assertEqual((observed, final, inputs, outputs, cost, children), ("glm-5.3-flash", "ZAI_DONE", 18, 4, None, 0))
+
+    def test_zai_codex_without_model_observation_is_red(self) -> None:
+        raw = "\n".join((
+            '{"type":"item.completed","item":{"type":"agent_message","text":"ZAI_DONE"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":18,"output_tokens":4}}',
+        ))
+        observed, *_ = gauntlet.parse_native_output("zai", raw)
+        self.assertIsNone(observed)
+
     def test_nonzero_provider_limit_has_stable_wake_code(self) -> None:
         self.assertEqual(gauntlet._native_error(1, "You've hit your usage limit"), "provider_usage_limit")
 
@@ -380,6 +448,28 @@ class NativeStreamParserTests(unittest.TestCase):
                     host, scenario, repo, Sink(), "eval-0123456789abcdef", prompt
                 )
                 self.assertIn(required, command)
+
+    def test_zai_uses_isolated_codex_harness_with_flash_model(self) -> None:
+        scenario = next(item for item in gauntlet.SCENARIOS if item.scenario_id == "exact-code")
+        with tempfile.TemporaryDirectory() as temp:
+            command, env, reads_stdin = gauntlet._command(
+                "zai", scenario, Path(temp), None, "eval-0123456789abcdef", "Do the work."
+            )
+        self.assertEqual(command[0], "codexz")
+        self.assertIn("exec", command)
+        self.assertIn("--json", command)
+        self.assertIn("--ephemeral", command)
+        self.assertLessEqual(command.index("--json"), command.index("--ephemeral"))
+        self.assertIn("--skip-git-repo-check", command)
+        self.assertNotIn("--sandbox", command)
+        self.assertEqual(command[command.index("--model") + 1], "glm-5.3-flash")
+        self.assertNotIn("opencode", command)
+        self.assertEqual(env["RUST_LOG"], "info")
+        self.assertTrue(reads_stdin)
+
+    def test_main_defaults_to_langfuse_and_explicit_flag_disables_it(self) -> None:
+        with self.assertRaises(SystemExit):
+            gauntlet.main(["--hosts", "zai", "--scenarios", "missing", "--no-langfuse", "--output", "/tmp/unused.json"])
 
 
 if __name__ == "__main__":

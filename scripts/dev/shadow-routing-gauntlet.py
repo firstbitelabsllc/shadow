@@ -6,6 +6,11 @@ each native CLI receives a real prompt in a disposable Git fixture; structured
 native output supplies model/usage evidence; Codex's native OTel traces supply
 its otherwise-hidden model; a red provisional span is written to local
 Langfuse and read back before any final adjudication span can be green.
+
+``--no-langfuse`` is an explicit owner-local evidence mode for environments
+where the local telemetry stack is down.  It omits the two Langfuse predicates
+and labels the summary so it can never be confused with fail-closed Langfuse
+evidence.
 """
 
 from __future__ import annotations
@@ -34,7 +39,13 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from shadow_execution_policy import HOSTS, POLICY_VERSION, resolve_route
+from shadow_execution_policy import (
+    delegation_capability,
+    HOSTS,
+    POLICY_VERSION,
+    ExecutionPolicyError,
+    resolve_route,
+)
 
 
 class GauntletError(RuntimeError):
@@ -240,7 +251,7 @@ class Grade:
     checks: dict[str, bool]
 
 
-def grade_observation(observation: RunObservation) -> Grade:
+def grade_observation(observation: RunObservation, *, require_langfuse: bool = True) -> Grade:
     route = resolve_route(observation.host, observation.work_class)
     changed = set(observation.changed_paths)
     expected = set(observation.expected_paths)
@@ -253,10 +264,11 @@ def grade_observation(observation: RunObservation) -> Grade:
         "exact_changed_paths": changed == expected,
         "deterministic_checks": bool(observation.deterministic_checks) and observation.deterministic_checks_passed,
         "delegation_lineage": (not observation.delegation_required) or observation.child_spans > 0,
-        "langfuse_write": observation.langfuse_write_verified,
-        "langfuse_readback": observation.langfuse_readback_verified,
         "usage_observed": observation.input_tokens is not None and observation.output_tokens is not None,
     }
+    if require_langfuse:
+        checks["langfuse_write"] = observation.langfuse_write_verified
+        checks["langfuse_readback"] = observation.langfuse_readback_verified
     return Grade(all(checks.values()), checks)
 
 
@@ -525,6 +537,12 @@ def _walk(value: object) -> Iterable[tuple[str, object]]:
 def parse_native_output(host: str, raw: str) -> tuple[str | None, str, int | None, int | None, float | None, int]:
     records = _json_records(raw)
     observed: str | None = None
+    # Codex emits model identity in its provider-event log records, while its
+    # machine-readable JSON events only carry usage and completion items.
+    if host == "zai":
+        provider_model = re.search(r"(?:^|\s)model=([A-Za-z0-9._/-]+)", raw, re.MULTILINE)
+        if provider_model:
+            observed = provider_model.group(1)
     final_text = ""
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -687,7 +705,7 @@ def _command(
     host: str,
     scenario: Scenario,
     repo: Path,
-    sink: LangfuseSink,
+    sink: LangfuseSink | None,
     run_tag: str,
     prompt: str,
 ) -> tuple[list[str], dict[str, str], bool]:
@@ -709,7 +727,7 @@ def _command(
                 json.dumps(DELEGATION_AGENT, separators=(",", ":")),
             ]
     elif host == "codex":
-        otel_args, otel_env = sink.codex_config(run_tag)
+        otel_args, otel_env = sink.codex_config(run_tag) if sink is not None else ([], {})
         env.update(otel_env)
         command = [
             "codex", "exec", "--ignore-user-config", *otel_args,
@@ -736,11 +754,17 @@ def _command(
             command.insert(-2, "--no-subagents")
         reads_stdin = False
     elif host == "zai":
+        # OpenCode 1.18.25 stalls before a model call on this owner host.
+        # codexz is the proven isolated Codex CLI home for Z.AI and maps the
+        # policy selector zai/glm-5.3-flash to Codex's native model name.
+        # RUST_LOG=info exposes the provider event's model witness without
+        # turning on trace-level payloads.
         command = [
-            "opencode", "run", "--model", route.model, "--format", "json",
-            "--dir", str(repo), "--auto", "--variant", "max", prompt,
+            "codexz", "exec", "--json", "--ephemeral",
+            "--model", route.model.removeprefix("zai/"),
+            "--skip-git-repo-check", "-C", str(repo),
         ]
-        reads_stdin = False
+        env["RUST_LOG"] = "info"
     else:
         raise GauntletError(f"unknown host: {host}")
     return command, env, reads_stdin
@@ -764,11 +788,53 @@ def _completion_observed(sentinel: str, final_text: str, exit_code: int | None, 
     return sentinel in final_text and exit_code == 0 and error is None
 
 
-def run_one(job: MatrixJob, sink: LangfuseSink, fixture_parent: Path, timeout: int) -> tuple[RunObservation, Grade]:
+def _runner_error(job: MatrixJob, exc: Exception) -> str:
+    if isinstance(exc, ExecutionPolicyError) and job.scenario.delegation_required:
+        return "native delegation unavailable"
+    return f"runner error: {type(exc).__name__}: {str(exc)[:180]}"
+
+
+def run_one(
+    job: MatrixJob,
+    sink: LangfuseSink | None,
+    fixture_parent: Path,
+    timeout: int,
+) -> tuple[RunObservation, Grade]:
     run_id = secrets.token_hex(8)
     run_tag = f"eval-{run_id}"
-    repo = prepare_fixture(fixture_parent / job.host, job.scenario)
     route = resolve_route(job.host, job.scenario.work_class)
+    try:
+        if job.scenario.delegation_required:
+            delegation_capability(job.host, "required")
+    except ExecutionPolicyError as exc:
+        observation = RunObservation(
+            run_id=run_id,
+            host=job.host,
+            scenario_id=job.scenario.scenario_id,
+            work_class=job.scenario.work_class,
+            requested_model=route.model,
+            observed_model=None,
+            exit_code=None,
+            timed_out=False,
+            completion_sentinel=job.scenario.completion_sentinel,
+            completion_observed=False,
+            expected_paths=job.scenario.expected_paths,
+            changed_paths=(),
+            deterministic_checks=("fixture-check",),
+            deterministic_checks_passed=False,
+            delegation_required=job.scenario.delegation_required,
+            child_spans=0,
+            langfuse_trace_id=None,
+            langfuse_write_verified=False,
+            langfuse_readback_verified=False,
+            input_tokens=None,
+            output_tokens=None,
+            cost_usd=None,
+            error=_runner_error(job, exc),
+        )
+        require_langfuse = sink is not None
+        return observation, grade_observation(observation, require_langfuse=require_langfuse)
+    repo = prepare_fixture(fixture_parent / job.host, job.scenario)
     prompt = prompt_for_host(job.host, job.scenario)
     command, env, reads_stdin = _command(
         job.host, job.scenario, repo, sink, run_tag, prompt
@@ -800,6 +866,9 @@ def run_one(job: MatrixJob, sink: LangfuseSink, fixture_parent: Path, timeout: i
 
     observed, final_text, input_tokens, output_tokens, cost, child_spans = parse_native_output(job.host, raw)
     if job.host == "codex":
+        if sink is None:
+            observation = replace(observation, error=observation.error or "Codex telemetry sink is unavailable")
+            return observation, grade_observation(observation, require_langfuse=False)
         observed, input_tokens, output_tokens = sink.observed_codex(run_tag)
     verify = subprocess.run(
         [sys.executable, "verify.py"], cwd=repo, capture_output=True, text=True, check=False
@@ -833,6 +902,8 @@ def run_one(job: MatrixJob, sink: LangfuseSink, fixture_parent: Path, timeout: i
         cost_usd=cost,
         error=error,
     )
+    if sink is None:
+        return observation, grade_observation(observation, require_langfuse=False)
     try:
         trace_id = sink.emit_observation(observation)
         observation = replace(
@@ -866,6 +937,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=int, default=300)
     parser.add_argument("--max-parallel", type=int, default=4)
+    parser.add_argument(
+        "--no-langfuse",
+        action="store_true",
+        help="run local evidence only; omit Langfuse write/readback predicates",
+    )
     args = parser.parse_args(argv)
 
     hosts = tuple(value.strip() for value in args.hosts.split(",") if value.strip())
@@ -879,7 +955,7 @@ def main(argv: list[str] | None = None) -> int:
     if not hosts or not scenarios:
         parser.error("at least one host and scenario are required")
 
-    sink = LangfuseSink()
+    sink = None if args.no_langfuse else LangfuseSink()
     results: list[tuple[RunObservation, Grade]] = []
     with tempfile.TemporaryDirectory(prefix="shadow-routing-gauntlet-") as temp:
         fixture_root = Path(temp)
@@ -913,9 +989,18 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
     results.sort(key=lambda pair: (pair[0].scenario_id, pair[0].host))
+    telemetry_mode = "local_evidence_no_langfuse" if args.no_langfuse else "langfuse_required"
     payload = {
-        "schema": "shadow.routing-gauntlet-summary.v1",
+        "schema": (
+            "shadow.routing-gauntlet-summary.v2"
+            if args.no_langfuse
+            else "shadow.routing-gauntlet-summary.v1"
+        ),
         "policy": POLICY_VERSION,
+        "telemetry": {
+            "mode": telemetry_mode,
+            "langfuse_required": not args.no_langfuse,
+        },
         "matrix_total": len(hosts) * len(scenarios),
         "terminal_results": len(results),
         "passed": sum(grade.passed for _, grade in results),
