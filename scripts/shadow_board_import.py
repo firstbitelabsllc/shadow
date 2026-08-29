@@ -277,6 +277,38 @@ def _registered_state(
     return trusted, retired, repairable, volatile
 
 
+def _extend_historical_claims(
+    historical: list[dict],
+    plan: dict,
+    text: str,
+    source_path: Path,
+) -> None:
+    """Append every in-progress row's latest THROWN receipt for one plan."""
+    latest: dict[str, tuple[str, str]] = {}
+    for match in THROWN.finditer(text):
+        owner = OWNER.search(match.group("tail"))
+        latest[match.group("row")] = (
+            match.group("stamp"),
+            owner.group("owner").strip() if owner else "another seat",
+        )
+    live = {
+        row["id"]
+        for milestone in plan["milestones"]
+        for row in milestone["rows"]
+        if row["state"] == "in_progress"
+    }
+    historical.extend(
+        {
+            "plan": str(source_path),
+            "row": row,
+            "owner": owner,
+            "claimed_at": stamp,
+        }
+        for row, (stamp, owner) in latest.items()
+        if row in live
+    )
+
+
 def reconcile_portfolio(
     root: Path,
     amp: ModuleType,
@@ -537,29 +569,7 @@ def _reconcile_portfolio(
             seed["repair_state"] = repair_state
         seeds.append(seed)
 
-        latest: dict[str, tuple[str, str]] = {}
-        for match in THROWN.finditer(text):
-            owner = OWNER.search(match.group("tail"))
-            latest[match.group("row")] = (
-                match.group("stamp"),
-                owner.group("owner").strip() if owner else "another seat",
-            )
-        live = {
-            row["id"]
-            for milestone in plan["milestones"]
-            for row in milestone["rows"]
-            if row["state"] == "in_progress"
-        }
-        historical.extend(
-            {
-                "plan": str(source_path),
-                "row": row,
-                "owner": owner,
-                "claimed_at": stamp,
-            }
-            for row, (stamp, owner) in latest.items()
-            if row in live
-        )
+        _extend_historical_claims(historical, plan, text, source_path)
     # These plans are intentionally outside the Development portfolio. Read
     # them directly, with the same bounded fields as any discovered plan.
     for source_path in _local_operational_plans(home):
@@ -617,29 +627,7 @@ def _reconcile_portfolio(
                 "witnesses": [],
             }
         )
-        latest: dict[str, tuple[str, str]] = {}
-        for match in THROWN.finditer(text):
-            owner = OWNER.search(match.group("tail"))
-            latest[match.group("row")] = (
-                match.group("stamp"),
-                owner.group("owner").strip() if owner else "another seat",
-            )
-        live = {
-            row["id"]
-            for milestone in plan["milestones"]
-            for row in milestone["rows"]
-            if row["state"] == "in_progress"
-        }
-        historical.extend(
-            {
-                "plan": str(source_path),
-                "row": row,
-                "owner": owner,
-                "claimed_at": stamp,
-            }
-            for row, (stamp, owner) in latest.items()
-            if row in live
-        )
+        _extend_historical_claims(historical, plan, text, source_path)
     for identity, retirement in registered_retired.items():
         if identity not in observed_identities:
             retired[identity] = retirement
