@@ -787,6 +787,52 @@ def plan_commit_time(plan: Path) -> int | None:
         return None
 
 
+def plan_commit_times(repo: Path, plans: list[Path]) -> dict[str, int | None]:
+    """Latest touching commit time for many plans, in one git process.
+
+    Same semantics as plan_commit_time per path: the newest commit touching
+    each exact pathspec, or no opinion when nothing touches it. One
+    `git log --name-only` answers the whole set — per-plan `git log -1` was
+    the entire subprocess cost of a several-hundred-plan reconcile.
+    """
+    relative_to_abs: dict[str, str] = {}
+    relpaths: list[str] = []
+    for plan in plans:
+        absolute = Path(os.path.abspath(plan))
+        try:
+            relative = absolute.relative_to(repo).as_posix()
+        except ValueError:
+            continue
+        relative_to_abs[relative] = str(absolute)
+        relpaths.append(relative)
+    if not relpaths:
+        return {}
+    result = _git(
+        repo,
+        "log",
+        "--format=COMMIT%x09%ct",
+        "--name-only",
+        "--",
+        *relpaths,
+    )
+    if result.returncode:
+        return {}
+    times: dict[str, int | None] = {}
+    current: int | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("COMMIT\t"):
+            raw = line.split("\t", 1)[1]
+            try:
+                current = int(raw)
+            except ValueError:
+                current = None
+            continue
+        path = line.strip()
+        if path and path in relative_to_abs and relative_to_abs[path] not in times:
+            times[relative_to_abs[path]] = current
+    return times
+
+
 def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[str, str]:
     """Resolve logical identity fields without reading the PLAN.md body."""
     if require_regular and not regular_plan(plan):
