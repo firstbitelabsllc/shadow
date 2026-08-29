@@ -53,8 +53,6 @@ Authority: the scratch repositories and board created by the sealed harness.
 Resume: claim the highest reachable unclaimed checkpoint with your stable seat.
 Proof: run the row proof and accept it; do not leave an orphan claim.
 """
-ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 OID_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_GOAL_BYTES = 64 * 1024
 CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
@@ -730,9 +728,16 @@ def main(argv: list[str] | None = None) -> int:
                         "codex": resolve_host("SHADOW_CODEX_BIN", "codex"),
                     }
                     tokens = {seat: os.urandom(16).hex() for seat in SEATS}
+                    try:
+                        goals = {seat: base.format(seat=seat) for seat in SEATS}
+                    except KeyError:
+                        # A user goal carrying a literal '{' survives loading
+                        # and only crashes here; that is a bad goal, not an
+                        # internal error.
+                        raise HarnessError("goal_invalid") from None
                     with ThreadPoolExecutor(max_workers=2) as pool:
                         futures = [
-                            pool.submit(live_seat, seat, binaries[seat], base.format(seat=seat), scratch, env, args.timeout_seconds, tokens[seat])
+                            pool.submit(live_seat, seat, binaries[seat], goals[seat], scratch, env, args.timeout_seconds, tokens[seat])
                             for seat in SEATS
                         ]
                         host_results = [future.result() for future in futures]
@@ -779,9 +784,7 @@ def main(argv: list[str] | None = None) -> int:
         public["failure"] = exc.code
         for line in getattr(exc, "evidence", ()):  # captured before scratch cleanup
             print(f"two-seat: {line}", file=sys.stderr)
-        # Preserve whatever final board state was safely observed above.
-        if exc.code == "board_drift":
-            public["failure"] = "board_drift"
+        # Whatever final board state was safely observed above stays in the receipt.
     except Exception:
         # Public output is a closed receipt even when an unexpected local
         # launch or filesystem failure occurs. Diagnostics remain inside the
@@ -790,7 +793,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(public, sort_keys=True))
     elif code == 0:
-        print(f"two-seat verification passed ({mode}); 2 completed, 0 claims")
+        board = public["board"]
+        print(f"two-seat verification passed ({mode}); {board['completed']} completed, {board['claims']} claims")
     else:
         print(f"two-seat verification inconclusive: {public['failure']}")
     return code
