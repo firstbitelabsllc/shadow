@@ -1006,9 +1006,8 @@ class AmpCli(unittest.TestCase):
 
 
 class PackRootOverridePrecedence(unittest.TestCase):
-    """The canonical name and the three-name precedence, pinned (2026-08-15).
-
-    Lane 5 deletes the two legacy names and the fallback test with them.
+    """Only the canonical name switches the pack-root guard (2026-08-15):
+    the legacy names are inert, and these pins keep them that way.
     """
 
     def _off_detail(self, env: dict[str, str]) -> str:
@@ -1034,10 +1033,9 @@ class PackRootOverridePrecedence(unittest.TestCase):
 
 
     def test_a_mounted_superpowers_skill_never_selects_the_pack_root(self) -> None:
-        # Ponytail F1 (2026-08-15): with the pack slot undeclared, resolution
-        # falls through to the skill roots, so a mounted skill named
-        # superpowers reads present — the guard must still refuse selection.
-        # Survives Lane 5: no pack machinery involved.
+        # With the pack slot undeclared, resolution falls through to the
+        # skill roots, so a mounted skill named superpowers reads present —
+        # the guard must still refuse selection; no pack machinery involved.
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             leaf = home / ".claude" / "skills" / "superpowers"

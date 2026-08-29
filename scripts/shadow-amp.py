@@ -46,7 +46,7 @@ PLAN_LEAD_RE: Final = re.compile(
     r"(?P<kind>LESSON|DECISION) (?P<value>.+)$"
 )
 HASH_RE = _grammar.HASH_RE
-ROW_SHAPE_RE: Final = re.compile(r"^- \[")
+ROW_SHAPE_RE: Final = _grammar.ROW_LOOSE_RE
 CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
 CAPABILITY_RE: Final = re.compile(r"(?<![0-9A-Za-z_-])/([a-z][a-z0-9-]{0,31})\b")
 SUPERPOWERS_COMPATIBLE_LEAVES: Final = (
@@ -282,7 +282,7 @@ def unclean_note(plan: dict) -> str | None:
         parts.append(f"{len(plan['unparsed'])} row-shaped line(s) the grammar rejects")
     try:
         budget = _board.hot_plan_budget(plan.get("text", "").encode("utf-8"))
-    except (_board.BoardError, UnicodeError):
+    except _board.BoardError:
         budget = {"exceeded": []}
     if budget["exceeded"]:
         parts.append(
@@ -757,7 +757,7 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     gates = [
         r for r in milestone["rows"]
         if r["state"] != "completed"
-        and r["fields"].get("proof", "").startswith("gate ")
+        and _gated(r)
         and r is not row
         and r is not dod  # the DoD gets its own line; never list it twice
     ]
@@ -938,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
                 # its checkout; the board already knows where that authority
                 # lives, so the repository-shaped verb still resolves it.
                 plan_path = _board.local_plan_for_repo(repo) or plan_path
-    if args.task and not re.fullmatch(r"~[0-9a-z]{4}", args.task):
+    if args.task and not _grammar.ROW_ID_RE.fullmatch(args.task):
         print(f"shadow amp: --task wants a four-char id like ~ab12, got {args.task}",
               file=sys.stderr)
         return 2
