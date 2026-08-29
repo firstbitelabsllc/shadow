@@ -126,8 +126,6 @@ class StatusTests(unittest.TestCase):
         self.assertIn("not a directory", result.stderr)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 V4_PLAN = """# Demo v4
@@ -758,3 +756,7 @@ class StatusLintBlockingTests(unittest.TestCase):
                 env={**os.environ, "HOME": str(root / ".home")},
                 capture_output=True, text=True, check=False)
             self.assertNotIn("cannot be trusted", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()
