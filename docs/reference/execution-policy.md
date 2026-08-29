@@ -11,12 +11,12 @@ one semantic work class, and whether the packet is `direct` or requires one
 native child. Shadow resolves the host/class pair to the native `--model`
 selector and configures the declared execution shape:
 
-| Work class | Claude Code | Codex | Cursor | Grok |
-| --- | --- | --- | --- | --- |
-| `planning` | Fable | Sol | Fable High | Grok 4.6 |
-| `coding` | Opus | Sol | Opus High | Grok 4.6 |
-| `review` | Fable | Terra | Cursor Grok 4.6 High | Grok 4.6 |
-| `lightweight` | Sonnet | Luna | Auto | Grok 4.5 |
+| Work class | Claude Code | Codex | Cursor | Grok | Z.AI |
+| --- | --- | --- | --- | --- | --- |
+| `planning` | Fable | Sol | Fable High | Grok 4.6 | GLM-5.3-Flash |
+| `coding` | Opus | Sol | Opus High | Grok 4.6 | GLM-5.3-Flash |
+| `review` | Fable | Terra | Cursor Grok 4.6 High | Grok 4.6 | GLM-5.3-Flash |
+| `lightweight` | Sonnet | Luna | Auto | Grok 4.5 | GLM-5.3-Flash |
 
 Use it through the one sealed door:
 
@@ -56,9 +56,9 @@ are not the same decision:
 | `direct` | Disable native child spawning where the CLI exposes a control; do the bounded packet in the parent. |
 | `required` | Enable and explicitly require one native child evidence lane. Claude Code uses `Agent`, Codex enables `multi_agent`, and Grok uses `spawn_subagent`. |
 
-Cursor currently fails closed for `required`: its headless CLI exposes no
-verified structured child-lineage contract. The wake is a Cursor CLI capability
-that produces observable native child lineage. Shadow does not emulate that
+Cursor and Z.AI currently fail closed for `required`: their headless CLIs
+expose no verified structured child-lineage contract. The wake is a native
+child-lineage capability from that CLI. Shadow does not emulate that
 capability with a hidden second process and then call it native delegation.
 
 The private host-attempt receipt records the work class and requested model.
@@ -98,10 +98,10 @@ actually saves scarce reasoning while preserving hard-work quality. An
 unobserved router can do the opposite: spend frontier quota on trivial work,
 send hard work to a weak tier, and still report success.
 
-## Owner-local 12 by 4 gauntlet
+## Owner-local 12 by 5 gauntlet
 
 `scripts/dev/shadow-routing-gauntlet.py` expands twelve checked-in scenarios
-across Claude Code, Codex, Cursor, and Grok: 48 real headless CLI jobs. The
+across Claude Code, Codex, Cursor, Grok, and Z.AI: 60 real headless CLI jobs. The
 fixtures cover contradiction resolution, architecture, implementation,
 debugging, adversarial review, concise summaries, documentation repair,
 false-green rejection, cold resume, native-child lineage, protected wakes,
