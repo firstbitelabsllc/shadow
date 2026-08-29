@@ -19,6 +19,7 @@ if str(ROOT / "scripts") not in sys.path:
 # same PlanSnapshot the projection actually calls — an exec-loaded copy
 # poisons every test that runs after this one (order-dependent red).
 import shadow_plan_store as store  # noqa: E402
+from tests.plan_tree_fixture import install_plan_tree
 
 
 def plan(*, duplicate: bool = False, dangling: bool = False) -> bytes:
@@ -57,18 +58,6 @@ def plan(*, duplicate: bool = False, dangling: bool = False) -> bytes:
 - 2026-08-12T00:00:00Z ~aa11 PROOF cmd true -> pass
 - 2026-08-12T00:01:00Z DECISION keep exact authority
 {progress}""".encode("utf-8")
-
-
-def install_tree(root: Path, content: bytes) -> Path:
-    build = store.build_tree(content)
-    plan_path = root / "PLAN.md"
-    plan_path.write_bytes(build.root_bytes)
-    object_root = root / "PLAN.d" / "objects" / "sha256"
-    for digest, body in build.objects.items():
-        bucket = object_root / digest[:2]
-        bucket.mkdir(parents=True, exist_ok=True)
-        (bucket / digest).write_bytes(body)
-    return plan_path
 
 
 class PlanTreeBuildTests(unittest.TestCase):
@@ -163,7 +152,7 @@ class PlanSnapshotTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_tree_row_lookup_is_bounded_and_traceable(self) -> None:
-        plan_path = install_tree(self.root, plan())
+        plan_path = install_plan_tree(self.root, plan())
 
         result = store.PlanSnapshot.open(plan_path).row("~bb22")
 
@@ -182,7 +171,7 @@ class PlanSnapshotTests(unittest.TestCase):
             b"## Progress\n",
             b"- second contradiction | provisional winner: test | opened 2026-08-12T00:02:00Z\n\n## Progress\n",
         )
-        plan_path = install_tree(self.root, source)
+        plan_path = install_plan_tree(self.root, source)
         snapshot = store.PlanSnapshot.open(plan_path)
 
         first = snapshot.receipt("contradiction", 0)
@@ -196,7 +185,7 @@ class PlanSnapshotTests(unittest.TestCase):
 
     def test_tree_materialization_restores_exact_legacy_bytes(self) -> None:
         source = plan()
-        plan_path = install_tree(self.root, source)
+        plan_path = install_plan_tree(self.root, source)
 
         restored = store.PlanSnapshot.open(plan_path).materialize()
 
@@ -205,7 +194,7 @@ class PlanSnapshotTests(unittest.TestCase):
     def test_tampered_object_refuses_before_returning_content(self) -> None:
         source = plan()
         build = store.build_tree(source)
-        plan_path = install_tree(self.root, source)
+        plan_path = install_plan_tree(self.root, source)
         digest = store.lookup_build(build, row_id="~bb22").object_sha256
         object_path = self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
         object_path.write_bytes(object_path.read_bytes() + b"tamper")
@@ -218,7 +207,7 @@ class PlanSnapshotTests(unittest.TestCase):
     def test_missing_object_refuses_materialization(self) -> None:
         source = plan()
         build = store.build_tree(source)
-        plan_path = install_tree(self.root, source)
+        plan_path = install_plan_tree(self.root, source)
         digest = build.root["catalog_root"]
         object_path = self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
         object_path.unlink()
@@ -234,7 +223,7 @@ class PlanSnapshotTests(unittest.TestCase):
             b"PRIVATE_EXTERNAL_SENTINEL second result",
         )
         build = store.build_tree(source)
-        plan_path = install_tree(self.root, source)
+        plan_path = install_plan_tree(self.root, source)
         digest = store.lookup_build(build, row_id="~bb22").object_sha256
         bucket = self.root / "PLAN.d" / "objects" / "sha256" / digest[:2]
         shard = bucket / digest
@@ -262,7 +251,7 @@ class PlanSnapshotTests(unittest.TestCase):
             snapshot.row("~bb22")
 
     def test_tag_route_requires_a_complete_catalog_descriptor(self) -> None:
-        snapshot = store.PlanSnapshot.open(install_tree(self.root, plan()))
+        snapshot = store.PlanSnapshot.open(install_plan_tree(self.root, plan()))
         malformed = {"tags": ["proof"], "bytes": 1}
 
         with (
@@ -459,7 +448,7 @@ class PlanTransactionTests(unittest.TestCase):
         self.assertEqual(self.plan_path.read_bytes(), self.source)
 
     def test_tree_mutation_reuses_unchanged_objects(self) -> None:
-        install_tree(self.root, self.source)
+        install_plan_tree(self.root, self.source)
         before = {
             path.name
             for path in (self.root / "PLAN.d" / "objects" / "sha256").glob("*/*")

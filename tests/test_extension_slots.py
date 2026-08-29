@@ -35,13 +35,6 @@ sys.modules["shadow_slots"] = slots
 _SPEC.loader.exec_module(slots)
 
 
-def plugin(home: Path, name: str, version: str, manifest_name: str | None = None) -> None:
-    path = home / ".claude" / "plugins" / "cache" / "market" / name / version / ".claude-plugin"
-    path.mkdir(parents=True)
-    (path / "plugin.json").write_text(
-        json.dumps({"name": manifest_name or name, "version": version}), encoding="utf-8")
-
-
 def skill(home: Path, name: str) -> None:
     path = home / ".claude" / "skills" / name
     path.mkdir(parents=True)

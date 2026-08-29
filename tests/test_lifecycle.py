@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
+from tests.proc_fixture import git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,18 +134,6 @@ def many_milestone_plan(completed: int = 33) -> str:
         + "\n## Progress\n\n"
         + "".join(receipts)
     )
-
-
-def git(repo: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise AssertionError(result.stderr)
-    return result.stdout.strip()
 
 
 def make_repo(root: Path, plan: str = PLAN) -> Path:

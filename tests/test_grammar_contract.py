@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-import re
 import sys
 import unittest
 
@@ -21,6 +20,10 @@ GRAMMAR_SPEC = importlib.util.spec_from_file_location(
 assert GRAMMAR_SPEC and GRAMMAR_SPEC.loader
 grammar = importlib.util.module_from_spec(GRAMMAR_SPEC)
 GRAMMAR_SPEC.loader.exec_module(grammar)
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from browser import server as board_server  # noqa: E402
 
 
 class GrammarContractTests(unittest.TestCase):
@@ -146,19 +149,15 @@ class GrammarContractTests(unittest.TestCase):
         self.assertIn("^[a-z][a-z0-9-]{1,31}$", text)
 
     def test_grammar_matches_the_shipped_board_scanner(self) -> None:
-        server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
         grammar = GRAMMAR.read_text(encoding="utf-8")
-        project_re = re.search(r'PROJECT_VALUE_RE = re\.compile\(r"([^"]+)"\)', server)
-        self.assertIsNotNone(project_re)
-        self.assertIn(project_re.group(1), grammar)
-        mode_re = re.search(r'MODE_VALUE_RE = re\.compile\(r"([^"]+)"\)', server)
-        self.assertIsNotNone(mode_re)
+        self.assertIn(board_server.PROJECT_VALUE_RE.pattern, grammar)
+        mode_pattern = board_server.MODE_VALUE_RE.pattern
         # Two modes, and the board's vocabulary is exactly the grammar's.
         for mode in ("explore", "ship"):
-            self.assertIn(mode, mode_re.group(1))
+            self.assertIn(mode, mode_pattern)
             self.assertIn(f"Mode: {mode}", grammar.replace("explore | ship", f"Mode: {mode}"))
         for legacy in ("spike-mode", "defer-mode", "broad", "close"):
-            self.assertNotIn(legacy, mode_re.group(1))
+            self.assertNotIn(legacy, mode_pattern)
 
     def test_task_consumers_import_one_executable_grammar(self) -> None:
         """A task row means the same thing to lint, accept, projection, and recovery."""
