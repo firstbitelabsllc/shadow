@@ -84,6 +84,38 @@ class DoctorSlotsDegradeToOneFailRow(unittest.TestCase):
                 self.assertIn(str(boom), rows[0]["detail"])
 
 
+class ReconcileAnalysisMemo(unittest.TestCase):
+    def test_one_parse_lint_and_candidate_pass_per_unique_text(self) -> None:
+        import shadow_board_import as board_import
+
+        calls = {"parse": 0, "unclean": 0, "candidates": 0}
+
+        class CountingAmp:
+            @staticmethod
+            def _parse(text):
+                calls["parse"] += 1
+                return {"text": text, "brief": {"Project": "demo", "Mode": "ship"}, "milestones": []}
+
+            @staticmethod
+            def unclean_note(parsed):
+                calls["unclean"] += 1
+                return None
+
+            @staticmethod
+            def _candidate_ids(parsed):
+                calls["candidates"] += 1
+                return []
+
+        analysis = board_import._PlanAnalysis(CountingAmp)
+        first = analysis.analyze("plan one")
+        again = analysis.analyze("plan one")
+        other = analysis.analyze("plan two")
+
+        self.assertIs(first, again)
+        self.assertEqual(calls, {"parse": 2, "unclean": 2, "candidates": 2})
+        self.assertEqual(other[0]["text"], "plan two")
+
+
 class LocalPlanQuarantineNeverBlanksTheBoard(unittest.TestCase):
     def test_an_unreadable_local_authority_sits_out_while_peers_import(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
