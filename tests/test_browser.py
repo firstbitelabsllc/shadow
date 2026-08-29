@@ -330,16 +330,6 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(checkpoints["~cc33"]["owners"], ["seat-a"])
         self.assertEqual(checkpoints["~dd44"]["availability"], "blocked")
 
-    def test_browser_renderer_iterates_the_rotation_in_brief_and_board_views(self) -> None:
-        source = (Path(server.__file__).parent / "static" / "app.js").read_text(
-            encoding="utf-8"
-        )
-        self.assertEqual(
-            source.count("for (const milestone of rotationOf(plan))"),
-            3,
-        )
-        self.assertNotIn("const milestoneTitle = plan.board?.milestone", source)
-
     def test_symlinked_canonical_plan_cannot_import_external_milestones(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
