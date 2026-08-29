@@ -42,6 +42,25 @@ class InitTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         return repo
 
+    def read_board(self, home: Path) -> dict:
+        return json.loads(
+            (home / ".shadow" / "board.json").read_text(encoding="utf-8")
+        )
+
+    def add_origin(self, repo: Path) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "remote",
+                "add",
+                "origin",
+                "git@github.com:example/useful-project.git",
+            ],
+            check=True,
+        )
+
     def call_main(
         self,
         repo: Path,
@@ -84,7 +103,7 @@ class InitTests(unittest.TestCase):
             shadow_init.board.read_init_registration(destination, home=home)
         )
         self.assertEqual(
-            json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8")),
+            self.read_board(home),
             shadow_init.board._empty(),
         )
         return destination
@@ -192,7 +211,7 @@ class InitTests(unittest.TestCase):
             result = run("--here", cwd=repo, home=home)
             record = plan_record(destination, home)
             plan = destination.read_text(encoding="utf-8")
-            board = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
+            board = self.read_board(home)
             pending = shadow_init.board.read_init_registration(destination, home=home)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, f"created local PLAN.md: {destination}\n")
@@ -222,9 +241,7 @@ class InitTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, f"created local PLAN.md: {destination}\n")
             plan = destination.read_text(encoding="utf-8")
-            board = json.loads(
-                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
-            )
+            board = self.read_board(home)
             resolved = shadow_init.board.local_plan_for_repo(repo, home=home)
         self.assertGreater(len(name), 48)
         self.assertEqual(
@@ -331,7 +348,7 @@ class InitTests(unittest.TestCase):
             self.assertEqual(stdout, f"recognized local PLAN.md: {destination}\n")
             self.assertEqual(self.locator_state(destination), before)
             board_path = home / ".shadow" / "board.json"
-            board = json.loads(board_path.read_text(encoding="utf-8"))
+            board = self.read_board(home)
             with mock.patch.dict(os.environ, {"HOME": str(home)}):
                 expected_identity = shadow_init.board.entity_id(destination)
             self.assertEqual(
@@ -414,29 +431,13 @@ class InitTests(unittest.TestCase):
             self.assertIsNone(
                 shadow_init.board.read_init_registration(destination, home=home)
             )
-            board = json.loads(
-                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
-            )
+            board = self.read_board(home)
             self.assertEqual(len(board["entities"]), 1)
             self.assertEqual(board["claims"], [])
 
     def test_retry_recovery_refuses_changed_or_raced_state_without_authority_mutation(
         self,
     ) -> None:
-        def add_origin(repo: Path) -> None:
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repo),
-                    "remote",
-                    "add",
-                    "origin",
-                    "git@github.com:example/useful-project.git",
-                ],
-                check=True,
-            )
-
         def edited(destination: Path, _: Path) -> None:
             destination.write_bytes(destination.read_bytes() + b"\n- user note\n")
 
@@ -502,7 +503,7 @@ class InitTests(unittest.TestCase):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as dirname:
                 root = Path(dirname)
                 repo = self.make_repo(root)
-                add_origin(repo)
+                self.add_origin(repo)
                 home = root / "home"
                 destination = self.strand_generated_plan(repo, home)
                 mutate(destination, repo if name == "checkout-origin-changed" else root)
@@ -525,7 +526,7 @@ class InitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             repo = self.make_repo(root)
-            add_origin(repo)
+            self.add_origin(repo)
             home = root / "home"
             destination = self.strand_generated_plan(repo, home)
             original = destination.read_bytes()
@@ -555,7 +556,7 @@ class InitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             repo = self.make_repo(root)
-            add_origin(repo)
+            self.add_origin(repo)
             home = root / "home"
             destination = self.strand_generated_plan(repo, home)
             before = self.locator_state(destination)
@@ -581,7 +582,7 @@ class InitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
             repo = self.make_repo(root)
-            add_origin(repo)
+            self.add_origin(repo)
             home = root / "home"
             destination = self.strand_generated_plan(repo, home)
             real_register = shadow_init.board.complete_init_registration
@@ -606,7 +607,7 @@ class InitTests(unittest.TestCase):
             self.assertTrue(reached_registration)
             self.assertEqual(result, 0, stderr)
             self.assertEqual(board_path.read_bytes(), peer_board)
-            board = json.loads(board_path.read_text(encoding="utf-8"))
+            board = self.read_board(home)
             self.assertEqual(len(board["entities"]), 1)
             self.assertEqual(board["claims"], [])
             self.assertIsNone(self.journal_oid(destination, home))
@@ -740,9 +741,7 @@ class InitTests(unittest.TestCase):
             recovered, _, recovery_error = self.call_main(first, home)
 
             self.assertEqual(recovered, 0, recovery_error)
-            board = json.loads(
-                (home / ".shadow" / "board.json").read_text(encoding="utf-8")
-            )
+            board = self.read_board(home)
             self.assertEqual(len(board["entities"]), 1)
             self.assertEqual(board["claims"], [])
             self.assertIsNone(self.journal_oid(destination, home))
@@ -791,18 +790,7 @@ class InitTests(unittest.TestCase):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as dirname:
                 root = Path(dirname)
                 repo = self.make_repo(root)
-                subprocess.run(
-                    [
-                        "git",
-                        "-C",
-                        str(repo),
-                        "remote",
-                        "add",
-                        "origin",
-                        "git@github.com:example/useful-project.git",
-                    ],
-                    check=True,
-                )
+                self.add_origin(repo)
                 home = root / "home"
                 destination = self.strand_generated_plan(repo, home)
                 board_path = home / ".shadow" / "board.json"
@@ -876,18 +864,7 @@ class InitTests(unittest.TestCase):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as dirname:
                 root = Path(dirname)
                 repo = self.make_repo(root)
-                subprocess.run(
-                    [
-                        "git",
-                        "-C",
-                        str(repo),
-                        "remote",
-                        "add",
-                        "origin",
-                        "git@github.com:example/useful-project.git",
-                    ],
-                    check=True,
-                )
+                self.add_origin(repo)
                 home = root / "home"
                 destination = self.strand_generated_plan(repo, home)
                 board_path = home / ".shadow" / "board.json"
