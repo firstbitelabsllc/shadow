@@ -534,6 +534,11 @@ class ShadowAcceptTests(unittest.TestCase):
             ["true"],
             legacy_stamp,
         )
+        legacy_prose = accept.append_progress_line(
+            legacy_only,
+            f"- {legacy_stamp} ~cd90 SOURCE PROOF -> historical prose, "
+ "not a source receipt\n",
+        )
         legacy = accept.completed_plan_text(
             valid,
             "~cd90",
@@ -595,6 +600,7 @@ class ShadowAcceptTests(unittest.TestCase):
             self.assertIsNone(
                 accept.local_plan_source_identity(legacy_only),
             )
+            self.assertIsNone(accept.local_plan_source_identity(legacy_prose))
             with mock.patch.object(
                 accept,
                 "public_source_identity",

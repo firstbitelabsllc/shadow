@@ -543,6 +543,16 @@ def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
                 for candidate in progress_lines
                 if f" {receipt[0]} SOURCE " in candidate
             ]
+            canonical_source_lines = [
+                candidate
+                for candidate in source_lines
+                if SOURCE_RECEIPT_RE.fullmatch(candidate) is not None
+            ]
+            if (
+                match.group("ts") < LOCAL_SOURCE_RECEIPT_CUTOVER
+                and not canonical_source_lines
+            ):
+                source_lines = []
             if (
                 receipt[1] == shlex.join(argv)
                 and not source_lines
@@ -604,6 +614,22 @@ def local_plan_source_identity(plan_text: str) -> str | None:
             for line in _board.section_lines(plan_text, "Progress")
             if f" {row_id} SOURCE " in line
         ]
+        canonical_source_lines = [
+            line
+            for line in source_lines
+            if SOURCE_RECEIPT_RE.fullmatch(line) is not None
+        ]
+        # Historical Progress may say ``SOURCE PROOF`` in prose. Before the
+        # cutover it is not a source receipt, and treating that substring as a
+        # malformed receipt makes every later local acceptance unrecoverable.
+        # Keep strict parsing for post-cutover receipts, where the canonical
+        # shape is the only accepted source contract.
+        if accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER and not canonical_source_lines:
+            if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
+                raise AcceptError(
+                    f"{row_id} has no single canonical legacy accept PROOF"
+                )
+            continue
         if not source_lines and accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER:
             if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
                 raise AcceptError(
