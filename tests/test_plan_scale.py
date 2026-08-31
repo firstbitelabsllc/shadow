@@ -629,5 +629,45 @@ class PlanTreeMigrationHarness(unittest.TestCase):
                 scale._store.dry_run_migration(source, board=None)
 
 
+class GitBoundaryIsSanitized(unittest.TestCase):
+    """The migration verb's probes and mutations answer about the true repo."""
+
+    def _cli(self):
+        spec = importlib.util.spec_from_file_location(
+            "shadow_plan_cli", ROOT / "scripts" / "shadow-plan.py"
+        )
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    def test_git_probe_ignores_a_redirect(self) -> None:
+        cli = self._cli()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            decoy = root / "decoy"
+            decoy.mkdir()
+            subprocess.run(["git", "init", "-q", str(decoy)], check=True)
+            with mock.patch.dict(
+                os.environ,
+                {"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+                clear=False,
+            ):
+                out = cli._git(repo, "rev-parse", "--show-toplevel").stdout.decode().strip()
+            self.assertEqual(Path(out), repo)
+
+    def test_a_missing_git_binary_is_a_refusal_not_a_traceback(self) -> None:
+        cli = self._cli()
+        with mock.patch.object(
+            cli.subprocess, "run", side_effect=FileNotFoundError("git")
+        ):
+            with self.assertRaisesRegex(cli.PlanStoreError, "git is not available"):
+                cli._git(Path("/anywhere"), "status")
+
+
 if __name__ == "__main__":
     unittest.main()

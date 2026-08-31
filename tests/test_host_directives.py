@@ -1526,23 +1526,7 @@ class TheSupportedListInTheDocsDrivesTheWriteTargets(unittest.TestCase):
 
 
 class DogfoodOverwriteBacksUpAndConverges(unittest.TestCase):
-    def test_owner_takeover_keeps_the_first_backup_and_converges(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "AGENTS.md"
-            original = "# owner rules\n"
-            path.write_text(original, encoding="utf-8")
-
-            self.assertEqual(hd._private_full_file(path, BLOCK), "replaced")
-            self.assertEqual(path.read_text(encoding="utf-8"), hd.managed(BLOCK) + "\n")
-            backup = path.with_suffix(path.suffix + ".bak-shadow-full")
-            self.assertEqual(backup.read_text(encoding="utf-8"), original)
-            self.assertEqual(hd._private_full_file(path, BLOCK), "current")
-
-            newer = BLOCK.replace("Outcome:", "Outcome: current —")
-            self.assertEqual(hd._private_full_file(path, newer), "replaced")
-            self.assertEqual(path.read_text(encoding="utf-8"), hd.managed(newer) + "\n")
-            self.assertEqual(backup.read_text(encoding="utf-8"), original)
-
+    def test_no_private_full_install_mode_is_exposed(self) -> None:
         help_text = subprocess.run(
             [sys.executable, str(SCRIPT), "--help"],
             capture_output=True,
@@ -1550,47 +1534,6 @@ class DogfoodOverwriteBacksUpAndConverges(unittest.TestCase):
             check=True,
         ).stdout
         self.assertNotIn("full", help_text.lower())
-
-    def test_owner_takeover_writes_through_a_symlink_and_keeps_it(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            target = root / "canonical.md"
-            original = "# canonical owner rules\n"
-            target.write_text(original, encoding="utf-8")
-            link = root / "AGENTS.md"
-            link.symlink_to(target)
-
-            self.assertEqual(hd._private_full_file(link, BLOCK), "replaced")
-            self.assertTrue(link.is_symlink())
-            self.assertEqual(target.read_text(encoding="utf-8"), hd.managed(BLOCK) + "\n")
-            backup = target.with_suffix(target.suffix + ".bak-shadow-full")
-            self.assertEqual(backup.read_text(encoding="utf-8"), original)
-
-    def test_owner_takeover_refuses_a_dangling_backup_name(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "AGENTS.md"
-            original = "# irreplaceable owner rules\n"
-            path.write_text(original, encoding="utf-8")
-            backup = path.with_suffix(path.suffix + ".bak-shadow-full")
-            backup.symlink_to(Path(tmp) / "missing-owner-backup")
-
-            with self.assertRaisesRegex(ValueError, "could not preserve"):
-                hd._private_full_file(path, BLOCK)
-            self.assertEqual(path.read_text(encoding="utf-8"), original)
-            self.assertTrue(backup.is_symlink())
-
-    def test_owner_takeover_refuses_an_unrelated_preexisting_backup(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "AGENTS.md"
-            original = "# current owner rules\n"
-            path.write_text(original, encoding="utf-8")
-            backup = path.with_suffix(path.suffix + ".bak-shadow-full")
-            backup.write_text("# somebody else's bytes\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "could not preserve"):
-                hd._private_full_file(path, BLOCK)
-            self.assertEqual(path.read_text(encoding="utf-8"), original)
-            self.assertEqual(backup.read_text(encoding="utf-8"), "# somebody else's bytes\n")
 
 class ALinkedWriteDisclosesTargetAndBackup(unittest.TestCase):
     """"added: claude" against a symlinked host file names neither the file

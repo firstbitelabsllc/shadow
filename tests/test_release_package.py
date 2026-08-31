@@ -8,16 +8,17 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from tests.proc_fixture import git
 
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "shadow-release-package.py"
-VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").splitlines()[0].strip()
 SPEC = importlib.util.spec_from_file_location("release_package", SCRIPT)
 assert SPEC and SPEC.loader
 mod = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = mod
 SPEC.loader.exec_module(mod)
+VERSION = mod.source_version(ROOT)
 
 
 def baseline() -> tuple[dict, dict, set[str]]:
@@ -32,15 +33,6 @@ def baseline() -> tuple[dict, dict, set[str]]:
         "files": [{"path": path} for path in sorted(paths)],
     }
     return plugin, pack, paths
-
-
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
 
 
 class ReleasePackageTests(unittest.TestCase):
@@ -228,9 +220,33 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertFalse(report["publishable"])
 
 
+class DirtyFilePorcelain(unittest.TestCase):
+    def test_a_rename_then_delete_consumes_both_paths_without_a_phantom(self) -> None:
+        # RD in porcelain -z: new name, then the original — the old parser only
+        # consumed the second row for {"R ","C ","RM","CM"}, so "README.md"
+        # fell through and row[3:] injected a phantom "DME.md".
+        payload = b"RD NEWNAME.md\0README.md\0 M modified.py\0"
+        completed = subprocess.CompletedProcess((), 0, stdout=payload, stderr=b"")
+        with mock.patch.object(mod.subprocess, "run", return_value=completed):
+            self.assertEqual(
+                mod.dirty_files(Path("/anywhere")),
+                {"NEWNAME.md", "README.md", "modified.py"},
+            )
+
+
+class ForbiddenSetIsDerived(unittest.TestCase):
+    def test_the_forbidden_set_is_the_export_ignore_set(self) -> None:
+        self.assertTrue(mod.forbidden("scripts/shadow-ci.py"))
+        self.assertTrue(mod.forbidden("docs/plan-archive/anything.md"))
+        self.assertTrue(mod.forbidden("tests/test_anything.py"))
+        self.assertTrue(mod.forbidden("PLAN.md"))
+        self.assertFalse(mod.forbidden("scripts/shadow-accept.py"))
+        self.assertFalse(mod.forbidden("browser/server.py"))
+
+
 class CurrentReleaseCandidate(unittest.TestCase):
     def test_every_shipped_identity_reports_current_release(self) -> None:
-        expected = "1.3.0"
+        expected = mod.source_version(ROOT)
         manifests = (
             ".claude-plugin/plugin.json",
             "plugins/shadow/plugin.json",
@@ -238,7 +254,6 @@ class CurrentReleaseCandidate(unittest.TestCase):
             "plugins/shadow/.claude-plugin/plugin.json",
         )
 
-        self.assertEqual(mod.source_version(ROOT), expected)
         self.assertEqual(mod.changelog_version(ROOT), expected)
         for relative in manifests:
             manifest = json.loads((ROOT / relative).read_text(encoding="utf-8"))

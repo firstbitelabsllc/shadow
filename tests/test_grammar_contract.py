@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-import re
 import sys
 import unittest
 
@@ -22,8 +21,44 @@ assert GRAMMAR_SPEC and GRAMMAR_SPEC.loader
 grammar = importlib.util.module_from_spec(GRAMMAR_SPEC)
 GRAMMAR_SPEC.loader.exec_module(grammar)
 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from browser import server as board_server  # noqa: E402
+
 
 class GrammarContractTests(unittest.TestCase):
+    def test_candidate_rows_live_only_in_the_tasks_section(self) -> None:
+        text = """# Plan
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### Build
+- [pending] first step ~aa11 | proof: cmd true
+- [pending] second step ~bb22 | proof: cmd true
+- [pending] blocked step ~cc33 | proof: cmd true | needs: ~aa11x
+
+## Contradictions
+
+- quoted row prose | winner: none
+- [pending] this is prose quoting a row, not a checkpoint ~dd44 | proof: cmd true
+
+## Progress
+
+- 2026-08-29T00:00:00Z ~aa11 PROOF cmd true -> pass
+- [pending] progress prose is not a row either ~ee55 | proof: cmd true
+"""
+        candidates = grammar.candidate_row_ids(text)
+        self.assertEqual(candidates, ["~aa11", "~bb22"])
+        # The canonical needs regex (shared with the accept gate) reads ~aa11
+        # out of the malformed ~aa11x, so this row waits on it — the old
+        # amp-side word-boundary regex read nothing and called the row ready.
+        self.assertNotIn("~cc33", candidates)
+
     def test_one_predicate_owns_open_vs_explicitly_resolved_contradictions(self) -> None:
         self.assertFalse(grammar.contradiction_is_open("not a list item"))
         self.assertFalse(grammar.contradiction_is_open("- None recorded yet."))
@@ -146,19 +181,15 @@ class GrammarContractTests(unittest.TestCase):
         self.assertIn("^[a-z][a-z0-9-]{1,31}$", text)
 
     def test_grammar_matches_the_shipped_board_scanner(self) -> None:
-        server = (ROOT / "browser" / "server.py").read_text(encoding="utf-8")
         grammar = GRAMMAR.read_text(encoding="utf-8")
-        project_re = re.search(r'PROJECT_VALUE_RE = re\.compile\(r"([^"]+)"\)', server)
-        self.assertIsNotNone(project_re)
-        self.assertIn(project_re.group(1), grammar)
-        mode_re = re.search(r'MODE_VALUE_RE = re\.compile\(r"([^"]+)"\)', server)
-        self.assertIsNotNone(mode_re)
+        self.assertIn(board_server.PROJECT_VALUE_RE.pattern, grammar)
+        mode_pattern = board_server.MODE_VALUE_RE.pattern
         # Two modes, and the board's vocabulary is exactly the grammar's.
         for mode in ("explore", "ship"):
-            self.assertIn(mode, mode_re.group(1))
+            self.assertIn(mode, mode_pattern)
             self.assertIn(f"Mode: {mode}", grammar.replace("explore | ship", f"Mode: {mode}"))
         for legacy in ("spike-mode", "defer-mode", "broad", "close"):
-            self.assertNotIn(legacy, mode_re.group(1))
+            self.assertNotIn(legacy, mode_pattern)
 
     def test_task_consumers_import_one_executable_grammar(self) -> None:
         """A task row means the same thing to lint, accept, projection, and recovery."""

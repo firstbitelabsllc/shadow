@@ -38,6 +38,7 @@ COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
 ROW_ID = _grammar.ROW_ID_RE
 ENTITY_ID = re.compile(r"[0-9a-f]{64}")
+MILESTONE_PREFIX_RE = re.compile(r"^[A-Za-z]+\d+\s*[—-]\s*")
 GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 PROJECT_ID = re.compile(r"[a-z][a-z0-9-]{1,31}")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -72,11 +73,13 @@ class _RepositoryIdentityCache:
         self.origins: dict[str, str] = {}
         self.plan_parts: dict[str, tuple[str, str]] = {}
         self.repositories: dict[str, Path] = {}
+        self.heads: dict[str, str] = {}
 
     def clear(self) -> None:
         self.origins.clear()
         self.plan_parts.clear()
         self.repositories.clear()
+        self.heads.clear()
 
 
 _REPOSITORY_IDENTITIES: ContextVar[_RepositoryIdentityCache | None] = ContextVar(
@@ -90,7 +93,8 @@ def repository_identity_cache() -> Iterator[None]:
     """Reuse immutable Git identity metadata within one reconciliation pass."""
     token = _REPOSITORY_IDENTITIES.set(_RepositoryIdentityCache())
     try:
-        yield
+        with _remote_claim.upstream_binding_cache():
+            yield
     finally:
         _REPOSITORY_IDENTITIES.reset(token)
 
@@ -288,8 +292,6 @@ def normalized_origin(origin: str) -> str:
     return _shadow_git.normalized_origin(origin)
 
 
-def normalized_repo_origin(repo: Path, origin: str) -> str:
-    return _shadow_git.normalized_repo_origin(repo, origin)
 
 
 def regular_plan(plan: Path) -> bool:
@@ -708,21 +710,43 @@ def public_discovery_locator(identity: object, display: object) -> str:
 
 
 def public_plan_locator(plan: Path) -> str:
-    """Return a stable human locator without exposing an absolute home path."""
+    """Return a stable human locator without exposing an absolute home path.
+
+    The repo resolution rides the same per-pass identity cache as
+    plan_identity_parts; status used to pay one toplevel probe per entity.
+    Unlike plan_identity_parts this locator never raises: an unreadable
+    probe falls back to the display form below.
+    """
     candidate = Path(os.path.abspath(plan))
-    result = _git(candidate.parent, "rev-parse", "--show-toplevel")
-    if result.returncode or not result.stdout.strip():
-        public = f"{candidate.parent.name}/PLAN.md"
-        if SECRET_SHAPE_RE.search(public) or PRIVATE_PATH_RE.search(public):
-            digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
-            return f"entity@{digest}/PLAN.md"
-        return public
-    repo = Path(result.stdout.strip()).resolve()
+    cache = _REPOSITORY_IDENTITIES.get()
+    marker = _git_marker(candidate.parent)
+    marker_key = str(Path(os.path.abspath(marker))) if marker is not None else None
+    repo = (
+        cache.repositories.get(marker_key)
+        if cache is not None and marker_key is not None
+        else None
+    )
+    if repo is None:
+        result = _git(candidate.parent, "rev-parse", "--show-toplevel")
+        if result.returncode or not result.stdout.strip():
+            public = f"{candidate.parent.name}/PLAN.md"
+            if SECRET_SHAPE_RE.search(public) or PRIVATE_PATH_RE.search(public):
+                digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
+                return f"entity@{digest}/PLAN.md"
+            return public
+        repo = Path(result.stdout.strip()).resolve()
+        if cache is not None and marker_key is not None:
+            cache.repositories[marker_key] = repo
     try:
         relative = candidate.relative_to(repo).as_posix()
     except ValueError:
         relative = candidate.name
-    origin = origin_of(repo)
+    try:
+        origin = origin_of(repo)
+    except BoardError:
+        # The contract above is never-raises: a transient identity read
+        # degrades to the local digest shape, never a crashed render.
+        origin = str(repo)
     if origin.startswith("local-") or origin.startswith("/"):
         digest = hashlib.sha256(origin.encode("utf-8")).hexdigest()[:8]
         prefix = f"{repo.name}@{digest}"
@@ -733,13 +757,6 @@ def public_plan_locator(plan: Path) -> str:
         digest = hashlib.sha256(public.encode("utf-8")).hexdigest()[:8]
         return f"entity@{digest}/PLAN.md"
     return public
-
-
-def plan_mtime(repo: Path) -> float:
-    try:
-        return (repo / "PLAN.md").stat().st_mtime
-    except OSError:
-        return 0.0
 
 
 def plan_commit_time(plan: Path) -> int | None:
@@ -764,6 +781,52 @@ def plan_commit_time(plan: Path) -> int | None:
         return int(raw)
     except ValueError:
         return None
+
+
+def plan_commit_times(repo: Path, plans: list[Path]) -> dict[str, int | None]:
+    """Latest touching commit time for many plans, in one git process.
+
+    Same semantics as plan_commit_time per path: the newest commit touching
+    each exact pathspec, or no opinion when nothing touches it. One
+    `git log --name-only` answers the whole set — per-plan `git log -1` was
+    the entire subprocess cost of a several-hundred-plan reconcile.
+    """
+    relative_to_abs: dict[str, str] = {}
+    relpaths: list[str] = []
+    for plan in plans:
+        absolute = Path(os.path.abspath(plan))
+        try:
+            relative = absolute.relative_to(repo).as_posix()
+        except ValueError:
+            continue
+        relative_to_abs[relative] = str(absolute)
+        relpaths.append(relative)
+    if not relpaths:
+        return {}
+    result = _git(
+        repo,
+        "log",
+        "--format=COMMIT%x09%ct",
+        "--name-only",
+        "--",
+        *relpaths,
+    )
+    if result.returncode:
+        return {}
+    times: dict[str, int | None] = {}
+    current: int | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("COMMIT\t"):
+            raw = line.split("\t", 1)[1]
+            try:
+                current = int(raw)
+            except ValueError:
+                current = None
+            continue
+        path = line.strip()
+        if path and path in relative_to_abs and relative_to_abs[path] not in times:
+            times[relative_to_abs[path]] = current
+    return times
 
 
 def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[str, str]:
@@ -829,20 +892,41 @@ def logical_entity_id(origin: str, relative: str) -> str:
     return hashlib.sha256(logical).hexdigest()
 
 
-def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
-    """Return the exact PLAN bytes stored at HEAD, independent of worktree dirt."""
+def head_plan_snapshot(
+    plan: Path,
+    *,
+    repo: Path | None = None,
+) -> tuple[dict[str, str], bytes]:
+    """Return the exact PLAN bytes stored at HEAD, independent of worktree dirt.
+
+    A caller that already authenticated the repo (e.g. status, via the
+    upstream binding) passes it in and skips the redundant resolution; the
+    plan-in-repo containment check and the post-read HEAD race-guard stay.
+    """
     if not regular_plan(plan):
         raise BoardError("entity plan must be a regular, non-symlink PLAN.md")
     plan = plan.resolve()
-    top = _git(plan.parent, "rev-parse", "--show-toplevel")
-    if top.returncode or not top.stdout.strip():
-        raise BoardError("entity plan must be committed in a Git repository")
-    repo = Path(top.stdout.strip()).resolve()
+    if repo is not None:
+        repo = repo.resolve()
+    cache = _REPOSITORY_IDENTITIES.get()
+    if repo is None:
+        top = _git(plan.parent, "rev-parse", "--show-toplevel")
+        if top.returncode or not top.stdout.strip():
+            raise BoardError("entity plan must be committed in a Git repository")
+        repo = Path(top.stdout.strip()).resolve()
     try:
         relative = plan.relative_to(repo).as_posix()
     except ValueError as exc:
         raise BoardError("entity plan is outside its Git repository") from exc
-    head = _git(repo, "rev-parse", "HEAD")
+    repo_key = str(repo)
+    if cache is not None and repo_key in cache.heads:
+        head = subprocess.CompletedProcess(
+            ["git"], 0, cache.heads[repo_key] + "\n", ""
+        )
+    else:
+        head = _git(repo, "rev-parse", "HEAD")
+        if not head.returncode and cache is not None:
+            cache.heads[repo_key] = head.stdout.strip()
     blob = _git(repo, "rev-parse", f"HEAD:{relative}")
     if head.returncode or blob.returncode:
         raise BoardError("entity plan is not present at the current Git HEAD")
@@ -863,9 +947,13 @@ def head_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     )
 
 
-def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
+def committed_plan_snapshot(
+    plan: Path,
+    *,
+    repo: Path | None = None,
+) -> tuple[dict[str, str], bytes]:
     """Return worktree bytes and the exact Git object that serves them, or refuse."""
-    token, _ = head_plan_snapshot(plan)
+    token, _ = head_plan_snapshot(plan, repo=repo)
     repo = Path(token["repo"])
     relative = token["relative"]
     snapshot = open_plan(plan)
@@ -896,7 +984,12 @@ def committed_plan_snapshot(plan: Path) -> tuple[dict[str, str], bytes]:
     return token, content
 
 
-def frozen_plan_snapshot(plan: Path, *, home: Path | None = None) -> tuple[dict[str, str], bytes]:
+def frozen_plan_snapshot(
+    plan: Path,
+    *,
+    home: Path | None = None,
+    repo: Path | None = None,
+) -> tuple[dict[str, str], bytes]:
     """Freeze either a product's committed plan or one local-only plan.
 
     Product repositories remain free to keep a release plan with their source.
@@ -904,7 +997,7 @@ def frozen_plan_snapshot(plan: Path, *, home: Path | None = None) -> tuple[dict[
     their authority lives below ``~/.shadow/plans`` and is never committed.
     """
     if not is_local_plan(plan, home=home):
-        return committed_plan_snapshot(plan)
+        return committed_plan_snapshot(plan, repo=repo)
     content = read_plan_bytes(plan)
     digest = hashlib.sha256(content).hexdigest()
     return (
@@ -1629,10 +1722,6 @@ def _state_for_entity(payload: dict, entity: dict | None) -> dict:
     }
 
 
-def entity_state_by_id(identity: str, *, home: Path | None = None) -> dict | None:
-    """Resolve a board-issued entity id, refusing stale ids after identity moves."""
-    resolved = resolve_entity(identity, home=home)
-    return resolved["state"] if resolved is not None else None
 
 
 def _resolve_entity_payload(
@@ -1696,9 +1785,6 @@ def locked_entity_plan_by_id_at_revision(
         yield resolved["plan"]
 
 
-def canonical_plan_by_id(identity: str, *, home: Path | None = None) -> Path:
-    """Return the regular canonical pointer for one current board entity id."""
-    return canonical_plan_by_id_at_revision(identity, home=home)
 
 
 def canonical_plan_by_id_at_revision(
@@ -2312,9 +2398,14 @@ def reconcile(
             try:
                 content = read_plan_bytes(Path(seed["plan"]))
             except BoardError as exc:
-                raise BoardError(
-                    "bounded discovery entity changed during reconciliation; retry"
-                ) from exc
+                # A quarantined seed declares its plan unreadable with None
+                # markers; reconcile must tolerate exactly that, never demand
+                # a successful read of the file discovery already quarantined.
+                if seed["expected_sha256"] is not None:
+                    raise BoardError(
+                        "bounded discovery entity changed during reconciliation; retry"
+                    ) from exc
+                continue
             try:
                 assert_hot_plan_budget(content)
             except BoardError:
@@ -2754,11 +2845,7 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
             raise BoardError("claim return needs a readable entity plan") from exc
     row_matches = []
     for line in text.splitlines():
-        match = re.match(
-            r"^- \[(pending|in_progress|blocked|completed)] .+? "
-            r"(?P<id>~[0-9a-z]{4})(?: \(DoD\))?(?: \| .*)?$",
-            line,
-        )
+        match = _grammar.ROW_RE.match(line)
         if match is not None and match.group("id") == row:
             row_matches.append(match)
     if not row_matches:
@@ -3088,16 +3175,6 @@ def _migration_destinations(
 
 def _migration_plan_matches(plan: Path, expected: dict[str, object]) -> bytes:
     _migration_plan_rows(expected)
-    if set(expected) != {
-        "relative",
-        "entity_id",
-        "head",
-        "blob",
-        "logical_sha256",
-        "rows",
-        "candidates",
-    }:
-        raise BoardError("project-map migration plan receipt is malformed")
     token, content = committed_plan_snapshot(plan)
     logical_sha256 = hashlib.sha256(content).hexdigest()
     if (
@@ -3864,10 +3941,3 @@ def discard_missing_unclaimed_aliases(
         return len(repairs)
 
 
-def claimed_rows(plan: Path, *, home: Path | None = None) -> set[str]:
-    state = entity_state(plan, home=home)
-    return (
-        {item["row"] for item in state["claims"]}
-        if state is not None and state["entity"] is not None
-        else set()
-    )

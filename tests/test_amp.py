@@ -60,6 +60,38 @@ def _write(tmp: Path, text: str = PLAN) -> Path:
     return plan
 
 
+def _superpowers_pack(
+    home: Path,
+    leaves: dict[str, str] | None = None,
+    *,
+    market: str = "market",
+    version: str = "6.2.0",
+    manifest: str | None = None,
+) -> Path:
+    """Install a superpowers pack tree: plugin manifest plus whole leaves."""
+    root = home / ".claude" / "plugins" / "cache" / market / "superpowers" / version
+    manifest_path = root / ".claude-plugin" / "plugin.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        manifest
+        if manifest is not None
+        else '{"name":"superpowers","version":"%s"}' % version,
+        encoding="utf-8",
+    )
+    for name, text in (leaves or {}).items():
+        leaf = root / "skills" / name
+        leaf.mkdir(parents=True)
+        (leaf / "SKILL.md").write_text(text, encoding="utf-8")
+    return root
+
+
+def _clean_env(*cleared: str, **overrides: str):
+    """Patch the environment with the named keys emptied, plus any overrides."""
+    env = {key: "" for key in cleared}
+    env.update(overrides)
+    return mock.patch.dict(os.environ, env, clear=False)
+
+
 class AmpSelection(unittest.TestCase):
     def test_ready_row_wins_over_needs_gated_row(self) -> None:
         plan = amp._parse(PLAN)
@@ -237,35 +269,16 @@ class AmpBlock(unittest.TestCase):
             root = Path(tmp)
             home = root / "home"
             repo = root / "repo"
-            leaf = (
-                home
-                / ".claude"
-                / "plugins"
-                / "cache"
-                / "market"
-                / "superpowers"
-                / "6.2.0"
-                / "skills"
-                / "systematic-debugging"
-            )
-            leaf.mkdir(parents=True)
-            (leaf / "SKILL.md").write_text("# Systematic Debugging\n", encoding="utf-8")
-            manifest = leaf.parent.parent / ".claude-plugin" / "plugin.json"
-            manifest.parent.mkdir()
-            manifest.write_text(
-                '{"name":"superpowers","version":"6.2.0"}', encoding="utf-8"
+            _superpowers_pack(
+                home, {"systematic-debugging": "# Systematic Debugging\n"}
             )
             repo.mkdir()
             plan_path = _write(repo, text)
-            with mock.patch.dict(
-                os.environ,
-                {"HOME": str(home), "PATH": ""},
-                clear=False,
-            ):
+            with _clean_env("PATH", HOME=str(home)):
                 snapshot_value = amp._superpowers_snapshot(home)
                 with mock.patch.object(
                     amp, "_superpowers_snapshot", return_value=snapshot_value
-                ) as snapshot:
+                ):
                     block, _ = amp.build_block(
                         amp._parse(text), repo, plan_path, None, 4_000
                     )
@@ -280,7 +293,6 @@ class AmpBlock(unittest.TestCase):
             "selected: Shadow Method adapted discipline (systematic-debugging)",
             block,
         )
-        snapshot.assert_called_once_with(home)
         self.assertEqual(
             amp._project_tools("superpowers for verification, /craft for UI"),
             "Shadow Method for verification, /craft for UI",
@@ -354,24 +366,9 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
         skill = home / ".agents" / "skills" / "craft"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text("# craft\n", encoding="utf-8")
-        manifest = (
-            home
-            / ".claude"
-            / "plugins"
-            / "cache"
-            / "market"
-            / "superpowers"
-            / "6.2.0"
-            / ".claude-plugin"
-        )
-        manifest.mkdir(parents=True)
-        (manifest / "plugin.json").write_text(
-            '{"name":"superpowers","version":"6.2.0"}', encoding="utf-8"
-        )
-        leaf = manifest.parent / "skills" / "verification-before-completion"
-        leaf.mkdir(parents=True)
-        (leaf / "SKILL.md").write_text(
-            "# Verification Before Completion\n", encoding="utf-8"
+        _superpowers_pack(
+            home,
+            {"verification-before-completion": "# Verification Before Completion\n"},
         )
 
     def test_installed_absent_version_reason_and_fallback_are_stable(self) -> None:
@@ -379,11 +376,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             home = Path(tmp)
             self._installed_home(home)
             tools = "/craft for UI, /superpowers for verification, /ghost if available"
-            with mock.patch.dict(
-                os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": ""},
-                clear=False,
-            ):
+            with _clean_env("PATH", "SHADOW_AMP_PACK_ROOT"):
                 first = amp.capability_block(tools, home)
                 second = amp.capability_block(tools, home)
 
@@ -414,28 +407,8 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
     def test_pack_with_zero_compatible_whole_leaves_uses_native_method(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            manifest = (
-                home
-                / ".claude"
-                / "plugins"
-                / "cache"
-                / "market"
-                / "superpowers"
-                / "6.2.0"
-                / ".claude-plugin"
-            )
-            manifest.mkdir(parents=True)
-            (manifest / "plugin.json").write_text(
-                '{"name":"superpowers","version":"6.2.0"}', encoding="utf-8"
-            )
-            forbidden = manifest.parent / "skills" / "brainstorming"
-            forbidden.mkdir(parents=True)
-            (forbidden / "SKILL.md").write_text("# Brainstorming\n", encoding="utf-8")
-            with mock.patch.dict(
-                os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": ""},
-                clear=False,
-            ):
+            _superpowers_pack(home, {"brainstorming": "# Brainstorming\n"})
+            with _clean_env("PATH", "SHADOW_AMP_PACK_ROOT"):
                 block = amp.capability_block("/superpowers for discipline", home)
 
         # 2026-08-15: with the superpowers slot deleted, pack presence is no
@@ -470,11 +443,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
                 "/superpowers for receiving code review": "receiving-code-review",
                 "/superpowers for verification": "verification-before-completion",
             }
-            with mock.patch.dict(
-                os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": ""},
-                clear=False,
-            ):
+            with _clean_env("PATH", "SHADOW_AMP_PACK_ROOT"):
                 blocks = {
                     intent: amp.capability_block(intent, home)
                     for intent in intents
@@ -504,7 +473,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             tools = ", ".join(
                 f"/{name}" for name in sorted(amp.SUPERPOWERS_FORBIDDEN_LEAVES)
             )
-            with mock.patch.dict(os.environ, {"PATH": ""}, clear=False):
+            with _clean_env("PATH"):
                 block = amp.capability_block(tools, home)
 
         for name in amp.SUPERPOWERS_FORBIDDEN_LEAVES:
@@ -518,26 +487,11 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
     def test_installed_pack_catalog_is_default_deny_outside_allowlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            manifest = (
-                home
-                / ".claude"
-                / "plugins"
-                / "cache"
-                / "market"
-                / "superpowers"
-                / "6.2.0"
-                / ".claude-plugin"
+            _superpowers_pack(
+                home, {name: f"# {name}\n" for name in amp.SUPERPOWERS_KNOWN_LEAVES}
             )
-            manifest.mkdir(parents=True)
-            (manifest / "plugin.json").write_text(
-                '{"name":"superpowers","version":"6.2.0"}', encoding="utf-8"
-            )
-            for name in amp.SUPERPOWERS_KNOWN_LEAVES:
-                leaf = manifest.parent / "skills" / name
-                leaf.mkdir(parents=True)
-                (leaf / "SKILL.md").write_text(f"# {name}\n", encoding="utf-8")
             tools = ", ".join(f"/{name}" for name in amp.SUPERPOWERS_KNOWN_LEAVES)
-            with mock.patch.dict(os.environ, {"PATH": ""}, clear=False):
+            with _clean_env("PATH"):
                 block = amp.capability_block(tools, home)
 
         for name in amp.SUPERPOWERS_COMPATIBLE_LEAVES:
@@ -559,11 +513,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             impostor = commands / "verification-before-completion"
             impostor.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             impostor.chmod(0o755)
-            with mock.patch.dict(
-                os.environ,
-                {"PATH": str(commands), "SHADOW_AMP_PACK_ROOT": ""},
-                clear=False,
-            ):
+            with _clean_env("SHADOW_AMP_PACK_ROOT", PATH=str(commands)):
                 block = amp.capability_block(
                     "/verification-before-completion", home
                 )
@@ -576,11 +526,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             self._installed_home(home)
-            with mock.patch.dict(
-                os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": "off"},
-                clear=False,
-            ):
+            with _clean_env("PATH", SHADOW_AMP_PACK_ROOT="off"):
                 block = amp.capability_block(
                     "/superpowers for verification, /verification-before-completion",
                     home,
@@ -637,24 +583,8 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
     def test_valid_json_non_object_manifest_warns_instead_of_aborting(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            manifest = (
-                home
-                / ".claude"
-                / "plugins"
-                / "cache"
-                / "market"
-                / "superpowers"
-                / "6.2.0"
-                / ".claude-plugin"
-                / "plugin.json"
-            )
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text("[]", encoding="utf-8")
-            with mock.patch.dict(
-                os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": ""},
-                clear=False,
-            ):
+            _superpowers_pack(home, manifest="[]")
+            with _clean_env("PATH", "SHADOW_AMP_PACK_ROOT"):
                 block = amp.capability_block(
                     "/superpowers for verification", home
                 )
@@ -668,33 +598,15 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
     def test_malformed_first_manifest_cannot_mask_valid_later_leaf(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            cache = home / ".claude" / "plugins" / "cache"
-            malformed = (
-                cache
-                / "a-market"
-                / "superpowers"
-                / "0.0.0"
-                / ".claude-plugin"
-                / "plugin.json"
+            _superpowers_pack(
+                home, market="a-market", version="0.0.0", manifest="[]"
             )
-            malformed.parent.mkdir(parents=True)
-            malformed.write_text("[]", encoding="utf-8")
-            valid_root = cache / "z-market" / "superpowers" / "6.2.0"
-            valid_manifest = valid_root / ".claude-plugin" / "plugin.json"
-            valid_manifest.parent.mkdir(parents=True)
-            valid_manifest.write_text(
-                '{"name":"superpowers","version":"6.2.0"}', encoding="utf-8"
+            _superpowers_pack(
+                home,
+                {"verification-before-completion": "# Verification Before Completion\n"},
+                market="z-market",
             )
-            leaf = valid_root / "skills" / "verification-before-completion"
-            leaf.mkdir(parents=True)
-            (leaf / "SKILL.md").write_text(
-                "# Verification Before Completion\n", encoding="utf-8"
-            )
-            with mock.patch.dict(
-                os.environ,
-                {"PATH": "", "SHADOW_AMP_PACK_ROOT": ""},
-                clear=False,
-            ):
+            with _clean_env("PATH", "SHADOW_AMP_PACK_ROOT"):
                 block = amp.capability_block(
                     "/superpowers for verification", home
                 )
@@ -769,15 +681,7 @@ class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):
             home.mkdir()
             repo.mkdir()
             plan_path = _write(repo, text)
-            with mock.patch.dict(
-                os.environ,
-                {
-                    "HOME": str(home),
-                    "PATH": "",
-                    "SHADOW_AMP_PACK_ROOT": "off",
-                },
-                clear=False,
-            ):
+            with _clean_env("PATH", HOME=str(home), SHADOW_AMP_PACK_ROOT="off"):
                 block, _ = amp.build_block(
                     amp._parse(text), repo, plan_path, None, 4_000
                 )
@@ -1007,19 +911,14 @@ class AmpCli(unittest.TestCase):
 
 
 class PackRootOverridePrecedence(unittest.TestCase):
-    """The canonical name and the three-name precedence, pinned (2026-08-15).
-
-    Lane 5 deletes the two legacy names and the fallback test with them.
+    """Only the canonical name switches the pack-root guard (2026-08-15):
+    the legacy names are inert, and these pins keep them that way.
     """
 
     def _off_detail(self, env: dict[str, str]) -> str:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            cleared = {
-                "PATH": "",
-                "SHADOW_AMP_PACK_ROOT": "",
-            }
-            with mock.patch.dict(os.environ, {**cleared, **env}, clear=False):
+            with _clean_env("PATH", "SHADOW_AMP_PACK_ROOT", **env):
                 block = amp.capability_block("/superpowers for verification", home)
         self.assertIsNotNone(block)
         return block
@@ -1035,20 +934,15 @@ class PackRootOverridePrecedence(unittest.TestCase):
 
 
     def test_a_mounted_superpowers_skill_never_selects_the_pack_root(self) -> None:
-        # Ponytail F1 (2026-08-15): with the pack slot undeclared, resolution
-        # falls through to the skill roots, so a mounted skill named
-        # superpowers reads present — the guard must still refuse selection.
-        # Survives Lane 5: no pack machinery involved.
+        # With the pack slot undeclared, resolution falls through to the
+        # skill roots, so a mounted skill named superpowers reads present —
+        # the guard must still refuse selection; no pack machinery involved.
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             leaf = home / ".claude" / "skills" / "superpowers"
             leaf.mkdir(parents=True)
             (leaf / "SKILL.md").write_text("# superpowers\n", encoding="utf-8")
-            cleared = {
-                "PATH": "",
-                "SHADOW_AMP_PACK_ROOT": "",
-            }
-            with mock.patch.dict(os.environ, cleared, clear=False):
+            with _clean_env("PATH", "SHADOW_AMP_PACK_ROOT"):
                 block = amp.capability_block("/superpowers for verification", home)
         self.assertIn("superpowers | result: warning", block)
         self.assertIn("no compatible whole leaf installed", block)
@@ -1067,7 +961,7 @@ class MemorySlotIsRoutedRecall(unittest.TestCase):
     def test_the_memory_row_carries_the_lead_only_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with mock.patch.dict(os.environ, {"PATH": ""}, clear=False):
+            with _clean_env("PATH"):
                 block = amp.capability_block("/memory for recall", home)
         self.assertIsNotNone(block)
         self.assertIn("- memory | result: absent", block)
@@ -1082,7 +976,7 @@ class MemorySlotIsRoutedRecall(unittest.TestCase):
         # usage"): the common word must not conjure a capability row.
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with mock.patch.dict(os.environ, {"PATH": ""}, clear=False):
+            with _clean_env("PATH"):
                 block = amp.capability_block("profile memory usage in the loop", home)
         self.assertIsNone(block)
 

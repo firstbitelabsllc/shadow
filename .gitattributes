@@ -11,6 +11,12 @@ PLAN.md             export-ignore
 SOURCE_REF          export-subst
 docs/plan-archive/ export-ignore
 scripts/shadow-brief.py export-ignore
+# Owner-only and benchmark harnesses: they run from the checkout, and the
+# observed gauntlet's jobs reference the export-ignored tests/ tree, so it
+# could never work from the artifact anyway.
+scripts/dev/shadow-observed-gauntlet.py export-ignore
+scripts/shadow-plan-scale.py export-ignore
+scripts/shadow_plan_scale.py export-ignore
 docs/superpowers/ export-ignore
 # Docs authoring surface: claudux preferences and the local VitePress preview
 # scaffold. The shipped product is the Markdown under docs/, never the Node

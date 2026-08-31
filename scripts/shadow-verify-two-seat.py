@@ -53,8 +53,6 @@ Authority: the scratch repositories and board created by the sealed harness.
 Resume: claim the highest reachable unclaimed checkpoint with your stable seat.
 Proof: run the row proof and accept it; do not leave an orphan claim.
 """
-ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 OID_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_GOAL_BYTES = 64 * 1024
 CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
@@ -597,6 +595,41 @@ def final_facts(home: Path, portfolio: Path, env: dict[str, str], initial: int) 
     return facts, completed_seats
 
 
+def _seat_evidence(scratch: Path) -> list[str]:
+    """Bounded per-seat failure evidence, scrubbed of private paths.
+
+    The verdict distinguishes a seat that never produced output (never
+    booted) from one that produced plenty (slow under load) — the receipt
+    says which without ever carrying the content itself.
+    """
+    evidence: list[str] = []
+    operator_home = os.environ.get("HOME", "")
+    for seat in SEATS:
+        parts: list[str] = []
+        for name in (
+            f"{seat}-final.txt",
+            f"{seat}-stderr.txt",
+            f"{seat}-diagnostics.txt",
+        ):
+            path = scratch / name
+            try:
+                raw = path.read_bytes()
+            except OSError:
+                continue
+            if not raw:
+                continue
+            tail = raw[-512:].decode("utf-8", errors="replace")
+            tail = tail.replace(str(scratch), "<scratch>")
+            if operator_home:
+                tail = tail.replace(operator_home, "<home>")
+            parts.append(f"{name}: {tail.strip()!r}")
+        if parts:
+            evidence.append(f"seat {seat} produced output — " + "; ".join(parts))
+        else:
+            evidence.append(f"seat {seat} produced no output (never booted)")
+    return evidence
+
+
 def receipt(mode: str, goal_hash: str, ref: str) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
@@ -646,95 +679,112 @@ def main(argv: list[str] | None = None) -> int:
         ref = source_ref(args.live)
         public["origin_main"] = ref
         operator_home = Path(os.environ.get("HOME", "")).resolve()
-        with tempfile.TemporaryDirectory(prefix="shadow-two-seat-") as dirname:
+        with tempfile.TemporaryDirectory(
+            prefix="shadow-two-seat-",
+            # A drained seat's fresh-session grandchild can keep writing
+            # inside the scratch tree; ENOTEMPTY on cleanup must never
+            # replace the honest HarnessError with "internal_error".
+            ignore_cleanup_errors=True,
+        ) as dirname:
             scratch = Path(dirname).resolve(strict=True)
-            if scratch == operator_home or scratch.is_relative_to(operator_home) or operator_home.is_relative_to(scratch):
-                raise HarnessError("unsafe_scratch")
-            if scratch == ROOT or scratch.is_relative_to(ROOT) or ROOT.is_relative_to(scratch):
-                raise HarnessError("unsafe_scratch")
-            home = scratch / "home"
-            portfolio = scratch / "portfolio"
-            shim = scratch / "bin"
-            home.mkdir()
-            portfolio.mkdir()
-            install_scratch_wiring(home, shim, portfolio)
-            for index, name in enumerate(ROW_BY_PROJECT, start=1):
-                mint_repo(scratch, portfolio, name, index)
-            env = shadow_env(home, portfolio, shim)
-            initial_data = shadow_json(env, scratch, "status", "--json", "--by", "observer")
-            initial = initial_data["root_board"]["revision"]
-            if args.live:
-                text = goal.decode("utf-8")
-                base = (
-                    f"{text}\n\nShared identity: goal SHA-256 {goal_hash}; "
-                    f"origin/main {ref}. Use stable seat {{seat}}. "
-                    "Operate through the Shadow standing goal and claim one "
-                    "reachable checkpoint. One other seat works this same board "
-                    "concurrently under this same goal: after your own claim "
-                    "commits, run `shadow status --in-flight --by {seat}` and "
-                    "keep polling it a few seconds apart "
-                    "until it shows the other seat's claim beside your own. "
-                    "Then hold your own claim in place: keep polling that same "
-                    "command and do not complete or accept until either the "
-                    "other seat's claim has disappeared (it only leaves after "
-                    "that seat has observed the overlap too) or you have seen "
-                    "both claims together in at least five readings spanning "
-                    "at least thirty seconds. Only then "
-                    "complete your checkpoint with proof and accept it, "
-                    "then print the shared goal SHA-256 and ref."
-                )
-                binaries = {
-                    "claude": resolve_host("SHADOW_CLAUDE_CODE_BIN", "claude"),
-                    "codex": resolve_host("SHADOW_CODEX_BIN", "codex"),
-                }
-                tokens = {seat: os.urandom(16).hex() for seat in SEATS}
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    futures = [
-                        pool.submit(live_seat, seat, binaries[seat], base.format(seat=seat), scratch, env, args.timeout_seconds, tokens[seat])
-                        for seat in SEATS
-                    ]
-                    host_results = [future.result() for future in futures]
-                if any(result.returncode != 0 for _, result, _ in host_results):
-                    if any(result.returncode != 124 for _, result, _ in host_results):
-                        raise HarnessError("host_failed")
-                    raise HarnessError("host_timeout")
-                if any(result.timed_out for _, result, _ in host_results):
-                    raise HarnessError("host_timeout")
-                for _, _, final in host_results:
+            try:
+                if scratch == operator_home or scratch.is_relative_to(operator_home) or operator_home.is_relative_to(scratch):
+                    raise HarnessError("unsafe_scratch")
+                if scratch == ROOT or scratch.is_relative_to(ROOT) or ROOT.is_relative_to(scratch):
+                    raise HarnessError("unsafe_scratch")
+                home = scratch / "home"
+                portfolio = scratch / "portfolio"
+                shim = scratch / "bin"
+                home.mkdir()
+                portfolio.mkdir()
+                install_scratch_wiring(home, shim, portfolio)
+                for index, name in enumerate(ROW_BY_PROJECT, start=1):
+                    mint_repo(scratch, portfolio, name, index)
+                env = shadow_env(home, portfolio, shim)
+                initial_data = shadow_json(env, scratch, "status", "--json", "--by", "observer")
+                initial = initial_data["root_board"]["revision"]
+                if args.live:
+                    text = goal.decode("utf-8")
+                    base = (
+                        f"{text}\n\nShared identity: goal SHA-256 {goal_hash}; "
+                        f"origin/main {ref}. Use stable seat {{seat}}. "
+                        "Operate through the Shadow standing goal and claim one "
+                        "reachable checkpoint. One other seat works this same board "
+                        "concurrently under this same goal: after your own claim "
+                        "commits, run `shadow status --in-flight --by {seat}` and "
+                        "keep polling it a few seconds apart "
+                        "until it shows the other seat's claim beside your own. "
+                        "Then hold your own claim in place: keep polling that same "
+                        "command and do not complete or accept until either the "
+                        "other seat's claim has disappeared (it only leaves after "
+                        "that seat has observed the overlap too) or you have seen "
+                        "both claims together in at least five readings spanning "
+                        "at least thirty seconds. Only then "
+                        "complete your checkpoint with proof and accept it, "
+                        "then print the shared goal SHA-256 and ref."
+                    )
+                    binaries = {
+                        "claude": resolve_host("SHADOW_CLAUDE_CODE_BIN", "claude"),
+                        "codex": resolve_host("SHADOW_CODEX_BIN", "codex"),
+                    }
+                    tokens = {seat: os.urandom(16).hex() for seat in SEATS}
                     try:
-                        answer = final.read_text(encoding="utf-8")
-                    except (OSError, UnicodeError):
-                        raise HarnessError("identity_mismatch")
-                    if goal_hash not in answer or ref not in answer:
-                        raise HarnessError("identity_mismatch")
-            else:
-                barrier = threading.Barrier(len(SEATS))
-                with ThreadPoolExecutor(max_workers=len(SEATS)) as pool:
-                    futures = [pool.submit(deterministic_seat, seat, env, portfolio, barrier) for seat in SEATS]
-                    for future in futures:
-                        future.result()
-            facts, completed = final_facts(home, portfolio, env, initial)
-            public["board"] = facts
-            public["seats"] = [
-                {"name": seat, "completed": completed.get(seat, False)}
-                for seat in SEATS
-            ]
-            if facts["completed"] != len(SEATS) or facts["claims"] != 0:
-                raise HarnessError("partial_completion")
-            if args.live:
-                peer_observation(
-                    home,
-                    {seat: result.session_id for seat, result, _ in host_results},
-                    tokens,
-                )
-            public["status"] = "pass"
-            public["failure"] = None
-            code = 0
+                        goals = {seat: base.format(seat=seat) for seat in SEATS}
+                    except KeyError:
+                        # A user goal carrying a literal '{' survives loading
+                        # and only crashes here; that is a bad goal, not an
+                        # internal error.
+                        raise HarnessError("goal_invalid") from None
+                    with ThreadPoolExecutor(max_workers=2) as pool:
+                        futures = [
+                            pool.submit(live_seat, seat, binaries[seat], goals[seat], scratch, env, args.timeout_seconds, tokens[seat])
+                            for seat in SEATS
+                        ]
+                        host_results = [future.result() for future in futures]
+                    if any(result.returncode != 0 for _, result, _ in host_results):
+                        if any(result.returncode != 124 for _, result, _ in host_results):
+                            raise HarnessError("host_failed")
+                        raise HarnessError("host_timeout")
+                    if any(result.timed_out for _, result, _ in host_results):
+                        raise HarnessError("host_timeout")
+                    for _, _, final in host_results:
+                        try:
+                            answer = final.read_text(encoding="utf-8")
+                        except (OSError, UnicodeError):
+                            raise HarnessError("identity_mismatch")
+                        if goal_hash not in answer or ref not in answer:
+                            raise HarnessError("identity_mismatch")
+                else:
+                    barrier = threading.Barrier(len(SEATS))
+                    with ThreadPoolExecutor(max_workers=len(SEATS)) as pool:
+                        futures = [pool.submit(deterministic_seat, seat, env, portfolio, barrier) for seat in SEATS]
+                        for future in futures:
+                            future.result()
+                facts, completed = final_facts(home, portfolio, env, initial)
+                public["board"] = facts
+                public["seats"] = [
+                    {"name": seat, "completed": completed.get(seat, False)}
+                    for seat in SEATS
+                ]
+                if facts["completed"] != len(SEATS) or facts["claims"] != 0:
+                    raise HarnessError("partial_completion")
+                if args.live:
+                    peer_observation(
+                        home,
+                        {seat: result.session_id for seat, result, _ in host_results},
+                        tokens,
+                    )
+                public["status"] = "pass"
+                public["failure"] = None
+                code = 0
+            except HarnessError as exc:
+                exc.evidence = _seat_evidence(scratch)
+                raise
     except HarnessError as exc:
         public["failure"] = exc.code
-        # Preserve whatever final board state was safely observed above.
-        if exc.code == "board_drift":
-            public["failure"] = "board_drift"
+        for line in getattr(exc, "evidence", ()):  # captured before scratch cleanup
+            print(f"two-seat: {line}", file=sys.stderr)
+        # Whatever final board state was safely observed above stays in the receipt.
     except Exception:
         # Public output is a closed receipt even when an unexpected local
         # launch or filesystem failure occurs. Diagnostics remain inside the
@@ -743,7 +793,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(public, sort_keys=True))
     elif code == 0:
-        print(f"two-seat verification passed ({mode}); 2 completed, 0 claims")
+        board = public["board"]
+        print(f"two-seat verification passed ({mode}); {board['completed']} completed, {board['claims']} claims")
     else:
         print(f"two-seat verification inconclusive: {public['failure']}")
     return code

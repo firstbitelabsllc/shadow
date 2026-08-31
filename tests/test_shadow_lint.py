@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -13,6 +14,7 @@ import unittest
 from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
+from tests.proc_fixture import git as proc_git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,10 +65,6 @@ CLEAN_PLAN = """# Demo
 - 2026-08-06T11:00:00Z SPIKE ~cd34 is checkout smoke worth owning | ends: 2026-08-07
 - 2026-08-06T12:00:00Z DECISION ~cd34 keep -> smoke stays
 """
-
-
-def checks(plan: str) -> set[str]:
-    return {finding["check"] for finding in lint.lint_plan(plan)}
 
 
 def blocking(plan: str) -> set[str]:
@@ -127,14 +125,11 @@ class MilestoneShapeMatchesLifecycle(unittest.TestCase):
 
 
 def commit_fixture(root: Path, *paths: str) -> None:
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
-    subprocess.run(["git", "-C", str(root), "config", "user.name", "Shadow Test"], check=True)
-    subprocess.run(
-        ["git", "-C", str(root), "config", "user.email", "shadow@example.invalid"],
-        check=True,
-    )
-    subprocess.run(["git", "-C", str(root), "add", "--", *paths], check=True)
-    subprocess.run(["git", "-C", str(root), "commit", "-qm", "proof fixture"], check=True)
+    proc_git(root, "init", "-q")
+    proc_git(root, "config", "user.name", "Shadow Test")
+    proc_git(root, "config", "user.email", "shadow@example.invalid")
+    proc_git(root, "add", "--", *paths)
+    proc_git(root, "commit", "-qm", "proof fixture")
 
 
 class PartitionedPlanLintParity(unittest.TestCase):
@@ -198,7 +193,7 @@ class ANeedsCycleIsNamedNotSilent(unittest.TestCase):
         self.assertEqual(len(findings), 1)
 
     def test_an_acyclic_chain_stays_clean(self) -> None:
-        self.assertNotIn("NEEDS-CYCLE", checks(CLEAN_PLAN))
+        self.assertNotIn("NEEDS-CYCLE", _checks(CLEAN_PLAN))
 
 
 class TheIdGrammarMatchesTheDecisionRecordedInGrammarMd(unittest.TestCase):
@@ -503,10 +498,6 @@ class ShadowLintTests(unittest.TestCase):
         self.assertIn("clean.md: clean", result.stdout)
         self.assertIn("unreadable", result.stdout)
         self.assertIn("MODE-ILLEGAL", result.stdout)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ConflictMarkersBlock(unittest.TestCase):
@@ -1120,3 +1111,54 @@ class OriginIdentityTests(unittest.TestCase):
                 self.assertNotIn("/tmp/", detail)
                 self.assertNotIn("/Users/", detail)
                 self.assertNotIn("git@github.com", detail)
+
+
+class GitProbesIgnoreAmbientRedirects(unittest.TestCase):
+    """Lint's proof authority answers about the true repository."""
+
+    def test_head_entry_reads_the_true_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            (repo / "tools").mkdir()
+            (repo / "tools" / "proof.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            commit_fixture(repo, "tools/proof.sh")
+            decoy = Path(tmp) / "decoy"
+            decoy.mkdir()
+            with mock.patch.dict(
+                os.environ,
+                {"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+                clear=False,
+            ):
+                self.assertEqual(
+                    lint.head_entry(repo, Path("tools/proof.sh")),
+                    (b"100644", b"blob"),
+                )
+
+    def test_the_repo_probe_never_hits_the_parser_refusal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            (repo / "PLAN.md").write_text(CLEAN_PLAN, encoding="utf-8")
+            commit_fixture(repo, "PLAN.md")
+            decoy = Path(tmp) / "decoy"
+            decoy.mkdir()
+            # plans is a required positional; without one argparse refuses
+            # before the probe runs and this pin proves nothing.
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(repo), str(repo / "PLAN.md")],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={
+                    **os.environ,
+                    "GIT_DIR": str(decoy / ".git"),
+                    "GIT_WORK_TREE": str(decoy),
+                },
+            )
+            self.assertNotIn("must name a Git source checkout", result.stderr)
+            self.assertIn("--repo is only valid for a registered machine-local", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

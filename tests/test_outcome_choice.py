@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from tests.proc_fixture import example_json
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -17,42 +18,38 @@ sys.modules[SPEC.name] = validator
 SPEC.loader.exec_module(validator)
 
 
-def document() -> dict:
-    return json.loads((ROOT / "examples" / "outcome-choice" / "example.json").read_text(encoding="utf-8"))
-
-
 class OutcomeValidatorTests(unittest.TestCase):
     def assert_code(self, errors: list[dict], code: str) -> None:
         self.assertTrue(any(item["code"] == code for item in errors), errors)
 
     def test_example_is_valid(self) -> None:
-        self.assertEqual(validator.validate_document(document()), [])
+        self.assertEqual(validator.validate_document(example_json("outcome-choice/example.json")), [])
 
     def test_contract_is_closed(self) -> None:
-        value = document()
+        value = example_json("outcome-choice/example.json")
         value["hidden_runtime"] = {"enabled": True}
         self.assert_code(validator.validate_document(value), "additional")
 
     def test_needs_input_requires_exactly_abc(self) -> None:
-        value = document()
+        value = example_json("outcome-choice/example.json")
         value["ask"]["options"].pop()
         self.assert_code(validator.validate_document(value), "bounds")
-        value = document()
+        value = example_json("outcome-choice/example.json")
         value["ask"] = None
         self.assert_code(validator.validate_document(value), "state")
 
     def test_other_states_cannot_carry_open_choice(self) -> None:
-        value = document()
+        value = example_json("outcome-choice/example.json")
         value["outcome"]["state"] = "working"
         self.assert_code(validator.validate_document(value), "state")
 
     def test_ids_are_unique(self) -> None:
-        value = document()
+        value = example_json("outcome-choice/example.json")
         value["ask"]["options"][1]["id"] = value["ask"]["options"][0]["id"]
         self.assert_code(validator.validate_document(value), "duplicate_id")
 
     def test_private_path_and_secret_fragments_fail(self) -> None:
-        value = document()
+        value = example_json("outcome-choice/example.json")
         value["outcome"]["current_move"] = "/Users/person/private/file"
         self.assert_code(validator.validate_document(value), "privacy")
         fragmented = json.loads(
@@ -61,7 +58,7 @@ class OutcomeValidatorTests(unittest.TestCase):
         self.assert_code(validator.validate_document(fragmented), "privacy")
 
     def test_finished_state_requires_delivered_proof(self) -> None:
-        value = document()
+        value = example_json("outcome-choice/example.json")
         value["outcome"]["state"] = "finished_with_proof"
         value["ask"] = None
         value["proof"][0]["delivery"] = "not_delivered"

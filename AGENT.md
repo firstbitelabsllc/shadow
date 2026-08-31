@@ -30,7 +30,7 @@ dashboards, or a second task list.
 - **C — No person recovery.** Does the board ever require the person to type a
   recovery command? The answer must be never.
 
-This computer runs Shadow **1.2.0 as current remote main**. Local uncommitted
+This computer runs Shadow **1.3.0 as current remote main**. Local uncommitted
 source is not authority. Measured on the live board:
 
 - **A: partly.** `shadow status --json` reaches `~/.shadow`. A cold agent can

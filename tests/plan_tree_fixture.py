@@ -13,7 +13,7 @@ if str(ROOT / "scripts") not in sys.path:
 import shadow_plan_store as store  # noqa: E402
 
 
-def install_plan_tree(root: Path, content: bytes) -> Path:
+def install_plan_tree(root: Path, content: bytes, *, return_build: bool = False):
     build = store.build_tree(content)
     plan = root / "PLAN.md"
     plan.write_bytes(build.root_bytes)
@@ -22,4 +22,8 @@ def install_plan_tree(root: Path, content: bytes) -> Path:
         bucket = object_root / digest[:2]
         bucket.mkdir(parents=True, exist_ok=True)
         (bucket / digest).write_bytes(body)
-    return plan
+    return (plan, build) if return_build else plan
+
+
+def shard_path(root: Path, digest: str) -> Path:
+    return root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest

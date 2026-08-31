@@ -26,6 +26,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
 
 
@@ -89,6 +90,7 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or "Git command failed"
@@ -101,6 +103,7 @@ def git_bytes(repo: Path, *args: str) -> bytes:
         ["git", "-C", str(repo), *args],
         capture_output=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode:
         detail = result.stderr.decode("utf-8", "replace").strip() or "Git command failed"
@@ -664,6 +667,7 @@ def assert_archive_immutable(
     archive_bytes: bytes,
     tombstone: re.Match[str],
 ) -> dict:
+    source_snapshot = None
     if _board.is_local_plan(plan):
         source_text = local_source_text(plan, tombstone.group("blob"))
         source_token = {
@@ -713,19 +717,33 @@ def assert_archive_immutable(
                 commit,
             ).stdout.splitlines()
         )
-        if changed != {plan_relative.as_posix(), archive_relative.as_posix()}:
+        allowed = {plan_relative.as_posix(), archive_relative.as_posix()}
+        plan_tree_prefix = (plan_relative.parent / "PLAN.d").as_posix() + "/"
+        if not all(
+            path in allowed or path.startswith(plan_tree_prefix)
+            for path in changed
+        ):
             raise LifecycleError("archive introduction changed unrelated authority")
         if (
             git_bytes(repo, "show", f"{commit}:{archive_relative.as_posix()}")
             != archive_bytes
         ):
             raise LifecycleError("archive changed after its lifecycle introduction")
-        try:
-            source_text = git_bytes(repo, "cat-file", "blob", source_blob).decode(
-                "utf-8"
-            )
-        except UnicodeDecodeError:
-            raise LifecycleError("archive source PLAN blob is not valid UTF-8") from None
+        source_root = git_bytes(repo, "cat-file", "blob", source_blob)
+        source_snapshot = _plan_store.snapshot_of_root(plan, source_root)
+        if source_snapshot.root is not None:
+            # A partitioned plan's catalog blob is not the source text; the
+            # source is the materialized generation that catalog describes.
+            source_text = source_snapshot.materialize().decode("utf-8")
+        else:
+            # A plain plan's blob IS the source text.
+            source_snapshot = None
+            try:
+                source_text = source_root.decode("utf-8")
+            except UnicodeDecodeError:
+                raise LifecycleError(
+                    "archive source PLAN blob is not valid UTF-8"
+                ) from None
         source_token = {
             "relative": plan_relative.as_posix(),
             "head": parent,
@@ -740,15 +758,19 @@ def assert_archive_immutable(
         archive_link,
         source_token,
     )
+    candidate_plan = candidate["plan"].encode("utf-8")
+    if source_snapshot is not None and source_snapshot.root is not None:
+        candidate_plan = _plan_store._with_lineage(
+            _plan_store.build_tree(candidate_plan),
+            generation=source_snapshot.root["generation"] + 1,
+            previous_root=source_snapshot.root_sha256,
+        ).root_bytes
     if (
         candidate["cas"] != tombstone.group("cas")
         or candidate["digest"] != tombstone.group("digest")
         or candidate["marker"] != tombstone.group(0)
         or candidate["archive"].encode("utf-8") != archive_bytes
-        or (
-            committed_plan is not None
-            and committed_plan != candidate["plan"].encode("utf-8")
-        )
+        or (committed_plan is not None and committed_plan != candidate_plan)
     ):
         raise LifecycleError("archive cannot be regenerated from its recorded source")
     return candidate
@@ -959,11 +981,41 @@ def optional_index_bytes(repo: Path, relative: Path) -> bytes | None:
     result = subprocess.run(
         ["git", "-C", str(repo), "show", f":{relative.as_posix()}"],
         capture_output=True,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if result.returncode == 0:
         return result.stdout
     return None
+
+
+def _lifecycle_commit(repo: Path, message: str, *pathspecs: str) -> str:
+    """One lifecycle commit identity: no hooks, no gpg, explicit author."""
+    git(
+        repo,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "maintenance.autoDetach=false",
+        "-c",
+        "gc.autoDetach=false",
+        "-c",
+        "user.name=Shadow Lifecycle",
+        "-c",
+        "user.email=shadow-lifecycle@localhost",
+        "commit",
+        "--quiet",
+        "--no-verify",
+        "--no-gpg-sign",
+        "--only",
+        "-m",
+        message,
+        "--",
+        *pathspecs,
+    )
+    return git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
 def commit_archive_candidate(
@@ -988,31 +1040,7 @@ def commit_archive_candidate(
     except _board.BoardError as exc:
         raise LifecycleError(str(exc)) from None
     git(repo, "add", "--", *pathspecs)
-    git(
-        repo,
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        "commit.gpgsign=false",
-        "-c",
-        "maintenance.autoDetach=false",
-        "-c",
-        "gc.autoDetach=false",
-        "-c",
-        "user.name=Shadow Lifecycle",
-        "-c",
-        "user.email=shadow-lifecycle@localhost",
-        "commit",
-        "--quiet",
-        "--no-verify",
-        "--no-gpg-sign",
-        "--only",
-        "-m",
-        f"shadow: archive {kind} {slug}",
-        "--",
-        *pathspecs,
-    )
-    return git(repo, "rev-parse", "HEAD").stdout.strip()
+    return _lifecycle_commit(repo, f"shadow: archive {kind} {slug}", *pathspecs)
 
 
 def recover_archive_half_state(
@@ -1531,6 +1559,7 @@ def ref_contains(repo: Path, head: str, reference: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode:
         raise LifecycleError("retirement target head is not recoverable from its declared ref")
@@ -1551,6 +1580,7 @@ def target_branch(target: Path) -> str | None:
         capture_output=True,
         text=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if result.returncode == 0:
         return result.stdout.strip()
@@ -2005,11 +2035,7 @@ def inspect_retirement(
 
 
 def fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    _plan_store._fsync_directory(path)
 
 
 def commit_retirement_receipt(repo: Path, plan: Path, operation: dict) -> str:
@@ -2030,31 +2056,11 @@ def commit_retirement_receipt(repo: Path, plan: Path, operation: dict) -> str:
         (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
     git(repo, "add", "--", relative.as_posix())
-    git(
+    return _lifecycle_commit(
         repo,
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        "commit.gpgsign=false",
-        "-c",
-        "maintenance.autoDetach=false",
-        "-c",
-        "gc.autoDetach=false",
-        "-c",
-        "user.name=Shadow Lifecycle",
-        "-c",
-        "user.email=shadow-lifecycle@localhost",
-        "commit",
-        "--quiet",
-        "--no-verify",
-        "--no-gpg-sign",
-        "--only",
-        "-m",
         f"shadow: retire {target['kind']} {operation['manifest_sha'][:12]}",
-        "--",
         relative.as_posix(),
     )
-    return git(repo, "rev-parse", "HEAD").stdout.strip()
 
 
 def apply_retirement(
@@ -2377,37 +2383,13 @@ def apply_progress(
                 )
             except (OSError, LifecycleError):
                 restore_plan(plan, original, plan_mode, publication)
-                archive_path.unlink(missing_ok=True)
-                reset_paths = [
-                    plan_relative.as_posix(),
-                    archive_relative.as_posix(),
-                ]
-                try:
-                    if _board.open_plan(plan).is_tree:
-                        reset_paths.append(
-                            (plan_relative.parent / "PLAN.d").as_posix()
-                        )
-                except _board.BoardError:
-                    pass
-                subprocess.run(
-                    [
-                        "git",
-                        "-C",
-                        str(repo),
-                        "reset",
-                        "--quiet",
-                        "HEAD",
-                        "--",
-                        *reset_paths,
-                    ],
-                    capture_output=True,
-                    check=False,
+                _rollback_archive_apply(
+                    repo,
+                    plan,
+                    plan_relative,
+                    archive_relative,
+                    parent_existed=parent_existed,
                 )
-                if not parent_existed:
-                    try:
-                        archive_path.parent.rmdir()
-                    except OSError:
-                        pass
                 raise
             report.update(
                 {
@@ -2438,13 +2420,7 @@ def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
         "retirement": retirement_boundary(),
     }
     if wanted is None:
-        eligible = []
-        for item in milestones(text.splitlines(keepends=True)):
-            try:
-                validate_milestone(item, text.splitlines(keepends=True))
-            except LifecycleError:
-                continue
-            eligible.append(item.heading)
+        eligible = eligible_milestones(text)
         base.update(
             {
                 "ok": before["within_limits"],
@@ -2610,26 +2586,13 @@ def apply_locked(
         )
     except (OSError, LifecycleError):
         restore_plan(plan, original, plan_mode, publication)
-        try:
-            archive_path.unlink()
-        except FileNotFoundError:
-            pass
-        reset_paths = [plan_relative.as_posix(), archive_relative.as_posix()]
-        try:
-            if _board.open_plan(plan).is_tree:
-                reset_paths.append((plan_relative.parent / "PLAN.d").as_posix())
-        except _board.BoardError:
-            pass
-        subprocess.run(
-            ["git", "-C", str(repo), "reset", "--quiet", "HEAD", "--", *reset_paths],
-            capture_output=True,
-            check=False,
+        _rollback_archive_apply(
+            repo,
+            plan,
+            plan_relative,
+            archive_relative,
+            parent_existed=parent_existed,
         )
-        if not parent_existed:
-            try:
-                archive_path.parent.rmdir()
-            except OSError:
-                pass
         raise
     report.update(
         {
@@ -2646,6 +2609,36 @@ def apply_locked(
         owner,
         report.get("successor_row"),
     )
+
+
+def _rollback_archive_apply(
+    repo: Path,
+    plan: Path,
+    plan_relative: Path,
+    archive_relative: Path,
+    *,
+    parent_existed: bool,
+) -> None:
+    """Undo one failed archive apply: delete it, unstage, prune its new dir."""
+    archive_path = repo / archive_relative
+    archive_path.unlink(missing_ok=True)
+    reset_paths = [plan_relative.as_posix(), archive_relative.as_posix()]
+    try:
+        if _board.open_plan(plan).is_tree:
+            reset_paths.append((plan_relative.parent / "PLAN.d").as_posix())
+    except _board.BoardError:
+        pass
+    subprocess.run(
+        ["git", "-C", str(repo), "reset", "--quiet", "HEAD", "--", *reset_paths],
+        capture_output=True,
+        check=False,
+        env=_shadow_git.sanitized_git_env(),
+    )
+    if not parent_existed:
+        try:
+            archive_path.parent.rmdir()
+        except OSError:
+            pass
 
 
 def print_text(report: dict, *, apply_mode: bool) -> None:
@@ -2734,7 +2727,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.apply and not args.by:
             raise LifecycleError("--apply requires --by for the successor claim")
         if args.by:
-            _board.validate_owner(args.by)
+            try:
+                _board.validate_owner(args.by)
+            except _board.BoardError as exc:
+                raise LifecycleError(f"--by is unsafe: {exc}") from exc
         repo = args.repo or Path.cwd()
         if args.progress_before:
             report = (

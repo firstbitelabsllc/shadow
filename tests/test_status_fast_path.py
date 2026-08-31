@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
@@ -85,6 +86,120 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         }
         return payload, owned, unrelated
 
+    def two_plan_repo(
+        self, root: Path, first_text: str, second_text: str
+    ) -> tuple[Path, dict]:
+        """One repo holding two unclaimed entity plans as a board payload."""
+        repo = (root / "repo").resolve()
+        first_plan = repo / "first" / "PLAN.md"
+        second_plan = repo / "second" / "PLAN.md"
+        (repo / ".git").mkdir(parents=True)
+        first_plan.parent.mkdir()
+        second_plan.parent.mkdir()
+        first_plan.write_text(
+            plan("first", "~aa11", first_text), encoding="utf-8"
+        )
+        second_plan.write_text(
+            plan("second", "~bb22", second_text), encoding="utf-8"
+        )
+        payload = {
+            "schema": "shadow.root-board.v1",
+            "revision": 42,
+            "projects": [
+                {"id": "first", "priority": 1},
+                {"id": "second", "priority": 2},
+            ],
+            "entities": [
+                {
+                    "id": "a" * 64,
+                    "project": "first",
+                    "plan": str(first_plan),
+                    "resume": "~aa11",
+                },
+                {
+                    "id": "b" * 64,
+                    "project": "second",
+                    "plan": str(second_plan),
+                    "resume": "~bb22",
+                },
+            ],
+            "claims": [],
+        }
+        return repo, payload
+
+    def canned_git(
+        self,
+        *,
+        toplevel: Path | None = None,
+        ls_remote_receipts: dict | None = None,
+        commit_id: str = "a" * 40,
+        allow_fetch: bool = False,
+        fail_first_symbolic_ref: bool = False,
+        probes: dict[str, int] | None = None,
+        calls: list[tuple[str, ...]] | None = None,
+    ) -> Callable[..., subprocess.CompletedProcess]:
+        """Canned git dispatcher for the remote-claim probe sequence.
+
+        Serves the standard upstream binding probes: symbolic-ref ->
+        main, the branch.main config blob, remote url lookups -> origin,
+        and ls-remote (empty unless `ls_remote_receipts` is given).
+        Everything else fails the test unless explicitly enabled:
+
+        - toplevel: answer `rev-parse --show-toplevel` with this repo.
+        - allow_fetch: answer `fetch` with empty success.
+        - fail_first_symbolic_ref: the first symbolic-ref exits 2 (a
+          broken eligibility probe); later ones succeed.
+        - probes: when given, counts "symbolic-ref" and "config" probes.
+        - calls: when given, records every dispatched arg tuple.
+        """
+        counts = probes if probes is not None else {}
+
+        def git(_repo, *args, **_kwargs):
+            if calls is not None:
+                calls.append(args)
+            if toplevel is not None and args == (
+                "rev-parse",
+                "--show-toplevel",
+            ):
+                return subprocess.CompletedProcess(
+                    args, 0, f"{toplevel}\n".encode(), b""
+                )
+            if args[0] == "symbolic-ref":
+                counts["symbolic-ref"] = counts.get("symbolic-ref", 0) + 1
+                if fail_first_symbolic_ref and counts["symbolic-ref"] == 1:
+                    return subprocess.CompletedProcess(
+                        args, 2, b"", b"eligibility probe failed"
+                    )
+                return subprocess.CompletedProcess(args, 0, b"main\n", b"")
+            if args[:3] == ("config", "--null", "--get-regexp"):
+                counts["config"] = counts.get("config", 0) + 1
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    b"branch.main.remote\norigin\x00branch.main.merge\nrefs/heads/main\x00",
+                    b"",
+                )
+            if args == ("config", "--get-all", "remote.origin.url"):
+                return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
+            if args in (
+                ("remote", "get-url", "--all", "--", "origin"),
+                ("remote", "get-url", "--push", "--all", "--", "origin"),
+            ):
+                return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
+            if args[:3] == ("ls-remote", "--refs", "origin"):
+                receipts = ls_remote_receipts or {}
+                output = "".join(
+                    f"{commit_id}\t{ref}\n"
+                    for ref in args[3:]
+                    if ref in receipts
+                )
+                return subprocess.CompletedProcess(args, 0, output.encode(), b"")
+            if allow_fetch and args[0] == "fetch":
+                return subprocess.CompletedProcess(args, 0, b"", b"")
+            self.fail(f"unexpected git call: {args}")
+
+        return git
+
     def invoke(self, root: Path, *args: str) -> tuple[int, str, str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -122,33 +237,11 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             for (entity, row), (owner, relative) in tips.items()
         }
 
-        def git(_repo, *args, **_kwargs):
-            if args[:3] == ("symbolic-ref", "--quiet", "--short"):
-                return subprocess.CompletedProcess(args, 0, b"main\n", b"")
-            if args[:3] == ("config", "--null", "--get-regexp"):
-                return subprocess.CompletedProcess(
-                    args,
-                    0,
-                    b"branch.main.remote\norigin\x00branch.main.merge\nrefs/heads/main\x00",
-                    b"",
-                )
-            if args == ("config", "--get-all", "remote.origin.url"):
-                return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
-            if args in (
-                ("remote", "get-url", "--all", "--", "origin"),
-                ("remote", "get-url", "--push", "--all", "--", "origin"),
-            ):
-                return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
-            if args[:3] == ("ls-remote", "--refs", "origin"):
-                output = "".join(
-                    f"{commit_id}\t{ref}\n"
-                    for ref in args[3:]
-                    if ref in receipts
-                )
-                return subprocess.CompletedProcess(args, 0, output.encode(), b"")
-            if args[0] == "fetch":
-                return subprocess.CompletedProcess(args, 0, b"", b"")
-            self.fail(f"unexpected git call: {args}")
+        git = self.canned_git(
+            ls_remote_receipts=receipts,
+            commit_id=commit_id,
+            allow_fetch=True,
+        )
 
         def validated(_repo, *, ref, **_kwargs):
             return receipts[ref]
@@ -489,77 +582,18 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
     def test_indeterminate_eligibility_is_broken_without_poisoning_peer(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
-            repo = (root / "repo").resolve()
-            first_plan = repo / "first" / "PLAN.md"
-            second_plan = repo / "second" / "PLAN.md"
-            (repo / ".git").mkdir(parents=True)
-            first_plan.parent.mkdir()
-            second_plan.parent.mkdir()
-            first_plan.write_text(
-                plan("first", "~aa11", "do not expose this row"),
-                encoding="utf-8",
+            repo, payload = self.two_plan_repo(
+                root, "do not expose this row", "keep this peer available"
             )
-            second_plan.write_text(
-                plan("second", "~bb22", "keep this peer available"),
-                encoding="utf-8",
-            )
-            first_id = "a" * 64
-            second_id = "b" * 64
-            payload = {
-                "schema": "shadow.root-board.v1",
-                "revision": 42,
-                "projects": [
-                    {"id": "first", "priority": 1},
-                    {"id": "second", "priority": 2},
-                ],
-                "entities": [
-                    {
-                        "id": first_id,
-                        "project": "first",
-                        "plan": str(first_plan),
-                        "resume": "~aa11",
-                    },
-                    {
-                        "id": second_id,
-                        "project": "second",
-                        "plan": str(second_plan),
-                        "resume": "~bb22",
-                    },
-                ],
-                "claims": [],
-            }
+            second_id = payload["entities"][1]["id"]
             calls: list[tuple[str, ...]] = []
-            eligibility_probes = 0
-
-            def git(_repo, *args, **_kwargs):
-                nonlocal eligibility_probes
-                calls.append(args)
-                if args == ("rev-parse", "--show-toplevel"):
-                    return subprocess.CompletedProcess(args, 0, f"{repo}\n".encode(), b"")
-                if args[0] == "symbolic-ref":
-                    eligibility_probes += 1
-                    if eligibility_probes == 1:
-                        return subprocess.CompletedProcess(
-                            args, 2, b"", b"eligibility probe failed"
-                        )
-                    return subprocess.CompletedProcess(args, 0, b"main\n", b"")
-                if args[:3] == ("config", "--null", "--get-regexp"):
-                    return subprocess.CompletedProcess(
-                        args,
-                        0,
-                        b"branch.main.remote\norigin\x00branch.main.merge\nrefs/heads/main\x00",
-                        b"",
-                    )
-                if args == ("config", "--get-all", "remote.origin.url"):
-                    return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
-                if args in (
-                    ("remote", "get-url", "--all", "--", "origin"),
-                    ("remote", "get-url", "--push", "--all", "--", "origin"),
-                ):
-                    return subprocess.CompletedProcess(args, 0, b"origin\n", b"")
-                if args[:3] == ("ls-remote", "--refs", "origin"):
-                    return subprocess.CompletedProcess(args, 0, b"", b"")
-                self.fail(f"unexpected git call: {args}")
+            probes: dict[str, int] = {}
+            git = self.canned_git(
+                toplevel=repo,
+                fail_first_symbolic_ref=True,
+                probes=probes,
+                calls=calls,
+            )
 
             with (
                 mock.patch.object(status._remote_claim, "_git", side_effect=git),
@@ -574,10 +608,10 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             ):
                 records = status.board_records(payload)
 
-        # The first repo burns one probe and fails; the healthy peer then
-        # resolves its upstream remote once more for the transport itself
-        # (the claim module no longer assumes the name `origin`).
-        self.assertEqual(eligibility_probes, 3, calls)
+        # The failed probe is never memoized, so the healthy peer re-probes
+        # (not poisoned); its successful binding then also serves the
+        # transport pass, so exactly two probes happen.
+        self.assertEqual(probes["symbolic-ref"], 2, calls)
         self.assertTrue(records[0]["broken"], records[0])
         self.assertIn(status.REMOTE_DISCOVERY_ISSUE, records[0]["resume"])
         self.assertIsNone(records[0].get("next_unclaimed"))
@@ -591,6 +625,86 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             {ref.split("/")[-2] for ref in ls_remote_calls[0][3:]},
             {second_id},
         )
+
+    def test_one_lint_unclean_and_candidate_pass_per_entity(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            home.mkdir()
+            repo = root / "repo"
+            plan_path = repo / "PLAN.md"
+            repo.mkdir()
+            plan_path.write_text(plan("demo", "~aa11", "the only open row"), encoding="utf-8")
+            entity_id = "a" * 64
+            payload = {
+                "schema": "shadow.root-board.v1",
+                "revision": 42,
+                "projects": [{"id": "demo", "priority": 1}],
+                "entities": [
+                    {
+                        "id": entity_id,
+                        "project": "demo",
+                        "plan": str(plan_path),
+                        "resume": "~aa11",
+                    },
+                ],
+                "claims": [],
+            }
+            calls = {"lint": 0, "unclean": 0, "candidates": 0}
+            real_lint = status._lint.lint_plan
+            real_unclean = status._amp.unclean_note
+            real_candidates = status._amp._candidate_ids
+
+            def counting_lint(text):
+                calls["lint"] += 1
+                return real_lint(text)
+
+            def counting_unclean(parsed):
+                calls["unclean"] += 1
+                return real_unclean(parsed)
+
+            def counting_candidates(parsed):
+                calls["candidates"] += 1
+                return real_candidates(parsed)
+
+            with (
+                mock.patch.object(status._lint, "lint_plan", side_effect=counting_lint),
+                mock.patch.object(status._amp, "unclean_note", side_effect=counting_unclean),
+                mock.patch.object(status._amp, "_candidate_ids", side_effect=counting_candidates),
+            ):
+                records = status.board_records(payload)
+
+            self.assertEqual(calls, {"lint": 1, "unclean": 1, "candidates": 1}, calls)
+            self.assertFalse(records[0].get("broken", False), records[0])
+            self.assertEqual(records[0]["next_unclaimed"], "~aa11")
+
+    def test_one_repo_resolves_one_upstream_binding_per_status_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo, payload = self.two_plan_repo(
+                root, "first reachable row", "second reachable row"
+            )
+            probes: dict[str, int] = {}
+            git = self.canned_git(toplevel=repo, probes=probes)
+
+            with (
+                mock.patch.object(status._remote_claim, "_git", side_effect=git),
+                mock.patch.object(
+                    status._board,
+                    "frozen_plan_snapshot",
+                    side_effect=[
+                        ({"repo": str(repo), "relative": "first/PLAN.md"}, b""),
+                        ({"repo": str(repo), "relative": "second/PLAN.md"}, b""),
+                    ],
+                ),
+            ):
+                records = status.board_records(payload)
+
+        self.assertEqual(probes["config"], 1, "two entities in one repo must share one binding")
+        self.assertFalse(records[0].get("broken", False), records[0])
+        self.assertFalse(records[1].get("broken", False), records[1])
+        self.assertEqual(records[0]["next_unclaimed"], "~aa11")
+        self.assertEqual(records[1]["next_unclaimed"], "~bb22")
 
     def test_remote_eligibility_states_include_timeout_unknown(self) -> None:
         completed = subprocess.CompletedProcess
@@ -713,6 +827,40 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             self.assertEqual(reconcile.call_count, 1)
             self.assertEqual(code, 1, (stdout, stderr))
             self.assertIn("portfolio refresh failed", stderr)
+
+
+class InFlightLabelsAreHonest(unittest.TestCase):
+    """A remote-discovery failure is not a claim and not in-flight work."""
+
+    FAILURE = {
+        "project": "demo",
+        "entity": "entity-1",
+        "plan": "demo/PLAN.md",
+        "milestone": "remote claim discovery",
+        "id": "UNKNOWN",
+        "text": "UNKNOWN — remote claim discovery is unavailable",
+        "proof": "MISSING — retry when the tracked remote can be read",
+        "thrown_at": None,
+        "return_by": None,
+        "by": None,
+        "dispatched": False,
+        "broken": True,
+        "stale": False,
+    }
+
+    def test_a_discovery_failure_is_not_a_hand_claim(self) -> None:
+        out = status.render_in_flight([dict(self.FAILURE)])
+        self.assertNotIn("hand-claimed", out)
+        self.assertIn("discovery failed", out)
+        self.assertIn("0 row(s) in flight across 1 project(s)", out)
+        self.assertIn("; 1 remote claim discovery failure(s)", out)
+
+    def test_real_rows_still_count_and_label(self) -> None:
+        real = dict(self.FAILURE)
+        real.update({"milestone": "M1 — live", "text": "do the thing"})
+        out = status.render_in_flight([dict(self.FAILURE), real])
+        self.assertIn("1 row(s) in flight across 1 project(s)", out)
+        self.assertIn("hand-claimed (no THROWN line)", out)
 
 
 if __name__ == "__main__":

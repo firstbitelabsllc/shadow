@@ -102,7 +102,6 @@ import argparse
 from contextlib import contextmanager
 import errno
 import fcntl
-import importlib.util
 import os
 import re
 import secrets
@@ -793,128 +792,6 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
                 f"{via} now leads to {lands}, not {path}; the file was created "
                 "where the host no longer reads — rerun"
             )
-
-def _private_full_file(path: Path, block: str) -> str:
-    """Replace one owner file with the generated block; never a public mode.
-
-    This reuses the public installer's canonical-target, exclusive-backup,
-    pinned-identity, atomic-write, fsync, and symlink-survival boundaries. The
-    first pre-takeover bytes remain beside the canonical target forever; later
-    generated-block upgrades converge without rewriting that backup.
-    """
-    target = _canonical(path)
-    _sweep_dead_temps(target.parent)
-    pinned: int | None = None
-    backup_pinned: int | None = None
-    try:
-        try:
-            pinned = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
-            identity = os.fstat(pinned)
-        except FileNotFoundError:
-            identity = None
-        except OSError as exc:
-            if exc.errno in (errno.ELOOP, errno.EMLINK):
-                raise ValueError(
-                    f"{target} became a symlink while it was being pinned; rerun"
-                ) from None
-            raise
-        if identity is not None and not stat.S_ISREG(identity.st_mode):
-            raise ValueError(f"{target} is not a regular file")
-        if identity is not None and identity.st_nlink > 1:
-            raise ValueError(
-                f"{target} has {identity.st_nlink} hard links; private takeover "
-                "requires one canonical name"
-            )
-        if identity is None and path.is_symlink():
-            raise ValueError(
-                f"{path} resolves to {target}, which vanished; restore or repoint it"
-            )
-
-        existed = identity is not None
-        if existed:
-            with os.fdopen(os.dup(pinned), "r", encoding="utf-8", newline="") as stream:
-                before = stream.read()
-        else:
-            before = ""
-        wanted = managed(block) + "\n"
-        if before == wanted:
-            _refuse_unless_host_still_leads_to_pin(
-                path, target, pinned, identity, "current"
-            )
-            return "current"
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        mode = identity.st_mode & 0o7777 if identity is not None else None
-        backup = target.with_suffix(target.suffix + ".bak-shadow-full")
-        made_backup = (
-            _place_exclusive(backup, before, mode=mode) if existed else False
-        )
-        if existed and not made_backup:
-            whole_managed = (
-                before.count(BEGIN) == 1
-                and before.count(END) == 1
-                and before.startswith(BEGIN + "\n")
-                and before.rstrip("\n").endswith("\n" + END)
-            )
-            if not whole_managed:
-                raise ValueError(
-                    f"{backup} already exists, so this run could not preserve "
-                    "the owner file byte-for-byte; inspect or move that backup "
-                    "before private takeover"
-                )
-            try:
-                backup_pinned = os.open(backup, os.O_RDONLY | os.O_NOFOLLOW)
-                backup_identity = os.fstat(backup_pinned)
-                if not stat.S_ISREG(backup_identity.st_mode):
-                    raise ValueError(f"{backup} is not a regular retained backup")
-                if backup_identity.st_nlink != 1:
-                    raise ValueError(
-                        f"{backup} has {backup_identity.st_nlink} names; retained "
-                        "backup identity is ambiguous"
-                    )
-                with os.fdopen(os.dup(backup_pinned), "r", encoding="utf-8", newline="") as stream:
-                    stream.read()
-            except (OSError, UnicodeError) as exc:
-                raise ValueError(
-                    f"{backup} is not one pinned, readable regular backup; "
-                    "private takeover refused"
-                ) from exc
-        if _test_between_resolve_and_write is not None:
-            _test_between_resolve_and_write()
-        if backup_pinned is not None:
-            now = os.fstat(backup_pinned)
-            there = os.lstat(backup)
-            if (
-                now.st_nlink != 1
-                or (there.st_dev, there.st_ino) !=
-                (backup_identity.st_dev, backup_identity.st_ino)
-            ):
-                raise ValueError(
-                    f"{backup} changed before private takeover; owner recovery "
-                    "is no longer pinned"
-                )
-        try:
-            _atomic_write(
-                target,
-                wanted,
-                mode=mode,
-                expect=identity,
-                expect_absent=not existed,
-                via=path,
-                pinned=pinned,
-            )
-        except BaseException as exc:
-            if made_backup:
-                raise type(exc)(
-                    f"{exc}; the pre-takeover state is preserved at {backup}"
-                ) from exc
-            raise
-        return "replaced" if existed else "created"
-    finally:
-        if backup_pinned is not None:
-            os.close(backup_pinned)
-        if pinned is not None:
-            os.close(pinned)
 
 class Outcome(str):
     """The action word, still comparing equal as a plain string, carrying
