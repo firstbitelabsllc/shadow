@@ -11,12 +11,16 @@ one semantic work class, and whether the packet is `direct` or requires one
 native child. Shadow resolves the host/class pair to the native `--model`
 selector and configures the declared execution shape:
 
-| Work class | Claude Code | Codex | Cursor | Grok | Z.AI |
-| --- | --- | --- | --- | --- | --- |
-| `planning` | Fable | Sol | Fable High | Grok 4.6 | GLM-5.3-Flash |
-| `coding` | Opus | Sol | Opus High | Grok 4.6 | GLM-5.3-Flash |
-| `review` | Fable | Terra | Cursor Grok 4.6 High | Grok 4.6 | GLM-5.3-Flash |
-| `lightweight` | Sonnet | Luna | Auto | Grok 4.5 | GLM-5.3-Flash |
+| Work class | Claude Code | Codex | Cursor | Grok | Z.AI | Codex-ZAI |
+| --- | --- | --- | --- | --- | --- | --- |
+| `planning` | Fable | Sol | Fable High | Grok 4.6 | GLM-5.3-Flash | GLM-5.3-Flash via Codex |
+| `coding` | Opus | Sol | Opus High | Grok 4.6 | GLM-5.3-Flash | GLM-5.3-Flash via Codex |
+| `review` | Fable | Terra | Cursor Grok 4.6 High | Grok 4.6 | GLM-5.3-Flash | GLM-5.3-Flash via Codex |
+| `lightweight` | Sonnet | Luna | Auto | Grok 4.5 | GLM-5.3-Flash | GLM-5.3-Flash via Codex |
+
+`codex-zai` is one volume model for every class on purpose: Z.AI exposes
+GLM-5.3-Flash to Codex and nothing above it, so the policy names that instead
+of inventing tiers.
 
 Use it through the one sealed door:
 
@@ -54,7 +58,7 @@ are not the same decision:
 | Shape | Contract |
 | --- | --- |
 | `direct` | Disable native child spawning where the CLI exposes a control; do the bounded packet in the parent. |
-| `required` | Enable and explicitly require one native child evidence lane. Claude Code uses `Agent`, Codex enables `multi_agent`, and Grok uses `spawn_subagent`. |
+| `required` | Enable and explicitly require one native child evidence lane. Claude Code uses `Agent`, Codex and Codex-ZAI enable `multi_agent`, and Grok uses `spawn_subagent`. |
 
 Cursor and Z.AI currently fail closed for `required`: their headless CLIs
 expose no verified structured child-lineage contract. The wake is a native
@@ -98,10 +102,10 @@ actually saves scarce reasoning while preserving hard-work quality. An
 unobserved router can do the opposite: spend frontier quota on trivial work,
 send hard work to a weak tier, and still report success.
 
-## Owner-local 12 by 5 gauntlet
+## Owner-local 12 by 6 gauntlet
 
 `scripts/dev/shadow-routing-gauntlet.py` expands twelve checked-in scenarios
-across Claude Code, Codex, Cursor, Grok, and Z.AI: 60 real headless CLI jobs. The
+across Claude Code, Codex, Cursor, Grok, Z.AI, and Codex-ZAI: 72 real headless CLI jobs. The
 fixtures cover contradiction resolution, architecture, implementation,
 debugging, adversarial review, concise summaries, documentation repair,
 false-green rejection, cold resume, native-child lineage, protected wakes,
