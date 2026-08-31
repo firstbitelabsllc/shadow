@@ -46,6 +46,19 @@ class ASilentSkipFailsLoudly(unittest.TestCase):
         self.assertIn("tests.test_lifecycle", selected.modules)
         self.assertTrue(selected.release_contract)
 
+    def test_acceptance_case_development_files_run_only_their_focused_proof(
+        self,
+    ) -> None:
+        for path in (
+            "scripts/dev/shadow-acceptance-case.py",
+            "schemas/acceptance-case-manifest.v1.json",
+        ):
+            with self.subTest(path=path):
+                selected = ci.select_paths([path])
+                self.assertFalse(selected.run_all)
+                self.assertIn("tests.test_acceptance_case_manifest", selected.modules)
+                self.assertFalse(selected.release_contract)
+
     def test_local_event_boundary_runs_telemetry_and_release_proof(self) -> None:
         for path in ("scripts/shadow_telemetry.py", "docs/reference/telemetry.md"):
             selected = ci.select_paths([path])
