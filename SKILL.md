@@ -86,7 +86,7 @@ That text never changes; only what the plans point at does.
 Use the active host directly for normal work. For each claimed handoff, use:
 
 ```bash
-shadow host run --host codex|claude-code|cursor|grok|zai \
+shadow host run --host codex|claude-code|cursor|grok|zai|codex-zai \
   --work-class planning|coding|review|lightweight \
   --delegation direct|required \
   --repo <exact-clean-worktree> --task-file <frozen-task> --task-id <id> \

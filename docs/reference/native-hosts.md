@@ -1,7 +1,7 @@
 # Native hosts
 
 Shadow's sealed host runner supports `codex`, `claude-code`, `cursor`,
-`grok`, and `zai`. You choose the host, semantic work class, and execution shape directly:
+`grok`, `zai`, and `codex-zai`. You choose the host, semantic work class, and execution shape directly:
 `shadow host run --host <name> --work-class <class> --delegation direct|required`
 is the complete sealed path. There is no prompt classifier, account router, or
 seat layer in front of it. The [native execution policy](execution-policy.md)
@@ -34,6 +34,13 @@ records an account, credential, session, billing identifier, prompt, or
 transcript. Host authentication and quota stay inside the host CLI. A quota or
 unsupported-model failure remains a failed attempt; Shadow does not try a
 different provider or model behind the lead's back.
+
+`codex-zai` is the Codex CLI launched through `codexz`, a launcher on PATH
+that points `CODEX_HOME` at an isolated home whose only provider is Z.AI
+GLM-5.3-Flash. It takes the exact `codex exec` argv, including `multi_agent`
+for `direct|required`, and resolves every work class to `glm-5.3-flash`: a
+volume lane, not a tier roster. Authority proposals stay `codex`-only. It has
+no activation file; the standing goal is not written into the Z.AI home.
 
 Requested and observed models are separate fields; requested and observed child
 lineage are separate too. The product attempt leaves `observed_model` and

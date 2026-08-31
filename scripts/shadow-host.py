@@ -47,6 +47,10 @@ ATTEMPT_SCHEMA = "shadow.host-attempt.v1"
 HOST_RECEIPT_SCHEMA = "shadow.host-receipt.v1"
 AUTHORITY_PROPOSAL_SCHEMA = "shadow.authority-proposal.v1"
 HOSTS = set(POLICY_HOSTS)
+# codex-zai is the same `codex exec` argv behind the `codexz` launcher, which
+# points CODEX_HOME at the isolated Z.AI home. Authority proposals stay
+# codex-only: that pass is trusted, and the volume host is not.
+CODEX_HOSTS = frozenset({"codex", "codex-zai"})
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -164,7 +168,7 @@ def resolve_binary(host: str, explicit: str | None) -> str:
         resolved = shutil.which(candidate)
     else:
         resolved = shutil.which(
-            {"claude-code": "claude", "cursor": "cursor-agent", "zai": "opencode"}.get(host, host)
+            {"claude-code": "claude", "cursor": "cursor-agent", "zai": "opencode", "codex-zai": "codexz"}.get(host, host)
         )
     if not resolved:
         raise HostError("host_unavailable", f"{host} executable is unavailable")
@@ -381,7 +385,7 @@ def public_command_shape(host: str, *, delegation: str) -> list[str]:
     records its non-secret requested value. It never records account or auth.
     """
 
-    if host == "codex":
+    if host in CODEX_HOSTS:
         shape = [
             "exec",
             "--model",
@@ -457,7 +461,8 @@ def launch_command(
 ) -> list[str]:
     """Build the private native argv for one frozen task.
 
-    Codex, Claude Code, and Cursor receive the frozen task on stdin. Grok's
+    Codex (both homes), Claude Code, and Cursor receive the frozen task on
+    stdin, which the runner closes after the write. Grok's
     documented headless entry is ``--prompt-file`` (not stdin). Cursor's
     current non-interactive CLI requires ``agent``. This argv never becomes
     an attempt field. The native model selector is resolved from the public
@@ -474,6 +479,7 @@ def launch_command(
         delegation_argv = {
             "claude-code": ["--disallowedTools", "Agent"],
             "codex": ["--disable", "multi_agent"],
+            "codex-zai": ["--disable", "multi_agent"],
             "cursor": [],
             "grok": ["--no-subagents"],
             "zai": [],
@@ -485,12 +491,13 @@ def launch_command(
                 json.dumps(CLAUDE_EVIDENCE_AGENT, separators=(",", ":")),
             ],
             "codex": ["--enable", "multi_agent"],
+            "codex-zai": ["--enable", "multi_agent"],
             "cursor": [],  # Rejected by delegation_capability above.
             "grok": ["--max-turns", "20"],
             "zai": [],  # Rejected by delegation_capability above.
         }[host]
 
-    if host == "codex":
+    if host in CODEX_HOSTS:
         command = [binary, "exec"]
         command.extend(delegation_argv)
         command.extend(model_argv)
