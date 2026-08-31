@@ -40,6 +40,16 @@ sys.modules[_PLAN_SPEC.name] = plan_api
 _PLAN_SPEC.loader.exec_module(plan_api)
 
 
+def fresh_board_module(name: str):
+    """One isolated board-module copy for tests that patch its internals."""
+    spec = importlib.util.spec_from_file_location(name, BOARD_MODULE)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 # Machine-local pex-based shims can keep writing their bootstrap cache into a
 # fixture HOME after the test that spawned them returns; that races
 # TemporaryDirectory cleanup. Pin PEX_ROOT outside every fixture so the
@@ -204,13 +214,8 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             secret = "AKIA" + "IOSFODNN7EXAMPLE"
             git(repo, "remote", "add", "origin", f"https://github.com/org/project.git?token={secret}")
 
-            first = importlib.util.spec_from_file_location("shadow_identity", BOARD_MODULE)
-            module = importlib.util.module_from_spec(first)
-            assert first and first.loader
-            sys.modules[first.name] = module
-            first.loader.exec_module(module)
-            before = module.entity_id(repo / "PLAN.md")
-            locator = module.public_plan_locator(repo / "PLAN.md")
+            before = board_api.entity_id(repo / "PLAN.md")
+            locator = board_api.public_plan_locator(repo / "PLAN.md")
             git(
                 repo,
                 "remote",
@@ -219,42 +224,162 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
                 "https://github.com/org/project.git?token=rotated#private",
             )
 
-            self.assertEqual(module.entity_id(repo / "PLAN.md"), before)
-            self.assertEqual(module.normalized_origin(
+            self.assertEqual(board_api.entity_id(repo / "PLAN.md"), before)
+            self.assertEqual(board_api.normalized_origin(
                 f"https://github.com/org/project.git?token={secret}#private"
             ), "github.com/org/project")
             self.assertNotIn(secret, locator)
             self.assertNotIn("token=", locator)
 
     def test_default_remote_ports_do_not_split_one_logical_repository(self) -> None:
-        spec = importlib.util.spec_from_file_location("shadow_default_ports", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
 
         self.assertEqual(
-            module.normalized_origin("ssh://git@github.com:22/org/repo.git"),
-            module.normalized_origin("git@github.com:org/repo.git"),
+            board_api.normalized_origin("ssh://git@github.com:22/org/repo.git"),
+            board_api.normalized_origin("git@github.com:org/repo.git"),
         )
         self.assertEqual(
-            module.normalized_origin("https://github.com:443/org/repo.git"),
-            module.normalized_origin("https://github.com/org/repo.git"),
+            board_api.normalized_origin("https://github.com:443/org/repo.git"),
+            board_api.normalized_origin("https://github.com/org/repo.git"),
         )
         self.assertEqual(
-            module.normalized_origin("http://example.test:80/org/repo.git"),
-            module.normalized_origin("http://example.test/org/repo.git"),
+            board_api.normalized_origin("http://example.test:80/org/repo.git"),
+            board_api.normalized_origin("http://example.test/org/repo.git"),
         )
+
+    def test_plan_locator_shares_one_repo_resolution_per_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            child = repo / "plans" / "child"
+            child.mkdir(parents=True)
+            (child / "PLAN.md").write_text(
+                (repo / "PLAN.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            git(repo, "add", "plans")
+            git(repo, "commit", "--quiet", "-m", "child plan")
+
+            module = fresh_board_module("shadow_locator_cache_count")
+            calls: list[tuple[str, ...]] = []
+            real_git = module._git
+
+            def counting_git(git_root: Path, *args: str, **kwargs):
+                calls.append(args)
+                return real_git(git_root, *args, **kwargs)
+
+            real = repo.resolve()
+            module._git = counting_git
+            try:
+                with module.repository_identity_cache():
+                    first = module.public_plan_locator(real / "PLAN.md")
+                    second = module.public_plan_locator(real / "plans" / "child" / "PLAN.md")
+            finally:
+                module._git = real_git
+
+            toplevels = sum(
+                1 for args in calls if args[:2] == ("rev-parse", "--show-toplevel")
+            )
+            self.assertEqual(toplevels, 1, calls)
+            self.assertTrue(first.startswith("project@"), first)
+            self.assertTrue(first.endswith("/PLAN.md"), first)
+            self.assertTrue(second.endswith("/plans/child/PLAN.md"), second)
+
+    def test_commit_times_answers_many_plans_in_one_git_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            plans = [repo / "PLAN.md"]
+            for index in range(3):
+                child = repo / "plans" / f"child{index}"
+                child.mkdir(parents=True)
+                (child / "PLAN.md").write_text(
+                    (repo / "PLAN.md").read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+                plans.append(child / "PLAN.md")
+            git(repo, "add", "plans")
+            git(repo, "commit", "--quiet", "-m", "child plans")
+
+            module = fresh_board_module("shadow_commit_times_batch")
+            calls: list[tuple[str, ...]] = []
+            real_git = module._git
+
+            def counting_git(git_root: Path, *args: str, **kwargs):
+                calls.append(args)
+                return real_git(git_root, *args, **kwargs)
+
+            module._git = counting_git
+            try:
+                times = module.plan_commit_times(repo, plans)
+            finally:
+                module._git = real_git
+
+            log_calls = [args for args in calls if args and args[0] == "log"]
+            self.assertEqual(len(log_calls), 1, calls)
+            self.assertIn("--name-only", log_calls[0])
+            self.assertEqual(len(times), len(plans))
+            self.assertTrue(all(isinstance(value, int) for value in times.values()))
+            latest = git(repo, "log", "-1", "--format=%ct", "--", "PLAN.md")
+            self.assertEqual(
+                times[str(Path(os.path.abspath(repo / "PLAN.md")))], int(latest)
+            )
+
+    def test_one_repo_resolves_toplevel_and_head_once_per_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            child = repo / "plans" / "child"
+            child.mkdir(parents=True)
+            (child / "PLAN.md").write_text(
+                (repo / "PLAN.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            git(repo, "add", "plans")
+            git(repo, "commit", "--quiet", "-m", "child plan")
+
+            module = fresh_board_module("shadow_snapshot_cache_count")
+            calls: list[tuple[str, ...]] = []
+            real_git = module._git
+
+            def counting_git(git_root: Path, *args: str, **kwargs):
+                calls.append(args)
+                return real_git(git_root, *args, **kwargs)
+
+            module._git = counting_git
+            try:
+                with module.repository_identity_cache():
+                    first_token, first_bytes = module.head_plan_snapshot(
+                        repo / "PLAN.md", repo=repo
+                    )
+                    second_token, second_bytes = module.head_plan_snapshot(
+                        child / "PLAN.md", repo=repo
+                    )
+                    # No authenticated repo: the fallback still resolves it.
+                    module.head_plan_snapshot(repo / "PLAN.md")
+            finally:
+                module._git = real_git
+
+            self.assertEqual(first_bytes, second_bytes)
+            self.assertEqual(first_token["repo"], second_token["repo"])
+            self.assertEqual(first_token["head"], second_token["head"])
+            self.assertNotEqual(first_token["relative"], second_token["relative"])
+            toplevels = sum(
+                1 for args in calls if args[:2] == ("rev-parse", "--show-toplevel")
+            )
+            heads = sum(
+                1 for args in calls if args[:2] == ("rev-parse", "HEAD")
+            )
+            # The authenticated caller never re-resolves the repo; only the
+            # fallback call probes the toplevel, exactly once.
+            self.assertEqual(toplevels, 1, calls)
+            # First read memoized per repo; the post-read race-guard recheck
+            # stays a real probe on every call — three calls, three rechecks,
+            # plus the one memoized initial read. Uncached this is six.
+            self.assertEqual(heads, 4, calls)
 
     def test_a_plan_owned_origin_must_already_be_normalized(self) -> None:
-        spec = importlib.util.spec_from_file_location("shadow_proof_origin", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
 
         self.assertEqual(
-            module.well_formed_proof_origin("github.com/example/widget"),
+            board_api.well_formed_proof_origin("github.com/example/widget"),
             "github.com/example/widget",
         )
         for value in (
@@ -269,7 +394,7 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
-                    module.well_formed_proof_origin(value)
+                    board_api.well_formed_proof_origin(value)
 
     def test_filesystem_remotes_are_resolved_against_each_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -282,20 +407,15 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             right = project(right_parent, name="checkout")
             git(left, "remote", "add", "origin", "../forge.git")
             git(right, "remote", "add", "origin", "../forge.git")
-            spec = importlib.util.spec_from_file_location("shadow_local_remotes", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
 
             self.assertNotEqual(
-                module.entity_id(left / "PLAN.md"),
-                module.entity_id(right / "PLAN.md"),
+                board_api.entity_id(left / "PLAN.md"),
+                board_api.entity_id(right / "PLAN.md"),
             )
             git(right, "remote", "set-url", "origin", str(left_parent / "forge.git"))
             self.assertEqual(
-                module.entity_id(left / "PLAN.md"),
-                module.entity_id(right / "PLAN.md"),
+                board_api.entity_id(left / "PLAN.md"),
+                board_api.entity_id(right / "PLAN.md"),
             )
 
     def test_git_introspection_failure_never_becomes_a_checkout_path_identity(self) -> None:
@@ -310,11 +430,7 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             ).stdout.strip()
             git(repo, "config", f"branch.{branch}.remote", "origin")
             git(repo, "config", f"branch.{branch}.merge", "refs/heads/main")
-            spec = importlib.util.spec_from_file_location("shadow_git_failure", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_git_failure")
             original = module._remote_claim._git
             probes = (
                 ("symbolic-ref", "--quiet", "--short", "HEAD"),
@@ -427,23 +543,13 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             repo = project(root)
             secret = "ghp_" + "A" * 24
             git(repo, "remote", "add", "origin", f"https://github.com/org/{secret}/repo.git")
-            spec = importlib.util.spec_from_file_location("shadow_secret_locator", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
 
-            locator = module.public_plan_locator(repo / "PLAN.md")
+            locator = board_api.public_plan_locator(repo / "PLAN.md")
 
             self.assertNotIn(secret, locator)
             self.assertRegex(locator, r"^entity@[0-9a-f]{8}/PLAN\.md$")
 
     def test_owner_is_public_safe_before_it_can_enter_the_board(self) -> None:
-        spec = importlib.util.spec_from_file_location("shadow_owner", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
         for owner in (
             str(Path("/", "Users", "leo", "private")),
             "AKIA" + "IOSFODNN7EXAMPLE",
@@ -454,7 +560,7 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             "seat\u202e-a",
         ):
             with self.assertRaises(ValueError):
-                module.validate_owner(owner)
+                board_api.validate_owner(owner)
 
 
 class SymlinkedPlansNeverBecomeAuthority(unittest.TestCase):
@@ -1101,13 +1207,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
             )
 
     def test_local_board_commit_waits_for_automatic_git_maintenance(self) -> None:
-        spec = importlib.util.spec_from_file_location(
-            "shadow_root_board_commit_test", BOARD_MODULE
-        )
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = fresh_board_module("shadow_root_board_commit_test")
         calls: list[tuple[str, ...]] = []
 
         def observe_git(_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -1138,13 +1238,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
         )
 
     def test_real_board_commit_joins_automatic_git_maintenance(self) -> None:
-        spec = importlib.util.spec_from_file_location(
-            "shadow_root_board_trace_test", BOARD_MODULE
-        )
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = fresh_board_module("shadow_root_board_trace_test")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "board"
             root.mkdir()
@@ -4534,11 +4628,7 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
             before = board(home)
             (home / ".shadow" / "board.json").unlink()
 
-            spec = importlib.util.spec_from_file_location("shadow_board_recovery", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_board_recovery")
             observed = module.ensure(home=home)
 
             restored = board(home)
@@ -4552,11 +4642,7 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
             home = root / "home"
             board_root = home / ".shadow"
             (board_root / ".git").mkdir(parents=True)
-            spec = importlib.util.spec_from_file_location("shadow_board_partial_git", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_board_partial_git")
 
             initialized = module.ensure(home=home)
             self.assertEqual(initialized["revision"], 0)
@@ -4592,11 +4678,7 @@ class ExistingBoardStateSurvivesSchemaAndFileRecovery(unittest.TestCase):
                 ["git", "-C", str(external), "rev-parse", "HEAD"],
                 capture_output=True, text=True, check=True,
             ).stdout
-            spec = importlib.util.spec_from_file_location("shadow_board_symlink_root", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_board_symlink_root")
 
             home = root / "home"
             home.mkdir()
@@ -4911,11 +4993,7 @@ class ACrashMidClaimLeavesARecoverableBoard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = project(root)
-            spec = importlib.util.spec_from_file_location("shadow_root_board", BOARD_MODULE)
-            module = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            module = fresh_board_module("shadow_root_board")
             for death in ("before-replace", "after-replace"):
                 home = root / death
                 home.mkdir()
@@ -5132,11 +5210,7 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
     """Status-time cleanup may remove only missing, claimless migration debris."""
 
     def _module(self):
-        spec = importlib.util.spec_from_file_location("shadow_missing_alias", BOARD_MODULE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec and spec.loader
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = fresh_board_module("shadow_missing_alias")
         return module
 
     def _seed(
@@ -5425,12 +5499,6 @@ class MissingUnclaimedAliasCleanup(unittest.TestCase):
             self.assertEqual(payload["claims"], [before_claim])
 
 
-if __name__ == "__main__":
-
-
-    unittest.main()
-
-
 class BoundedDiscoveryNamesItsDuplicateSeeds(unittest.TestCase):
     """The duplicate-entity refusal must not fire on one plan seen twice.
 
@@ -5505,3 +5573,33 @@ class BoundedDiscoveryNamesItsDuplicateSeeds(unittest.TestCase):
             message = str(caught.exception)
             self.assertIn("duplicate logical entity", message)
             self.assertIn(str(a), message)
+
+
+class ReleaseStateSpeaksTheOneGrammar(unittest.TestCase):
+    def test_a_row_the_grammar_rejects_is_not_validated(self) -> None:
+        # Before the delegation, a hand-rolled twin accepted any "| ..." tail:
+        # release could validate a claim-return row that lint cannot see.
+        text = (
+            "# P\n\n## Tasks\n\n### M1 — live\n"
+            "- [pending] t ~aa11 | notafield\n"
+        )
+        with self.assertRaisesRegex(board_api.BoardError, "claim return row is missing"):
+            board_api._release_state(Path("plan.md"), "~aa11", "return", text=text)
+
+
+class LocatorNeverRaises(unittest.TestCase):
+    def test_a_transient_origin_read_degrades_to_the_digest_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp), name="repo")
+            with mock.patch.object(
+                board_api,
+                "origin_of",
+                side_effect=board_api.BoardError("identity unavailable"),
+            ):
+                locator = board_api.public_plan_locator(repo / "PLAN.md")
+            self.assertTrue(locator.startswith("repo@"), locator)
+            self.assertTrue(locator.endswith("/PLAN.md"), locator)
+
+
+if __name__ == "__main__":
+    unittest.main()

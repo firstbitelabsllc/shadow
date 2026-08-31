@@ -23,3 +23,7 @@ def install_plan_tree(root: Path, content: bytes, *, return_build: bool = False)
         bucket.mkdir(parents=True, exist_ok=True)
         (bucket / digest).write_bytes(body)
     return (plan, build) if return_build else plan
+
+
+def shard_path(root: Path, digest: str) -> Path:
+    return root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest

@@ -326,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"shadow init: could not write {destination}: {exc}", file=sys.stderr)
         return 1
+    action = "created" if created else "recognized"
     try:
         state, frozen = generated_plan_snapshot(destination, content)
     except board.BoardError as exc:
@@ -358,13 +359,12 @@ def main(argv: list[str] | None = None) -> int:
             home=Path.home(),
         )
     except board.BoardError as exc:
-        action = "created" if created else "recognized"
         print(
             f"shadow init: {action} {destination}, but could not register it: {exc}",
             file=sys.stderr,
         )
         return 1
-    print(f"created local PLAN.md: {destination}")
+    print(f"{action} local PLAN.md: {destination}")
     return 0
 
 
