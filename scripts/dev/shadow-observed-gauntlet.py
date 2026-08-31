@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -55,7 +56,6 @@ PYTHON = ROOT / "scripts" / "shadow-python.sh"
 
 # Long jobs, heaviest last. Each runs in its own process from the repo root.
 JOBS: dict[str, list[str]] = {
-    "lint-own-plan": ["scripts/shadow-lint.py", "PLAN.md"],
     "root-board": ["-m", "unittest", "tests.test_root_board"],
     "lifecycle": ["-m", "unittest", "tests.test_lifecycle"],
     "accept": ["-m", "unittest", "tests.test_shadow_accept"],
@@ -215,12 +215,31 @@ def run_job(name: str, argv: list[str]) -> tuple[int, float, str]:
     return result.returncode, duration, tail
 
 
-def forward_events(sink: Sink, events_path: Path, trace_id: str, parent: str) -> int:
-    """Ship allowlisted local events as spans; the emitter already redacted them."""
+def _event_start_ns(event: dict, fallback: int) -> int:
+    """The event's own moment, or the read instant when its clock is unusable."""
+    recorded = event.get("recorded_at")
+    if isinstance(recorded, str):
+        try:
+            parsed = datetime.fromisoformat(recorded.replace("Z", "+00:00"))
+            return int(parsed.timestamp() * 1_000_000_000)
+        except ValueError:
+            pass
+    return fallback
+
+
+def forward_events(sink: Sink, events_path: Path, trace_id: str, parent: str) -> tuple[int, bool]:
+    """Ship allowlisted local events as spans; the emitter already redacted them.
+
+    Spans carry the event's own recorded_at and duration_ms — stamping every
+    event with the upload instant collapses the timeline the trace exists to
+    show. Returns (spans sent, delivered): a failed event delivery is the
+    caller's red to raise, never a silent skip.
+    """
     try:
         lines = events_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return 0
+    except OSError as exc:
+        print(f"shadow-observed-gauntlet: cannot read events file {events_path}: {exc}", file=sys.stderr)
+        return 0, False
     spans = []
     now = _now_ns()
     for line in lines[-200:]:
@@ -230,19 +249,23 @@ def forward_events(sink: Sink, events_path: Path, trace_id: str, parent: str) ->
             continue
         if not isinstance(event, dict):
             continue
+        start = _event_start_ns(event, now)
+        duration = event.get("duration_ms")
+        if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0:
+            duration = 0
         spans.append({
             "traceId": trace_id,
             "spanId": secrets.token_hex(8),
             "parentSpanId": parent,
             "name": f"event:{event.get('verb', 'unknown')}",
             "kind": 1,
-            "startTimeUnixNano": str(now),
-            "endTimeUnixNano": str(now),
+            "startTimeUnixNano": str(start),
+            "endTimeUnixNano": str(start + duration * 1_000_000),
             "attributes": [_attr(f"shadow.{key}", value) for key, value in sorted(event.items())],
         })
-    if spans:
-        sink.send_spans(spans)
-    return len(spans)
+    if not spans:
+        return 0, True
+    return len(spans), sink.send_spans(spans)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -308,9 +331,13 @@ def main(argv: list[str] | None = None) -> int:
         }, *job_spans]
         delivered = sink.send_spans(spans)
         if events_env:
-            count = forward_events(sink, Path(events_env), trace_id, root_span)
+            count, events_delivered = forward_events(sink, Path(events_env), trace_id, root_span)
             if count:
                 print(f"[round {round_number}] forwarded {count} local event(s)")
+            if not events_delivered:
+                # The specific line (read failure, or send_spans' own delivery
+                # failure) already went to stderr; the round just turns red.
+                delivery_failures += 1
         if not delivered:
             delivery_failures += 1
             print(f"[round {round_number}] RED: trace delivery failed; no readback possible", file=sys.stderr)

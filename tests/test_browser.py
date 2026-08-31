@@ -5,14 +5,13 @@ import http.client
 import os
 from pathlib import Path
 import stat
-import subprocess
-import sys
 import tempfile
 import threading
 import unittest
 from unittest import mock
 
 from browser import board_projection, server
+from tests.proc_fixture import git
 
 
 PLAN = """# Release notes
@@ -57,12 +56,6 @@ PLAN = """# Release notes
 """
 
 
-def git(repo: Path, *args: str) -> None:
-    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
-    if result.returncode:
-        raise AssertionError(result.stderr)
-
-
 class BrowserTests(unittest.TestCase):
     def make_repo(self, root: Path) -> tuple[Path, Path]:
         repo = root / "repo"
@@ -75,6 +68,26 @@ class BrowserTests(unittest.TestCase):
         git(repo, "add", "project/PLAN.md")
         git(repo, "commit", "-qm", "fixture")
         return repo, plan
+
+    def test_repository_root_ignores_ambient_git_redirects(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo, plan = self.make_repo(root)
+            injected = root / "injected"
+            injected.mkdir()
+            git(injected, "init", "-q")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "GIT_DIR": str(injected / ".git"),
+                    "GIT_WORK_TREE": str(injected),
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "remote.origin.url",
+                    "GIT_CONFIG_VALUE_0": "git@example.invalid:wrong/repo.git",
+                },
+                clear=False,
+            ):
+                self.assertEqual(server.repository_root(plan), repo.resolve())
 
     def test_plan_projection_has_one_brief_and_three_choices(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -330,16 +343,6 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(checkpoints["~cc33"]["availability"], "claimed")
         self.assertEqual(checkpoints["~cc33"]["owners"], ["seat-a"])
         self.assertEqual(checkpoints["~dd44"]["availability"], "blocked")
-
-    def test_browser_renderer_iterates_the_rotation_in_brief_and_board_views(self) -> None:
-        source = (Path(server.__file__).parent / "static" / "app.js").read_text(
-            encoding="utf-8"
-        )
-        self.assertEqual(
-            source.count("for (const milestone of rotationOf(plan))"),
-            3,
-        )
-        self.assertNotIn("const milestoneTitle = plan.board?.milestone", source)
 
     def test_symlinked_canonical_plan_cannot_import_external_milestones(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

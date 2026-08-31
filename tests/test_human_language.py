@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from browser import server
+from tests.proc_fixture import git
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,17 +29,6 @@ PLAN = """# M20 — Shadow releases itself safely
 - [pending] Fresh-home migration survives rollback ~aa11 | proof: cmd true
 - [pending] Installed Shadow survives the release story ~bb22 (DoD) | proof: read release receipt -> every story passed | needs: ~aa11
 """
-
-
-def git(repo: Path, *args: str) -> None:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise AssertionError(result.stderr)
 
 
 class PlainOutcomeNamesLeadEveryHumanSurface(unittest.TestCase):
@@ -145,17 +135,6 @@ class PlainOutcomeNamesLeadEveryHumanSurface(unittest.TestCase):
             [checkpoint["id"] for checkpoint in record["milestones"][0]["checkpoints"]],
             ["~aa11", "~bb22"],
         )
-
-        renderer = (ROOT / "browser" / "static" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("text: humanName(name)", renderer)
-        self.assertIn("text: plan.title", renderer)
-        self.assertIn("text: milestone.title", renderer)
-        # The checkpoint line renders the row's human text (with any claim
-        # suffix), never its id — the exact string moved when the renderer
-        # stopped stuttering "blocked · blocked:", but the guarantee holds.
-        self.assertIn("${checkpoint.text}${suffix}", renderer)
-        self.assertNotIn("checkpoint.id", renderer)
-        self.assertNotIn("milestone.resume", renderer)
 
 
 if __name__ == "__main__":

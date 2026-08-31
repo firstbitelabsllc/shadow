@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import re
-import signal
 import subprocess
 import sys
 import tempfile
@@ -38,12 +37,12 @@ except ModuleNotFoundError:
 from shadow_scrub_lib import PRIVATE_PATH_RE as DRIVE_PRIVATE_PATH_RE
 from shadow_scrub_lib import SECRET_SHAPE_RE as DRIVE_SECRET_SHAPE_RE
 from shadow_root_board import (
-    normalized_origin as _normalized_origin,
+    MILESTONE_PREFIX_RE as _MILESTONE_PREFIX_RE,
     origin_of as _origin_of,
     origin_repo_name as _origin_repo_name,
-    plan_mtime as _plan_mtime,
 )
 import shadow_root_board as _root_board
+from shadow_git import sanitized_git_env as _sanitized_git_env
 import shadow_board_import as _board_import
 import importlib.util as _ilu
 _LINT_SPEC = _ilu.spec_from_file_location("shadow_lint", SCRIPTS / "shadow-lint.py")
@@ -136,7 +135,7 @@ def title(text: str, fallback: str) -> str:
     for line in text.splitlines():
         if line.startswith("# "):
             clean = " ".join(line[2:].split())
-            clean = re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", clean)
+            clean = _MILESTONE_PREFIX_RE.sub( "", clean)
             if clean and UNSAFE_TITLE_RE.search(clean) is None:
                 return clean[:120]
     return public_id(fallback).replace("-", " ").title()
@@ -287,7 +286,7 @@ def _milestone_rotation(
         rotation.append(
             {
                 "title": _rotation_text(
-                    re.sub(r"^[A-Za-z]+\d+\s*[—-]\s*", "", milestone["title"]),
+                    _MILESTONE_PREFIX_RE.sub( "", milestone["title"]),
                     "Milestone",
                 ),
                 "counts": counts,
@@ -756,17 +755,6 @@ def _explicitly_supersedes_archives(
     return True
 
 
-def _archive_veto(paths: list[Path]) -> str | None:
-    """The self-demotion found on ANY instance of one logical plan.
-
-    Guarded exactly as `read_plan` guards the record it builds. A repo's root
-    `PLAN.md` is admitted on `is_file()`, which a symlink satisfies, so a
-    sibling checkout could point its plan anywhere on the filesystem and have
-    that content decide whether the logical plan is authority. The reader that
-    demotes must be no more permissive than the reader that renders.
-    """
-    receipt = _archive_veto_receipt(paths)
-    return receipt["match"] if receipt else None
 MAX_DECLARED_GLOBS = 3
 
 
@@ -863,11 +851,6 @@ def _pruned_segment(relative: Path) -> str | None:
         if segment in SKIP_DIRS or segment.startswith("."):
             return segment
     return None
-
-
-def is_repo(path: Path) -> bool:
-    # A worktree's .git is a FILE pointing at the real one; both are repos.
-    return (path / ".git").exists()
 
 
 def is_plan_root(path: Path) -> bool:
@@ -1023,6 +1006,30 @@ def discover_plans(
             logical_relative = (prefix / path.relative_to(repo)).as_posix()
             instances.setdefault(
                 (origin, logical_relative), []).append(path)
+
+    # One git log per repo answers every plan's commit time; per-plan
+    # `git log -1` was the whole subprocess cost of a large reconcile.
+    # Registered pointers are stored resolved while discovered paths may not
+    # be — cover both forms, because the veto receipt dates each.
+    registered_paths = list(registered.values())
+    for repo in candidates:
+        resolved_repo = repo.resolve()
+        candidates_for_repo = list(plans_by_repo[repo]) + [
+            pointer
+            for pointer in registered_paths
+            if pointer.resolve().is_relative_to(resolved_repo)
+        ]
+        missing = [
+            path
+            for path in dict.fromkeys(candidates_for_repo)
+            if str(Path(os.path.abspath(path))) not in commit_dates
+        ]
+        if not missing:
+            continue
+        times = _root_board.plan_commit_times(repo, missing)
+        for path in missing:
+            key = str(Path(os.path.abspath(path)))
+            commit_dates[key] = (_plan_change_stamp(path), times.get(key))
 
     for repo in candidates:
         origin, prefix = identities[repo]
@@ -1219,11 +1226,15 @@ def resolve_plan(root: Path, value: Any) -> Path:
 
 def repository_root(plan: Path) -> Path:
     plan = plan.resolve()
+    # The server inherits its shell's environment: an ambient GIT_DIR or
+    # GIT_WORK_TREE would resolve the plan into a different repository, so
+    # the probe runs under the same sanitized boundary as every other probe.
     result = subprocess.run(
         ["git", "-C", str(plan.parent), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         check=False,
+        env=_sanitized_git_env(),
     )
     if result.returncode:
         raise BrowserError("plan is not inside a Git worktree")

@@ -9,6 +9,8 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from shadow_git import sanitized_git_env
+
 
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _PYTHON = re.compile(r"^python(?:\d+(?:\.\d+)*)?$")
@@ -165,6 +167,7 @@ def head_entry(root: Path, relative: Path) -> tuple[bytes, bytes] | None:
             text=True,
             timeout=5,
             check=False,
+            env=sanitized_git_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -185,6 +188,7 @@ def head_entry(root: Path, relative: Path) -> tuple[bytes, bytes] | None:
             capture_output=True,
             timeout=5,
             check=False,
+            env=sanitized_git_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

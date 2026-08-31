@@ -18,6 +18,7 @@ import unittest
 from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
+from tests.proc_fixture import git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,13 +49,6 @@ PLAN = """# Demo
 
 - 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
 """
-
-
-def git(repo: Path, *args: str) -> str:
-    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=False)
-    if result.returncode:
-        raise AssertionError(result.stderr)
-    return result.stdout.strip()
 
 
 def make_repo(root: Path, content: str = "hello") -> Path:
@@ -597,7 +591,6 @@ class ShadowAcceptTests(unittest.TestCase):
                     accept.bind_local_plan_to_proof_repo(
                         legacy_only,
                         Path("/unused"),
-                        "~cd90",
                     ),
                     source_a,
                 )
@@ -621,7 +614,6 @@ class ShadowAcceptTests(unittest.TestCase):
                 accept.bind_local_plan_to_proof_repo(
                     orphaned_legacy_receipt,
                     Path("/unused"),
-                    "~ij90",
                 )
 
         cases = [
@@ -2434,8 +2426,6 @@ class ShadowAcceptTests(unittest.TestCase):
         self.assertEqual(commits, "2")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
@@ -4302,3 +4292,7 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             self.assertIn("Git-backed", result.stderr)
             self.assertIn("--repo", result.stderr)
             self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), before)
+
+
+if __name__ == "__main__":
+    unittest.main()

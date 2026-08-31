@@ -81,5 +81,33 @@ class AllBoatsLaw(unittest.TestCase):
             self.assertIn("full acceptance", text.lower())
 
 
+class NoTestFileHidesTestsBehindAMidFileGuard(unittest.TestCase):
+    def test_unittest_main_guards_sit_at_end_of_file(self) -> None:
+        # Six files shipped a mid-module unittest.main() that silently skipped
+        # every class below it on direct -m runs (#594, #600, #603, and the
+        # final sweep — 154 tests across the day): the guard fires during
+        # module execution, before the classes below it are defined.
+        offenders = []
+        for path in sorted((ROOT / "tests").glob("test_*.py")):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            guard = next(
+                (
+                    index
+                    for index, line in enumerate(lines)
+                    if line.strip() == 'if __name__ == "__main__":'
+                ),
+                None,
+            )
+            if guard is None:
+                continue
+            last_class = max(
+                (index for index, line in enumerate(lines) if line.startswith("class ")),
+                default=-1,
+            )
+            if last_class > guard:
+                offenders.append(f"{path.name}: guard at {guard + 1}, class at {last_class + 1}")
+        self.assertEqual(offenders, [])
+
+
 if __name__ == "__main__":
     unittest.main()

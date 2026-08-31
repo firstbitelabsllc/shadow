@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tests.proc_fixture import git
+
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = SKILL_DIR / "scripts" / "shadow-host.py"
@@ -116,12 +118,6 @@ if mode != "missing":
     print(json.dumps(receipt))
     print("```")
 '''
-
-
-def git(repo: Path, *args: str) -> None:
-    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
-    if result.returncode:
-        raise AssertionError(result.stderr)
 
 
 def make_repo(root: Path, *, ignore_evidence: bool = True) -> Path:

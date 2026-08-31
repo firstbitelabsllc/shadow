@@ -84,6 +84,75 @@ class DoctorSlotsDegradeToOneFailRow(unittest.TestCase):
                 self.assertIn(str(boom), rows[0]["detail"])
 
 
+class ReconcileAnalysisMemo(unittest.TestCase):
+    def test_one_parse_lint_and_candidate_pass_per_unique_text(self) -> None:
+        import shadow_board_import as board_import
+
+        calls = {"parse": 0, "unclean": 0, "candidates": 0}
+
+        class CountingAmp:
+            @staticmethod
+            def _parse(text):
+                calls["parse"] += 1
+                return {"text": text, "brief": {"Project": "demo", "Mode": "ship"}, "milestones": []}
+
+            @staticmethod
+            def unclean_note(parsed):
+                calls["unclean"] += 1
+                return None
+
+            @staticmethod
+            def _candidate_ids(parsed):
+                calls["candidates"] += 1
+                return []
+
+        analysis = board_import._PlanAnalysis(CountingAmp)
+        first = analysis.analyze("plan one")
+        again = analysis.analyze("plan one")
+        other = analysis.analyze("plan two")
+
+        self.assertIs(first, again)
+        self.assertEqual(calls, {"parse": 2, "unclean": 2, "candidates": 2})
+        self.assertEqual(other[0]["text"], "plan two")
+
+
+class LocalPlanQuarantineNeverBlanksTheBoard(unittest.TestCase):
+    def test_an_unreadable_local_authority_sits_out_while_peers_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            portfolio = root / "portfolio"
+            blank = root / "blank"
+            for path in (home, portfolio, blank):
+                path.mkdir()
+            project(portfolio, name="healthy", display_name="healthy")
+            local = home / ".shadow" / "plans" / "shadow"
+            local.mkdir(parents=True)
+            (local / "PLAN.md").write_bytes(b"\xff\xfe not valid utf-8 \x80")
+
+            seeded = run(
+                home,
+                "status",
+                "--json",
+                cwd=blank,
+                extra_env={"SHADOW_PORTFOLIO_ROOT": str(portfolio)},
+            )
+
+            # A quarantined plan registers broken, so status exits 1 — the
+            # designed contract — but the import must complete: the priority
+            # type bug aborted the whole reconcile before any peer registered.
+            self.assertEqual(seeded.returncode, 1, seeded.stdout + seeded.stderr)
+            self.assertIn("quarantined from board import", seeded.stderr)
+            self.assertNotIn("priority must be 1-5", seeded.stderr)
+            payload = json.loads(seeded.stdout)
+            by_project = {
+                entity["project"]: entity
+                for entity in payload["root_board"]["entities"]
+            }
+            self.assertEqual(by_project["healthy"]["resume"], "~aa11")
+            self.assertIsNone(by_project["shadow"]["resume"])
+
+
 class CorruptPlanTreeBoardView(unittest.TestCase):
     def test_one_plan_failing_to_materialize_renders_broken_and_leaves_the_other(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,7 +162,7 @@ class CorruptPlanTreeBoardView(unittest.TestCase):
             blank = root / "blank"
             for path in (home, portfolio, blank):
                 path.mkdir()
-            healthy = project(portfolio, name="healthy", display_name="healthy")
+            project(portfolio, name="healthy", display_name="healthy")
             sick = project(portfolio, name="sick", display_name="sick")
             source = (sick / "PLAN.md").read_bytes()
             install_plan_tree(sick, source)

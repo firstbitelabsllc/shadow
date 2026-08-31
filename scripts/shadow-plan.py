@@ -22,6 +22,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_plan_store as store  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_grammar as grammar  # noqa: E402
 import shadow_remote_claim as remote_claim  # noqa: E402
 import shadow_root_board as board_store  # noqa: E402
@@ -46,11 +47,19 @@ def _read(path: Path, label: str) -> bytes:
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        check=False,
-    )
+    # The migration verb's probes and mutations answer about the true
+    # repository: an ambient GIT_DIR/GIT_WORK_TREE from the caller's shell
+    # must not redirect either. A missing git binary is a refusal, not a
+    # traceback.
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            check=False,
+            env=_shadow_git.sanitized_git_env(),
+        )
+    except OSError as exc:
+        raise PlanStoreError("git is not available") from exc
 
 
 def _git_context(plan: Path) -> tuple[Path, Path] | None:
@@ -125,13 +134,7 @@ def _git_value(repo: Path, label: str, *args: str) -> str:
 def _canonical_sha256(payload: dict[str, object], field: str) -> str:
     frozen = json.loads(json.dumps(payload))
     frozen.pop(field, None)
-    return hashlib.sha256(
-        json.dumps(
-            frozen,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
+    return store.digest_bytes(store.canonical_json(frozen))
 
 
 def _safe_receipt_path(path: Path, repo: Path) -> Path:
