@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SHADOW = ROOT / "bin" / "shadow"
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+from shadow_version import read_version  # noqa: E402
 
 
 class ShareReadyDocumentationTests(unittest.TestCase):
@@ -60,7 +64,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         VERSION; historical dev docs (plan-archive, superpowers) are exempt."""
         import re as _re
 
-        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        version = read_version(ROOT)
         expected = f"shadow-v{version}"
         shipped = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
         for path in shipped:

@@ -104,7 +104,7 @@ Sealed native-host runs require one of four semantic work classes—`planning`,
 `--delegation direct|required`. Shadow maps the chosen host and class to a
 small checked-in native model policy—Fable/Opus/Sonnet for Claude Code,
 Sol/Terra/Luna for Codex, Fable/Opus/Cursor Grok/Auto for Cursor, and Grok
-4.6/4.5 for Grok. Required delegation enables the host's verified native child
+4.6/4.5 for Grok. Z.AI runs sealed with GLM-5.3-Flash. Required delegation enables the host's verified native child
 door; unsupported child capability fails closed. Shadow does not inspect prompt
 text, select accounts, or silently fall back after a quota failure.
 

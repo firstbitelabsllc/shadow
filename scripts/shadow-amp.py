@@ -46,7 +46,7 @@ PLAN_LEAD_RE: Final = re.compile(
     r"(?P<kind>LESSON|DECISION) (?P<value>.+)$"
 )
 HASH_RE = _grammar.HASH_RE
-ROW_SHAPE_RE: Final = re.compile(r"^- \[")
+ROW_SHAPE_RE: Final = _grammar.ROW_LOOSE_RE
 CONTROL_RE: Final = re.compile(r"[\x00-\x1f\x7f]")
 CAPABILITY_RE: Final = re.compile(r"(?<![0-9A-Za-z_-])/([a-z][a-z0-9-]{0,31})\b")
 SUPERPOWERS_COMPATIBLE_LEAVES: Final = (
@@ -217,7 +217,6 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
     """Return (milestone, row): the in_progress row first, else the first
     ready pending row, milestone order — the same order a cycle resumes in.
     Person-gated rows are never auto-selected."""
-    done = _completed_ids(plan["milestones"])
     if task_id:
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
@@ -225,14 +224,13 @@ def _select(plan: dict, task_id: str | None) -> tuple[dict, dict] | None:
                     return milestone, row
         return None
     claimed = plan.get("claimed") or set()
-    for state_pass in ("in_progress", "pending"):
+    # The canonical candidate ordering owns ready/gated/universe semantics —
+    # re-implementing it here already drifted the needs regex and the row
+    # universe away from the gate once.
+    for row_id in _grammar.candidate_row_ids(plan.get("text", ""), set(claimed)):
         for milestone in plan["milestones"]:
             for row in milestone["rows"]:
-                if row["id"] in claimed:
-                    continue
-                if row["state"] == state_pass and not _gated(row) and (
-                    state_pass == "in_progress" or _ready(row, done)
-                ):
+                if row["id"] == row_id:
                     return milestone, row
     return None
 
@@ -284,7 +282,7 @@ def unclean_note(plan: dict) -> str | None:
         parts.append(f"{len(plan['unparsed'])} row-shaped line(s) the grammar rejects")
     try:
         budget = _board.hot_plan_budget(plan.get("text", "").encode("utf-8"))
-    except (_board.BoardError, UnicodeError):
+    except _board.BoardError:
         budget = {"exceeded": []}
     if budget["exceeded"]:
         parts.append(
@@ -514,18 +512,15 @@ def _read_superpowers_snapshot(
 
 
 def _pack_root_override() -> tuple[str, str]:
-    """(variable, value) for the strongest set pack-root override.
+    """(variable, value) for the pack-root override, or the empty default.
 
     Amp-core configuration — the superpowers slot is gone (2026-08-15) while
-    the delegation guard stays core. Legacy names honored one release train.
-    Whitespace-only values fall through instead of masking a set legacy name.
+    the delegation guard stays core. A whitespace-only value falls through
+    instead of masking an unset variable.
     """
-    for variable in (
-        "SHADOW_AMP_PACK_ROOT",
-    ):
-        value = os.environ.get(variable, "").strip()
-        if value:
-            return variable, value
+    value = os.environ.get("SHADOW_AMP_PACK_ROOT", "").strip()
+    if value:
+        return "SHADOW_AMP_PACK_ROOT", value
     return "SHADOW_AMP_PACK_ROOT", ""
 
 def _superpowers_snapshot(
@@ -762,7 +757,7 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     gates = [
         r for r in milestone["rows"]
         if r["state"] != "completed"
-        and r["fields"].get("proof", "").startswith("gate ")
+        and _gated(r)
         and r is not row
         and r is not dod  # the DoD gets its own line; never list it twice
     ]
@@ -943,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
                 # its checkout; the board already knows where that authority
                 # lives, so the repository-shaped verb still resolves it.
                 plan_path = _board.local_plan_for_repo(repo) or plan_path
-    if args.task and not re.fullmatch(r"~[0-9a-z]{4}", args.task):
+    if args.task and not _grammar.ROW_ID_RE.fullmatch(args.task):
         print(f"shadow amp: --task wants a four-char id like ~ab12, got {args.task}",
               file=sys.stderr)
         return 2

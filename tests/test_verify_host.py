@@ -78,7 +78,12 @@ def run(home: Path, host: str = "claude-code", path: str | None = None,
 
 
 def wired(home: Path, host: str = "claude-code") -> None:
-    """A correctly wired host: mount plus a current standing goal."""
+    """A correctly wired host: mount plus a current standing goal.
+
+    The directive mirrors a real install — one canonical file inside the home
+    tree with the host's instruction path a symlink to it, the layout
+    `shadow doctor` treats as healthy.
+    """
     mount = {"claude-code": ".claude/skills", "codex": ".agents/skills",
              "cursor": ".cursor/skills", "grok": ".grok/skills"}[host]
     (home / mount).mkdir(parents=True, exist_ok=True)
@@ -89,11 +94,14 @@ def wired(home: Path, host: str = "claude-code") -> None:
         "grok": ".grok/AGENTS.md",
     }.get(host)
     if directive:
-        path = home / directive
-        path.parent.mkdir(parents=True, exist_ok=True)
+        canonical = home / "canonical" / "AGENTS.md"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
         block = subprocess.run([str(ROOT / "bin" / "shadow"), "goal"],
                                capture_output=True, text=True, check=True).stdout.strip()
-        path.write_text(f"# my rules\n\nkeep these\n\n{block}\n", encoding="utf-8")
+        canonical.write_text(f"# my rules\n\nkeep these\n\n{block}\n", encoding="utf-8")
+        path = home / directive
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(canonical)
 
 
 def cursor_repo(home: Path, *, instructions: bool = True,
@@ -188,7 +196,7 @@ class AWiredHostPasses(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn("wiring verified", result.stdout)
             self.assertNotIn("[FAIL]", result.stdout)
-            self.assertIn("standing goal is present and current", result.stdout)
+            self.assertIn("current — reads ~/canonical/AGENTS.md", result.stdout)
 
     def test_a_skillbox_elected_product_clone_is_green(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -369,6 +377,29 @@ class EveryCheckCanFail(unittest.TestCase):
         result = self._broken(mutate)
         self.assertEqual(result.returncode, 1)
         self.assertIn("reads the first one", result.stdout)
+
+    def test_a_directive_symlink_leaving_home_fails(self) -> None:
+        # Doctor's law, now verify's too: a host file whose link resolves
+        # outside the private home tree is a fail, however current its text.
+        tmp = tempfile.mkdtemp()
+        outside = tempfile.mkdtemp()
+        try:
+            home = Path(tmp)
+            wired(home)
+            target = Path(outside) / "AGENTS.md"
+            target.write_text(
+                (home / "canonical" / "AGENTS.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            link = home / ".claude" / "CLAUDE.md"
+            link.unlink()
+            link.symlink_to(target)
+            result = run(home)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("symlink leaves the private host root", result.stdout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+            shutil.rmtree(outside, ignore_errors=True)
 
     def test_an_empty_board_fails(self) -> None:
         # THE POINT of the whole milestone. Files can all be in place and the

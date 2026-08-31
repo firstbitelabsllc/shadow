@@ -110,10 +110,22 @@ def brief_origin_values(plan_text: str) -> list[str]:
 
 
 def candidate_row_ids(plan_text: str, claimed: set[str] | None = None) -> list[str]:
-    """Return agent-takeable rows in canonical in-progress/pending order."""
+    """Return agent-takeable rows in canonical in-progress/pending order.
+
+    Only Tasks-section rows are checkpoints: a row-shaped line inside a
+    Contradictions bullet or a Progress note is prose that quotes a row, never
+    a takeable one — the same universe the plan parser models.
+    """
     rows: list[tuple[str, str, dict[str, str]]] = []
     completed: set[str] = set()
+    in_tasks = False
     for line in plan_text.splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            in_tasks = heading == "Tasks" or heading.startswith("Tasks ")
+            continue
+        if not in_tasks:
+            continue
         match = ROW_RE.fullmatch(line)
         if match is None:
             continue

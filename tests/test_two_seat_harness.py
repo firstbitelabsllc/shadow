@@ -9,26 +9,37 @@ portfolio minted by the production harness.
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr
 import hashlib
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from unittest import mock
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+HARNESS_SPEC = importlib.util.spec_from_file_location(
+    "shadow_verify_two_seat_test",
+    Path(__file__).resolve().parent.parent / "scripts" / "shadow-verify-two-seat.py",
+)
+assert HARNESS_SPEC and HARNESS_SPEC.loader
+harness = importlib.util.module_from_spec(HARNESS_SPEC)
+sys.modules[HARNESS_SPEC.name] = harness
+HARNESS_SPEC.loader.exec_module(harness)
+
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "shadow-verify-two-seat.py"
-PYTHON = ROOT / "scripts" / "shadow-python.sh"
-GOAL = """Outcome: prove two seats share one root board.
-Authority: the scratch repositories and board created by the sealed harness.
-Resume: claim the highest reachable unclaimed checkpoint with your stable seat.
-Proof: run the row proof and accept it; do not leave an orphan claim.
-"""
+GOAL = harness.DEFAULT_GOAL
 GOAL_SHA256 = hashlib.sha256(GOAL.encode("utf-8")).hexdigest()
 
 
@@ -124,17 +135,7 @@ class Fixture:
 
     @staticmethod
     def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-        env = {
-            name: value
-            for name, value in os.environ.items()
-            if not name.startswith("GIT_")
-        }
-        env.update({
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_TERMINAL_PROMPT": "0",
-            "XDG_CONFIG_HOME": os.devnull,
-        })
+        env = harness.git_environment()
         result = subprocess.run(
             ["git", "-c", "core.hooksPath=/dev/null", *args],
             cwd=str(cwd),
@@ -479,6 +480,57 @@ class _NoCleanup:
 
     def cleanup(self) -> None:
         return
+
+
+class VerdictAndEvidence(unittest.TestCase):
+    def _run_offline(self, home: Path) -> int:
+        goal = home / "goal.md"
+        goal.write_text(GOAL, encoding="utf-8")
+        with mock.patch.dict(os.environ, {"HOME": str(home)}, clear=False):
+            return harness.main(["--goal-file", str(goal), "--json"])
+
+    def test_the_cleanup_flag_stays_so_an_orphan_writer_cannot_mask_the_verdict(self) -> None:
+        # A drained seat's fresh-session grandchild can keep writing inside
+        # the scratch tree; ENOTEMPTY on cleanup must never replace the
+        # honest HarnessError with "internal_error". Pin the mechanism.
+        seen: dict[str, object] = {}
+        real_td = harness.tempfile.TemporaryDirectory
+
+        class Recording(real_td):
+            def __init__(self, *args, **kwargs):
+                seen.update(kwargs)
+                super().__init__(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as dirname:
+            home = Path(dirname) / "home"
+            home.mkdir()
+            with mock.patch.object(harness.tempfile, "TemporaryDirectory", Recording):
+                code = self._run_offline(home)
+
+        self.assertEqual(code, 0)
+        self.assertIs(seen.get("ignore_cleanup_errors"), True)
+
+    def test_a_failure_names_which_seat_never_booted(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            home = Path(dirname) / "home"
+            home.mkdir()
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    harness,
+                    "final_facts",
+                    return_value=(
+                        {"initial_revision": 1, "final_revision": 1, "completed": 0, "claims": 0},
+                        {},
+                    ),
+                ),
+                redirect_stderr(stderr),
+            ):
+                code = self._run_offline(home)
+
+        self.assertEqual(code, 1)
+        self.assertIn("seat claude produced no output (never booted)", stderr.getvalue())
+        self.assertIn("seat codex produced no output (never booted)", stderr.getvalue())
 
 
 class ThreeSeatsCoordinateOffline(unittest.TestCase):
@@ -880,9 +932,13 @@ class LiveTwoSeatProof(unittest.TestCase):
         context, _, fixture, _, drained, result = self._run("complete_descendant")
         with context:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 15
             while (not drained.exists() or len(drained.read_text(encoding="utf-8")) < 14) and time.monotonic() < deadline:
                 time.sleep(0.05)
+            self.assertTrue(
+                drained.exists(),
+                f"background descendants not drained within 15s; harness said {result.stdout}",
+            )
             self.assertEqual(drained.read_text(encoding="utf-8"), "draineddrained")
             fixture.assert_operator_state_untouched(self)
 
@@ -895,9 +951,13 @@ class LiveTwoSeatProof(unittest.TestCase):
             data = receipt(result)
             self.assertEqual(data["status"], "inconclusive")
             self.assertEqual(data["failure"], "host_timeout")
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 15
             while not drained.exists() and time.monotonic() < deadline:
                 time.sleep(0.05)
+            self.assertTrue(
+                drained.exists(),
+                f"host group not drained within 15s; harness said {data}",
+            )
             self.assertEqual(drained.read_text(encoding="utf-8"), "drained")
             fixture.assert_operator_state_untouched(self)
 

@@ -126,8 +126,6 @@ class StatusTests(unittest.TestCase):
         self.assertIn("not a directory", result.stderr)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 V4_PLAN = """# Demo v4
@@ -325,7 +323,7 @@ class StatusV4Tests(StatusTests):
             (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, str(STATUS), "--root", str(root)],
-                cwd=dirname if dirname != str(ROOT) else "/",
+                cwd=dirname,
                 env={**os.environ, "HOME": str(root / ".home")},
                 capture_output=True,
                 text=True,
@@ -398,13 +396,12 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
         # reported nothing and the wrapping agent asked "which project should I
         # attach to?". An empty cwd scan must fall back to the portfolio root
         # so every entry point shows the SAME durable plan list.
-        import os as _os
 
         with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
             proj = Path(portfolio) / "demo-repo"
             proj.mkdir()
             (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
-            env = dict(_os.environ)
+            env = dict(os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
             env["HOME"] = blank
             env.pop("SHADOW_DEV_ROOT", None)
@@ -426,13 +423,12 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             self.assertIn("--task '~bb22'", result.stdout)
 
     def test_explicit_root_changes_import_scope_but_never_hides_the_board(self) -> None:
-        import os as _os
 
         with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
             proj = Path(portfolio) / "demo-repo"
             proj.mkdir()
             (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
-            env = dict(_os.environ)
+            env = dict(os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
             env["HOME"] = blank
             initialized = subprocess.run(
@@ -461,7 +457,6 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
         # refuse it too — otherwise an external PLAN.md reachable through a
         # symlink reports "exists but failed to load" and blocks the fallback
         # over a file this root does not own.
-        import os as _os
 
         with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
             outside = Path(blank) / "outside" / "external"
@@ -473,7 +468,7 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             proj = Path(portfolio) / "demo-repo"
             proj.mkdir()
             (proj / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
-            env = dict(_os.environ)
+            env = dict(os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
             env["HOME"] = blank
             env.pop("SHADOW_DEV_ROOT", None)
@@ -485,10 +480,9 @@ class StatusPortfolioFallbackTests(unittest.TestCase):
             self.assertIn("showing the portfolio", result.stderr)
 
     def test_retired_board_bypass_flag_is_rejected(self) -> None:
-        import os as _os
 
         with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
-            env = dict(_os.environ)
+            env = dict(os.environ)
             env["SHADOW_PORTFOLIO_ROOT"] = portfolio
             result = subprocess.run(
                 [sys.executable, str(STATUS), "--no-portfolio-fallback"],
@@ -626,7 +620,6 @@ class StatusMatchesAmpTests(unittest.TestCase):
 
 class StatusBrokenPlanTests(unittest.TestCase):
     def test_broken_cwd_plan_cannot_shadow_the_computer_board(self) -> None:
-        import os as _os
         import stat as _stat
 
         with tempfile.TemporaryDirectory() as blank, tempfile.TemporaryDirectory() as portfolio:
@@ -634,7 +627,7 @@ class StatusBrokenPlanTests(unittest.TestCase):
             plan.write_text("# unreadable", encoding="utf-8")
             plan.chmod(0)
             try:
-                env = dict(_os.environ)
+                env = dict(os.environ)
                 env["SHADOW_PORTFOLIO_ROOT"] = portfolio
                 env["HOME"] = blank
                 result = subprocess.run(
@@ -758,3 +751,7 @@ class StatusLintBlockingTests(unittest.TestCase):
                 env={**os.environ, "HOME": str(root / ".home")},
                 capture_output=True, text=True, check=False)
             self.assertNotIn("cannot be trusted", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

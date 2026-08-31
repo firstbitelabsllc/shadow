@@ -1,7 +1,7 @@
 """The one canonical home of the secret- and private-path shapes.
 
 Every runtime surface that refuses secret-shaped or machine-private values
-imports from here; tests/shadow-outcome-validate.py keeps its own deliberately
+imports from here; scripts/shadow-outcome-validate.py keeps its own deliberately
 independent transcription as the second implementation that catches drift.
 """
 

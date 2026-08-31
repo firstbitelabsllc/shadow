@@ -21,13 +21,13 @@ from typing import Final
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
 from shadow_cmd_proof import head_entry, script_operand_issue  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 
 
 LEGAL_MODES: Final = {"explore", "ship"}
 LEGACY_MODES: Final = {"Spike", "Defer", "Challenge", "Broad", "Close"}
-STATES: Final = ("pending", "in_progress", "blocked", "completed")
 ROW_RE = _grammar.ROW_RE
 ROW_LOOSE_RE = _grammar.ROW_LOOSE_RE
 FIELD_RE = _grammar.FIELD_RE
@@ -69,7 +69,6 @@ def _finding(check: str, line: int, severity: str, detail: str) -> dict:
 # `cmd echo done && shadow --version` therefore lints clean, runs `echo`, exits
 # 0, flips the row to completed and writes `-> pass` — while `shadow` never
 # ran. Validating the class word alone cannot see that; the argv can.
-_shell_script_index = _grammar.shell_script_index
 _shell_operators = _grammar.shell_operators
 
 
@@ -566,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
             capture_output=True,
             text=True,
             check=False,
+            env=_shadow_git.sanitized_git_env(),
         )
         if top.returncode or not top.stdout.strip():
             parser.error("--repo must name a Git source checkout")
@@ -586,7 +586,14 @@ def main(argv: list[str] | None = None) -> int:
             continue
         plan = path.resolve()
         if proof_root is not None:
-            state = _board.entity_state(plan)
+            try:
+                state = _board.entity_state(plan)
+            except _board.BoardError as exc:
+                # Same contract as the read arm above: findings on stdout,
+                # worst exit — never a raw traceback.
+                print(f"{path}: this computer's root board is unreadable: {exc}")
+                worst = 1
+                continue
             if (
                 not _board.is_local_plan(plan)
                 or state is None
