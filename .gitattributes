@@ -18,6 +18,8 @@ scripts/dev/shadow-observed-gauntlet.py export-ignore
 scripts/shadow-plan-scale.py export-ignore
 scripts/shadow_plan_scale.py export-ignore
 docs/superpowers/ export-ignore
+scripts/dev/shadow-acceptance-case.py export-ignore
+schemas/acceptance-case-manifest.v1.json export-ignore
 # Docs authoring surface: claudux preferences and the local VitePress preview
 # scaffold. The shipped product is the Markdown under docs/, never the Node
 # tooling that renders it, so none of this belongs in the release artifact.

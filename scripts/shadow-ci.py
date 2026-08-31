@@ -39,6 +39,12 @@ BROWSER_BASELINE = {
 
 GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ((
+        "scripts/dev/shadow-acceptance-case.py",
+        "schemas/acceptance-case-manifest.v1.json",
+    ), (
+        "tests.test_acceptance_case_manifest",
+    )),
+    ((
         "scripts/shadow_root_board.py",
         "scripts/shadow_board_import.py",
         "scripts/shadow_git.py",
