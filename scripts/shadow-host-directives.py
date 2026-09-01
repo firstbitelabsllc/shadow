@@ -110,8 +110,6 @@ from pathlib import Path
 import sys
 from typing import Final
 
-from shadow_durable_lib import fsync_directory
-
 ROOT: Final = Path(os.environ.get("SHADOW_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 DOC: Final = ROOT / "docs" / "reference" / "host-integration.md"
 
@@ -420,7 +418,7 @@ def _sweep_dead_temps_locked(directory: Path) -> None:
         finally:
             os.close(descriptor)
     if swept:
-        fsync_directory(directory, best_effort=True)
+        _fsync_dir(directory)
 
 
 def _sweep_dead_temps(directory: Path) -> None:
@@ -499,6 +497,26 @@ def _owned_temp(directory: Path):
         if lease_fd is not None:
             os.close(lease_fd)
         os.close(directory_fd)
+
+
+def _fsync_dir(directory: Path) -> None:
+    """Flush a rename/link into the directory so the name change is durable.
+
+    `fsync` on the file makes its BYTES survive a crash; the directory ENTRY —
+    the fact that those bytes now wear this name — survives only if the parent
+    directory is synced too. Without this the write is atomically *visible* but
+    not *durable*: a crash immediately after the rename could lose the name
+    change. Kept best-effort — a few filesystems reject a directory fsync — but
+    the common case (APFS, ext4) makes the completed write crash-durable, which
+    is the only condition under which the module docstring claims durability.
+    """
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def _host_reads(host: Path) -> Path:
@@ -608,7 +626,7 @@ def _place_exclusive(path: Path, text: str, *, mode: int | None) -> bool:
             os.link(temporary, path)
         except FileExistsError:
             return False
-        fsync_directory(path.parent, best_effort=True)
+        _fsync_dir(path.parent)
         return True
 
 
@@ -706,7 +724,7 @@ def _atomic_write(path: Path, text: str, *, mode: int | None,
             if _test_between_final_verify_and_replace is not None:
                 _test_between_final_verify_and_replace()
             os.replace(temporary, path)
-            fsync_directory(path.parent, best_effort=True)
+            _fsync_dir(path.parent)
             final = os.lstat(path)
             if (final.st_dev, final.st_ino) != (placed.st_dev, placed.st_ino):
                 raise ValueError(
