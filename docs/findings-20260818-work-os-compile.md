@@ -55,9 +55,9 @@ migrated plans, or rollback accepting the digests the header actually prints.
 
 Bounded discovery imports every portfolio-root child owning a root PLAN.md —
 correct as a default, but there is no way to keep one repo OFF a machine's
-board. Hit live: the personal `trysnowcubes-web` clone sits in the work Mac's
-`~/Snapchat/Dev`, so it auto-boarded on 2026-08-14 and its stale personal-seat
-claim kept surfacing in work sweeps. `shadow priority --value 5` only re-ranks
+board. Hit live: a personal project's clone sat inside a work machine's portfolio
+root, so it auto-boarded on 2026-08-14 and its stale personal-seat claim kept
+surfacing in that machine's work sweeps. `shadow priority --value 5` only re-ranks
 it; it still renders and its claims still list. The only real escapes are
 moving the checkout out of the portfolio root (which breaks the registered
 locator and strands existing claims) or deleting the plan. Fix shape: an
