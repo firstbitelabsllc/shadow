@@ -6,6 +6,11 @@ each native CLI receives a real prompt in a disposable Git fixture; structured
 native output supplies model/usage evidence; Codex's native OTel traces supply
 its otherwise-hidden model; a red provisional span is written to local
 Langfuse and read back before any final adjudication span can be green.
+
+`SHADOW_CODEX_EXTRA_ARGS` appends explicit extra `codex exec` arguments for
+machines whose provider is not stock OpenAI auth (e.g. a custom gateway
+passed as -c provider config); it composes with --ignore-user-config because
+the args are explicit, not inherited config.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -715,8 +721,13 @@ def _command(
         # home before exec'ing codex; the user config there is the provider.
         binary = "codexz" if host == "codex-zai" else "codex"
         ignore_config = [] if host == "codex-zai" else ["--ignore-user-config"]
+        # SHADOW_CODEX_EXTRA_ARGS: explicit extra `codex exec` args for
+        # machines whose provider is not stock OpenAI auth (e.g. a custom
+        # gateway passed as -c provider config). Composes with
+        # --ignore-user-config: the args are explicit, not inherited config.
+        extra = shlex.split(os.environ.get("SHADOW_CODEX_EXTRA_ARGS", ""))
         command = [
-            binary, "exec", *ignore_config, *otel_args,
+            binary, "exec", *ignore_config, *otel_args, *extra,
             "--model", route.model, "--json", "--ephemeral",
             "--sandbox", "workspace-write", "--skip-git-repo-check", "-C", str(repo),
         ]
