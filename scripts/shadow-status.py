@@ -258,12 +258,17 @@ def append_live_work(lines: list[str], record: dict, seat: str | None) -> None:
     """Append the claims and exact executable move for one entity."""
     live_claims = sorted(
         record.get("live_claims", []),
-        key=lambda claim: (claim["owner"] != seat if seat else False, claim["row"]),
+        key=lambda claim: (
+            claim["owner"] != seat if seat else False,
+            not claim.get("stale"),
+            claim["row"],
+        ),
     )
     for claim in live_claims:
         lines.append(
             f"  In flight: [{claim['state']}] {claim['text']} "
             f"| Owner: {claim['owner']}"
+            + (" | STALE — probe proof, then adopt, park, or close" if claim.get("stale") else "")
         )
         if (
             record.get("entity")
@@ -699,6 +704,7 @@ def board_records(
                 .get("proof", "")
                 .partition(" ")[0],
                 "remote": bool(claim.get("remote")),
+                "stale": _board.claim_is_stale(claim),
             }
             for claim in claims
         ]

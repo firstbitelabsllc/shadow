@@ -865,3 +865,49 @@ class InFlightLabelsAreHonest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SeatViewStaleTests(unittest.TestCase):
+    def _record(self) -> dict:
+        return {
+            "project": "demo",
+            "entity_name": "Demo",
+            "path": "/x/PLAN.md",
+            "mode": "ship",
+            "priority": 1,
+            "resume": "resume text",
+            "resume_human": "resume text",
+            "entity": "e" * 64,
+            "live_claims": [
+                {
+                    "row": "~aa11",
+                    "owner": "seat-a",
+                    "state": "pending",
+                    "text": "fresh row",
+                    "proof_class": "cmd",
+                    "remote": False,
+                    "stale": False,
+                },
+                {
+                    "row": "~bb22",
+                    "owner": "seat-a",
+                    "state": "pending",
+                    "text": "stale row",
+                    "proof_class": "cmd",
+                    "remote": False,
+                    "stale": True,
+                },
+            ],
+        }
+
+    def test_stale_owned_claim_renders_its_marker_and_sorts_first(self) -> None:
+        view = status.render_seat_v4(self._record(), "seat-a")
+        stale_line = next(line for line in view.splitlines() if "stale row" in line)
+        fresh_line = next(line for line in view.splitlines() if "fresh row" in line)
+        self.assertIn("STALE — probe proof, then adopt, park, or close", stale_line)
+        self.assertNotIn("STALE", fresh_line)
+        self.assertLess(view.index("stale row"), view.index("fresh row"))
+
+
+if __name__ == "__main__":
+    unittest.main()
