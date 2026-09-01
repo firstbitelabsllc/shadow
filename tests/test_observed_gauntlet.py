@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import http.server
 import importlib.util
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -120,6 +122,23 @@ class ReadbackGateTests(unittest.TestCase):
     def test_accepted_but_never_readable_is_red(self) -> None:
         with mock.patch.object(gauntlet.Sink, "verify_trace", return_value=False):
             self.assertEqual(self.run_gauntlet(), 1)
+
+    def test_failed_job_tail_lands_in_the_local_log(self) -> None:
+        failing_job = ["-c", "import sys; print('boom-tail-marker'); sys.exit(3)"]
+        scrubbed = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("SHADOW_LANGFUSE")
+        }
+        out = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, {**scrubbed, **self.env}, clear=True),
+            mock.patch.object(gauntlet, "JOBS", {"failing": failing_job}),
+            contextlib.redirect_stdout(out),
+        ):
+            rc = gauntlet.main(["--jobs", "failing"])
+        self.assertEqual(rc, 1)
+        self.assertIn("boom-tail-marker", out.getvalue())
 
     def test_rejected_delivery_is_red(self) -> None:
         FakeLangfuse.accept_otel = False

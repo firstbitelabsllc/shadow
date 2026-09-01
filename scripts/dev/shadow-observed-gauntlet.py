@@ -314,6 +314,11 @@ def main(argv: list[str] | None = None) -> int:
                 ],
             })
             print(f"[round {round_number}] {name}: {'pass' if passed else f'FAIL rc={returncode}'} in {duration:.1f}s")
+            if not passed and tail:
+                # The tail's only other copy is a span attribute: when trace
+                # delivery fails (or the trace host is down), that copy is
+                # gone. Keep the redacted failure detail in the local log too.
+                print(tail)
         spans = [{
             "traceId": trace_id,
             "spanId": root_span,
