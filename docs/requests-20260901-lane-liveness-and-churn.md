@@ -1,50 +1,63 @@
-# Source change requests — 2026-09-01 (lane liveness, churn signal)
+# Source change requests — 2026-09-01 (claim liveness, churn signal)
 
 Written, not implemented. Each item states the failure, the evidence, and the
-smallest remedy the owning seat should consider. Host- and model-agnostic:
-the evidence patterns below come from heavy multi-week use of agent lanes
-coordinated through a Shadow board, but nothing here depends on any one host,
-model, or vendor.
+smallest remedy the owning seat should consider. Host- and model-agnostic: the
+patterns below come from heavy multi-week use of agent lanes coordinated
+through a Shadow board, but nothing here depends on one host, model, or vendor.
 
-## 1. A claim can die silently and look parked (lane liveness)
+Both items were narrowed after review against current source. The first
+originally claimed a dead claim is indistinguishable from active work, which is
+false: claims already carry an eight-hour `return_by`, `claim_is_stale()`
+derives expiry at read time, and `shadow status --in-flight` already prints
+`STALE — probe proof, then adopt, park, or close`. The second originally asked
+for a churn heuristic over activity markers the board does not store.
 
-**Failure.** A claimed checkpoint whose worker dies outside Shadow's view
-(spend cap, provider rejection, crashed process) keeps its claimed state
-indefinitely. Nothing distinguishes "worker is mid-flight" from "worker has
-been dead for hours"; seats resume past the row assuming it is occupied.
+## 1. The stale bit exists but the ordinary seat view does not show it
 
-**Evidence pattern.** In one 3-week window, lanes died silently when an
-external spend cap tripped: the harness recorded the deaths as ordinary
-completions with null output, and the board still showed the claims as
-active. Discovery happened by accident, hours later.
+**Failure.** `shadow status --by <seat>` renders a seat's own claims and their
+`Continue:` line without any staleness marker, while `--in-flight` renders the
+same claims with `STALE` and its recovery. A seat that reads its ordinary view
+sees an expired claim as ongoing work.
 
-**Smallest remedy.** Give claims an optional liveness cadence at throw time
-(`shadow throw --heartbeat <interval>` or an entity-level default). A claim
-with no board-visible receipt (progress line, status flip, or explicit
-`shadow ping`) inside its cadence surfaces in `shadow status` as
-`stale/presumed-dead` — advisory, not auto-returned. Probing a stale claim
-stays one exact command, matching the existing "a mid-flight reading is not
-a death certificate" rule: the signal prompts a proof probe, never a silent
-reclaim.
+**Evidence pattern.** Three claims owned by one seat sat expired for three days
+and were only noticed through the in-flight view. Nothing was broken: the data
+was correct and the ordinary view simply did not carry it.
 
-## 2. A claim can burn without moving (churn signal)
+**Smallest remedy.** Render the existing stale bit and its existing recovery
+text in the seat view before the `Continue:` line, and sort stale owned claims
+first. No new predicate, no new wording, no new command. This is one renderer
+change over shipped state.
 
-**Failure.** A claimed checkpoint can accumulate large amounts of activity —
-dozens of context compactions, thousands of tool calls — while making no
-checkpoint movement, and the board has no way to distinguish that from
-productive work. The cost is real (one observed lane: 25 hours wall-clock,
-29 compactions, ~350M cumulative tokens, repeatedly re-deriving decisions it
-had already made).
+**Related, separate ask.** The eight-hour lease is fixed. A long-running lane
+and a five-minute lane want different cadences, so an optional per-throw or
+per-entity cadence would make the existing stale bit meaningful sooner. That is
+a real gap, unlike the detection itself, and it stays advisory: a stale claim is
+surfaced, never auto-returned, because a mid-flight reading is not a death
+certificate.
 
-**Evidence pattern.** Multi-week transcript review: the dominant waste mode
-was not failure but churn — long lanes re-litigating settled decisions after
-each compaction, and poll loops repeating identical calls dozens of times
-with no new information.
+## 2. A churn signal needs an observable it does not have
 
-**Smallest remedy.** An advisory churn heuristic in `shadow lint` or
-`shadow status`: flag a claim whose receipts show high activity markers
-(e.g., many progress lines, or a configurable age threshold) with no
-milestone/checkpoint flip since the last flag. The remedy is a nudge to
-re-scope or split the checkpoint — output only, no automatic state change.
-Both remedies keep Shadow's rule that probes are explicit and state changes
-are claimed by seats, never inferred by the tool.
+**Failure.** A claimed checkpoint can accumulate very large amounts of activity
+while making no checkpoint movement, and the board cannot distinguish that from
+productive work.
+
+**Evidence pattern.** In one observed lane: twenty-five hours of wall clock,
+twenty-nine context compactions, and repeated re-derivation of decisions the
+plan had already recorded. The dominant waste mode across the window was churn
+rather than failure.
+
+**Why this is not yet a request.** The board stores only claim identity, owner,
+and lease. Progress lines are durable plan evidence, not runtime telemetry, so
+nothing on the board counts tool calls or compactions. An age threshold would
+flag a churning lane and a legitimately long lane identically, which is not the
+promised distinction.
+
+**What would make it one.** Either an observable host-side activity signal a
+seat reports voluntarily, or a narrower ask: flag a claim whose plan has gained
+no new receipt since its last flag, which is plan-observable today and is
+honestly age-based staleness rather than churn detection.
+
+**Meanwhile, the cheaper fix is upstream of the tool.** Re-deriving settled
+decisions after a context reset is addressed by the resume packet already
+carrying the plan's latest LESSON and DECISION lines, and by a law that tells a
+resumed seat to read them first.
