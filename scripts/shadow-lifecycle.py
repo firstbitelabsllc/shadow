@@ -761,7 +761,7 @@ def assert_archive_immutable(
     )
     candidate_plan = candidate["plan"].encode("utf-8")
     if source_snapshot is not None and source_snapshot.root is not None:
-        candidate_plan = _plan_store._with_lineage(
+        candidate_plan = _plan_store.with_lineage(
             _plan_store.build_tree(candidate_plan),
             generation=source_snapshot.root["generation"] + 1,
             previous_root=source_snapshot.root_sha256,
@@ -1236,7 +1236,7 @@ def recover_progress_half_state(
     candidate_archive = candidate["archive"].encode("utf-8")
     candidate_root = candidate_plan
     if source_snapshot.root is not None:
-        candidate_tree = _plan_store._with_lineage(
+        candidate_tree = _plan_store.with_lineage(
             _plan_store.build_tree(candidate_plan),
             generation=source_snapshot.root["generation"] + 1,
             previous_root=source_snapshot.root_sha256,
