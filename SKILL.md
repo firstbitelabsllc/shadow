@@ -133,8 +133,11 @@ but does not confine the trusted proof process to that directory. Only on a
 pass does it rewrite the plan and append the paired PROOF line; a private plan
 also records a path-free source identity and full SHA. Infrastructure plans
 remain local under `~/.shadow/plans/` and are never committed. `read` and
-`gate` proofs are person judgments — re-observe them yourself and append the
-PROOF line with the flip.
+`gate` proofs stay person judgments — accept reruns nothing for them. Re-observe
+the surface, append `- <ts> ~hash PROOF <the row's exact proof> -> <what you
+observed>` under `## Progress` and commit it; the same `shadow accept --row
+'~hash' --by <seat>` then flips the row and releases the claim from that
+receipt, for the claim owner only. A `cmd` row keeps rerunning.
 
 ## Goal chaining
 

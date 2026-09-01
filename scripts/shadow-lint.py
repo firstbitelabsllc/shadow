@@ -540,8 +540,8 @@ def lint_plan(
                     "COMPLETED-NO-PROOF", number, "blocking",
                     f"{row_id} is completed with no '<ts> {row_id} PROOF <proof> -> <result>' "
                     "line in ## Progress; "
-                    "run `shadow accept` for a cmd proof, or re-observe a read/gate proof and "
-                    "append the line with the flip",
+                    "run `shadow accept`: it reruns a cmd proof, and flips a read/gate "
+                    "row from the observation line its owner appended here",
                 )
             )
 

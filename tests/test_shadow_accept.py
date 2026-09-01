@@ -64,7 +64,8 @@ def make_repo(root: Path, content: str = "hello") -> Path:
     return repo
 
 
-def run_accept(repo: Path, row: str) -> subprocess.CompletedProcess[str]:
+def claim_row(repo: Path, row: str, owner: str = "seat-a") -> Path:
+    """Register the repo's plan on a scratch board and claim one row."""
     home = repo.parent / "home"
     home.mkdir(exist_ok=True)
     plan = repo / "PLAN.md"
@@ -87,11 +88,16 @@ def run_accept(repo: Path, row: str) -> subprocess.CompletedProcess[str]:
         accept._board.claim(
             plan,
             row,
-            "seat-a",
+            owner,
             project="demo",
             priority=3,
             home=home,
         )
+    return home
+
+
+def run_accept(repo: Path, row: str) -> subprocess.CompletedProcess[str]:
+    home = claim_row(repo, row)
     return subprocess.run(
         [
             sys.executable,
@@ -4292,6 +4298,349 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             self.assertIn("Git-backed", result.stderr)
             self.assertIn("--repo", result.stderr)
             self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), before)
+
+
+OBSERVED_PLAN = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M — the surface is observed
+- [in_progress] the release page names v1 ~aa11 | proof: read docs/release.md -> the page names v1
+- [in_progress] the owner cuts the release ~bb22 | proof: gate leo resume: release cut
+- [in_progress] x.txt says hello ~cc33 | proof: cmd python3 -c "import pathlib,sys; sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)"
+- [pending] shipped ~dd44 (DoD) | proof: gate leo resume: everything above lands
+
+## Progress
+
+- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
+"""
+
+READ_OBSERVATION = (
+    "- 2026-09-01T09:00:00Z ~aa11 PROOF read docs/release.md -> the page names v1"
+    " -> observed: the page names v1"
+)
+GATE_OBSERVATION = (
+    "- 2026-09-01T09:05:00Z ~bb22 PROOF gate leo resume: release cut"
+    " -> leo cut the release"
+)
+
+
+def observed_repo(root: Path, *progress: str, content: str = "hello") -> Path:
+    """A committed plan carrying a read row, a gate row, and a cmd row."""
+    repo = make_repo(root, content=content)
+    plan = OBSERVED_PLAN + "".join(f"{line}\n" for line in progress)
+    (repo / "PLAN.md").write_text(plan, encoding="utf-8")
+    (repo / "docs").mkdir()
+    (repo / "docs" / "release.md").write_text("v1\n", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the observed plan")
+    return repo
+
+
+class ReadAndGateProofsFlipFromRecordedObservation(unittest.TestCase):
+    """PR #628 request 2: `read` and `gate` had no owner-side completion path.
+
+    A `cmd` checkpoint flips through accept, which reruns the command. A
+    `read` or `gate` checkpoint had nothing mechanical to rerun, so the
+    documented practice was to append the observation by hand and return the
+    claim — leaving the row's completion and its receipt on two different
+    paths, which is exactly what makes a cold resume ambiguous. The person's
+    judgment stays theirs: accept reruns nothing and appends nothing. It reads
+    the receipt the owner already committed and performs the same
+    publish-then-release ordering `cmd` uses.
+    """
+
+    def _accept_as(
+        self,
+        repo: Path,
+        row: str,
+        seat: str,
+    ) -> subprocess.CompletedProcess[str]:
+        home = claim_row(repo, row)
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--repo",
+                str(repo),
+                "--row",
+                row,
+                "--by",
+                seat,
+            ],
+            env={**os.environ, "HOME": str(home)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_a_read_row_flips_from_its_recorded_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = observed_repo(Path(dirname).resolve(), READ_OBSERVATION)
+
+            result = run_accept(repo, "~aa11")
+
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            files = git(repo, "show", "--name-only", "--pretty=format:", "HEAD").split()
+            state = accept._board.entity_state(
+                repo / "PLAN.md", home=repo.parent / "home"
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("- [completed] the release page names v1 ~aa11", plan)
+        # The observation the owner recorded is the receipt: exactly one, and
+        # accept never writes a second, machine-authored one beside it.
+        self.assertEqual(plan.count(READ_OBSERVATION), 1)
+        self.assertNotIn("~aa11 PROOF read docs/release.md -> the page names v1 -> pass", plan)
+        self.assertEqual(files, ["PLAN.md"])
+        self.assertEqual([], [claim["row"] for claim in state["claims"]])
+        self.assertIn("observed: the page names v1", result.stdout)
+
+    def test_a_gate_row_flips_from_its_recorded_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = observed_repo(Path(dirname).resolve(), GATE_OBSERVATION)
+
+            result = run_accept(repo, "~bb22")
+
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+            state = accept._board.entity_state(
+                repo / "PLAN.md", home=repo.parent / "home"
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("- [completed] the owner cuts the release ~bb22", plan)
+        self.assertEqual(plan.count(GATE_OBSERVATION), 1)
+        self.assertEqual([], [claim["row"] for claim in state["claims"]])
+        self.assertIn("leo cut the release", result.stdout)
+
+    def test_a_row_without_a_recorded_observation_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = observed_repo(Path(dirname).resolve())
+            before = (repo / "PLAN.md").read_text(encoding="utf-8")
+
+            result = run_accept(repo, "~aa11")
+
+            after = (repo / "PLAN.md").read_text(encoding="utf-8")
+            state = accept._board.entity_state(
+                repo / "PLAN.md", home=repo.parent / "home"
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("carries no recorded observation", result.stderr)
+        self.assertIn("~aa11 PROOF read docs/release.md -> the page names v1", result.stderr)
+        self.assertEqual(before, after)
+        self.assertEqual(["~aa11"], [claim["row"] for claim in state["claims"]])
+
+    def test_only_the_claim_owner_can_flip_a_recorded_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = observed_repo(Path(dirname).resolve(), READ_OBSERVATION)
+            before = (repo / "PLAN.md").read_text(encoding="utf-8")
+
+            result = self._accept_as(repo, "~aa11", "seat-b")
+
+            after = (repo / "PLAN.md").read_text(encoding="utf-8")
+            state = accept._board.entity_state(
+                repo / "PLAN.md", home=repo.parent / "home"
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("~aa11 is claimed by seat-a, not seat-b", result.stderr)
+        self.assertEqual(before, after)
+        self.assertEqual(["~aa11"], [claim["row"] for claim in state["claims"]])
+
+    def test_an_observation_line_cannot_flip_a_cmd_row(self) -> None:
+        # A cmd row keeps rerunning. The branch is decided by the ROW's proof
+        # class, so a hand-written observation beside a cmd row is inert.
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = observed_repo(
+                Path(dirname).resolve(),
+                "- 2026-09-01T09:10:00Z ~cc33 PROOF read x.txt -> says hello"
+                " -> observed: x.txt says hello",
+                content="goodbye",
+            )
+            before = (repo / "PLAN.md").read_text(encoding="utf-8")
+
+            result = run_accept(repo, "~cc33")
+
+            after = (repo / "PLAN.md").read_text(encoding="utf-8")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("the proof did not pass", result.stderr)
+        self.assertEqual(before, after)
+
+    def test_an_observation_cannot_reuse_the_reserved_accept_result(self) -> None:
+        # `pass (accept)` is the result a rerun writes; a read row wearing it
+        # would launder a person judgment into a machine acceptance receipt.
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = observed_repo(
+                Path(dirname).resolve(),
+                "- 2026-09-01T09:15:00Z ~aa11 PROOF read docs/release.md"
+                " -> the page names v1 -> pass (accept)",
+            )
+            before = (repo / "PLAN.md").read_text(encoding="utf-8")
+
+            result = run_accept(repo, "~aa11")
+
+            after = (repo / "PLAN.md").read_text(encoding="utf-8")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("pass (accept)", result.stderr)
+        self.assertIn("must record what was observed", result.stderr)
+        self.assertEqual(before, after)
+
+    def test_a_machine_local_read_row_flips_from_its_recorded_observation(self) -> None:
+        # The live board's high-value read/gate rows are machine-local plans;
+        # they take the same owner-only path with the same selectors.
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            home = root / "home"
+            repo = root / "dev" / "widget"
+            repo.mkdir(parents=True)
+            git(repo, "init", "-q")
+            git(repo, "config", "user.email", "t@example.invalid")
+            git(repo, "config", "user.name", "T")
+            git(repo, "remote", "add", "origin", "git@github.com:example/widget.git")
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-qm", "seed")
+
+            plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(
+                "# Widget\n\n## Brief\n\n- Project: widget\n- Mode: ship\n"
+                f"- Origin: {WIDGET_PROOF_ORIGIN}\n\n## Tasks\n\n"
+                "### M — the hosted surface is observed\n"
+                "- [in_progress] the deploy is live ~aa11 | proof: read "
+                "https://widget.invalid/health -> reports ok\n"
+                "- [pending] widget done ~bb22 (DoD) | proof: cmd true | needs: ~aa11\n\n"
+                "## Progress\n\n"
+                "- 2026-09-01T09:00:00Z ~aa11 PROOF read https://widget.invalid/health"
+                " -> reports ok -> observed: health reports ok\n",
+                encoding="utf-8",
+            )
+            payload = accept._board.reconcile(
+                [
+                    {
+                        "plan": str(plan),
+                        "project": "widget",
+                        "priority": 2,
+                        "candidates": ["~aa11"],
+                    }
+                ],
+                [],
+                home=home,
+            )
+            entity = payload["entities"][0]["id"]
+            accept._board.claim(
+                plan, "~aa11", "seat-a", project="widget", priority=2, home=home
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--entity",
+                    entity,
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~aa11",
+                    "--by",
+                    "seat-a",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            text = plan.read_text(encoding="utf-8")
+            state = accept._board.entity_state(plan, home=home)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("- [completed] the deploy is live ~aa11", text)
+        self.assertEqual(text.count("~aa11 PROOF read"), 1)
+        self.assertNotIn("~aa11 SOURCE", text)
+        self.assertEqual([], [claim["row"] for claim in state["claims"]])
+
+
+class CallerTimeoutGovernsWorktreeCreation(unittest.TestCase):
+    """PR #628 request 3: acceptance timed out building its clean worktree.
+
+    Recorded in a live entity plan on 2026-08-18: a raised acceptance timeout
+    still failed on clean-worktree creation while the same proof commands
+    passed directly. `git worktree add` carried a private 30-second budget the
+    caller could not raise, and the refusal named no stage.
+    """
+
+    @staticmethod
+    def _worktree_add_slower_than(threshold: int):
+        """Fail `git worktree add` only when the caller's budget is that small."""
+        real_run = subprocess.run
+        budgets: list[int | None] = []
+
+        def run(args, **kwargs):
+            argv = list(args)
+            if "worktree" in argv and "add" in argv:
+                budget = kwargs.get("timeout")
+                budgets.append(budget)
+                if budget is not None and budget <= threshold:
+                    raise subprocess.TimeoutExpired(argv, budget)
+            return real_run(args, **kwargs)
+
+        return run, budgets
+
+    def _accept(self, repo: Path, timeout: int, run) -> tuple[int, str]:
+        home = claim_row(repo, "~ab12")
+        output = io.StringIO()
+        with mock.patch.object(subprocess, "run", run), mock.patch.dict(
+            os.environ, {"HOME": str(home)}
+        ), redirect_stdout(output), redirect_stderr(output):
+            code = accept.main(
+                [
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~ab12",
+                    "--by",
+                    "seat-a",
+                    "--no-push",
+                    "--timeout-seconds",
+                    str(timeout),
+                ]
+            )
+        return code, output.getvalue()
+
+    def test_a_tiny_caller_timeout_fails_naming_the_worktree_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve())
+            before = (repo / "PLAN.md").read_text(encoding="utf-8")
+            head = git(repo, "rev-parse", "HEAD")
+            run, budgets = self._worktree_add_slower_than(2)
+
+            code, output = self._accept(repo, 2, run)
+
+            after = (repo / "PLAN.md").read_text(encoding="utf-8")
+            state = accept._board.entity_state(
+                repo / "PLAN.md", home=repo.parent / "home"
+            )
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
+        self.assertEqual(code, 1, output)
+        self.assertIn("worktree creation exceeded 2s", output)
+        self.assertEqual(budgets, [2])
+        self.assertEqual(before, after)
+        self.assertEqual(["~ab12"], [claim["row"] for claim in state["claims"]])
+
+    def test_a_generous_caller_timeout_creates_the_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve())
+            run, budgets = self._worktree_add_slower_than(2)
+
+            code, output = self._accept(repo, 900, run)
+
+            plan = (repo / "PLAN.md").read_text(encoding="utf-8")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(budgets, [900])
+        self.assertIn("- [completed] x.txt says hello ~ab12", plan)
+        self.assertIn("~ab12 PROOF", plan)
 
 
 if __name__ == "__main__":

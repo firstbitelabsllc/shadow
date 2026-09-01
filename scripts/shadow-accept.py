@@ -12,8 +12,12 @@ machine-local plan. A declared Brief ``Origin:`` must equal that checkout's
 normalized identity; the first local-only accept promotes an opaque path-free
 identity into ``Origin:``. The path-free ``--entity`` form reconciles an
 authenticated, published ``cmd`` completion whose remote journal remains
-acquired and still refuses a local plan. ``read`` and ``gate`` proofs are
-person/agent judgments and are refused here on purpose.
+acquired and still refuses a local plan. ``read`` and ``gate`` proofs stay
+person/agent judgments: nothing is rerun for them, so the owner records the
+observation as a Progress PROOF receipt first and this command flips the row
+and releases the claim from that exact receipt. The caller's
+``--timeout-seconds`` governs every stage of one acceptance, clean-worktree
+creation included, and an expiry names the stage that exceeded it.
 """
 
 from __future__ import annotations
@@ -103,6 +107,11 @@ OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
 )
 LOCAL_SOURCE_RECEIPT_CUTOVER = "2026-08-28T04:29:56Z"
 PROOF_RESULT_SCHEMA = "shadow.proof-result.v1"
+# The result text a rerun cmd acceptance writes, and the two proof classes a
+# person observes instead of rerunning.
+ACCEPT_PROOF_RESULT = "pass (accept)"
+OBSERVED_PROOF_KINDS = ("read", "gate")
+DEFAULT_TIMEOUT_SECONDS = 900
 PROOF_MARKER_RE = _grammar.PROOF_MARKER_RE
 PROOF_FLOOR_RE = _grammar.PROOF_FLOOR_RE
 PROPOSAL_ATTEMPT_MAX_BYTES = _host.MAX_ATTEMPT_BYTES
@@ -390,7 +399,19 @@ def row_id_at_line(text: str, line: int) -> str | None:
     return match.group("id") if match else None
 
 
-def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
+def git_completed(
+    repo: Path,
+    *args: str,
+    timeout: int = 30,
+    stage: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run one bounded Git command, naming ``stage`` when its budget expires.
+
+    Recorded 2026-08-18: a raised acceptance timeout still failed while the
+    clean worktree was being created, and the refusal said only that Git state
+    could not be read. A budget the caller cannot raise, reported as a stage
+    the caller cannot name, is two defects in one line.
+    """
     try:
         return subprocess.run(
             ["git", "-C", str(repo), *args],
@@ -399,7 +420,13 @@ def git_completed(repo: Path, *args: str, timeout: int = 30) -> subprocess.Compl
             timeout=timeout,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        if stage is not None:
+            raise AcceptError(
+                f"{stage} exceeded {timeout}s; raise --timeout-seconds and retry"
+            ) from exc
+        raise AcceptError(f"project Git state cannot be read: {exc}") from exc
+    except OSError as exc:
         raise AcceptError(f"project Git state cannot be read: {exc}") from exc
 
 
@@ -831,6 +858,8 @@ def commit_completed_plan(
     original_text: str,
     updated_text: str,
     resumes: list[str],
+    *,
+    subject: str | None = None,
 ) -> tuple[dict, dict[str, str], str]:
     """Create one exact source commit while preserving unrelated index state."""
     plan_pathspec = str(plan_relative)
@@ -876,7 +905,7 @@ def commit_completed_plan(
                     "commit",
                     "--only",
                     "-m",
-                    f"shadow accept: {row_id} proven in a clean checkout",
+                    subject or f"shadow accept: {row_id} proven in a clean checkout",
                     "--",
                     *pathspecs,
                 )
@@ -938,13 +967,19 @@ def proof_passes(worktree: Path, proof: list[str], timeout_seconds: int) -> bool
     return result is not None and result.returncode == 0
 
 
-def review_checkout_is_clean(worktree: Path, expected_head: str) -> bool:
+def review_checkout_is_clean(
+    worktree: Path,
+    expected_head: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> bool:
     status = git_completed(
         worktree,
         "status",
         "--porcelain=v1",
         "--ignored=matching",
         "--untracked-files=all",
+        timeout=timeout_seconds,
+        stage="worktree inspection",
     )
     if status.returncode or status.stdout.strip():
         return False
@@ -982,7 +1017,10 @@ def grade_proof_result(
 # Moved verbatim from the retired Drive engine (scripts/shadow-drive.py):
 # the clean-checkout review is the mechanical trust boundary and survives
 # every simplification of the vocabulary around it.
-def lead_review_pool(repo: Path) -> Path:
+def lead_review_pool(
+    repo: Path,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> Path:
     """One pruned pool for lead review worktrees beside the source checkout.
 
     A crashed prior run can leave a registered-but-deleted worktree that
@@ -990,15 +1028,36 @@ def lead_review_pool(repo: Path) -> Path:
     """
     pool = repo.parent / f"{repo.name}-shadow-accept"
     pool.mkdir(exist_ok=True)
-    git_completed(repo, "worktree", "prune", timeout=15)
+    git_completed(
+        repo,
+        "worktree",
+        "prune",
+        timeout=timeout_seconds,
+        stage="worktree pruning",
+    )
     return pool
 
 
-def create_lead_review_worktree(repo: Path, attempt: Path, lane_id: str, commit: str) -> Path:
+def create_lead_review_worktree(
+    repo: Path,
+    attempt: Path,
+    lane_id: str,
+    commit: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> Path:
     destination = attempt / lane_id
     if destination.is_symlink() or destination.exists():
         raise AcceptError("lead review location is unsafe")
-    result = git_completed(repo, "worktree", "add", "--detach", str(destination), commit, timeout=30)
+    result = git_completed(
+        repo,
+        "worktree",
+        "add",
+        "--detach",
+        str(destination),
+        commit,
+        timeout=timeout_seconds,
+        stage="worktree creation",
+    )
     if result.returncode:
         raise AcceptError("a clean lead review checkout could not be created")
     return destination
@@ -1017,7 +1076,40 @@ def lead_review_passes(
     return expected_head is None or review_checkout_is_clean(
         worktree,
         expected_head,
+        timeout_seconds,
     )
+
+
+def recorded_observation(plan_text: str, row_id: str, proof: str) -> str:
+    """Return the observation the row's owner already recorded in Progress.
+
+    A `read` or `gate` proof is a person judgment: there is nothing to rerun,
+    so the receipt cannot come from this process. It comes from the Progress
+    line the owner appended and committed for this exact row and this exact
+    proof — the same `<ts> ~id PROOF <proof> -> <result>` grammar lint and
+    `return` already read. Keeping the observation in the plan keeps it in
+    one place; accept only stops leaving the flip and the receipt on two
+    different paths.
+    """
+    kind = proof.split(" ", 1)[0]
+    observed = [
+        result
+        for recorded_proof, result in _board.progress_proof_receipts(plan_text, row_id)
+        if recorded_proof == proof
+    ]
+    if not observed:
+        raise AcceptError(
+            f"{row_id} is a {kind} proof and carries no recorded observation; "
+            f"re-observe it, append `- <ts> {row_id} PROOF {proof} -> "
+            "<what you observed>` under ## Progress, commit it, then rerun "
+            "shadow accept"
+        )
+    if ACCEPT_PROOF_RESULT in observed:
+        raise AcceptError(
+            f"{row_id} records `{ACCEPT_PROOF_RESULT}`, the result reserved for a "
+            f"rerun cmd proof; a {kind} observation must record what was observed"
+        )
+    return observed[-1]
 
 
 def require_accept_ready_row(
@@ -1025,13 +1117,18 @@ def require_accept_ready_row(
     plan_text: str,
     row_id: str,
     owner: str,
-) -> tuple[dict, str, str, str, list[str]]:
+) -> tuple[dict, str, str, str, list[str], str | None]:
     """The one readiness gate every accept path must pass verbatim.
 
-    Claim, needs, written challenge, cmd-only proof, non-empty argv, and no
+    Claim, needs, written challenge, proof class, non-empty argv, and no
     unwrapped shell operators. Three accept paths used to carry three copies
     of this gate with three different refusal texts; a gate that drifts
     between paths is how a false green slips through one of them.
+
+    A `cmd` row returns its argv and no observation; a `read` or `gate` row
+    returns no argv and the observation its owner recorded. The branch is
+    decided by the ROW's proof class, never by which receipts happen to be
+    present, so a recorded observation can never stand in for a cmd rerun.
     """
     _, _, state, proof, needs = find_row(plan_text, row_id)
     claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
@@ -1050,11 +1147,15 @@ def require_accept_ready_row(
             "acceptance challenge and must not "
             f"flip silently; resolve the Contradictions entry first: {challenged[0]}"
         )
-    if not proof.startswith("cmd "):
-        kind = proof.split(" ", 1)[0]
+    kind = proof.split(" ", 1)[0]
+    if kind in OBSERVED_PROOF_KINDS:
+        return claim, state, proof, needs, [], recorded_observation(
+            plan_text, row_id, proof
+        )
+    if kind != "cmd":
         raise AcceptError(
-            f"only cmd proofs are machine-rerunnable; this row is {kind}-classed — "
-            "re-observe it yourself and append the PROOF line with the flip"
+            f"proof must be classed cmd | read | gate; this row is {kind}-classed — "
+            "run shadow lint against the plan"
         )
     argv = proof_argv(proof[4:])
     if not argv:
@@ -1072,17 +1173,22 @@ def require_accept_ready_row(
             "argument — accept runs proofs without a shell, so the rest of the command "
             f"would never execute. Wrap it: cmd bash -c '<the whole command>'"
         )
-    return claim, state, proof, needs, argv
+    return claim, state, proof, needs, argv, None
 
 
-def remove_review_worktree(repo: Path, destination: Path) -> None:
+def remove_review_worktree(
+    repo: Path,
+    destination: Path,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> None:
     status = git_completed(
         destination,
         "status",
         "--porcelain=v1",
         "--ignored=matching",
         "--untracked-files=all",
-        timeout=15,
+        timeout=timeout_seconds,
+        stage="worktree inspection",
     )
     if status.returncode or status.stdout:
         raise AcceptError(
@@ -1095,11 +1201,18 @@ def remove_review_worktree(repo: Path, destination: Path) -> None:
         "remove",
         "--",
         str(destination),
-        timeout=30,
+        timeout=timeout_seconds,
+        stage="worktree retirement",
     )
     if removed.returncode:
         raise AcceptError("clean lead review checkout could not be retired without force")
-    pruned = git_completed(repo, "worktree", "prune", timeout=15)
+    pruned = git_completed(
+        repo,
+        "worktree",
+        "prune",
+        timeout=timeout_seconds,
+        stage="worktree pruning",
+    )
     if pruned.returncode:
         raise AcceptError("retired lead review checkout could not be pruned")
 
@@ -1116,12 +1229,13 @@ def completed_proof_review(
     proof_directory: Path = Path("."),
 ) -> Iterator[Path]:
     """Rerun one recorded completion before any retry can publish or release it."""
-    pool = lead_review_pool(repo)
+    pool = lead_review_pool(repo, timeout_seconds)
     review = create_lead_review_worktree(
         repo,
         pool,
         row_id.lstrip("~"),
         source_head,
+        timeout_seconds,
     )
     try:
         require_frozen_review_head(review, source_head)
@@ -1151,7 +1265,7 @@ def completed_proof_review(
         require_frozen_review_head(review, source_head)
         yield review
     finally:
-        remove_review_worktree(repo, review)
+        remove_review_worktree(repo, review, timeout_seconds)
         try:
             pool.rmdir()
         except OSError:
@@ -1248,16 +1362,22 @@ def accept_local_proposal(
         row_line, state, proof, needs, marker, floor = contract
         if state not in {"pending", "in_progress"}:
             raise AcceptError("proposal transition requires a pending or in-progress row")
-        claim, _, _, _, argv = require_accept_ready_row(
+        claim, _, _, _, argv, observation = require_accept_ready_row(
             plan_path, plan_text, row_id, owner
         )
+        if observation is not None:
+            raise AcceptError(
+                "proposal acceptance supports cmd proofs only; a read or gate "
+                "row completes from the observation its owner recorded"
+            )
 
-        pool = lead_review_pool(repo)
+        pool = lead_review_pool(repo, timeout_seconds)
         review = create_lead_review_worktree(
             repo,
             pool,
             row_id.lstrip("~"),
             source_head,
+            timeout_seconds,
         )
         updated: str | None = None
         try:
@@ -1287,7 +1407,7 @@ def accept_local_proposal(
             if proof_result is None:
                 raise AcceptError("the proposal proof could not finish; nothing was changed")
             grade_proof_result(proof_result, marker, floor)
-            if not review_checkout_is_clean(review, source_head):
+            if not review_checkout_is_clean(review, source_head, timeout_seconds):
                 raise AcceptError(
                     "the proposal proof changed its detached checkout; nothing was changed"
                 )
@@ -1348,7 +1468,7 @@ def accept_local_proposal(
             restore_local_authority(plan_path, root_bytes, original_objects)
             raise
         finally:
-            remove_review_worktree(repo, review)
+            remove_review_worktree(repo, review, timeout_seconds)
             try:
                 pool.rmdir()
             except OSError:
@@ -1470,14 +1590,28 @@ def accept_local_plan(
             "root claim reconciled"
         )
         return 0
-    _, _, _, _, argv = require_accept_ready_row(plan_path, plan_text, row_id, owner)
+    _, _, _, _, argv, observation = require_accept_ready_row(
+        plan_path, plan_text, row_id, owner
+    )
+    if observation is not None:
+        return complete_local_observation(
+            repo,
+            plan_path,
+            plan_token,
+            plan_text,
+            row_id,
+            owner,
+            proof,
+            observation,
+        )
     source_head = frozen_source_head(repo)
-    pool = lead_review_pool(repo)
+    pool = lead_review_pool(repo, timeout_seconds)
     review = create_lead_review_worktree(
         repo,
         pool,
         row_id.lstrip("~"),
         source_head,
+        timeout_seconds,
     )
     try:
         issue = script_operand_issue(argv, review)
@@ -1565,7 +1699,7 @@ def accept_local_plan(
                     f"close: {exc}"
                 ) from exc
     finally:
-        remove_review_worktree(repo, review)
+        remove_review_worktree(repo, review, timeout_seconds)
         try:
             pool.rmdir()
         except OSError:
@@ -1573,6 +1707,156 @@ def accept_local_plan(
     print(
         f"accepted {row_id}: proof and final lint passed at {source_identity} "
         f"HEAD {source_head}; local row flipped with its PROOF and SOURCE lines"
+    )
+    return 0
+
+
+def resume_candidates(plan_text: str) -> list[str]:
+    """Rank the plan's own resume candidates as if no claim were held."""
+    parsed = _amp._parse(plan_text)
+    parsed["claimed"] = set()
+    return _amp._candidate_ids(parsed)
+
+
+def observed_completion_text(
+    plan_path: Path,
+    plan_text: str,
+    row_id: str,
+    *,
+    proof_root: Path | None = None,
+) -> str:
+    """Flip one observed row, refusing any plan the final lint would block."""
+    updated = flipped_row_text(plan_text, row_id)
+    refuse_lint_blocked_plan(updated, plan_path, proof_root=proof_root, row_id=row_id)
+    return updated
+
+
+def accept_recorded_observation(
+    repo: Path,
+    plan_path: Path,
+    plan_relative: Path,
+    row_id: str,
+    owner: str,
+    plan_token: dict[str, str],
+    plan_text: str,
+    proof: str,
+    observation: str,
+    no_push: bool,
+) -> int:
+    """Publish one Git-backed read/gate completion from its recorded receipt.
+
+    The owner's committed PROOF line already carries the observation, so this
+    path reruns nothing and appends nothing: it flips the row, commits, pushes,
+    and releases the claim in the order `cmd` acceptance already uses.
+    """
+    kind = proof.split(" ", 1)[0]
+    updated = observed_completion_text(plan_path, plan_text, row_id)
+    resumes = resume_candidates(updated)
+    try:
+        claim_token, completed_token, completed_text = commit_completed_plan(
+            repo,
+            plan_path,
+            plan_relative,
+            row_id,
+            owner,
+            plan_token,
+            plan_text,
+            updated,
+            resumes,
+            subject=f"shadow accept: {row_id} completed from its recorded {kind} observation",
+        )
+        return finalize_completion(
+            repo,
+            plan_path,
+            row_id,
+            owner,
+            claim_token,
+            completed_token,
+            completed_text,
+            resumes,
+            no_push,
+            f"recorded {kind} observation stands ({observation}); row flipped "
+            "beside the PROOF line its owner committed",
+        )
+    except _board.BoardError as exc:
+        raise AcceptError(
+            f"the recorded observation landed, but the root claim could not close: {exc}; "
+            "repair the root board before taking more work"
+        ) from exc
+
+
+def complete_local_observation(
+    repo: Path,
+    plan_path: Path,
+    plan_token: dict[str, str],
+    plan_text: str,
+    row_id: str,
+    owner: str,
+    proof: str,
+    observation: str,
+) -> int:
+    """Flip one machine-local read/gate row from its recorded receipt.
+
+    A local plan is the machine authority, so the flip is an atomic local
+    replacement. No proof runs, so no source commit is bound: the explicit
+    ``--repo`` is still the root the final lint reads other rows' proof
+    scripts from.
+    """
+    kind = proof.split(" ", 1)[0]
+    with _board.project_lock(plan_path):
+        try:
+            fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
+            fresh_text = fresh_bytes.decode("utf-8")
+        except (_board.BoardError, OSError, UnicodeError) as exc:
+            raise AcceptError(
+                f"local plan cannot be frozen before the flip: {exc}"
+            ) from exc
+        if fresh_token != plan_token or fresh_text != plan_text:
+            raise AcceptError("the local plan changed before the flip; retry")
+        updated = observed_completion_text(
+            plan_path,
+            fresh_text,
+            row_id,
+            proof_root=repo,
+        )
+        try:
+            claim_token = _board.reserve_completion(
+                plan_path,
+                row_id,
+                owner,
+                expected_plan=fresh_token,
+            )
+        except _board.BoardError as exc:
+            raise AcceptError(
+                f"local claim could not reserve completion: {exc}"
+            ) from exc
+        atomic_write_text(plan_path, updated)
+        try:
+            completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
+            completed_text = completed_bytes.decode("utf-8")
+        except (_board.BoardError, OSError, UnicodeError) as exc:
+            raise AcceptError(
+                f"the local row is flipped, but its bytes could not be frozen: {exc}"
+            ) from exc
+        try:
+            _board.release(
+                plan_path,
+                row_id,
+                owner=owner,
+                reason="completed",
+                resumes=resume_candidates(completed_text),
+                expected_plan=completed_token,
+                expected_text=completed_text,
+                expected_claim=claim_token,
+            )
+        except _board.BoardError as exc:
+            raise AcceptError(
+                "the completed plan is written; the local claim could not "
+                f"close: {exc}"
+            ) from exc
+    print(
+        f"accepted {row_id}: recorded {kind} observation stands ({observation}); "
+        "local row flipped beside the PROOF line its owner recorded"
     )
     return 0
 
@@ -1673,13 +1957,8 @@ def owned_claim(state: dict | None, row_id: str, owner: str) -> dict | None:
     return claim
 
 
-def completed_plan_text(
-    plan_text: str,
-    row_id: str,
-    argv: list[str],
-    stamp: str,
-) -> str:
-    """Build the only accepted row flip and its canonical Progress receipt."""
+def flipped_row_text(plan_text: str, row_id: str) -> str:
+    """Flip one row to completed and change no other byte of the plan."""
     index, _, state, _, _ = find_row(plan_text, row_id)
     if state == "completed":
         raise AcceptError(f"{row_id} is already completed")
@@ -1687,9 +1966,19 @@ def completed_plan_text(
     plan_lines[index] = re.sub(
         r"^- \[[a-z_]+\]", "- [completed]", plan_lines[index], count=1
     )
-    updated = "".join(plan_lines)
+    return "".join(plan_lines)
+
+
+def completed_plan_text(
+    plan_text: str,
+    row_id: str,
+    argv: list[str],
+    stamp: str,
+) -> str:
+    """Build the only accepted row flip and its canonical Progress receipt."""
+    updated = flipped_row_text(plan_text, row_id)
     proof_line = (
-        f"- {stamp} {row_id} PROOF {shlex.join(argv)} -> pass (accept)\n"
+        f"- {stamp} {row_id} PROOF {shlex.join(argv)} -> {ACCEPT_PROOF_RESULT}\n"
     )
     return append_progress_line(updated, proof_line)
 
@@ -2416,7 +2705,15 @@ def main(argv: list[str] | None = None) -> int:
             "with exact --entity and --repo selectors for machine-local authority"
         ),
     )
-    parser.add_argument("--timeout-seconds", type=int, default=900)
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=(
+            "budget for each stage of one acceptance, clean-worktree creation "
+            "included; an expiry names the stage that exceeded it"
+        ),
+    )
     parser.add_argument("--no-push", action="store_true",
                         help="commit without pushing (an unpushed flip is invisible to other seats)")
     args = parser.parse_args(argv)
@@ -2539,7 +2836,11 @@ def main(argv: list[str] | None = None) -> int:
                     "the completed row or its proof is not committed; root claim stays open"
                 )
             if not proof.startswith("cmd "):
-                raise AcceptError("the completed row was not accepted from a cmd proof")
+                raise AcceptError(
+                    "the completed row was not accepted from a cmd proof; a "
+                    "completed read or gate row has nothing to rerun — push its "
+                    "flip commit, then close the claim with shadow return"
+                )
             completed_argv = proof_argv(proof[4:])
             if not _board.has_accept_proof_receipt(
                 plan_text, row_id, completed_argv
@@ -2611,12 +2912,31 @@ def main(argv: list[str] | None = None) -> int:
                     "completed proof reran in its clean source checkout; "
                     "root claim reconciled",
                 )
-        _, _, _, _, argv_proof = require_accept_ready_row(
+        _, _, _, _, argv_proof, observation = require_accept_ready_row(
             plan_path, plan_text, row_id, owner
         )
+        if observation is not None:
+            return accept_recorded_observation(
+                repo,
+                plan_path,
+                plan_relative,
+                row_id,
+                owner,
+                plan_token,
+                plan_text,
+                proof,
+                observation,
+                args.no_push,
+            )
         head = plan_token["head"]
-        pool = lead_review_pool(repo)
-        review = create_lead_review_worktree(repo, pool, row_id.lstrip("~"), head)
+        pool = lead_review_pool(repo, args.timeout_seconds)
+        review = create_lead_review_worktree(
+            repo,
+            pool,
+            row_id.lstrip("~"),
+            head,
+            args.timeout_seconds,
+        )
         try:
             script_issue = script_operand_issue(
                 argv_proof,
@@ -2632,7 +2952,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_head=head,
             )
         finally:
-            remove_review_worktree(repo, review)
+            remove_review_worktree(repo, review, args.timeout_seconds)
             try:
                 pool.rmdir()
             except OSError:
