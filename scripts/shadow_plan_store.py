@@ -1208,7 +1208,7 @@ def _publish_object(plan: Path, digest: str, content: bytes) -> bool:
             pass
 
 
-def _with_lineage(
+def with_lineage(
     build: PlanTreeBuild,
     *,
     generation: int,
@@ -1285,7 +1285,7 @@ class PlanTransaction:
         previous_generation = (
             self.snapshot.root["generation"] if self.snapshot.root is not None else 0
         )
-        candidate = _with_lineage(
+        candidate = with_lineage(
             build,
             generation=previous_generation + 1,
             previous_root=self.expected_root,
