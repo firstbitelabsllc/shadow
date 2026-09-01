@@ -32,6 +32,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 
 DEFAULT_MAX_CHARS: Final = 4_000
@@ -355,6 +356,7 @@ def _git(repo: Path, *args: str) -> str:
         out = subprocess.run(
             ["git", "-C", str(repo), *args],
             capture_output=True, text=True, timeout=10, check=False,
+            env=_shadow_git.sanitized_git_env(),
         )
         return _clean(out.stdout) if out.returncode == 0 else ""
     except OSError:
@@ -966,6 +968,7 @@ def main(argv: list[str] | None = None) -> int:
         capture_output=True,
         text=True,
         check=False,
+        env=_shadow_git.sanitized_git_env(),
     )
     if top.returncode == 0 and top.stdout.strip():
         repo = Path(top.stdout.strip()).resolve()

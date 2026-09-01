@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 import shadow_plan_grammar as _grammar
+import shadow_git as _shadow_git
 from shadow_durable_lib import durable_write
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 from shadow_task_lib import TaskError, frozen_task_sha256
@@ -201,6 +202,7 @@ def git_value(repo: Path, *args: str) -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            env=_shadow_git.sanitized_git_env(),
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -226,6 +228,7 @@ def status_paths(repo: Path, *, include_ignored: bool = False) -> list[str]:
             command,
             capture_output=True,
             timeout=5,
+            env=_shadow_git.sanitized_git_env(),
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:

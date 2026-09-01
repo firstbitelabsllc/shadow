@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,6 +57,26 @@ class PublicReadyTests(unittest.TestCase):
 
     def test_current_metadata_is_consistent(self) -> None:
         self.assertEqual(mod.metadata_errors(ROOT), [])
+
+
+class AmbientGitRedirectPinTests(unittest.TestCase):
+    def test_git_paths_ignores_an_ambient_repository_redirect(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            decoy = Path(tmp) / "decoy"
+            for candidate, name in ((real, "real-file"), (decoy, "decoy-file")):
+                subprocess.run(["git", "init", "-q", str(candidate)], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(candidate), "config", "user.email", "t@example.invalid"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(candidate), "config", "user.name", "T"], check=True, capture_output=True)
+                (candidate / name).write_text("x", encoding="utf-8")
+                subprocess.run(["git", "-C", str(candidate), "add", "-A"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(candidate), "commit", "-qm", "init"], check=True, capture_output=True)
+            with mock.patch.dict(
+                os.environ,
+                {"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+            ):
+                paths = [path.name for path in mod.git_paths(real)]
+            self.assertEqual(paths, ["real-file"])
 
 
 if __name__ == "__main__":
