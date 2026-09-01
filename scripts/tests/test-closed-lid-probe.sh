@@ -64,6 +64,25 @@ set -e
 [[ "$CLOSED_EXIT" -eq 24 ]] || fail "expected open-lid negative control exit 24, got $CLOSED_EXIT"
 assert_json "$CLOSED_JSON" "p['lab']['lid'] == 'open' and p['verdict']['status'] == 'FAIL_MODE_MISMATCH'"
 
+UNKNOWN_LID_PROBE="$TEST_TMP/closed-lid-probe-unknown-lid.sh"
+/usr/bin/awk '
+  /^VERDICT="PASS"$/ { print "LID=unknown" }
+  { print }
+' "$PROBE" >"$UNKNOWN_LID_PROBE"
+chmod +x "$UNKNOWN_LID_PROBE"
+UNKNOWN_LID_JSON="$TEST_TMP/unknown-lid.json"
+set +e
+"$UNKNOWN_LID_PROBE" \
+  --host "$EXPECTED_LAB" \
+  --expected-studio "$EXPECTED_STUDIO" \
+  --expected-host "$EXPECTED_LAB" \
+  --expect any \
+  --output "$UNKNOWN_LID_JSON"
+UNKNOWN_LID_EXIT=$?
+set -e
+[[ "$UNKNOWN_LID_EXIT" -eq 29 ]] || fail "expected unknown-lid exit 29, got $UNKNOWN_LID_EXIT"
+assert_json "$UNKNOWN_LID_JSON" "p['lab']['lid'] == 'unknown' and p['verdict']['status'] == 'FAIL_LID_STATE'"
+
 WRONG_STUDIO_JSON="$TEST_TMP/wrong-studio.json"
 set +e
 "$PROBE" \
@@ -148,5 +167,5 @@ if re.search(r"password|credential|token|recovery.?key|username", serialized_key
     raise SystemExit(f"secret-shaped JSON key detected: {serialized_keys}")
 PY
 
-echo "CLOSED_LID_PROBE_TEST_PASS real_open=PASS expected_closed=RED wrong_studio=RED wrong_host=RED vnc_unreachable=RED ssh_unreachable=RED divergent_endpoint=RED strict_known_host=PASS remote_identity=PASS screen_service=PASS filevault=off sleep_assertions=NON_NULL secret_keys=ABSENT"
+echo "CLOSED_LID_PROBE_TEST_PASS real_open=PASS expected_closed=RED unknown_lid=RED wrong_studio=RED wrong_host=RED vnc_unreachable=RED ssh_unreachable=RED divergent_endpoint=RED strict_known_host=PASS remote_identity=PASS screen_service=PASS filevault=off sleep_assertions=NON_NULL secret_keys=ABSENT"
 echo "GROUNDTRUTH_COMPLETE: real-host integration | real-dep: yes | gap: native Screen Sharing authentication, pixel input, physical lid-close, sleep/wake, IDE visual proof, and restart remain gated @ $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
