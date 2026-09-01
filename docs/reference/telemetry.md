@@ -91,3 +91,24 @@ The observed gauntlet falls back to the v3 web-API readback when the v4
 variables are unset. The routing gauntlet requires the v4 variables on any
 current sink. `SHADOW_LANGFUSE_EVENTS` optionally forwards a local event
 file as spans on the observed path.
+
+## Scheduled owner loop
+
+The sinks earn their keep on a schedule, not by hand. The owner-machine loop
+(launchd, systemd timer, or cron — the entry itself lives outside the
+repository like the compose file) keeps four properties:
+
+- **One lock, one log, one status file.** A second firing exits immediately;
+  the status file is the only read surface, so a missed night is a visible
+  state, never silence.
+- **Fast-forward-only checkout.** The loop fetches and merges `origin/main`
+  with `--ff-only` and fails loudly on a dirty or diverged checkout rather
+  than reporting results from a stale tree.
+- **A pinned interpreter.** Scheduler environments resolve `python3`
+  differently than a login shell; the loop pins its interpreter (or
+  `SHADOW_PYTHON`) instead of trusting `PATH`.
+- **Health probes before the long run.** Sink host and readback endpoints are
+  curled first; a squatted port or a booting stack fails the run in seconds
+  with an exact status, instead of turning a full gauntlet into a guaranteed
+  red discovered an hour later. Scheduler output is unbuffered so a
+  mid-flight run is observable in the log.
