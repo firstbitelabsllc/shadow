@@ -3068,6 +3068,113 @@ def release(
         return json.loads(json.dumps(payload)), True
 
 
+def _authoritative_plan_text(plan: Path, *, home: Path | None = None) -> str | None:
+    """Return the plan text the board may act on, or None when there is none.
+
+    A machine-local plan under this computer's private plan root is its own
+    authority, so its bytes are the answer. A Git-backed plan is authoritative
+    only at its fetched default remote branch: every read names its ref, and an
+    unfetched tree is presumed stale (AGENT.md, 2026-08-10). A dirty checkout,
+    an unpublished commit, a missing or unreadable plan, and an unreachable
+    remote all return None rather than a guess.
+    """
+    try:
+        token, content = frozen_plan_snapshot(plan, home=home)
+        if not is_local_plan(plan, home=home):
+            content = _remote_claim.published_plan_bytes(Path(token["repo"]), token)
+    except (BoardError, _remote_claim.RemoteClaimError):
+        return None
+    if content is None:
+        return None
+    try:
+        return content.decode("utf-8")
+    except UnicodeError:
+        return None
+
+
+def _row_is_completed_with_receipt(plan: Path, text: str | None, row: str) -> bool:
+    """Ask the one grammar `shadow return` already uses to close a proven row."""
+    if text is None:
+        return False
+    try:
+        _release_state(plan, row, "completed", text=text)
+    except BoardError:
+        return False
+    return True
+
+
+def release_completed_claims(
+    *,
+    home: Path | None = None,
+    now: datetime | None = None,
+) -> int:
+    """Drop every expired claim whose row is completed and carries its PROOF.
+
+    The entity plan is already the authority for row state. A refresh that
+    keeps a claim on a finished, proven row contradicts it, and that strand is
+    the only board state that has ever required a person to type a recovery
+    command. Nothing new is stored and no owner is impersonated: the truth that
+    releases the claim was written down by the owner before it went away.
+
+    A live lease is left alone. `shadow accept` reserves its claim, publishes
+    the completion, then closes that exact claim; releasing inside that window
+    would trade this strand for a failed acceptance. Expiry is what marks the
+    owner gone.
+    """
+    observed = snapshot(home=home)
+    if observed is None:
+        return 0
+    plans = {entity["id"]: Path(entity["plan"]) for entity in observed["entities"]}
+    candidates: list[dict] = []
+    for claim in observed["claims"]:
+        plan = plans.get(claim["entity"])
+        if plan is None or not claim_is_stale(claim, now=now):
+            continue
+        # Screen on the local bytes first. Only a row that already reads as
+        # finished is worth the authoritative read, which for a tracked
+        # repository has to fetch its default branch.
+        try:
+            working = read_plan_text(plan)
+        except BoardError:
+            continue
+        if _row_is_completed_with_receipt(plan, working, claim["row"]):
+            candidates.append(claim)
+    if not candidates:
+        return 0
+    released = 0
+    with _transaction(home) as (root, path, payload):
+        entities = {entity["id"]: entity for entity in payload["entities"]}
+        for candidate in candidates:
+            entity = entities.get(candidate["entity"])
+            # `_validate` fixes a claim's exact field set, so equality is the
+            # whole identity: a re-thrown or adopted row is a different claim
+            # and this pass must leave it alone.
+            claim = next(
+                (item for item in payload["claims"] if item == candidate),
+                None,
+            )
+            if entity is None or claim is None:
+                continue
+            plan = Path(entity["plan"])
+            if not _row_is_completed_with_receipt(
+                plan,
+                _authoritative_plan_text(plan, home=home),
+                candidate["row"],
+            ):
+                continue
+            payload["claims"] = [item for item in payload["claims"] if item is not claim]
+            payload["revision"] += 1
+            _validate(payload)
+            _write_and_commit(
+                root,
+                path,
+                payload,
+                f"shadow board: release completed {candidate['row']}",
+            )
+            released += 1
+    return released
+
+
 def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict:
     """Change global project priority through the board transaction."""
     if isinstance(priority, bool) or priority not in range(1, 6):

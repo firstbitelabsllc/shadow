@@ -5605,5 +5605,269 @@ class LocatorNeverRaises(unittest.TestCase):
             self.assertTrue(locator.endswith("/PLAN.md"), locator)
 
 
+class CompletedRowsReleaseTheirClaims(unittest.TestCase):
+    """A finished, proven row must never stay owned by a seat that never returned.
+
+    Field failure (request 1, PR #628; the 2026-08-28 spend-cap deaths): the
+    entity plan already carried `[completed]` and its PROOF receipt, the lease
+    expired, and the claim stayed. Expiry marks a claim stale; it does not
+    release it. That is the one board state that has ever asked a person to
+    type a recovery command, so refresh stops contradicting the plan itself.
+
+    Release reads only plan state the board may act on: a machine-local plan
+    under this computer's private plan root, or a Git-backed plan read at its
+    fetched default remote branch. A dirty checkout, an unpublished
+    completion, or an unreadable plan releases nothing.
+    """
+
+    LOCAL_PLAN = (
+        "# Project\n\n## Brief\n\n"
+        "- Project: shadow\n- Mode: ship\n- Priority: 2\n\n"
+        "## Tasks\n\n### The useful outcome\n"
+        "- [pending] first row ~aa11 | proof: cmd true\n"
+        "- [pending] the outcome is proven ~bb22 (DoD) | proof: cmd true | needs: ~aa11\n\n"
+        "## Progress\n\n- 2026-08-10T00:00:00Z NOTE seeded\n"
+    )
+    RECEIPT = "- 2026-08-10T00:01:00Z ~aa11 PROOF cmd true -> pass (manual)\n"
+
+    def _local_plan(self, home: Path) -> Path:
+        # Only the three declared operational slugs are read as local
+        # authorities; `shadow` is one of them.
+        slug = home / ".shadow" / "plans" / "shadow"
+        slug.mkdir(parents=True)
+        plan = slug / "PLAN.md"
+        plan.write_text(self.LOCAL_PLAN, encoding="utf-8")
+        return plan
+
+    def _refresh(self, home: Path, scan: Path, *args: str):
+        # An explicit root keeps the seat fast path out of the way: it answers
+        # from the stored board and never reaches portfolio refresh.
+        return run(home, "status", "--root", str(scan), *args)
+
+    def _complete_with_proof(self, plan: Path, *, receipt: bool = True) -> None:
+        text = plan.read_text(encoding="utf-8").replace(
+            "- [pending] first row ~aa11", "- [completed] first row ~aa11"
+        ).replace(
+            "- [pending] TASK-BODY", "- [completed] TASK-BODY"
+        )
+        plan.write_text(text + (self.RECEIPT if receipt else ""), encoding="utf-8")
+
+    def _expire(self, home: Path) -> None:
+        with board_api._transaction(home) as (root, path, payload):
+            for claim in payload["claims"]:
+                claim["claimed_at"] = "2026-08-11T00:00:00Z"
+                claim["return_by"] = "2026-08-11T08:00:00Z"
+            payload["revision"] += 1
+            board_api._validate(payload)
+            board_api._write(path, payload)
+            board_api._commit(root, "expire the fixture lease")
+
+    def _journal(self, home: Path) -> str:
+        return subprocess.run(
+            ["git", "-C", str(home / ".shadow"), "log", "--format=%s"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+
+    def _local_strand(self, root: Path, *, receipt: bool = True) -> tuple[Path, Path, Path, str]:
+        home = root / "home"
+        home.mkdir()
+        scan = root / "elsewhere"
+        scan.mkdir()
+        plan = self._local_plan(home)
+        registered = self._refresh(home, scan, "--json")
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        identity = board(home)["entities"][0]["id"]
+        claimed = run(
+            home, "throw", "--entity", identity, "--task", "~aa11", "--by", "seat-a"
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        self._complete_with_proof(plan, receipt=receipt)
+        self._expire(home)
+        return home, scan, plan, identity
+
+    def _tracked_project(self, root: Path) -> tuple[Path, Path, Path]:
+        home = root / "home"
+        home.mkdir()
+        repo = project(root)
+        remote = root / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        git(repo, "remote", "add", "origin", str(remote))
+        git(repo, "push", "-qu", "origin", "HEAD:main")
+        git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        claimed = run(
+            home, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        return home, repo, remote
+
+    def test_a_completed_proven_row_releases_its_dead_seats_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, scan, _, identity = self._local_strand(root)
+            self.assertEqual(len(board(home)["claims"]), 1)
+
+            refreshed = self._refresh(home, scan, "--json")
+
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertEqual(board(home)["claims"], [])
+            self.assertIn("shadow board: release completed ~aa11", self._journal(home))
+            # Nothing is left for a person to recover: the janitor view that
+            # printed "STALE — probe proof, then adopt, park, or close" is
+            # empty, and the next seat continues with no command in between.
+            in_flight = self._refresh(home, scan, "--in-flight", "--json")
+            self.assertEqual(in_flight.returncode, 0, in_flight.stderr)
+            self.assertEqual(json.loads(in_flight.stdout)["rows"], [])
+            successor = run(
+                home, "throw", "--entity", identity, "--task", "~bb22", "--by", "seat-b"
+            )
+            self.assertEqual(successor.returncode, 0, successor.stderr)
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in board(home)["claims"]],
+                [("~bb22", "seat-b")],
+            )
+
+    def test_a_completed_row_without_its_proof_receipt_keeps_the_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, scan, _, _ = self._local_strand(root, receipt=False)
+
+            self._refresh(home, scan, "--json")
+
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in board(home)["claims"]],
+                [("~aa11", "seat-a")],
+            )
+            self.assertNotIn("release completed", self._journal(home))
+
+    def test_a_pending_row_keeps_its_claim_when_the_lease_is_overdue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            scan = root / "elsewhere"
+            scan.mkdir()
+            self._local_plan(home)
+            self._refresh(home, scan, "--json")
+            identity = board(home)["entities"][0]["id"]
+            run(home, "throw", "--entity", identity, "--task", "~aa11", "--by", "seat-a")
+            self._expire(home)
+
+            self._refresh(home, scan, "--json")
+
+            claim = board(home)["claims"][0]
+            self.assertEqual((claim["row"], claim["owner"]), ("~aa11", "seat-a"))
+            self.assertTrue(board_api.claim_is_stale(claim))
+
+    def test_a_live_completed_claim_stays_until_its_owner_closes_it(self) -> None:
+        """`shadow accept` writes the completion, then closes its own claim.
+
+        It passes the exact claim it reserved, so a refresh that dropped a
+        still-leased completed row would make acceptance fail with "claim
+        changed before completion could close it" — a new strand in place of
+        the old one. Expiry is what marks the owner gone.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            scan = root / "elsewhere"
+            scan.mkdir()
+            plan = self._local_plan(home)
+            self._refresh(home, scan, "--json")
+            identity = board(home)["entities"][0]["id"]
+            run(home, "throw", "--entity", identity, "--task", "~aa11", "--by", "seat-a")
+            self._complete_with_proof(plan)
+
+            self._refresh(home, scan, "--json")
+
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in board(home)["claims"]],
+                [("~aa11", "seat-a")],
+            )
+
+    def test_an_unreadable_entity_plan_releases_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, scan, plan, _ = self._local_strand(root)
+            mode = plan.stat().st_mode
+            plan.chmod(0o000)
+            try:
+                self._refresh(home, scan, "--json")
+            finally:
+                plan.chmod(mode)
+
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in board(home)["claims"]],
+                [("~aa11", "seat-a")],
+            )
+
+    def test_a_row_the_plan_grammar_cannot_parse_releases_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, scan, plan, _ = self._local_strand(root)
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(
+                    "- [completed] first row ~aa11 | proof: cmd true",
+                    "- [completed] first row ~aa11 | notafield",
+                ),
+                encoding="utf-8",
+            )
+
+            self._refresh(home, scan, "--json")
+
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in board(home)["claims"]],
+                [("~aa11", "seat-a")],
+            )
+
+    def test_a_dirty_git_backed_checkout_releases_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, repo, _ = self._tracked_project(root)
+            self._complete_with_proof(repo / "PLAN.md")
+            self._expire(home)
+
+            self._refresh(home, root, "--json")
+
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in board(home)["claims"]],
+                [("~aa11", "seat-a")],
+            )
+
+    def test_a_committed_but_unpublished_completion_releases_nothing(self) -> None:
+        """An unfetched or unpushed tree is presumed stale, so it cannot release."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, repo, _ = self._tracked_project(root)
+            self._complete_with_proof(repo / "PLAN.md")
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "record the manual proof")
+            self._expire(home)
+
+            self._refresh(home, root, "--json")
+
+            self.assertEqual(
+                [(claim["row"], claim["owner"]) for claim in board(home)["claims"]],
+                [("~aa11", "seat-a")],
+            )
+
+    def test_a_published_completion_releases_the_git_backed_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, repo, _ = self._tracked_project(root)
+            self._complete_with_proof(repo / "PLAN.md")
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "record the manual proof")
+            git(repo, "push", "-q", "origin", "HEAD:main")
+            self._expire(home)
+
+            self._refresh(home, root, "--json")
+
+            self.assertEqual(board(home)["claims"], [])
+            self.assertIn("shadow board: release completed ~aa11", self._journal(home))
+
+
 if __name__ == "__main__":
     unittest.main()

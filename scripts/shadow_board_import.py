@@ -389,6 +389,13 @@ def _reconcile_portfolio(
         home=home,
     ):
         return reconcile_portfolio(root, amp, home=home)
+    # A completed row that carries its PROOF receipt has already answered the
+    # question its claim was holding open. Expiry only marks such a claim
+    # stale, so refresh is where the board stops contradicting the plan and no
+    # person is ever asked to run a recovery command for it. The reconcile
+    # below re-reads the board under its own lock, so the released row's
+    # resume pointer moves in this same pass.
+    board.release_completed_claims(home=home)
     # A source-path alias for a coordination repository is a migration error,
     # not an alternate source of truth. When the private copy is the same
     # bytes, re-key atomically before the normal discovery pass so live claims
