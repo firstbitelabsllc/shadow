@@ -45,6 +45,7 @@ import shadow_git as _shadow_git  # noqa: E402
 from shadow_cmd_proof import script_operand_issue  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
+from shadow_durable_lib import durable_write  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_accept_amp", ROOT / "scripts" / "shadow-amp.py"
@@ -772,23 +773,10 @@ def atomic_write_text(
             )
         except _plan_store.PlanStoreError as exc:
             raise AcceptError(f"entity plan tree could not be replaced: {exc}") from exc
-    descriptor, temporary = tempfile.mkstemp(prefix=".shadow-accept.", dir=path.parent)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), path.stat().st_mode & 0o777)
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        durable_write(path, text.encode("utf-8"), mode=path.stat().st_mode & 0o777)
     except OSError as exc:
         raise AcceptError("entity plan could not be replaced atomically") from exc
-    finally:
-        Path(temporary).unlink(missing_ok=True)
     return None
 
 
