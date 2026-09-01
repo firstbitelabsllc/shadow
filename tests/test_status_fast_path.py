@@ -863,10 +863,6 @@ class InFlightLabelsAreHonest(unittest.TestCase):
         self.assertIn("hand-claimed (no THROWN line)", out)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SeatViewStaleTests(unittest.TestCase):
     def _record(self) -> dict:
         return {
