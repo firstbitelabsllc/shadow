@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 import shadow_plan_grammar as _grammar
+from shadow_durable_lib import durable_write
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 from shadow_task_lib import TaskError, frozen_task_sha256
 from shadow_execution_policy import (
@@ -1044,28 +1045,10 @@ def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> No
     destination = destination_input.resolve(strict=False)
     if destination.exists() and not force:
         raise HostError("output_exists", "output exists; use --force to replace it")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=".host-attempt.", dir=destination.parent)
-    temporary_path = Path(temporary)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(encoded)
-            handle.flush()
-            os.fsync(handle.fileno())
-        if force:
-            os.replace(temporary_path, destination)
-        else:
-            try:
-                os.link(temporary_path, destination)
-            except FileExistsError:
-                raise HostError("output_exists", "output exists; use --force to replace it") from None
-        directory = os.open(destination.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+        durable_write(destination, encoded.encode("utf-8"), exclusive=not force, make_parents=True)
+    except FileExistsError:
+        raise HostError("output_exists", "output exists; use --force to replace it") from None
 
 
 def validate_output_path(repo: Path, value: str) -> Path | None:

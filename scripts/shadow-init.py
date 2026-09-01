@@ -12,9 +12,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 
 import shadow_root_board as board
+from shadow_durable_lib import durable_write
 
 
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
@@ -120,24 +120,10 @@ def plan_text(repo: Path, now: str, *, origin: str | None = None) -> str:
 def write_exclusive(path: Path, text: str) -> None:
     if path.exists() or path.is_symlink():
         raise FileExistsError(path)
-    fd, temporary = tempfile.mkstemp(prefix=".PLAN.", dir=path.parent)
-    temporary_path = Path(temporary)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            os.link(temporary_path, path)
-        except FileExistsError:
-            raise FileExistsError(path) from None
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+        durable_write(path, text.encode("utf-8"), exclusive=True)
+    except FileExistsError:
+        raise FileExistsError(path) from None
 
 
 def stable_plain_plan_snapshot(path: Path) -> tuple[str, bytes]:
