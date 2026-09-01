@@ -96,7 +96,7 @@ file as spans on the observed path.
 
 The sinks earn their keep on a schedule, not by hand. The owner-machine loop
 (launchd, systemd timer, or cron — the entry itself lives outside the
-repository like the compose file) keeps four properties:
+repository like the compose file) keeps five properties:
 
 - **One lock, one log, one status file.** A second firing exits immediately;
   the status file is the only read surface, so a missed night is a visible
@@ -122,7 +122,7 @@ repository like the compose file) keeps four properties:
 The baseline schedule is nightly. On top of it, the documented pressure
 trigger — `shadow-ci`'s `PRESSURE_WINDOW` probe — fires an early run when the
 repo's own accepted-change pressure crosses the checked-in threshold. The
-probe keeps the same four properties and adds one of its own: **a recency
+probe keeps the same five properties and adds one of its own: **a recency
 gate**, skipping honestly when the last completed run is fresher than the
 probe window, so a high-pressure stretch costs a bounded number of runs
 instead of every firing. Its decision (run or skip, with the reason) lands in
