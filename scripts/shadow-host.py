@@ -30,6 +30,7 @@ from typing import Any
 import shadow_plan_grammar as _grammar
 import shadow_git as _shadow_git
 from shadow_durable_lib import durable_write
+from shadow_json_lib import json_text
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 from shadow_task_lib import TaskError, frozen_task_sha256
 from shadow_execution_policy import (
@@ -1004,7 +1005,7 @@ def validate_host_receipt(
 
 
 def _json_text(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    return json_text(payload)
 
 
 def bound_successful_proposal_attempt(payload: dict[str, Any]) -> dict[str, Any]:
