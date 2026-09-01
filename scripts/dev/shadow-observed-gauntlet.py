@@ -76,6 +76,26 @@ def _redact(text: str) -> str:
     return text.replace(HOME_PREFIX, "~")
 
 
+_FAILURE_HEADER = re.compile(r"^(?:FAIL|ERROR): ", re.MULTILINE)
+
+
+def _failure_tail(output: str) -> str:
+    """Bounded failure detail that names the FIRST failure, not only the last.
+
+    A mass failure ends with the last test's summary; the causative one is
+    first. When the output is long, keep the first failure header's block
+    ahead of the usual closing tail so a log reader sees the cause.
+    """
+    if len(output) <= 600:
+        return output
+    header = _FAILURE_HEADER.search(output)
+    closing = output[-600:]
+    if header is None or header.start() >= len(output) - 600:
+        return closing
+    opening = output[max(0, header.start() - 80):header.start() + 400]
+    return f"{opening}\n[...]\n{closing}"
+
+
 def _attr(key: str, value: object) -> dict:
     if isinstance(value, bool):
         return {"key": key, "value": {"boolValue": value}}
@@ -211,7 +231,7 @@ def run_job(name: str, argv: list[str]) -> tuple[int, float, str]:
         check=False,
     )
     duration = time.monotonic() - started
-    tail = _redact((result.stdout + result.stderr)[-600:])
+    tail = _redact(_failure_tail(result.stdout + result.stderr))
     return result.returncode, duration, tail
 
 

@@ -235,5 +235,27 @@ class EventForwardingTests(unittest.TestCase):
             self.assertEqual((count, ok), (1, False))
 
 
+class FailureTailTests(unittest.TestCase):
+    def test_short_output_is_unchanged(self) -> None:
+        self.assertEqual(gauntlet._failure_tail("one line\n"), "one line\n")
+
+    def test_long_output_without_failure_header_keeps_the_closing_tail(self) -> None:
+        output = "x" * 900
+        self.assertEqual(gauntlet._failure_tail(output), output[-600:])
+
+    def test_mass_failure_names_the_first_failure_and_the_close(self) -> None:
+        output = (
+            "noise\n" * 50
+            + "FAIL: test_first_cause\nAssertionError: the real cause\n"
+            + "middle\n" * 100
+            + "FAIL: test_last_summary\nAssertionError: not the cause\n"
+        )
+        tail = gauntlet._failure_tail(output)
+        self.assertIn("FAIL: test_first_cause", tail)
+        self.assertIn("AssertionError: the real cause", tail)
+        self.assertIn("FAIL: test_last_summary", tail)
+        self.assertIn("[...]", tail)
+
+
 if __name__ == "__main__":
     unittest.main()
