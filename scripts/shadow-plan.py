@@ -14,7 +14,6 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
-import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +25,7 @@ import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_grammar as grammar  # noqa: E402
 import shadow_remote_claim as remote_claim  # noqa: E402
 import shadow_root_board as board_store  # noqa: E402
+from shadow_durable_lib import durable_write  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_amp",
@@ -177,26 +177,11 @@ def _atomic_json(
         if allow_identical and _read_receipt(path, repo=repo) == payload:
             return
         raise PlanStoreError("migration receipt already exists")
-    descriptor, temporary = tempfile.mkstemp(prefix=".shadow-map.", dir=path.parent)
+    payload_bytes = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            json.dump(payload, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        try:
-            os.link(temporary, path, follow_symlinks=False)
-        except FileExistsError as exc:
-            raise PlanStoreError("migration receipt already exists") from exc
-        os.chmod(path, 0o600)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+        durable_write(path, payload_bytes, exclusive=True, follow_symlinks=False)
+    except FileExistsError as exc:
+        raise PlanStoreError("migration receipt already exists") from exc
 
 
 def _read_receipt(path: Path, *, repo: Path) -> dict[str, object]:
