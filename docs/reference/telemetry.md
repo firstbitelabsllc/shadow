@@ -96,7 +96,7 @@ file as spans on the observed path.
 
 The sinks earn their keep on a schedule, not by hand. The owner-machine loop
 (launchd, systemd timer, or cron — the entry itself lives outside the
-repository like the compose file) keeps four properties:
+repository like the compose file) keeps five properties:
 
 - **One lock, one log, one status file.** A second firing exits immediately;
   the status file is the only read surface, so a missed night is a visible
@@ -107,6 +107,12 @@ repository like the compose file) keeps four properties:
 - **A pinned interpreter.** Scheduler environments resolve `python3`
   differently than a login shell; the loop pins its interpreter (or
   `SHADOW_PYTHON`) instead of trusting `PATH`.
+- **A sane PATH for the whole subtree.** The pin covers the top-level call,
+  but test jobs spawn grandchildren that resolve `python3` from `PATH` by
+  design (the two-seat harness seals its seat environment and strips
+  `SHADOW_PYTHON`). A scheduler's bare PATH finds only the system python, so
+  scheduler-fired runs need a modern directory prepended — otherwise seats
+  never boot and the suite mass-fails in seconds.
 - **Health probes before the long run.** Sink host and readback endpoints are
   curled first; a squatted port or a booting stack fails the run in seconds
   with an exact status, instead of turning a full gauntlet into a guaranteed
@@ -116,7 +122,7 @@ repository like the compose file) keeps four properties:
 The baseline schedule is nightly. On top of it, the documented pressure
 trigger — `shadow-ci`'s `PRESSURE_WINDOW` probe — fires an early run when the
 repo's own accepted-change pressure crosses the checked-in threshold. The
-probe keeps the same four properties and adds one of its own: **a recency
+probe keeps the same five properties and adds one of its own: **a recency
 gate**, skipping honestly when the last completed run is fresher than the
 probe window, so a high-pressure stretch costs a bounded number of runs
 instead of every firing. Its decision (run or skip, with the reason) lands in
