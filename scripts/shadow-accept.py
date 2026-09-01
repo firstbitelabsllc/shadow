@@ -982,6 +982,18 @@ def grade_proof_result(
 # Moved verbatim from the retired Drive engine (scripts/shadow-drive.py):
 # the clean-checkout review is the mechanical trust boundary and survives
 # every simplification of the vocabulary around it.
+def lead_review_pool(repo: Path) -> Path:
+    """One pruned pool for lead review worktrees beside the source checkout.
+
+    A crashed prior run can leave a registered-but-deleted worktree that
+    would wedge every future accept of this row; prune is always safe.
+    """
+    pool = repo.parent / f"{repo.name}-shadow-accept"
+    pool.mkdir(exist_ok=True)
+    git_completed(repo, "worktree", "prune", timeout=15)
+    return pool
+
+
 def create_lead_review_worktree(repo: Path, attempt: Path, lane_id: str, commit: str) -> Path:
     destination = attempt / lane_id
     if destination.is_symlink() or destination.exists():
@@ -1104,9 +1116,7 @@ def completed_proof_review(
     proof_directory: Path = Path("."),
 ) -> Iterator[Path]:
     """Rerun one recorded completion before any retry can publish or release it."""
-    pool = repo.parent / f"{repo.name}-shadow-accept"
-    pool.mkdir(exist_ok=True)
-    git_completed(repo, "worktree", "prune", timeout=15)
+    pool = lead_review_pool(repo)
     review = create_lead_review_worktree(
         repo,
         pool,
@@ -1242,9 +1252,7 @@ def accept_local_proposal(
             plan_path, plan_text, row_id, owner
         )
 
-        pool = repo.parent / f"{repo.name}-shadow-accept"
-        pool.mkdir(exist_ok=True)
-        git_completed(repo, "worktree", "prune", timeout=15)
+        pool = lead_review_pool(repo)
         review = create_lead_review_worktree(
             repo,
             pool,
@@ -1464,9 +1472,7 @@ def accept_local_plan(
         return 0
     _, _, _, _, argv = require_accept_ready_row(plan_path, plan_text, row_id, owner)
     source_head = frozen_source_head(repo)
-    pool = repo.parent / f"{repo.name}-shadow-accept"
-    pool.mkdir(exist_ok=True)
-    git_completed(repo, "worktree", "prune", timeout=15)
+    pool = lead_review_pool(repo)
     review = create_lead_review_worktree(
         repo,
         pool,
@@ -2609,11 +2615,7 @@ def main(argv: list[str] | None = None) -> int:
             plan_path, plan_text, row_id, owner
         )
         head = plan_token["head"]
-        pool = repo.parent / f"{repo.name}-shadow-accept"
-        pool.mkdir(exist_ok=True)
-        # A crashed prior run can leave a registered-but-deleted worktree that
-        # would wedge every future accept of this row; prune is always safe.
-        git_completed(repo, "worktree", "prune", timeout=15)
+        pool = lead_review_pool(repo)
         review = create_lead_review_worktree(repo, pool, row_id.lstrip("~"), head)
         try:
             script_issue = script_operand_issue(
