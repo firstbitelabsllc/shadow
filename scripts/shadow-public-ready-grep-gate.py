@@ -14,6 +14,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shadow_scrub_lib import SECRET_SHAPE_RE  # noqa: E402
+import shadow_git as _shadow_git  # noqa: E402
 from shadow_version import read_version, VersionError  # noqa: E402
 
 MAX_TEXT_BYTES = 1_000_000
@@ -38,6 +39,7 @@ def git_paths(root: Path) -> list[Path]:
     result = subprocess.run(
         ["git", "-C", str(root), "ls-files", "-z"],
         capture_output=True,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if result.returncode:
@@ -97,6 +99,7 @@ def metadata_errors(root: Path) -> list[str]:
     origin = subprocess.run(
         ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
         capture_output=True, text=True, check=False,
+        env=_shadow_git.sanitized_git_env(),
     ).stdout.strip()
     if origin and not CANONICAL_ORIGIN.fullmatch(origin):
         errors.append("release must be cut from the canonical public repository")

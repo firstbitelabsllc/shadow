@@ -1032,5 +1032,19 @@ class InitTests(unittest.TestCase):
         self.assertIn("project root", result.stderr)
 
 
+class AmbientGitRedirectPinTests(unittest.TestCase):
+    def test_repository_root_ignores_an_ambient_repository_redirect(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            decoy = Path(tmp) / "decoy"
+            for candidate in (real, decoy):
+                subprocess.run(["git", "init", "-q", str(candidate)], check=True, capture_output=True)
+            with mock.patch.dict(
+                os.environ,
+                {"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+            ):
+                self.assertEqual(shadow_init.repository_root(real), real.resolve())
+
+
 if __name__ == "__main__":
     unittest.main()
