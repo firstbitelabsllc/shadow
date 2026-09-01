@@ -26,6 +26,7 @@ import shadow_plan_grammar as grammar  # noqa: E402
 import shadow_remote_claim as remote_claim  # noqa: E402
 import shadow_root_board as board_store  # noqa: E402
 from shadow_durable_lib import durable_write  # noqa: E402
+from shadow_json_lib import json_text  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_amp",
@@ -177,7 +178,7 @@ def _atomic_json(
         if allow_identical and _read_receipt(path, repo=repo) == payload:
             return
         raise PlanStoreError("migration receipt already exists")
-    payload_bytes = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    payload_bytes = json_text(payload).encode("utf-8")
     try:
         durable_write(path, payload_bytes, exclusive=True, follow_symlinks=False)
     except FileExistsError as exc:
