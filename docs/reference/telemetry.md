@@ -107,6 +107,12 @@ repository like the compose file) keeps four properties:
 - **A pinned interpreter.** Scheduler environments resolve `python3`
   differently than a login shell; the loop pins its interpreter (or
   `SHADOW_PYTHON`) instead of trusting `PATH`.
+- **A sane PATH for the whole subtree.** The pin covers the top-level call,
+  but test jobs spawn grandchildren that resolve `python3` from `PATH` by
+  design (the two-seat harness seals its seat environment and strips
+  `SHADOW_PYTHON`). A scheduler's bare PATH finds only the system python, so
+  scheduler-fired runs need a modern directory prepended — otherwise seats
+  never boot and the suite mass-fails in seconds.
 - **Health probes before the long run.** Sink host and readback endpoints are
   curled first; a squatted port or a booting stack fails the run in seconds
   with an exact status, instead of turning a full gauntlet into a guaranteed
