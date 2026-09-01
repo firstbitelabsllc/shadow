@@ -1,4 +1,4 @@
-# Shadow core findings — 2026-08-18 work-os compile (work Mac)
+# Shadow core findings — 2026-08-18 host compile
 
 Logged while compiling Leo's work-os entity on the work machine. Untracked on
 purpose — commit/push is the owner's call. Each finding was hit live, not
