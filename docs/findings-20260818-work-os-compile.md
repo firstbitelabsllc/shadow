@@ -2,7 +2,7 @@
 
 Logged while compiling Leo's work-os entity on the work machine. Untracked on
 purpose — commit/push is the owner's call. Each finding was hit live, not
-theorized; receipts are on the work Mac's board (`~/.shadow`, revisions
+theorized; receipts are on one machine's local board (`~/.shadow`, revisions
 349–354).
 
 ## 1. Completed-orphan claim has no cross-seat release path (highest value)
