@@ -384,6 +384,31 @@ class NativeStreamParserTests(unittest.TestCase):
                 )
                 self.assertIn(required, command)
 
+    def test_codex_extra_args_land_before_the_model_flag(self) -> None:
+        scenario = gauntlet.SCENARIOS[0]
+        prompt = gauntlet.prompt_for_host("codex", scenario)
+
+        class Sink:
+            @staticmethod
+            def codex_config(_run_tag: str) -> tuple[list[str], dict[str, str]]:
+                return [], {}
+
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            with mock.patch.dict(
+                os.environ,
+                {"SHADOW_CODEX_EXTRA_ARGS": "-c model_provider=databricks -c 'x=1'"},
+            ):
+                command, _, _ = gauntlet._command(
+                    "codex", scenario, repo, Sink(), "eval-0123456789abcdef", prompt
+                )
+        model_at = command.index("--model")
+        self.assertEqual(
+            command[model_at - 4 : model_at],
+            ["-c", "model_provider=databricks", "-c", "x=1"],
+        )
+        self.assertEqual(command[model_at + 1], "gpt-5.6-sol")
+
 
 if __name__ == "__main__":
     unittest.main()
