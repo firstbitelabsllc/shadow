@@ -245,6 +245,10 @@ class PublicIdentityNeverCarriesCredentials(unittest.TestCase):
             board_api.normalized_origin("http://example.test:80/org/repo.git"),
             board_api.normalized_origin("http://example.test/org/repo.git"),
         )
+        self.assertEqual(
+            board_api.normalized_origin("git://github.com:9418/org/repo.git"),
+            board_api.normalized_origin("git://github.com/org/repo.git"),
+        )
 
     def test_plan_locator_shares_one_repo_resolution_per_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
