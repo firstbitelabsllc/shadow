@@ -76,7 +76,7 @@ Authority: the machine-local Shadow plan, `### M29`. Resume with
 
 | Row | Lane | Files | Proof |
 |---|---|---|---|
-| `~rs01` | pivot status corrected; no live doc states a freeze | `docs/superpowers/specs/...pivot-angles.md`, this file | grep proof in the row |
+| `~rs01` | pivot status corrected; no live doc states a freeze | `docs/superpowers/specs/2026-08-29-shadow-pivot-angles.md`, this file | grep proof in the row |
 | `~rs02` | completed+PROOF claims release on refresh | `scripts/shadow_root_board.py`, `tests/test_root_board.py` | `CompletedRowsReleaseTheirClaims` |
 | `~rs03` | seat view leads with STALE owned claims and recovery | `scripts/shadow-status.py`, `tests/test_status_focus.py` | `SeatViewLeadsWithStaleOwnedClaims` |
 | `~rs04` | read/gate completion path; caller timeout governs acceptance | `scripts/shadow-accept.py`, `tests/test_shadow_accept.py` | two named tests |
