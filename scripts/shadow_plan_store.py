@@ -25,6 +25,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_plan_grammar as _grammar  # noqa: E402
+from shadow_durable_lib import durable_write  # noqa: E402
 
 
 ROOT_SCHEMA = "shadow.plan-tree.v1"
@@ -1124,22 +1125,10 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _atomic_replace(path: Path, content: bytes, mode: int) -> None:
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
     try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fchmod(stream.fileno(), mode)
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        _fsync_directory(path.parent)
+        durable_write(path, content, mode=mode)
     except OSError as exc:
         raise PlanStoreError("plan-tree root could not be replaced atomically") from exc
-    finally:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
 
 
 @contextmanager
