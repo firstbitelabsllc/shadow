@@ -27,7 +27,7 @@ import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
-from shadow_durable_lib import durable_write  # noqa: E402
+from shadow_durable_lib import durable_write, fsync_directory  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
@@ -2014,10 +2014,6 @@ def inspect_retirement(
         }
     )
     return base, operation
-
-
-def fsync_directory(path: Path) -> None:
-    _plan_store._fsync_directory(path)
 
 
 def commit_retirement_receipt(repo: Path, plan: Path, operation: dict) -> str:
