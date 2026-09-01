@@ -185,6 +185,8 @@ elif [[ "$POWER_SOURCE" != "AC Power" ]]; then
   VERDICT="FAIL_POWER_SOURCE"; DETAIL="lab is not drawing from AC power"; EXIT_CODE=23
 elif [[ "$SCREEN_STATE" != "running" ]]; then
   VERDICT="FAIL_SCREEN_SHARING_SERVICE"; DETAIL="remote Screen Sharing service is not running"; EXIT_CODE=25
+elif [[ "$LID" != "open" && "$LID" != "closed" ]]; then
+  VERDICT="FAIL_LID_STATE"; DETAIL="remote lid state is unavailable or invalid"; EXIT_CODE=29
 elif [[ "$EXPECTED_MODE" != "any" && "$LID" != "$EXPECTED_MODE" ]]; then
   VERDICT="FAIL_MODE_MISMATCH"; DETAIL="observed lid mode does not match expected mode"; EXIT_CODE=24
 fi
