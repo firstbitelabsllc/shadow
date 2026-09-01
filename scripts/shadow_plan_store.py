@@ -25,7 +25,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_plan_grammar as _grammar  # noqa: E402
-from shadow_durable_lib import durable_write  # noqa: E402
+from shadow_durable_lib import durable_write, fsync_directory  # noqa: E402
 
 
 ROOT_SCHEMA = "shadow.plan-tree.v1"
@@ -1116,14 +1116,6 @@ def snapshot_of_root(plan: Path, root_bytes: bytes) -> PlanSnapshot:
     return PlanSnapshot(Path(os.path.abspath(plan)), root_bytes, root)
 
 
-def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
 def _atomic_replace(path: Path, content: bytes, mode: int) -> None:
     try:
         durable_write(path, content, mode=mode)
@@ -1170,7 +1162,7 @@ def _object_destination(plan: Path, digest: str) -> Path:
                     raise PlanStoreError("plan-tree object directory is unsafe")
             else:
                 directory.mkdir()
-                _fsync_directory(directory.parent)
+                fsync_directory(directory.parent)
         except PlanStoreError:
             raise
         except OSError as exc:
@@ -1203,7 +1195,7 @@ def _publish_object(plan: Path, digest: str, content: bytes) -> bool:
             if existing != content:
                 raise PlanStoreError("existing content-addressed object is corrupt")
             return False
-        _fsync_directory(destination.parent)
+        fsync_directory(destination.parent)
         return True
     except PlanStoreError:
         raise
@@ -1452,11 +1444,11 @@ def discard_unreachable(plan: Path, digests: Iterable[str]) -> tuple[str, ...]:
             raise PlanStoreError("unreachable object is corrupt; refusing deletion")
         try:
             path.unlink()
-            _fsync_directory(path.parent)
+            fsync_directory(path.parent)
             removed.append(digest)
             try:
                 path.parent.rmdir()
-                _fsync_directory(path.parent.parent)
+                fsync_directory(path.parent.parent)
             except OSError:
                 pass
         except OSError as exc:
