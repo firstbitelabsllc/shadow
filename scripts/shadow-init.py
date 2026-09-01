@@ -14,6 +14,7 @@ import subprocess
 import sys
 
 import shadow_root_board as board
+import shadow_git as _shadow_git
 from shadow_durable_lib import durable_write
 
 
@@ -25,6 +26,7 @@ def repository_root(path: Path) -> Path:
         ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if result.returncode:
@@ -47,6 +49,7 @@ def proof_source_origin(repo: Path) -> str | None:
         ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
         capture_output=True,
         text=True,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if result.returncode or not result.stdout.strip():
@@ -66,6 +69,7 @@ def repository_recovery_identity(repo: Path, origin: str | None) -> str:
             ["git", "-C", str(repo), "rev-parse", "--git-common-dir"],
             capture_output=True,
             text=True,
+            env=_shadow_git.sanitized_git_env(),
             check=False,
         )
         if result.returncode or not result.stdout.strip():

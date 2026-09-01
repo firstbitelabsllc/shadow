@@ -15,8 +15,11 @@ import tempfile
 import time
 from typing import Iterable, Mapping
 
-
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+
+import shadow_git as _shadow_git  # noqa: E402
 FIRST_WINDOW = "17 6 * * *"
 SECOND_WINDOW = "17 18 * * *"
 PRESSURE_WINDOW = "47 */3 * * *"
@@ -212,6 +215,7 @@ def changed_paths(base: str, head: str) -> list[str]:
     result = subprocess.run(
         ["git", "-C", str(ROOT), "diff", "--name-only", "--no-renames", "-z", base, head, "--"],
         capture_output=True,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if result.returncode:
@@ -274,6 +278,7 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
             capture_output=True,
             text=True,
             timeout=15,
+            env=_shadow_git.sanitized_git_env(),
             check=False,
         )
         baseline = tag.stdout.strip()
@@ -290,6 +295,7 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
         capture_output=True,
         text=True,
         timeout=15,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if baseline_commit.returncode or not baseline_commit.stdout.strip():
@@ -302,6 +308,7 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
         capture_output=True,
         text=True,
         timeout=15,
+        env=_shadow_git.sanitized_git_env(),
         check=False,
     )
     if log.returncode:
@@ -322,6 +329,7 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
     changed = subprocess.run(
         ["git", "-C", str(root), "diff", "--name-only", "--no-renames", baseline, "HEAD", "--"],
         capture_output=True,
+        env=_shadow_git.sanitized_git_env(),
         text=True,
         timeout=15,
         check=False,
