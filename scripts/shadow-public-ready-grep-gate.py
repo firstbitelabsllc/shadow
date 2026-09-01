@@ -23,6 +23,7 @@ FORBIDDEN_NAMES = {".env", ".env.local", ".npmrc"}
 PRIVATE_HOME = re.compile(r"(?:/Users/|/home/)([A-Za-z0-9._-]+)(?:/|\b)")
 WINDOWS_HOME = re.compile(r"[A-Za-z]:\\Users\\([A-Za-z0-9._-]+)(?:\\|\b)")
 FILE_PATH = re.compile(r"file:///([A-Za-z0-9._-]+)")
+HOME_TILDE = re.compile(r"~/([A-Za-z0-9._-]+)(?:/|\b)")
 OLD_BRAND = re.compile(r"(?i)pilot[-_ ]?puppy")
 # The whole remote, not a substring of it: `https://evil.example.com/mirror/
 # firstbitelabsllc/shadow.git` contains the canonical path and must still fail.
@@ -32,6 +33,15 @@ CANONICAL_ORIGIN = re.compile(
     re.IGNORECASE,
 )
 PLACEHOLDER_USERS = {"example", "name", "person", "private", "user", "username"}
+# The root segment identifies a home-rooted path the way the username
+# identifies a /Users/ one. Two classes of root name no particular machine and
+# stay allowed: tool-owned dot-directories pass by rule, because the docs teach
+# `~/.shadow`, `~/.claude`, `~/.codex`, `~/.cursor`, and `~/.grok` as
+# user-facing instructions; and these non-dot roots are documented or generic —
+# Development is the shipped SHADOW_PORTFOLIO_ROOT default, the rest are the
+# scratch-home fixture names the doctor tests render back as `~/...`. Any other
+# root is one machine's own directory name.
+PUBLIC_HOME_ROOTS = {"Development", "LOCAL_AGENT.md", "canonical", "missing-canonical.md"}
 SECRET = SECRET_SHAPE_RE
 
 
@@ -76,7 +86,17 @@ def contains_private_path(value: str) -> bool:
     if FILE_PATH.search(value):
         return True
     matches = [*PRIVATE_HOME.finditer(value), *WINDOWS_HOME.finditer(value)]
-    return any(match.group(1).lower() not in PLACEHOLDER_USERS for match in matches)
+    if any(match.group(1).lower() not in PLACEHOLDER_USERS for match in matches):
+        return True
+    # shadow_scrub_lib.PRIVATE_PATH_RE refuses every `~/` because its callers
+    # bound receipts, board values, and claim refs, where no home path belongs.
+    # The tracked tree is the other file class: it teaches `~/.shadow` on
+    # purpose, so this gate needs the root segment the canonical shape does not
+    # capture. Reusing that bare shape here reports 589 lines across 104 files.
+    return any(
+        not root.startswith(".") and root not in PUBLIC_HOME_ROOTS
+        for root in (match.group(1) for match in HOME_TILDE.finditer(value))
+    )
 
 
 def metadata_errors(root: Path) -> list[str]:
