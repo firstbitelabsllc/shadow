@@ -2,7 +2,7 @@
 
 Status: **PROPOSAL — not ratified by the owner (2026-09-01).** The owner never
 approved this pivot; the document was research merged under a blanket
-"feel free to auto merge" authorization, and the plan's DECISION record was
+authorization to land work, and the plan's DECISION record was
 corrected on 2026-09-01. Shadow continues under the standing goal; this text
 stays as an evidence bank. Original proposal: kill Shadow as a bundled local
 control plane, build an independent acceptance gate as the company bet,

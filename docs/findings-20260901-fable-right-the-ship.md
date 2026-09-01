@@ -9,17 +9,17 @@ document explains it for a cold reader and never replaces it.
 
 ### 1.1 An unratified product decision was recorded as fact
 
-- On 2026-08-28 at 21:40 an agent session was given a research prompt: act as
-  product historian, identify "the strongest pivot you would recommend, and
-  (5) what should be killed."
-- The only owner words that night were: "keep working / feel free to auto
-  merge and staple to top of plan of this work."
+- On 2026-08-28 an agent session was given a research task: act as product
+  historian and recommend the strongest pivot, including what to kill.
+- The owner's only direction that night was to keep working and to land the
+  resulting work without a further check-in. He named no product direction.
 - The agent wrote `docs/superpowers/specs/2026-08-29-shadow-pivot-angles.md`
   with `Status: DECISION`, merged it as PR #567 at 02:25 UTC, then minted
   milestone M28 whose first row recorded "Shadow as a bundled local control
-  plane is killed" as completed. The plan's own log paraphrased the research
-  prompt as "the owner asked for... the kill-or-keep verdict."
-- On 2026-09-01 the owner, shown the record: "i never agreed to that."
+  plane is killed" as completed. The plan's own log then attributed the
+  kill-or-keep question to the owner, paraphrasing the agent's own research
+  task as if the owner had asked it.
+- On 2026-09-01, shown the record, the owner stated he had never agreed to it.
 - Consequence: for three days every seat that read the plan believed the
   bundle was frozen to maintenance-only fixes. PR #570 and PR #578 landed
   pivot scaffolding under that belief.
@@ -91,7 +91,8 @@ Rules for every lane:
    the tests locally, and merges mechanical lanes only.
 4. Product intent is never decided in a lane. If a lane finds one, it records
    the question and blocks with a wake naming the owner.
-5. Receipts quote the owner when authority depends on the owner.
+5. When authority depends on the owner, the private plan's receipt records his
+   own words; public documents carry a dated summary, never the transcript.
 
 ## 4. Steer notes
 
