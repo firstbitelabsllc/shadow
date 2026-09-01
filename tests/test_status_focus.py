@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,9 @@ from tests.plan_tree_fixture import install_plan_tree
 
 ROOT = Path(__file__).resolve().parent.parent
 STATUS = ROOT / "scripts" / "shadow-status.py"
+THROW = ROOT / "scripts" / "shadow-throw.py"
+sys.path.insert(0, str(ROOT / "scripts"))
+import shadow_root_board as board  # noqa: E402
 
 PLAN = """# Demo
 
@@ -616,6 +621,170 @@ class StatusMatchesAmpTests(unittest.TestCase):
         self.assertNotIn("seat-b", continuations[0])
         for line in (line for line in result.stdout.splitlines() if "~" in line):
             self.assertRegex(line, r"shadow (?:amp|throw|return) ")
+
+
+class SeatViewLeadsWithStaleOwnedClaims(unittest.TestCase):
+    """`--by` must show an expired lease before it says Continue.
+
+    2026-09-01: three claims on one seat sat expired for three days because
+    the seat view printed `In flight` and `Continue:` with no staleness
+    marker, while `--in-flight` had been marking those same claims STALE the
+    whole time. One board, two answers, and the seat that reads its own view
+    never saw the recovery."""
+
+    STALE_MARK = "STALE — probe proof, then adopt, park, or close"
+
+    def fixture(self, root: Path) -> dict[str, str]:
+        """One registered entity with ~aa11, ~cc33, and ~dd44 all claimable."""
+        home = root / ".home"
+        home.mkdir()
+        (root / "PLAN.md").write_text(
+            V4_TWO_MILESTONES.replace(" | needs: ~cc33", ""), encoding="utf-8"
+        )
+        for command in (
+            ("init", "-q"),
+            ("config", "user.email", "test@example.invalid"),
+            ("config", "user.name", "Test"),
+            ("add", "PLAN.md"),
+            ("commit", "-qm", "fixture"),
+        ):
+            subprocess.run(["git", "-C", str(root), *command], check=True)
+        env = {**os.environ, "HOME": str(home)}
+        registered = self.status(root, env)
+        self.assertEqual(registered.returncode, 0, registered.stderr)
+        return env
+
+    def status(self, root: Path, env: dict[str, str], *args: str):
+        return subprocess.run(
+            [sys.executable, str(STATUS), "--root", str(root), *args],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def expire(self, root: Path, home: Path, row: str, seat: str) -> None:
+        """Claim with a year-2000 clock: the lease returned long ago."""
+        snapshot = board.snapshot(home=home)
+        entity = next(
+            item
+            for item in snapshot["entities"]
+            if Path(item["plan"]).resolve() == (root / "PLAN.md").resolve()
+        )
+        priority = next(
+            item["priority"]
+            for item in snapshot["projects"]
+            if item["id"] == entity["project"]
+        )
+        board.claim(
+            root / "PLAN.md",
+            row,
+            seat,
+            project=entity["project"],
+            priority=priority,
+            now=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            home=home,
+        )
+
+    def throw(self, root: Path, env: dict[str, str], row: str, seat: str) -> None:
+        claimed = subprocess.run(
+            [
+                sys.executable, str(THROW), "--repo", str(root),
+                "--task", row, "--by", seat,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+    def claims(self, root: Path) -> dict[str, str]:
+        """seat-a owns one expired ~cc33 and one live ~aa11; seat-b owns ~dd44.
+
+        ~cc33 sorts after ~aa11 by row id, so a stale-first ordering is the
+        only thing that can put it first."""
+        env = self.fixture(root)
+        self.expire(root, root / ".home", "~cc33", "seat-a")
+        self.throw(root, env, "~aa11", "seat-a")
+        self.throw(root, env, "~dd44", "seat-b")
+        return env
+
+    def test_a_stale_owned_claim_is_marked_and_leads_the_seat_view(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            env = self.claims(root)
+            result = self.status(root, env, "--by", "seat-a")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        stale_flight = self.index(lines, "In flight:", "the live row")
+        live_flight = self.index(lines, "In flight:", "blocked row")
+        adopt = self.index(lines, "Adopt:", "--adopt-expired")
+        stale_continue = self.index(lines, "Continue:", "'~cc33'")
+
+        self.assertIn(self.STALE_MARK, lines[stale_flight])
+        self.assertLess(stale_flight, adopt)
+        self.assertLess(adopt, stale_continue)
+        self.assertLess(stale_flight, live_flight)
+        self.assertIn("--task '~cc33'", lines[adopt])
+        self.assertIn("--by seat-a", lines[adopt])
+        self.assertIn("Stale: 1", result.stdout)
+        for line in (line for line in lines if "~" in line):
+            self.assertRegex(line, r"shadow (?:amp|throw|return) ")
+
+    def test_a_live_owned_claim_carries_no_stale_marker_or_adopt(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            env = self.claims(root)
+            result = self.status(root, env, "--by", "seat-a")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        live_flight = self.index(lines, "In flight:", "blocked row")
+        live_continue = self.index(lines, "Continue:", "'~aa11'")
+        block = lines[live_flight:live_continue + 1]
+
+        self.assertNotIn("STALE", "\n".join(block))
+        self.assertNotIn("Adopt:", "\n".join(block))
+        self.assertEqual(
+            [line for line in lines if "Adopt:" in line and "'~aa11'" in line], []
+        )
+        # A claim another seat owns keeps the view it always had.
+        self.assertNotIn("seat-b", "\n".join(lines[:live_flight]))
+
+    def test_the_printed_adopt_command_actually_clears_the_stale_mark(self) -> None:
+        """Text is not recovery: run the exact line the seat is handed."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            env = self.claims(root)
+            before = self.status(root, env, "--by", "seat-a")
+            adopt = shlex.split(
+                before.stdout.splitlines()[
+                    self.index(before.stdout.splitlines(), "Adopt:", "--adopt-expired")
+                ].partition("Adopt: shadow throw ")[2]
+            )
+            adopted = subprocess.run(
+                [sys.executable, str(THROW), *adopt],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            after = self.status(root, env, "--by", "seat-a")
+
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        self.assertEqual(after.returncode, 0, after.stderr)
+        self.assertNotIn("STALE", after.stdout)
+        self.assertNotIn("Adopt:", after.stdout)
+        self.assertIn("Stale: 0", after.stdout)
+        self.assertIn("Continue:", after.stdout)
+
+    def index(self, lines: list[str], *needles: str) -> int:
+        for position, line in enumerate(lines):
+            if all(needle in line for needle in needles):
+                return position
+        raise AssertionError(f"no line carried all of {needles}:\n" + "\n".join(lines))
 
 
 class StatusBrokenPlanTests(unittest.TestCase):

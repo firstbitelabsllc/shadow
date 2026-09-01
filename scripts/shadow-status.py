@@ -39,6 +39,7 @@ sys.modules.setdefault("shadow_lint", _lint)
 _lint_spec.loader.exec_module(_lint)
 
 REMOTE_DISCOVERY_ISSUE = "remote claim discovery is unavailable or unauthenticated"
+STALE_CLAIM_RECOVERY = "STALE — probe proof, then adopt, park, or close"
 
 # v4_brief's unclean kwarg: None means "verified clean, do not recompute";
 # this sentinel means "compute it here" — a clean plan and a missing answer
@@ -254,16 +255,30 @@ def claimable_row(record: dict) -> str | None:
     return claimable
 
 
+def owned_and_stale(claim: dict, seat: str | None) -> bool:
+    """This seat still owns the claim and its lease already returned."""
+    return seat is not None and claim["owner"] == seat and bool(claim.get("stale"))
+
+
 def append_live_work(lines: list[str], record: dict, seat: str | None) -> None:
     """Append the claims and exact executable move for one entity."""
     live_claims = sorted(
         record.get("live_claims", []),
-        key=lambda claim: (claim["owner"] != seat if seat else False, claim["row"]),
+        key=lambda claim: (
+            claim["owner"] != seat if seat else False,
+            # An expired lease the seat still owns leads its own claims. This
+            # view and --in-flight read one staleness predicate, so a seat is
+            # never told to Continue past a claim the recovery view calls STALE.
+            not owned_and_stale(claim, seat),
+            claim["row"],
+        ),
     )
     for claim in live_claims:
+        stale = owned_and_stale(claim, seat)
         lines.append(
             f"  In flight: [{claim['state']}] {claim['text']} "
             f"| Owner: {claim['owner']}"
+            + (f" | {STALE_CLAIM_RECOVERY}" if stale else "")
         )
         if (
             record.get("entity")
@@ -271,6 +286,15 @@ def append_live_work(lines: list[str], record: dict, seat: str | None) -> None:
             and claim["owner"] == seat
             and claim["state"] in {"pending", "in_progress"}
         ):
+            if stale:
+                # Renewing the lease is the move before continuing, and throw
+                # already owns it. A returned or completed row needs no adopt:
+                # `release` ignores expiry, so Recover below is already exact.
+                lines.append(
+                    f"  Adopt: shadow throw --entity {record['entity']} "
+                    f"--task {shlex.quote(claim['row'])} "
+                    f"--by {shlex.quote(claim['owner'])} --adopt-expired"
+                )
             lines.append(
                 f"  Continue: shadow amp --entity {record['entity']} "
                 f"--task {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
@@ -357,6 +381,16 @@ def render_v4(record: dict, seat: str | None = None) -> str:
     if record.get("contradictions_open"):
         lines.append(f"  Plan contradictions unresolved: {record['contradictions_open']}")
     return "\n".join(lines)
+
+
+def stale_owned_claims(records: list[dict], seat: str) -> int:
+    """Count the seat's expired leases exactly as the rows render them."""
+    return sum(
+        1
+        for record in records
+        for claim in record.get("live_claims", [])
+        if owned_and_stale(claim, seat)
+    )
 
 
 def seat_focus(records: list[dict], seat: str) -> list[dict]:
@@ -699,6 +733,7 @@ def board_records(
                 .get("proof", "")
                 .partition(" ")[0],
                 "remote": bool(claim.get("remote")),
+                "stale": _board.claim_is_stale(claim),
             }
             for claim in claims
         ]
@@ -872,7 +907,7 @@ def render_in_flight(rows: list[dict]) -> str:
             if row.get("return_by"):
                 kind += f" | return by {row['return_by']}"
             if row.get("stale"):
-                kind += " | STALE — probe proof, then adopt, park, or close"
+                kind += f" | {STALE_CLAIM_RECOVERY}"
             out.append(f"  {row['text']}")
             out.append(f"       {kind} | {plain_name(row['milestone'])}")
             out.append(f"       proof: {row['proof']}")
@@ -984,7 +1019,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"This computer — root board revision {board_snapshot['revision']}",
                     f"Portfolio: {len(board_snapshot['entities'])} entities | "
                     f"Seat: {args.by} | Focused: {len(focused)} | "
-                    f"Owned: {owned} | Unhealthy: {unhealthy}",
+                    f"Owned: {owned} | "
+                    f"Stale: {stale_owned_claims(focused, args.by)} | "
+                    f"Unhealthy: {unhealthy}",
                 ]
                 blocks.extend(render_seat_v4(record, args.by) for record in focused)
                 print("\n\n".join(blocks) + "\n", end="")
@@ -1069,7 +1106,9 @@ def main(argv: list[str] | None = None) -> int:
             unhealthy = sum(bool(record.get("broken")) for record in v4_records)
             blocks.append(
                 f"Portfolio: {len(v4_records)} entities | Seat: {args.by} | "
-                f"Focused: {len(focused)} | Owned: {owned} | Unhealthy: {unhealthy}"
+                f"Focused: {len(focused)} | Owned: {owned} | "
+                f"Stale: {stale_owned_claims(v4_records, args.by)} | "
+                f"Unhealthy: {unhealthy}"
             )
             blocks.extend(render_seat_v4(record, args.by) for record in focused)
         else:
