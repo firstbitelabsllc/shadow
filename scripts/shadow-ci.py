@@ -268,22 +268,23 @@ def pressure_decision(values: Mapping[str, str]) -> tuple[bool, str]:
 
 def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str, str]:
     """Accepted-change pressure since the newest reachable release tag."""
-    baseline = ""
-    for describe in (
-        ["describe", "--match", "shadow-v[0-9]*.[0-9]*.[0-9]*", "--abbrev=0"],
-        ["describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
-    ):
-        tag = subprocess.run(
-            ["git", "-C", str(root), *describe],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=_shadow_git.sanitized_git_env(),
-            check=False,
-        )
-        baseline = tag.stdout.strip()
-        if not tag.returncode and baseline:
-            break
+    # `--tags` is load-bearing: without it `describe` sees annotated tags only, so
+    # a lightweight release tag is invisible and pressure keeps measuring from the
+    # PREVIOUS release instead of resetting to zero. The old `v[0-9]*` fallback is
+    # gone: the only tags it could ever reach are the pre-1.0 legacy ones, and
+    # measuring 1.x pressure from a 2026-08-07 tag is worse than measuring none.
+    tag = subprocess.run(
+        [
+            "git", "-C", str(root), "describe", "--tags",
+            "--match", "shadow-v[0-9]*.[0-9]*.[0-9]*", "--abbrev=0",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        env=_shadow_git.sanitized_git_env(),
+        check=False,
+    )
+    baseline = tag.stdout.strip() if not tag.returncode else ""
     if not baseline:
         return {
             "ACCEPTED_CHANGE_COUNT": "0", "OLDEST_ACCEPTED_CHANGE_HOURS": "0",
