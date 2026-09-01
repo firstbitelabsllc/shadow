@@ -112,3 +112,12 @@ repository like the compose file) keeps four properties:
   with an exact status, instead of turning a full gauntlet into a guaranteed
   red discovered an hour later. Scheduler output is unbuffered so a
   mid-flight run is observable in the log.
+
+The baseline schedule is nightly. On top of it, the documented pressure
+trigger — `shadow-ci`'s `PRESSURE_WINDOW` probe — fires an early run when the
+repo's own accepted-change pressure crosses the checked-in threshold. The
+probe keeps the same four properties and adds one of its own: **a recency
+gate**, skipping honestly when the last completed run is fresher than the
+probe window, so a high-pressure stretch costs a bounded number of runs
+instead of every firing. Its decision (run or skip, with the reason) lands in
+the same log; a skipped probe is visible, never silent.
