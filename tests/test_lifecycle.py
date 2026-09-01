@@ -801,7 +801,7 @@ class HistoricalProgressCompaction(unittest.TestCase):
             built = lifecycle._plan_store.build_tree(
                 candidate["plan"].encode("utf-8")
             )
-            noncanonical = lifecycle._plan_store._with_lineage(
+            noncanonical = lifecycle._plan_store.with_lineage(
                 built,
                 generation=source.root["generation"] + 9,
                 previous_root=source.root_sha256,
