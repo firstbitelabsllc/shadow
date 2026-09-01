@@ -39,6 +39,21 @@ def _is_git_injection(name: str) -> bool:
     ) is not None
 
 
+_DEFAULT_PORTS: Final = {"ssh": 22, "https": 443, "http": 80, "git": 9418}
+
+
+def _parsed_port(parsed) -> int | None:
+    """One tolerant read of urlsplit's port, which raises on bad input."""
+    try:
+        return parsed.port
+    except ValueError:
+        return None
+
+
+def _trim_repo_path(path: str) -> str:
+    return path.rstrip("/").removesuffix(".git")
+
+
 def sanitized_git_env(
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
@@ -72,14 +87,11 @@ def normalized_origin(origin: str) -> str:
         parsed = urlsplit(text)
         scheme = parsed.scheme.lower()
         host = (parsed.hostname or "").lower()
-        try:
-            port = parsed.port
-        except ValueError:
-            port = None
-        if port == {"ssh": 22, "https": 443, "http": 80, "git": 9418}.get(scheme):
+        port = _parsed_port(parsed)
+        if port == _DEFAULT_PORTS.get(scheme):
             port = None
         authority = host + (f":{port}" if port is not None else "")
-        path = parsed.path.rstrip("/").removesuffix(".git")
+        path = _trim_repo_path(parsed.path)
         return authority + path
     text = text.split("#", 1)[0].split("?", 1)[0]
     text = text.rstrip("/").removesuffix(".git")
@@ -108,13 +120,8 @@ def transport_fingerprint(repo: Path, origin: str) -> tuple[str, ...]:
         parsed = urlsplit(raw)
         scheme = parsed.scheme.lower()
         host = (parsed.hostname or "").lower()
-        try:
-            port = parsed.port
-        except ValueError:
-            port = None
-        default_port = {"ssh": 22, "https": 443, "http": 80, "git": 9418}.get(
-            scheme
-        )
+        port = _parsed_port(parsed)
+        default_port = _DEFAULT_PORTS.get(scheme)
         effective_port = port if port is not None else default_port
         ssh_user = unquote(parsed.username or "") if scheme == "ssh" else ""
         return (
@@ -123,7 +130,7 @@ def transport_fingerprint(repo: Path, origin: str) -> tuple[str, ...]:
             ssh_user,
             host,
             str(effective_port or ""),
-            parsed.path.rstrip("/").removesuffix(".git"),
+            _trim_repo_path(parsed.path),
             parsed.query,
             parsed.fragment,
         )
