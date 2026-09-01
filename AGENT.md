@@ -224,9 +224,10 @@ Nine field lessons remain standing because each caught a false conclusion:
 - A lane with no receipt inside its cadence is dead, not idle; probe its proof
   (2026-08-28: sessions killed by a spend cap left no terminal message and
   their claims stayed owned for days).
-- Blanket auto-merge authorization is not product-intent authority; product
-  intent quotes the owner (2026-08-29 to 09-01: a blanket “feel free to auto
-  merge” turned a research recommendation into a DECISION the owner never made).
+- Blanket authorization to land work is not product-intent authority; the
+  private plan records the owner's own words and the public receipt carries a
+  dated summary (2026-08-29 to 09-01: a research recommendation became a
+  recorded DECISION the owner never made).
 
 The expensive full build, migration, story-driven end-to-end gauntlet,
 adversarial bug bash, rollback, and stranger-install source proof run on a
