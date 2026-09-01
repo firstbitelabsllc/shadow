@@ -16,7 +16,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 import unicodedata
 
 
@@ -28,6 +27,7 @@ import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
+from shadow_durable_lib import durable_write  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
@@ -893,25 +893,7 @@ def assert_progress_archive_immutable(
 
 
 def atomic_write(path: Path, payload: bytes, mode: int = 0o644) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fchmod(stream.fileno(), mode)
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
+    durable_write(path, payload, mode=mode, make_parents=True)
 
 
 def replace_plan(
