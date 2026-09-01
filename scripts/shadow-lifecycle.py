@@ -28,6 +28,7 @@ import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
 from shadow_durable_lib import durable_write, fsync_directory  # noqa: E402
+from shadow_json_lib import json_text  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
@@ -2031,7 +2032,7 @@ def commit_retirement_receipt(repo: Path, plan: Path, operation: dict) -> str:
     ensure_no_symlink(repo, relative)
     atomic_write(
         receipt_path,
-        (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        json_text(receipt).encode("utf-8"),
     )
     git(repo, "add", "--", relative.as_posix())
     return _lifecycle_commit(
@@ -2093,7 +2094,7 @@ def apply_retirement(
                 }
                 atomic_write(
                     journal_path,
-                    (json.dumps(journal, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+                    json_text(journal).encode("utf-8"),
                     0o600,
                 )
             was_recovery = operation["recover"]
