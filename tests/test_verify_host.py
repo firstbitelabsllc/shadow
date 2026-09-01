@@ -535,6 +535,25 @@ class CursorIsHonestAboutWhatItCannotCheck(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn("only valid for --host cursor", result.stderr)
 
+    def test_repo_probes_ignore_an_ambient_repository_redirect(self) -> None:
+        # GIT_DIR beats `git -C`: without the scrub, the tracked-instructions
+        # probe runs against the decoy and invents a red that is not there.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wired(home, "cursor")
+            real = cursor_repo(home)
+            decoy = home / "decoy"
+            decoy.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main", str(decoy)], check=True)
+            result = run(
+                home,
+                "cursor",
+                repo=real,
+                extra_env={"GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)},
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("the Cursor repository root exposes source-controlled AGENTS.md", result.stdout)
+
 
 class LiveSessionEvidenceIsDynamicAndUncoached(unittest.TestCase):
     def _fake_host(self, home: Path, name: str, body: str) -> str:

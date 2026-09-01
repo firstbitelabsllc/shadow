@@ -34,6 +34,25 @@ REPO=""
 LIVE_TIMEOUT=120
 FAILURES=0
 
+# Ambient Git redirection must not steer the repository probes below: GIT_DIR
+# and friends override `git -C`. The variable list is derived from the same
+# boundary the Python side enforces (scripts/shadow_git.py), so it cannot
+# drift; the fallback covers a machine where the import fails.
+GIT_INJECTION="$(python3 -c "
+import sys
+sys.path.insert(0, '${ROOT}/scripts')
+import shadow_git
+print(' '.join(sorted(shadow_git.GIT_INJECTION_VARS)))
+" 2>/dev/null || echo 'GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR')"
+for GIT_VAR in ${GIT_INJECTION}; do
+  unset "${GIT_VAR}"
+done
+for GIT_VAR in $(env | sed -n 's/^\(GIT_CONFIG_KEY_[0-9][0-9]*\)=.*/\1/p; s/^\(GIT_CONFIG_VALUE_[0-9][0-9]*\)=.*/\1/p'); do
+  unset "${GIT_VAR}"
+done
+export GIT_NO_REPLACE_OBJECTS=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false
+unset GIT_INJECTION GIT_VAR
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --host)
