@@ -7,10 +7,25 @@ from pathlib import Path
 import tempfile
 
 
-def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
+def fsync_directory(path: Path, *, best_effort: bool = False) -> None:
+    """Flush a rename or link into the directory so the NAME change is durable.
+
+    fsync on a file makes its bytes survive a crash; the directory entry —
+    those bytes wearing this name — survives only when the parent directory is
+    synced too. Without it a write is atomically visible but not durable: a
+    crash right after the rename can lose the name change. `best_effort`
+    tolerates filesystems that reject a directory fsync; the common case
+    (APFS, ext4) makes the completed write crash-durable.
+    """
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
     try:
-        os.fsync(descriptor)
+        if best_effort:
+            try:
+                os.fsync(descriptor)
+            except OSError:
+                pass
+        else:
+            os.fsync(descriptor)
     finally:
         os.close(descriptor)
 
@@ -46,6 +61,6 @@ def durable_write(
             os.link(temporary, path, follow_symlinks=follow_symlinks)
         else:
             os.replace(temporary, path)
-        _fsync_directory(path.parent)
+        fsync_directory(path.parent)
     finally:
         Path(temporary).unlink(missing_ok=True)
