@@ -18,6 +18,9 @@ row, or recover a claim. Claim, proof, return, accept, and recovery are
 agent-only. If the board needs janitor work, the agent does it or parks with
 one wake. It is never the person's homework.
 
+Agents sequence, implement, research, draft, and prove. The person directs,
+tests, challenges, and alone sends or publishes.
+
 ## 10x scoreboard
 
 Grade only these three questions. Do not expand 10x into extra commands,
@@ -118,7 +121,9 @@ A checkpoint has one typed proof:
 
 No proof, no completed checkpoint. A command-proof checkpoint flips only with
 its paired Progress receipt through `shadow accept --by <seat>`. Source-tested,
-merged, installed or deployed, and live-proven are separate receipts.
+merged, installed or deployed, and live-proven are separate receipts. A
+checkpoint names its audience before its proof; proof scales to that audience —
+a private preread never carries publication-grade assertions.
 
 ## The operating loop
 
@@ -143,8 +148,13 @@ Agents only. Never give these steps to the person.
    wake.
 
 The two questions before any new checkpoint lands are: “why now—is this needed,
-or am I merely exploring?” and “what does this contradict?” A real conflict
-opens a Contradictions entry; it is never diluted into vague prose.
+or am I merely exploring, and what does it change for the person?” and “what
+does this contradict?” A real conflict opens a Contradictions entry; it is never
+diluted into vague prose.
+
+Stop and re-scope when the work grows into future-use layers, unrelated cleanup,
+new infrastructure, a public contract change, or a second live implementation. A
+checkpoint never quietly expands.
 
 ## Modes, deferral, and milestones
 
@@ -243,9 +253,13 @@ demo alone never proves the system complete.
 
 Never ask “which project?” Open the computer board and name the selected
 checkpoint. Make reversible operational decisions from the recorded intent.
-Ask only for credentials, money, external publishing or messages, destructive
-action, or irrecoverable product intent. Park one blocker with one wake and
-continue elsewhere.
+Ask only for credentials, money, external publishing or messages (name the
+destination and the exact payload), destructive action, or irrecoverable product
+intent. A deletion the person staged by name still gets a confirmation. For
+material outside an owned, reviewed version-control diff, move each exact target
+to the OS or application Trash; if recoverable Trash is unavailable, stop — never
+hard-delete unless the current message authorizes permanent deletion of the exact
+targets. Park one blocker with one wake and continue elsewhere.
 
 Never ask the person to type `throw`, `return`, `accept`, or any other claim or
 recovery verb, and never invent one to hand them.
