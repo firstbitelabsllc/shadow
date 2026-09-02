@@ -64,6 +64,7 @@ fi
 ln -sfn "${ROOT}/bin/shadow" "${BIN_DIR}/shadow"
 echo "installed: ${BIN_DIR}/shadow -> ${ROOT}/bin/shadow"
 
+MOUNTED=0
 if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   for host in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills" "${HOME}/.grok/skills"; do
     if [[ -d "$(dirname "${host}")" ]]; then
@@ -78,8 +79,18 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
       fi
       ln -sfn "${ROOT}" "${host}/shadow"
       echo "mounted:   ${host}/shadow -> ${ROOT}"
+      MOUNTED=$((MOUNTED + 1))
     fi
   done
+  # Mounting into a host directory that does not exist would create ~/.claude for
+  # a host the person does not run, so the guard above is right to skip. Staying
+  # SILENT about it is not: on a clean machine every host is skipped, install
+  # reports success, and the next chat opens without the board.
+  if [[ "${MOUNTED}" -eq 0 ]]; then
+    echo "" >&2
+    echo "warning:   no host directory exists yet, so the skill mounted nowhere." >&2
+    echo "           Start one supported host once, then re-run: bash install.sh" >&2
+  fi
 fi
 
 if [[ "${LINK_SKILLS}" -eq 1 ]]; then

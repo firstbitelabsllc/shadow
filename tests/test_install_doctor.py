@@ -16,6 +16,52 @@ CLI = ROOT / "bin" / "shadow"
 DOCTOR = ROOT / "scripts" / "shadow-doctor.py"
 
 
+class ACleanMachineIsToldTheSkillMountedNowhere(unittest.TestCase):
+    """The stranger gate: install must not report success into silence.
+
+    `install.sh` skips a host whose directory does not exist, which is right --
+    creating ~/.claude for a host the person does not run would be wrong. On a
+    genuinely clean machine that skips EVERY host, so the skill mounts nowhere,
+    install exits 0, and the next chat opens without the board. Walked on the
+    2026-09-01 stranger install: shadow doctor showed four missing mounts that
+    install.sh never mentioned.
+    """
+
+    INSTALLER = ROOT / "install.sh"
+
+    def _install(self, home: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", str(self.INSTALLER)],
+            cwd=str(ROOT),
+            env={**os.environ, "HOME": str(home)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_no_host_directory_is_named_not_silently_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            result = self._install(home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = result.stdout + result.stderr
+            self.assertIn("the skill mounted nowhere", output)
+            self.assertIn("re-run: bash install.sh", output)
+            self.assertNotIn("mounted:  ", output)
+
+    def test_one_existing_host_directory_mounts_and_stays_quiet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            (home / ".claude").mkdir(parents=True)
+            result = self._install(home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = result.stdout + result.stderr
+            self.assertTrue((home / ".claude" / "skills" / "shadow").is_symlink())
+            self.assertIn("mounted:", output)
+            self.assertNotIn("the skill mounted nowhere", output)
+
+
 class TheGateUsesTheResolvedPythonNotBarePython3(unittest.TestCase):
     def test_documented_install_and_doctor_use_the_versioned_interpreter(self) -> None:
         candidates = [
