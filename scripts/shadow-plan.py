@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from collections import Counter
 import fnmatch
 import hashlib
@@ -37,7 +38,122 @@ sys.modules.setdefault("shadow_amp", amp)
 _AMP_SPEC.loader.exec_module(amp)
 
 
+_ACCEPT_SPEC = importlib.util.spec_from_file_location(
+    "shadow_accept",
+    ROOT / "scripts" / "shadow-accept.py",
+)
+accept = importlib.util.module_from_spec(_ACCEPT_SPEC)
+sys.modules.setdefault("shadow_accept", accept)
+_ACCEPT_SPEC.loader.exec_module(accept)
+
+
 PlanStoreError = store.PlanStoreError
+
+
+def _amend(
+    entity: str,
+    row_id: str,
+    owner: str,
+    *,
+    proof: str | None,
+    observation: str | None,
+    proof_root: Path | None,
+) -> dict[str, object]:
+    """Rewrite one claimed row's proof and/or record its read/gate observation.
+
+    A plan tree is a content-addressed object store with no append verb, so
+    until now a proof written before its lane landed under another test name
+    could only be refused forever, and a read/gate row had no supported way to
+    take its observation (findings 2026-08-18 §4). This is the owner-only
+    door: the row must be claimed by ``--by``, must not be completed, and the
+    candidate must pass lint before one root CAS publishes it.
+    """
+    if proof is None and observation is None:
+        raise PlanStoreError("amend needs --proof and/or --observation")
+    resolved = board_store.resolve_entity(entity)
+    if resolved is None:
+        raise PlanStoreError("this computer has no Shadow board yet")
+    plan = resolved["plan"]
+    if plan is None:
+        raise PlanStoreError("this entity is not registered on the computer board")
+    if not board_store.is_local_plan(plan):
+        raise PlanStoreError(
+            "amend edits machine-local plans only; a committed product plan is "
+            "edited in a branch and reviewed like source"
+        )
+    if proof is not None and grammar.PROOF_CLASS_RE.match(proof) is None:
+        raise PlanStoreError("--proof must start with `cmd `, `read `, or `gate `")
+    with board_store.project_lock(plan):
+        state = board_store.entity_state(plan, exact_on_conflict=True)
+        claim = next(
+            (item for item in (state["claims"] if state else []) if item["row"] == row_id),
+            None,
+        )
+        if claim is None:
+            raise PlanStoreError(
+                f"{row_id} is not claimed; run shadow throw before amending it"
+            )
+        if claim["owner"] != owner:
+            raise PlanStoreError(f"{row_id} is claimed by {claim['owner']}, not {owner}")
+        snapshot = board_store.open_plan(plan)
+        text = snapshot.materialize().decode("utf-8")
+        try:
+            index, line, row_state, old_proof, _needs = accept.find_row(text, row_id)
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
+        if row_state == "completed":
+            raise PlanStoreError(f"{row_id} is completed; a proven row is not amended")
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = text.splitlines(keepends=True)
+        receipts: list[str] = []
+        if proof is not None and proof != old_proof:
+            fields = f" | proof: {old_proof}"
+            if fields not in line:
+                raise PlanStoreError(f"{row_id} proof field could not be located verbatim")
+            lines[index] = line.replace(fields, f" | proof: {proof}", 1) + "\n"
+            receipts.append(
+                f"- {stamp} {row_id} RESHAPE proof was `{old_proof}`; now `{proof}` (by {owner})\n"
+            )
+        if observation is not None:
+            proof_class = (proof or old_proof).split(" ", 1)[0]
+            if proof_class == "cmd":
+                raise PlanStoreError(
+                    f"{row_id} carries a cmd proof; run shadow accept to rerun it "
+                    "instead of recording an observation"
+                )
+            receipt = f"- {stamp} {row_id} PROOF {observation}\n"
+            if grammar.progress_proof_receipt(receipt.rstrip("\n")) is None:
+                raise PlanStoreError(
+                    "--observation must read `<what was observed> -> <result>`"
+                )
+            receipts.append(receipt)
+        if not receipts:
+            raise PlanStoreError("nothing to amend; the row already carries that proof")
+        candidate = "".join(lines)
+        if "\n## Progress" not in candidate:
+            raise PlanStoreError("plan has no Progress section")
+        if not candidate.endswith("\n"):
+            candidate += "\n"
+        candidate += "".join(receipts)
+        try:
+            accept.refuse_lint_blocked_plan(
+                candidate, plan, proof_root=proof_root, row_id=row_id
+            )
+            publication = accept.atomic_write_text(plan, candidate)
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
+    return {
+        "schema": "shadow.plan-amend.v1",
+        "action": "amended",
+        "plan": "PLAN.md",
+        "row": row_id,
+        "by": owner,
+        "proof": proof if proof is not None else old_proof,
+        "observation_recorded": observation is not None,
+        "receipts": len(receipts),
+        "root_sha256": publication.root_sha256 if publication else None,
+        "generation": publication.generation if publication else None,
+    }
 
 
 def _read(path: Path, label: str) -> bytes:
@@ -1061,12 +1177,40 @@ def parser() -> argparse.ArgumentParser:
     map_rollback.add_argument("--receipt", required=True, type=Path)
     map_rollback.add_argument("--apply", action="store_true", required=True)
     map_rollback.add_argument("--expect", required=True)
+    amend = commands.add_parser(
+        "amend",
+        help="rewrite one claimed row's proof and/or record its read/gate observation",
+    )
+    amend.add_argument("--entity", required=True, help="computer-board entity id")
+    amend.add_argument("--row", required=True, help="exact ~hash row id")
+    amend.add_argument("--by", required=True, help="the seat that owns the claim")
+    amend.add_argument("--proof", help="replacement proof: `cmd …`, `read …`, or `gate …`")
+    amend.add_argument(
+        "--observation",
+        help="read/gate observation to record: `<what was observed> -> <result>`",
+    )
+    amend.add_argument(
+        "--repo",
+        type=Path,
+        help="source checkout where a cmd proof runs; lint checks its script operands",
+    )
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
+        if args.command == "amend":
+            payload = _amend(
+                args.entity,
+                args.row,
+                args.by,
+                proof=args.proof,
+                observation=args.observation,
+                proof_root=args.repo.resolve() if args.repo else None,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
         if args.command == "map-rollback":
             payload = _rollback_project_map_migration(
                 args.plan,
