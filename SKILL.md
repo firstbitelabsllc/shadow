@@ -9,7 +9,9 @@ Use Shadow when work must survive sessions, hosts, or interruptions and a
 cold reader should know the Outcome, active lanes, proof, and reachable
 successors.
 
-Skip it for a factual answer or an obvious one-step edit with no handoff.
+Scale ceremony to the task. A trivial task needs no plan artifact. A bounded
+edit states Outcome / Non-goals / Files / Proof in one breath. Only
+architectural or multi-session work earns a durable plan.
 
 ## How Shadow works
 
@@ -41,7 +43,8 @@ ownership and reviewability; it is never a session, campaign, or ambition cap.
 3. Resume every checkpoint owned by that seat; otherwise atomically claim the
    highest reachable checkpoint and fan out path-disjoint claims when useful.
    On resume, read the packet's `PLAN LEADS` line — the plan's latest LESSON
-   and DECISION — before re-deriving any settled decision.
+   and DECISION — before re-deriving any settled decision. Never repeat an
+   identical call; a repeated call is a missing receipt.
 4. Drive claimed lanes to recorded results and run their real repository gates.
 5. Record each result, proof, uncertainty, blocked wake, and reachable
    successor in `PLAN.md`.
