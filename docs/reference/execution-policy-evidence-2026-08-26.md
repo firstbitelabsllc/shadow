@@ -43,9 +43,9 @@ This matters because the roster is meant to return attention, not produce
 routing theater. If frontier models silently do trivial work, scarce reasoning
 is wasted. If cheap models silently receive hard implementation, quality falls.
 If a parent says “I delegated” without native child lineage, the system may be
-serial while reporting leverage. All three defects force Leo to supervise the
+serial while reporting leverage. All three defects force the owner to supervise the
 machinery. Explicit choices, fail-closed capability checks, and observable
-outcomes let agents handle sequencing while Leo retains direction, protected
+outcomes let agents handle sequencing while the owner retains direction, protected
 decisions, and publication.
 
 The source result is promising but not universally green. The corrected
@@ -100,7 +100,7 @@ how easily they can manufacture a false claim of intelligent delegation.
 These are important as a system, not ten isolated bugs. If any early link is
 implicit, later observability can faithfully measure the wrong thing. If any
 late link is inferred, a correct source design can be mistaken for operational
-reality. The resulting supervision burden lands on Leo: checking which model
+reality. The resulting supervision burden lands on the owner: checking which model
 ran, reopening chats, reconciling provider errors, and guessing whether a
 “delegation” was actually parallel work.
 
@@ -269,7 +269,7 @@ the repository.
 
 Four immutable JSON summaries form the source evidence. They are not committed
 because they contain owner-local evaluation records; their names and hashes are
-recorded so the work computer can verify an authorized copy byte-for-byte.
+recorded so the takeover machine can verify an authorized copy byte-for-byte.
 
 | Run | Cells | Raw verdict | SHA-256 |
 | --- | ---: | ---: | --- |
@@ -470,7 +470,7 @@ and product installation are separate operations.
 
 ## Page 10 of 10 — work-computer overnight cold takeover
 
-The work computer should be able to begin with only merged Git source, its own
+The takeover machine should be able to begin with only merged Git source, its own
 local Shadow board, and this page. It must not inherit this computer's claims,
 Langfuse credentials, traces, compose project, provider sessions, or plan tree.
 
@@ -497,13 +497,13 @@ Cold sequence:
 7. If an explicitly provisioned local Langfuse is available, run a fresh 48-cell
    matrix with new trace IDs. Keep credentials and raw summaries local. Compare
    by predicates, not aggregate score alone.
-8. Record every surviving failure in the work computer's owning `PLAN.md` as a
+8. Record every surviving failure in the takeover machine's owning `PLAN.md` as a
    checkpoint or one exact wake. Accept only through Shadow; then continue the
    next reachable row.
 
 Current wakes, each intentionally singular:
 
-- **Cursor Fable/Opus:** wake when the provider usage window resets or Leo
+- **Cursor Fable/Opus:** wake when the provider usage window resets or the owner
   explicitly changes spend; rerun the six red Cursor planning/coding cells.
 - **Cursor required delegation:** wake when Cursor CLI exposes structured,
   observable native-child lineage.
@@ -513,8 +513,8 @@ Current wakes, each intentionally singular:
 - **NIA:** wake when source index/credits are available; rerun the primary-source
   research check for drift.
 
-Success is not “the overnight job ran.” Success is: the work computer cold
+Success is not “the overnight job ran.” Success is: the takeover machine cold
 resumes from its local board, reproduces the merged source, installs that exact
 source, proves one installed live packet, records red provider predicates
 without guessing, accepts proven rows, and reaches the recorded successor with
-no transcript routing or supervision from Leo.
+no transcript routing or supervision from the owner.
