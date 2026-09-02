@@ -1583,7 +1583,10 @@ def accept_local_plan(
             if fresh_token != plan_token or fresh_text != plan_text:
                 raise AcceptError("the local plan changed before the flip; retry")
             updated = completed_judgment_plan_text(fresh_text, row_id)
-            refuse_lint_blocked_plan(updated, plan_path, row_id=row_id)
+            # Sibling cmd rows name scripts that live in --repo, not beside
+            # the private plan; lint them where they run or a read flip is
+            # refused for a neighbor's proof (2026-09-02: ~rs05).
+            refuse_lint_blocked_plan(updated, plan_path, proof_root=repo, row_id=row_id)
             try:
                 claim_token = _board.reserve_completion(
                     plan_path,

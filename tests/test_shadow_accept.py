@@ -4606,6 +4606,55 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
         self.assertIn("-> pass (manual)", text)
         self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
 
+    def test_a_machine_local_read_flip_lints_sibling_cmd_proofs_where_they_run(
+        self,
+    ) -> None:
+        # ~rs05 (2026-09-02): the read row was refused for a NEIGHBOR's cmd
+        # proof because lint resolved `scripts/…` beside the private plan
+        # instead of in --repo, where that script actually lives.
+        dirname = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, dirname, True)
+        root = Path(dirname).resolve()
+        repo = make_repo(root)
+        (repo / "scripts").mkdir()
+        (repo / "scripts" / "check.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "add checker")
+        home = root / "home"
+        home.mkdir()
+        plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(
+            READ_PLAN.replace(
+                "- [pending] shipped ~cd34 (DoD)",
+                "- [pending] the checker runs ~jc02 | proof: cmd scripts/check.sh\n"
+                "- [pending] shipped ~cd34 (DoD)",
+            )
+            + "- 2026-08-06T10:02:00Z ~jr01 PROOF deploy looks healthy -> pass (manual)\n",
+            encoding="utf-8",
+        )
+        accept._board.reconcile(
+            [{"plan": str(plan), "project": "demo", "priority": 3, "candidates": ["~jr01"]}],
+            [],
+            home=home,
+        )
+        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
+        output = io.StringIO()
+
+        with mock.patch.dict(os.environ, {"HOME": str(home)}), redirect_stdout(
+            output
+        ), redirect_stderr(output):
+            result = accept.main(
+                ["--entity", entity, "--repo", str(repo), "--row", "~jr01", "--by", "seat-a"]
+            )
+
+        self.assertEqual(result, 0, output.getvalue())
+        self.assertIn(
+            "- [completed] review the deploy state ~jr01",
+            plan.read_text(encoding="utf-8"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
