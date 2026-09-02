@@ -97,9 +97,8 @@ Rules for every lane:
 ## 4. Steer notes
 
 - `/ponytail` verdict above: `keep`, correct the record.
-- `/loco` does not apply: it routes company-internal operations signals. The
-  only sweep analog here is `shadow status --in-flight`, which `~rs03` brings
-  into the seat view.
+- No live operations sweep applies here; the only analog is `shadow status
+  --in-flight`, which `~rs03` brings into the seat view.
 - Delegation runs as native subagents in isolated worktrees because no
   `shadow host run` roster is sealed on this computer; the plan records this
   fallback.
