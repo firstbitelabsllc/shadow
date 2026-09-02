@@ -3076,7 +3076,10 @@ def release_stranded_completed_claims(*, home: Path | None = None) -> int:
     the owner's own accept still publishing its close, and refresh must never
     race that. Rows still pending or in progress keep their claims — expiry
     marks those stale and explicit adoption handles them; refresh never
-    fabricates a close for unfinished work.
+    fabricates a close for unfinished work. The predicate reads the same
+    authority release would: committed state for a Git-backed plan (a dirty
+    worktree skips the claim, never authorizes the drop), the working file
+    for a machine-local one.
     """
     payload = snapshot(home=home)
     if payload is None:
@@ -3108,7 +3111,12 @@ def release_stranded_completed_claims(*, home: Path | None = None) -> int:
             if claim is None or not claim_is_stale(claim):
                 continue
             try:
-                _release_state(plan, row, "completed")
+                _, frozen = frozen_plan_snapshot(plan, home=home)
+                try:
+                    text = frozen.decode("utf-8")
+                except UnicodeError:
+                    continue
+                _release_state(plan, row, "completed", text=text)
             except BoardError:
                 continue
             fresh["claims"] = [item for item in fresh["claims"] if item is not claim]
