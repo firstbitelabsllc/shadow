@@ -752,8 +752,12 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
     # same bound as Mode, Priority, and Loop: unbounded, a 3,400-char Project
     # value evicted RAILS from a 4k block while amp still reported success.
     # The default loop derives from the cleaned value so both stay bounded.
+    # A Brief with no Loop line must not project a phantom invocable skill:
+    # a cold seat would try to invoke /<project>-loop and find nothing.
+    # Mark the projection as the convention it is (finding 3 in
+    # docs/findings-20260818-work-os-compile.md).
     project = _clean(brief.get("Project", repo.name), 64)
-    loop = _clean(brief.get("Loop", f"/{project}-loop"), 64)
+    loop = _clean(brief.get("Loop") or f"none (convention /{project}-loop)", 64)
 
     dod = next((r for r in milestone["rows"] if r["dod"]), None)
     gates = [
