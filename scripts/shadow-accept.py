@@ -936,9 +936,46 @@ def run_proof(
         return None
 
 
+_last_proof_failure: str | None = None
+
+
 def proof_passes(worktree: Path, proof: list[str], timeout_seconds: int) -> bool:
+    global _last_proof_failure
     result = run_proof(worktree, proof, timeout_seconds)
-    return result is not None and result.returncode == 0
+    if result is None:
+        _last_proof_failure = "the proof could not be started or exceeded the timeout"
+        return False
+    if result.returncode == 0:
+        _last_proof_failure = None
+        return True
+    _last_proof_failure = proof_failure_tail(result)
+    return False
+
+
+def proof_failure_tail(result: subprocess.CompletedProcess[bytes]) -> str:
+    """The last lines a failed proof printed, so a stale proof reads as stale.
+
+    A proof that names a renamed test class exits non-zero exactly like a red
+    test does; without its own output the refusal cannot tell the two apart
+    (2026-09-02: four rows refused as "did not pass" whose tests had moved).
+    """
+    combined = (result.stderr or b"") + (result.stdout or b"")
+    lines = [
+        line.strip()
+        for line in combined.decode("utf-8", "replace").splitlines()
+        if line.strip()
+    ]
+    tail = lines[-4:]
+    if not tail:
+        return f"exit {result.returncode} with no output"
+    return f"exit {result.returncode}: " + " | ".join(tail)
+
+
+def proof_failure_detail() -> str:
+    """Suffix for a refusal, naming why the last proof did not pass."""
+    if not _last_proof_failure:
+        return ""
+    return f" ({_last_proof_failure})"
 
 
 def review_checkout_is_clean(worktree: Path, expected_head: str) -> bool:
@@ -1211,7 +1248,7 @@ def completed_proof_review(
         ):
             raise AcceptError(
                 "the completed proof did not pass from the detached source "
-                "checkout; root claim stays open"
+                f"checkout; root claim stays open{proof_failure_detail()}"
             )
         require_frozen_review_head(review, source_head)
         yield review
@@ -1640,7 +1677,7 @@ def accept_local_plan(
         ):
             raise AcceptError(
                 "the proof did not pass from the detached source checkout; "
-                "nothing was changed"
+                f"nothing was changed{proof_failure_detail()}"
             )
         with _board.project_lock(plan_path):
             fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
@@ -2901,7 +2938,10 @@ def main(argv: list[str] | None = None) -> int:
             except OSError:
                 pass
         if not passed:
-            raise AcceptError("the proof did not pass in a clean checkout; nothing was changed")
+            raise AcceptError(
+                "the proof did not pass in a clean checkout; nothing was changed"
+                f"{proof_failure_detail()}"
+            )
         # The proof may have run for minutes; a write derived from the pre-run
         # snapshot would silently revert anything appended to the plan since.
         try:

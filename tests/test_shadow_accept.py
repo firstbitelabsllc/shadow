@@ -3497,6 +3497,45 @@ class AForgedCompletionCannotBeLaunderedByTheFastPath(unittest.TestCase):
             )
 
 
+class ARefusedProofNamesItsOwnFailure(unittest.TestCase):
+    def test_a_proof_naming_a_missing_test_class_is_not_reported_as_a_red_test(
+        self,
+    ) -> None:
+        pending = PLAN.replace(
+            'proof: cmd python3 -c "import pathlib,sys; '
+            "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
+            "proof: cmd python3 -m unittest tests.test_root_board.NoSuchClass",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            (repo / "tests").mkdir()
+            (repo / "tests" / "__init__.py").write_text("", encoding="utf-8")
+            (repo / "tests" / "test_root_board.py").write_text(
+                "import unittest\n", encoding="utf-8"
+            )
+            (repo / "PLAN.md").write_text(pending, encoding="utf-8")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-qm", "proof names a class that moved")
+
+            result = run_accept(repo, "~ab12")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("proof did not pass", result.stderr)
+            # The refusal carries the proof's own last lines, so a stale proof
+            # string reads as stale instead of as a failing test.
+            self.assertIn("NoSuchClass", result.stderr)
+            self.assertIn("exit 1:", result.stderr)
+
+    def test_a_passing_proof_leaves_no_stale_failure_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            accept.proof_passes(root, ["false"], 30)
+            self.assertTrue(accept.proof_failure_detail())
+            accept.proof_passes(root, ["true"], 30)
+            self.assertEqual(accept.proof_failure_detail(), "")
+
+
 class NeedsIsAReadinessGate(unittest.TestCase):
     """grammar.md: "a task is ready when it is pending and every needs-target
     is completed". throw enforced that; accept did not, so a row could be
