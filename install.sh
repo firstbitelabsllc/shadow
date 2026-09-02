@@ -65,9 +65,11 @@ ln -sfn "${ROOT}/bin/shadow" "${BIN_DIR}/shadow"
 echo "installed: ${BIN_DIR}/shadow -> ${ROOT}/bin/shadow"
 
 MOUNTED=0
+HOSTS_SEEN=0
 if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   for host in "${HOME}/.claude/skills" "${HOME}/.agents/skills" "${HOME}/.cursor/skills" "${HOME}/.grok/skills"; do
     if [[ -d "$(dirname "${host}")" ]]; then
+      HOSTS_SEEN=$((HOSTS_SEEN + 1))
       mkdir -p "${host}"
       # `ln -sfn` into an existing REAL directory silently creates
       # ${host}/shadow/shadow and leaves the stale mount loaded, so an old
@@ -86,10 +88,17 @@ if [[ "${LINK_SKILLS}" -eq 1 ]]; then
   # a host the person does not run, so the guard above is right to skip. Staying
   # SILENT about it is not: on a clean machine every host is skipped, install
   # reports success, and the next chat opens without the board.
-  if [[ "${MOUNTED}" -eq 0 ]]; then
+  #
+  # A blocked mount is a different failure with a different fix, and it already
+  # printed its own line above — do not tell someone their host is missing when
+  # what they have is a real directory in the way.
+  if [[ "${MOUNTED}" -eq 0 && "${HOSTS_SEEN}" -eq 0 ]]; then
     echo "" >&2
     echo "warning:   no host directory exists yet, so the skill mounted nowhere." >&2
     echo "           Start one supported host once, then re-run: bash install.sh" >&2
+  elif [[ "${MOUNTED}" -eq 0 ]]; then
+    echo "" >&2
+    echo "warning:   every host directory was blocked above, so the skill mounted nowhere." >&2
   fi
 fi
 
