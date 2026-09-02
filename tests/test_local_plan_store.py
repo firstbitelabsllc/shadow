@@ -1098,3 +1098,160 @@ class LocalPlanStore(unittest.TestCase):
                 ],
                 ["~aa11"],
             )
+
+
+READ_ROW_PLAN = PLAN.replace(
+    "- [pending] prove local authority ~aa11 | proof: cmd true",
+    "- [pending] the dashboard reads healthy ~aa11 | proof: read the dashboard shows no errors",
+)
+
+
+def _origin_checkout(root: Path) -> Path:
+    """A committed checkout whose origin matches the fixture plan's Origin."""
+    repo = root / "dev" / "checkout"
+    repo.mkdir(parents=True)
+    (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+    for args in (
+        ("init", "-q"),
+        ("config", "user.email", "shadow-test@example.invalid"),
+        ("config", "user.name", "Shadow Test"),
+        ("remote", "add", "origin", "git@github.com:example/widget.git"),
+        ("add", "README.md"),
+        ("commit", "-q", "-m", "seed"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    return repo
+
+
+def _registered_local_tree(root: Path, source: str, *, owner: str | None = "local-seat"):
+    """One machine-local plan tree, registered and (optionally) claimed on ~aa11."""
+    home = root / "home"
+    plan_root = home / ".shadow" / "plans" / "widget"
+    plan_root.mkdir(parents=True)
+    plan = install_plan_tree(plan_root, source.encode("utf-8"))
+    board.reconcile(
+        [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~aa11"]}],
+        [],
+        home=home,
+    )
+    if owner is not None:
+        board.claim(plan, "~aa11", owner, project="widget", priority=2, home=home)
+    entity = board.entity_state(plan, home=home)["entity"]["id"]
+    return home, plan, entity
+
+
+def _amend(home: Path, entity: str, *extra: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            str(ROOT / "bin" / "shadow"), "plan", "amend",
+            "--entity", entity, "--row", "~aa11", *extra,
+        ],
+        env={**os.environ, "HOME": str(home)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+class AmendRewritesAClaimedRowOnAPlanTree(unittest.TestCase):
+    def test_a_stale_cmd_proof_is_replaced_then_accepts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo = _origin_checkout(root)
+            stale = plan_with_origin("github.com/example/widget").replace(
+                "~aa11 | proof: cmd true", "~aa11 | proof: cmd false"
+            )
+            home, plan, entity = _registered_local_tree(root, stale)
+
+            amended = _amend(
+                home, entity, "--by", "local-seat", "--proof", "cmd true",
+                "--repo", str(repo),
+            )
+
+            self.assertEqual(amended.returncode, 0, amended.stderr)
+            payload = json.loads(amended.stdout)
+            self.assertEqual(payload["schema"], "shadow.plan-amend.v1")
+            self.assertEqual(payload["proof"], "cmd true")
+            logical = board.read_plan_text(plan)
+            self.assertIn("~aa11 | proof: cmd true", logical)
+            self.assertNotIn("proof: cmd false", logical.split("## Progress")[0])
+            self.assertIn("~aa11 RESHAPE proof was `cmd false`; now `cmd true` (by local-seat)", logical)
+            self.assertTrue(board.open_plan(plan).is_tree)
+            self.assertNotIn(str(root), amended.stdout + amended.stderr)
+            # The claim survived, and the rewritten proof now accepts.
+            self.assertEqual(
+                [c["row"] for c in board.entity_state(plan, home=home)["claims"]],
+                ["~aa11"],
+            )
+            accepted = subprocess.run(
+                [
+                    str(ROOT / "bin" / "shadow"), "accept", "--entity", entity,
+                    "--repo", str(repo), "--row", "~aa11", "--by", "local-seat",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertIn("[completed] prove local authority ~aa11", board.read_plan_text(plan))
+
+    def test_a_read_observation_is_recorded_then_accepts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo = _origin_checkout(root)
+            source = READ_ROW_PLAN.replace(
+                "- Priority: 2\n", "- Priority: 2\n- Origin: github.com/example/widget\n", 1
+            )
+            home, plan, entity = _registered_local_tree(root, source)
+
+            amended = _amend(
+                home, entity, "--by", "local-seat",
+                "--observation", "dashboard shows no errors -> pass (manual)",
+            )
+
+            self.assertEqual(amended.returncode, 0, amended.stderr)
+            logical = board.read_plan_text(plan)
+            self.assertIn("~aa11 PROOF dashboard shows no errors -> pass (manual)", logical)
+            accepted = subprocess.run(
+                [
+                    str(ROOT / "bin" / "shadow"), "accept", "--entity", entity,
+                    "--repo", str(repo), "--row", "~aa11", "--by", "local-seat",
+                ],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertIn("[completed] the dashboard reads healthy ~aa11", board.read_plan_text(plan))
+
+    def test_amend_refuses_what_accept_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source = plan_with_origin("github.com/example/widget")
+            home, plan, entity = _registered_local_tree(root, source)
+            before = board.open_plan(plan).root_sha256
+            cases = [
+                (("--by", "other-seat", "--proof", "cmd true"), "claimed by local-seat"),
+                (("--by", "local-seat", "--proof", "prose only"), "--proof must start"),
+                (("--by", "local-seat", "--observation", "looks fine -> pass (manual)"), "carries a cmd proof"),
+                (("--by", "local-seat", "--proof", "read it", "--observation", "no arrow"), "--observation must read"),
+                (("--by", "local-seat"), "needs --proof and/or --observation"),
+                (("--by", "local-seat", "--proof", "cmd true"), "nothing to amend"),
+            ]
+            for extra, expected in cases:
+                with self.subTest(extra=extra):
+                    result = _amend(home, entity, *extra)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn(expected, result.stderr)
+            self.assertEqual(board.open_plan(plan).root_sha256, before)
+
+    def test_an_unclaimed_row_is_not_amendable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source = plan_with_origin("github.com/example/widget")
+            home, plan, entity = _registered_local_tree(root, source, owner=None)
+            result = _amend(home, entity, "--by", "local-seat", "--proof", "cmd true")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not claimed", result.stderr)
