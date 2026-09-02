@@ -40,6 +40,8 @@ ownership and reviewability; it is never a session, campaign, or ambition cap.
    relevant source revision, worktree state, and named proof.
 3. Resume every checkpoint owned by that seat; otherwise atomically claim the
    highest reachable checkpoint and fan out path-disjoint claims when useful.
+   On resume, read the packet's `PLAN LEADS` line — the plan's latest LESSON
+   and DECISION — before re-deriving any settled decision.
 4. Drive claimed lanes to recorded results and run their real repository gates.
 5. Record each result, proof, uncertainty, blocked wake, and reachable
    successor in `PLAN.md`.
