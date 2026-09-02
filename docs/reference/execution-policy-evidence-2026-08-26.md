@@ -269,7 +269,7 @@ the repository.
 
 Four immutable JSON summaries form the source evidence. They are not committed
 because they contain owner-local evaluation records; their names and hashes are
-recorded so the host can verify an authorized copy byte-for-byte.
+recorded so the takeover machine can verify an authorized copy byte-for-byte.
 
 | Run | Cells | Raw verdict | SHA-256 |
 | --- | ---: | ---: | --- |
@@ -470,7 +470,7 @@ and product installation are separate operations.
 
 ## Page 10 of 10 — work-computer overnight cold takeover
 
-The host should be able to begin with only merged Git source, its own
+The takeover machine should be able to begin with only merged Git source, its own
 local Shadow board, and this page. It must not inherit this computer's claims,
 Langfuse credentials, traces, compose project, provider sessions, or plan tree.
 
@@ -497,7 +497,7 @@ Cold sequence:
 7. If an explicitly provisioned local Langfuse is available, run a fresh 48-cell
    matrix with new trace IDs. Keep credentials and raw summaries local. Compare
    by predicates, not aggregate score alone.
-8. Record every surviving failure in the host's owning `PLAN.md` as a
+8. Record every surviving failure in the takeover machine's owning `PLAN.md` as a
    checkpoint or one exact wake. Accept only through Shadow; then continue the
    next reachable row.
 
@@ -513,7 +513,7 @@ Current wakes, each intentionally singular:
 - **NIA:** wake when source index/credits are available; rerun the primary-source
   research check for drift.
 
-Success is not “the overnight job ran.” Success is: the host cold
+Success is not “the overnight job ran.” Success is: the takeover machine cold
 resumes from its local board, reproduces the merged source, installs that exact
 source, proves one installed live packet, records red provider predicates
 without guessing, accepts proven rows, and reaches the recorded successor with
