@@ -3068,6 +3068,57 @@ def release(
         return json.loads(json.dumps(payload)), True
 
 
+def release_stranded_completed_claims(*, home: Path | None = None) -> int:
+    """Drop stale claims whose plan row already completed with its PROOF receipt.
+
+    The plan is the authority for row state; refresh only stops contradicting
+    it. A claim qualifies only when its lease is overdue: a live lease can be
+    the owner's own accept still publishing its close, and refresh must never
+    race that. Rows still pending or in progress keep their claims — expiry
+    marks those stale and explicit adoption handles them; refresh never
+    fabricates a close for unfinished work.
+    """
+    payload = snapshot(home=home)
+    if payload is None:
+        return 0
+    plans = {
+        entity["id"]: entity["plan"]
+        for entity in payload["entities"]
+        if isinstance(entity.get("plan"), str)
+    }
+    stranded = [
+        (claim["entity"], claim["row"])
+        for claim in payload["claims"]
+        if claim_is_stale(claim) and plans.get(claim["entity"]) is not None
+    ]
+    released = 0
+    for identity, row in stranded:
+        locator = plans[identity]
+        if not regular_plan(Path(locator)):
+            continue
+        plan = Path(locator).resolve()
+        with _transaction(home) as (root, path, fresh):
+            claim = next(
+                (
+                    item for item in fresh["claims"]
+                    if (item["entity"], item["row"]) == (identity, row)
+                ),
+                None,
+            )
+            if claim is None or not claim_is_stale(claim):
+                continue
+            try:
+                _release_state(plan, row, "completed")
+            except BoardError:
+                continue
+            fresh["claims"] = [item for item in fresh["claims"] if item is not claim]
+            fresh["revision"] += 1
+            _validate(fresh)
+            _write_and_commit(root, path, fresh, f"shadow board: release {row}")
+            released += 1
+    return released
+
+
 def set_priority(plan: Path, priority: int, *, home: Path | None = None) -> dict:
     """Change global project priority through the board transaction."""
     if isinstance(priority, bool) or priority not in range(1, 6):
@@ -3939,5 +3990,3 @@ def discard_missing_unclaimed_aliases(
             root, path, payload, "shadow board: discard missing unclaimed alias"
         )
         return len(repairs)
-
-
