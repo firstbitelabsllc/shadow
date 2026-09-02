@@ -4471,6 +4471,96 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             (repo / "PLAN.md").read_text(encoding="utf-8"),
         )
 
+    def test_completion_matches_authenticates_a_judgment_receipt(self) -> None:
+        completed = (
+            "# Demo\n\n## Tasks\n\n"
+            "### M — judgment\n"
+            "- [completed] review ~jr01 | proof: read deploy dashboard\n\n"
+            "## Progress\n\n"
+            "- 2026-08-06T10:02:00Z ~jr01 PROOF deploy looks healthy -> pass (manual)\n"
+        )
+        self.assertTrue(
+            accept.completion_matches(completed, "~jr01", "read deploy dashboard")
+        )
+        without_receipt = completed.replace(
+            "- 2026-08-06T10:02:00Z ~jr01 PROOF deploy looks healthy -> pass (manual)\n",
+            "",
+        )
+        self.assertFalse(
+            accept.completion_matches(without_receipt, "~jr01", "read deploy dashboard")
+        )
+        pending = completed.replace("- [completed] review", "- [pending] review")
+        self.assertFalse(
+            accept.completion_matches(pending, "~jr01", "read deploy dashboard")
+        )
+
+    def test_managed_judgment_accept_publishes_and_closes_both_claims(self) -> None:
+        # The P1 wedge from review: managed finalization used to refuse the
+        # judgment flip AFTER the push, stranding both claims.
+        dirname = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, dirname, True)
+        root = Path(dirname).resolve()
+        repo = make_repo(root)
+        remote = root / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        git(repo, "remote", "add", "origin", str(remote))
+        git(repo, "push", "-qu", "origin", "HEAD:main")
+        git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        home = root / "home"
+        home.mkdir()
+        claimed = run_shadow(
+            repo, home, "throw", "--repo", str(repo), "--task", "~ab12", "--by", "seat-a"
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        first = run_accept(repo, "~ab12")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        plan_path = repo / "PLAN.md"
+        plan_path.write_text(
+            plan_path.read_text(encoding="utf-8")
+            + "- 2026-08-07T00:02:00Z ~cd34 PROOF leo signed off -> pass (manual)\n",
+            encoding="utf-8",
+        )
+        git(repo, "add", "PLAN.md")
+        git(repo, "commit", "-qam", "record the release observation")
+        claimed = run_shadow(
+            repo, home, "throw", "--repo", str(repo), "--task", "~cd34", "--by", "seat-a"
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+        result = run_accept(repo, "~cd34")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        published = git(remote, "show", "main:PLAN.md")
+        self.assertIn("[completed] shipped ~cd34", published)
+        self.assertIn("~cd34 PROOF leo signed off -> pass (manual)", published)
+        self.assertEqual(published.count("~cd34 PROOF"), 1)
+        payload = json.loads((home / ".shadow" / "board.json").read_text())
+        self.assertEqual(payload["claims"], [])
+
+    def test_completed_judgment_retry_reconciles_the_held_claim(self) -> None:
+        # Post-wedge recovery: the flip already committed, the claim is still
+        # held. A retry must authenticate the observation and close it.
+        repo = self._repo_with(READ_PLAN, "~jr01 PROOF deploy looks healthy -> pass (manual)")
+        plan_path = repo / "PLAN.md"
+        plan_path.write_text(
+            plan_path.read_text(encoding="utf-8").replace(
+                "- [in_progress] review the deploy state ~jr01",
+                "- [completed] review the deploy state ~jr01",
+            ),
+            encoding="utf-8",
+        )
+        git(repo, "add", "PLAN.md")
+        git(repo, "commit", "-qam", "flip lands before the wedge")
+
+        result = run_accept(repo, "~jr01")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("recorded observation authenticated", result.stdout)
+        payload = json.loads(
+            (repo.parent / "home" / ".shadow" / "board.json").read_text()
+        )
+        self.assertEqual(payload["claims"], [])
+
     def test_a_machine_local_read_row_flips_from_its_recorded_observation(self) -> None:
         dirname = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, dirname, True)

@@ -1488,6 +1488,39 @@ def accept_local_plan(
         )
     claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
     if state == "completed":
+        if proof.startswith(("read ", "gate ")):
+            # A completed judgment row needs no rerun: authenticate the
+            # recorded passing observation, then reconcile the held claim.
+            if not any(
+                result.startswith("pass")
+                for _, result in _board.progress_proof_receipts(plan_text, row_id)
+            ):
+                raise AcceptError(
+                    "the completed local row has no recorded passing observation"
+                )
+            if claim is not None:
+                parsed = _amp._parse(plan_text)
+                parsed["claimed"] = set()
+                try:
+                    _board.release(
+                        plan_path,
+                        row_id,
+                        owner=owner,
+                        reason="completed",
+                        resumes=_amp._candidate_ids(parsed),
+                        expected_plan=plan_token,
+                        expected_text=plan_text,
+                        expected_claim=claim,
+                    )
+                except _board.BoardError as exc:
+                    raise AcceptError(
+                        f"local claim could not close after the observation check: {exc}"
+                    ) from exc
+            print(
+                f"accepted {row_id}: recorded observation authenticated; "
+                "root claim reconciled"
+            )
+            return 0
         if not proof.startswith("cmd "):
             raise AcceptError("the completed local row was not accepted from a cmd proof")
         argv = proof_argv(proof[4:])
@@ -2217,7 +2250,7 @@ def ensure_completion_published(
             "completed row and "
             "matching accept proof; remote claim retained"
         ) from exc
-    if local_state != "completed" or not local_proof.startswith("cmd "):
+    if local_state != "completed":
         raise AcceptError(
             "current tracked-upstream default PLAN no longer carries the "
             "completed row and "
@@ -2259,7 +2292,7 @@ def completion_matches(
     *,
     archived: bool = False,
 ) -> bool:
-    """Whether one text carries the exact accepted command completion."""
+    """Whether one text carries the exact accepted completion."""
     matching = [
         row
         for line in text.splitlines()
@@ -2268,6 +2301,17 @@ def completion_matches(
     if not matching:
         return False
     _, _, state, proof, _ = find_row(text, row_id)
+    if proof.startswith(("read ", "gate ")):
+        # A judgment completion is authenticated by its recorded passing
+        # observation — there is no machine receipt to match.
+        return (
+            state == "completed"
+            and proof == local_proof
+            and any(
+                result.startswith("pass")
+                for _, result in _board.progress_proof_receipts(text, row_id)
+            )
+        )
     if not proof.startswith("cmd "):
         raise AcceptError("published completion proof is not command-classed")
     argv = proof_argv(proof[4:])
@@ -2669,6 +2713,50 @@ def main(argv: list[str] | None = None) -> int:
             ).stdout.strip():
                 raise AcceptError(
                     "the completed row or its proof is not committed; root claim stays open"
+                )
+            if proof.startswith(("read ", "gate ")):
+                # A judgment retry has nothing to rerun: authenticate the
+                # recorded passing observation, then reconcile exactly as
+                # the cmd retry does — held local claim first, remote-only
+                # state through the publish-only path.
+                if not any(
+                    result.startswith("pass")
+                    for _, result in _board.progress_proof_receipts(plan_text, row_id)
+                ):
+                    raise AcceptError(
+                        "the completed row has no recorded passing observation"
+                    )
+                if claim is not None:
+                    parsed = _amp._parse(plan_text)
+                    parsed["claimed"] = set()
+                    try:
+                        with _board.project_lock(plan_path):
+                            return finalize_completion(
+                                repo,
+                                plan_path,
+                                row_id,
+                                owner,
+                                claim,
+                                plan_token,
+                                plan_text,
+                                _amp._candidate_ids(parsed),
+                                args.no_push,
+                                "recorded observation authenticated; "
+                                "root claim reconciled",
+                            )
+                    except (_board.BoardError, AcceptError) as exc:
+                        raise AcceptError(
+                            f"the completed row's root claim could not reconcile: {exc}"
+                        ) from exc
+                return finalize_completed_retry_without_local_claim(
+                    repo,
+                    plan_path,
+                    row_id,
+                    owner,
+                    plan_token,
+                    plan_text,
+                    args.no_push,
+                    "recorded observation authenticated; root claim reconciled",
                 )
             if not proof.startswith("cmd "):
                 raise AcceptError("the completed row was not accepted from a cmd proof")
