@@ -746,6 +746,22 @@ class BriefValuesAreDataNotInstructions(unittest.TestCase):
         self.assertNotIn("p" * 100, block)
         self.assertIn("p" * 64, block)
 
+    def test_an_undeclared_loop_projects_a_convention_not_a_phantom_skill(self) -> None:
+        # A Brief with no Loop line used to print `Loop: /demo-loop`, which a
+        # cold seat would invoke — but no such skill exists. The projection
+        # must mark itself as the convention it is.
+        block, _ = self._block("- Priority: 2")
+        self.assertIn("Loop: none (convention /demo-loop)", block)
+        self.assertNotIn("Loop: /demo-loop", block)
+
+    def test_a_declared_loop_is_printed_verbatim(self) -> None:
+        text = PLAN.replace("- Priority: 2", "- Priority: 2\n- Loop: /real-loop")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            plan_path = _write(repo, text)
+            block, _ = amp.build_block(amp._parse(text), repo, plan_path, None, 4000)
+        self.assertIn("Loop: /real-loop", block)
+
     def test_the_bound_is_real_and_this_test_can_fail(self) -> None:
         # Mutation guard: prove _clean is what stops it. With the bound removed
         # the value would land whole, so assert on the observable truncation.
