@@ -50,6 +50,24 @@ class ACleanMachineIsToldTheSkillMountedNowhere(unittest.TestCase):
             self.assertIn("re-run: bash install.sh", output)
             self.assertNotIn("mounted:  ", output)
 
+    def test_a_blocked_mount_is_not_reported_as_a_missing_host(self) -> None:
+        """Codex review on #635: the two failures have different fixes.
+
+        A real `skills/shadow` directory makes the loop skip without mounting.
+        Telling that person to "start one supported host" sends them at the
+        wrong problem; the per-host "skipped:" line above already named it.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            (home / ".claude" / "skills" / "shadow").mkdir(parents=True)
+            result = self._install(home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = result.stdout + result.stderr
+            self.assertIn("is a real directory, not a mount", output)
+            self.assertIn("every host directory was blocked", output)
+            self.assertNotIn("no host directory exists yet", output)
+
     def test_one_existing_host_directory_mounts_and_stays_quiet(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
