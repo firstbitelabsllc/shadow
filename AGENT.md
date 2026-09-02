@@ -203,7 +203,7 @@ declared focused falsifier early and dogfood Shadow on Shadow. Trunk runs the
 affected integration set and curates test health. These greens prove only their
 slice.
 
-Five field lessons remain standing because each caught a false conclusion:
+Nine field lessons remain standing because each caught a false conclusion:
 
 - Liveness is proven by the artifact, never the process (2026-08-10: one live
   worker was declared dead while one dead dispatch was treated as live).
@@ -215,6 +215,19 @@ Five field lessons remain standing because each caught a false conclusion:
   checkout 1,697 commits behind produced a false plan-authority finding).
 - Green fixtures prove the fixtures, never the field (2026-08-10: initialized
   picker fixtures passed while the real uninitialized path let money through).
+- A silent tool fallback plus a “done” claim is not proof; the receipt names
+  the failed tool (2026-08-21 to 08-31: a patch tool aborted on all 425 calls
+  across 121 threads while agents shell-wrote the work and reported it done).
+- A 0% or 100% metric indicts the instrument first (2026-08-31: a review
+  analyzer's own join bug produced both readings until it was checked against
+  one known positive and one known negative).
+- A lane with no receipt inside its cadence is dead, not idle; probe its proof
+  (2026-08-28: sessions killed by a spend cap left no terminal message and
+  their claims stayed owned for days).
+- Blanket authorization to land work is not product-intent authority; the
+  private plan records the owner's own words and the public receipt carries a
+  dated summary (2026-08-29 to 09-01: a research recommendation became a
+  recorded DECISION the owner never made).
 
 The expensive full build, migration, story-driven end-to-end gauntlet,
 adversarial bug bash, rollback, and stranger-install source proof run on a
