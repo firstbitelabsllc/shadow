@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -4334,6 +4335,141 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             self.assertIn("Git-backed", result.stderr)
             self.assertIn("--repo", result.stderr)
             self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), before)
+
+
+READ_PLAN = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M — judgment rows
+- [in_progress] review the deploy state ~jr01 | proof: read deploy dashboard
+- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut
+
+## Progress
+
+- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
+"""
+
+GATE_PLAN = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### M — judgment rows
+- [completed] review the deploy state ~jr01 | proof: read deploy dashboard
+- [pending] leo signs off ~jg02 (DoD) | proof: gate leo resume: release cut | needs: ~jr01
+
+## Progress
+
+- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
+- 2026-08-06T10:01:00Z ~jr01 PROOF deploy looks healthy -> pass (manual)
+"""
+
+
+class ShadowAcceptJudgmentTests(unittest.TestCase):
+    def _repo_with(self, plan: str, receipt: str | None = None) -> Path:
+        dirname = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, dirname, True)
+        root = Path(dirname).resolve()
+        repo = make_repo(root)
+        text = plan + (f"- 2026-08-06T10:02:00Z {receipt}\n" if receipt else "")
+        (repo / "PLAN.md").write_text(text, encoding="utf-8")
+        git(repo, "add", "PLAN.md")
+        git(repo, "commit", "-qam", "judgment plan")
+        return repo
+
+    def test_a_read_row_flips_from_its_recorded_observation(self) -> None:
+        repo = self._repo_with(READ_PLAN, "~jr01 PROOF deploy looks healthy -> pass (manual)")
+
+        result = run_accept(repo, "~jr01")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = (repo / "PLAN.md").read_text(encoding="utf-8")
+        self.assertIn("- [completed] review the deploy state ~jr01", text)
+        self.assertEqual(text.count("~jr01 PROOF"), 1)
+        self.assertIn("-> pass (manual)", text)
+        self.assertNotIn("pass (accept)", text)
+        home = repo.parent / "home"
+        self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
+
+    def test_a_gate_row_flips_once_its_needs_are_completed(self) -> None:
+        repo = self._repo_with(GATE_PLAN, "~jg02 PROOF leo approved -> pass (manual)")
+
+        result = run_accept(repo, "~jg02")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = (repo / "PLAN.md").read_text(encoding="utf-8")
+        self.assertIn("- [completed] leo signs off ~jg02", text)
+        self.assertEqual(text.count("~jg02 PROOF"), 1)
+        home = repo.parent / "home"
+        self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
+
+    def test_a_judgment_row_without_a_recorded_observation_is_refused(self) -> None:
+        repo = self._repo_with(READ_PLAN)
+        before = (repo / "PLAN.md").read_text(encoding="utf-8")
+
+        result = run_accept(repo, "~jr01")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("record the observation", result.stderr)
+        self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), before)
+        home = repo.parent / "home"
+        self.assertEqual(len(accept._board.snapshot(home=home)["claims"]), 1)
+
+    def test_a_judgment_row_with_a_failing_observation_is_refused(self) -> None:
+        repo = self._repo_with(READ_PLAN, "~jr01 PROOF deploy shows errors -> fail (manual)")
+        before = (repo / "PLAN.md").read_text(encoding="utf-8")
+
+        result = run_accept(repo, "~jr01")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("record the observation", result.stderr)
+        self.assertEqual((repo / "PLAN.md").read_text(encoding="utf-8"), before)
+
+    def test_a_judgment_row_refuses_a_non_owner(self) -> None:
+        repo = self._repo_with(READ_PLAN, "~jr01 PROOF deploy looks healthy -> pass (manual)")
+        home = repo.parent / "home"
+        home.mkdir(exist_ok=True)
+        plan = repo / "PLAN.md"
+        accept._board.reconcile(
+            [{"plan": str(plan), "project": "demo", "priority": 3, "candidates": ["~jr01"]}],
+            [],
+            home=home,
+        )
+        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--repo",
+                str(repo),
+                "--row",
+                "~jr01",
+                "--by",
+                "seat-b",
+            ],
+            env={**os.environ, "HOME": str(home)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("claimed by seat-a, not seat-b", result.stderr)
+        self.assertIn(
+            "- [in_progress] review the deploy state ~jr01",
+            (repo / "PLAN.md").read_text(encoding="utf-8"),
+        )
 
 
 if __name__ == "__main__":
