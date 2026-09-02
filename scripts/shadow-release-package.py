@@ -208,7 +208,7 @@ def inspect_release_identity(
     head = command(
         ["git", "-C", str(root), "rev-parse", "--verify", "HEAD^{commit}"], root
     ).stdout.strip()
-    expected = f"shadow-v{version}"
+    expected = f"shadow-{version}"
     ref = f"refs/tags/{expected}"
     present = subprocess.run(
         ["git", "-C", str(root), "show-ref", "--verify", "--quiet", ref],
@@ -606,7 +606,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--public-release",
         action="store_true",
-        help="require the annotated shadow-v<version> tag at exact HEAD",
+        help="require the annotated shadow-<version> tag at exact HEAD",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)

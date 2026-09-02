@@ -209,18 +209,18 @@ class ReleasePressureUsesTheShadowEpoch(unittest.TestCase):
                 if subject == "legacy":
                     subprocess.run(["git", "-C", str(repo), "tag", "-a", "v4.0.3", "-m", "legacy"], check=True)
                 if subject == "shadow epoch":
-                    subprocess.run(["git", "-C", str(repo), "tag", "-a", "shadow-v1.0.0", "-m", "Shadow 1.0"], check=True)
+                    subprocess.run(["git", "-C", str(repo), "tag", "-a", "shadow-1.0.0", "-m", "Shadow 1.0"], check=True)
 
-            subprocess.run(["git", "-C", str(repo), "tag", "shadow-v9.9.9"], check=True)
+            subprocess.run(["git", "-C", str(repo), "tag", "shadow-9.9.9"], check=True)
             measured = ci.repository_pressure(repo, now=1786352400)
             shadow_release = subprocess.check_output(
-                ["git", "-C", str(repo), "rev-parse", "shadow-v1.0.0^{commit}"],
+                ["git", "-C", str(repo), "rev-parse", "shadow-1.0.0^{commit}"],
                 text=True,
             ).strip()
 
         self.assertEqual(measured["ACCEPTED_CHANGE_COUNT"], "1")
         self.assertEqual(measured["RELEASE_RISK"], "none")
-        self.assertEqual(measured.get("RELEASE_BASELINE"), "shadow-v1.0.0")
+        self.assertEqual(measured.get("RELEASE_BASELINE"), "shadow-1.0.0")
         self.assertEqual(measured.get("RELEASE_BASELINE_COMMIT"), shadow_release)
 
 

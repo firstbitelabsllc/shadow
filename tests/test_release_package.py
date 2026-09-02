@@ -299,9 +299,9 @@ class ReleaseIdentityIsImmutable(unittest.TestCase):
         # The public checkout may already carry this real release tag. This
         # fixture owns its own tag at its cloned HEAD, so discard the inherited
         # name before minting that isolated identity.
-        subprocess.run(["git", "-C", str(repo), "tag", "-d", f"shadow-v{VERSION}"],
+        subprocess.run(["git", "-C", str(repo), "tag", "-d", f"shadow-{VERSION}"],
                        capture_output=True, text=True, check=False)
-        git(repo, "tag", "-a", f"shadow-v{VERSION}", "-m", f"Shadow {VERSION}")
+        git(repo, "tag", "-a", f"shadow-{VERSION}", "-m", f"Shadow {VERSION}")
         return repo
 
     def test_only_a_namespaced_annotated_tag_at_exact_head_is_public(self) -> None:
@@ -311,22 +311,22 @@ class ReleaseIdentityIsImmutable(unittest.TestCase):
 
             legacy = self.inspect(repo)
             self.assertIsNone(legacy["release_ref"])
-            self.assertTrue(any("shadow-v1.0.0" in error for error in legacy["errors"]))
+            self.assertTrue(any("shadow-1.0.0" in error for error in legacy["errors"]))
 
             git(repo, "tag", "-a", "v1.0.0", "-m", "legacy")
             occupied_legacy = self.inspect(repo)
             self.assertIsNone(occupied_legacy["release_ref"])
-            self.assertTrue(any("shadow-v1.0.0" in error for error in occupied_legacy["errors"]))
+            self.assertTrue(any("shadow-1.0.0" in error for error in occupied_legacy["errors"]))
 
-            git(repo, "tag", "shadow-v1.0.0")
+            git(repo, "tag", "shadow-1.0.0")
             lightweight = self.inspect(repo)
             self.assertIsNone(lightweight["release_ref"])
             self.assertTrue(any("annotated" in error for error in lightweight["errors"]))
 
-            git(repo, "tag", "-d", "shadow-v1.0.0")
-            git(repo, "tag", "-a", "shadow-v1.0.0", "-m", "Shadow 1.0")
+            git(repo, "tag", "-d", "shadow-1.0.0")
+            git(repo, "tag", "-a", "shadow-1.0.0", "-m", "Shadow 1.0")
             exact = self.inspect(repo)
-            self.assertEqual(exact, {"commit": head, "release_ref": "shadow-v1.0.0", "errors": []})
+            self.assertEqual(exact, {"commit": head, "release_ref": "shadow-1.0.0", "errors": []})
 
             (repo / "later.txt").write_text("later\n", encoding="utf-8")
             git(repo, "add", "later.txt")
@@ -360,7 +360,7 @@ class ReleaseIdentityIsImmutable(unittest.TestCase):
         self.assertEqual(result.returncode, 0, report)
         self.assertTrue(report["publishable"], report)
         self.assertEqual(report["commit"], head)
-        self.assertEqual(report["release_ref"], f"shadow-v{VERSION}")
+        self.assertEqual(report["release_ref"], f"shadow-{VERSION}")
         self.assertRegex(report["sha256"], r"^[0-9a-f]{64}$")
 
     def test_archive_is_cut_from_the_receipted_commit_not_mutable_head(self) -> None:

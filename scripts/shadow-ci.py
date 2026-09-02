@@ -273,7 +273,7 @@ def repository_pressure(root: Path = ROOT, now: float | None = None) -> dict[str
     """Accepted-change pressure since the newest reachable release tag."""
     baseline = ""
     for describe in (
-        ["describe", "--match", "shadow-v[0-9]*.[0-9]*.[0-9]*", "--abbrev=0"],
+        ["describe", "--match", "shadow-[0-9]*.[0-9]*.[0-9]*", "--abbrev=0"],
         ["describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
     ):
         tag = subprocess.run(

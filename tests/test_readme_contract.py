@@ -27,7 +27,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "--proposal",
             "shadow doctor",
             "install.sh",
-            "--branch shadow-v1.3.0",
+            "--branch shadow-1.3.0",
         )
         for phrase in required:
             self.assertIn(phrase, text)
@@ -65,13 +65,13 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         import re as _re
 
         version = read_version(ROOT)
-        expected = f"shadow-v{version}"
+        expected = f"shadow-{version}"
         shipped = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
         for path in shipped:
             relative = path.relative_to(ROOT).as_posix()
             if relative.startswith(("docs/plan-archive/", "docs/superpowers/")):
                 continue
-            for tag in _re.findall(r"--branch (shadow-v[0-9][0-9.]*)", path.read_text(encoding="utf-8")):
+            for tag in _re.findall(r"--branch (shadow-[0-9][0-9.]*)", path.read_text(encoding="utf-8")):
                 self.assertEqual(tag, expected, f"{relative} pins {tag}, VERSION is {version}")
 
     def test_the_footer_projection_contract_stays_written_down(self) -> None:
