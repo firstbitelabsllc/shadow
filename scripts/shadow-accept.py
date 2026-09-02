@@ -13,7 +13,10 @@ normalized identity; the first local-only accept promotes an opaque path-free
 identity into ``Origin:``. The path-free ``--entity`` form reconciles an
 authenticated, published ``cmd`` completion whose remote journal remains
 acquired and still refuses a local plan. ``read`` and ``gate`` proofs are
-person/agent judgments and are refused here on purpose.
+person/agent judgments with nothing to rerun: the source-checkout accept
+flips them from the passing observation the owner already recorded in
+Progress, with the same commit-CAS and publish-then-release ordering a
+``cmd`` flip uses. Everywhere else they are still refused on purpose.
 """
 
 from __future__ import annotations
@@ -1035,18 +1038,17 @@ def lead_review_passes(
     )
 
 
-def require_accept_ready_row(
+def require_claimable_ready_row(
     plan_path: Path,
     plan_text: str,
     row_id: str,
     owner: str,
-) -> tuple[dict, str, str, str, list[str]]:
-    """The one readiness gate every accept path must pass verbatim.
+) -> tuple[dict, str, str, str]:
+    """Claim, needs, and written-challenge checks every accept gate shares.
 
-    Claim, needs, written challenge, cmd-only proof, non-empty argv, and no
-    unwrapped shell operators. Three accept paths used to carry three copies
-    of this gate with three different refusal texts; a gate that drifts
-    between paths is how a false green slips through one of them.
+    Three accept paths used to carry three copies of these refusals with
+    three different texts; a gate that drifts between paths is how a false
+    green slips through one of them.
     """
     _, _, state, proof, needs = find_row(plan_text, row_id)
     claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
@@ -1065,11 +1067,28 @@ def require_accept_ready_row(
             "acceptance challenge and must not "
             f"flip silently; resolve the Contradictions entry first: {challenged[0]}"
         )
+    return claim, state, proof, needs
+
+
+def require_accept_ready_row(
+    plan_path: Path,
+    plan_text: str,
+    row_id: str,
+    owner: str,
+) -> tuple[dict, str, str, str, list[str]]:
+    """The cmd readiness gate every cmd accept path must pass verbatim.
+
+    The shared claim/needs/challenge base plus cmd-only proof, non-empty
+    argv, and no unwrapped shell operators.
+    """
+    claim, state, proof, needs = require_claimable_ready_row(
+        plan_path, plan_text, row_id, owner
+    )
     if not proof.startswith("cmd "):
         kind = proof.split(" ", 1)[0]
         raise AcceptError(
             f"only cmd proofs are machine-rerunnable; this row is {kind}-classed — "
-            "re-observe it yourself and append the PROOF line with the flip"
+            "a read/gate row is accepted from its recorded Progress observation instead"
         )
     argv = proof_argv(proof[4:])
     if not argv:
@@ -1088,6 +1107,36 @@ def require_accept_ready_row(
             f"would never execute. Wrap it: cmd bash -c '<the whole command>'"
         )
     return claim, state, proof, needs, argv
+
+
+def require_accept_ready_judgment_row(
+    plan_path: Path,
+    plan_text: str,
+    row_id: str,
+    owner: str,
+) -> tuple[dict, str, str, str]:
+    """The read/gate readiness gate: the recorded observation is the receipt.
+
+    Same claim/needs/challenge base as the cmd gate. In place of a
+    machine-rerunnable proof, the row must be read/gate-classed and the
+    plan's Progress must already carry a passing receipt for it — the
+    observation the owner recorded when they made the judgment.
+    """
+    claim, state, proof, needs = require_claimable_ready_row(
+        plan_path, plan_text, row_id, owner
+    )
+    kind = proof.split(" ", 1)[0]
+    if kind not in {"read", "gate"}:
+        raise AcceptError(
+            f"only read/gate proofs flip from a recorded observation; this row is {kind}-classed"
+        )
+    receipts = _board.progress_proof_receipts(plan_text, row_id)
+    if not any(result.startswith("pass") for _, result in receipts):
+        raise AcceptError(
+            f"{row_id} is {kind}-classed — record the observation as a passing "
+            "PROOF line in Progress, then accept"
+        )
+    return claim, state, proof, needs
 
 
 def remove_review_worktree(repo: Path, destination: Path) -> None:
@@ -1710,6 +1759,22 @@ def completed_plan_text(
         f"- {stamp} {row_id} PROOF {shlex.join(argv)} -> pass (accept)\n"
     )
     return append_progress_line(updated, proof_line)
+
+
+def completed_judgment_plan_text(plan_text: str, row_id: str) -> str:
+    """Flip one read/gate row; its recorded Progress observation is the receipt.
+
+    Unlike a cmd flip, no new PROOF line is appended: the observation the
+    owner recorded when they made the judgment already pairs the row.
+    """
+    index, _, state, _, _ = find_row(plan_text, row_id)
+    if state == "completed":
+        raise AcceptError(f"{row_id} is already completed")
+    plan_lines = plan_text.splitlines(keepends=True)
+    plan_lines[index] = re.sub(
+        r"^- \[[a-z_]+\]", "- [completed]", plan_lines[index], count=1
+    )
+    return "".join(plan_lines)
 
 
 def append_progress_line(plan_text: str, line: str) -> str:
@@ -2629,6 +2694,47 @@ def main(argv: list[str] | None = None) -> int:
                     "completed proof reran in its clean source checkout; "
                     "root claim reconciled",
                 )
+        proof_kind = find_row(plan_text, row_id)[3].split(" ", 1)[0]
+        if proof_kind in {"read", "gate"}:
+            # A judgment proof has nothing to rerun: the observation the
+            # owner recorded in Progress is the receipt. The flip, its
+            # commit CAS, and the publish-then-release ordering are the
+            # cmd path's own.
+            require_accept_ready_judgment_row(plan_path, plan_text, row_id, owner)
+            updated = completed_judgment_plan_text(plan_text, row_id)
+            refuse_lint_blocked_plan(updated, plan_path, row_id=row_id)
+            completed_plan = _amp._parse(updated)
+            completed_plan["claimed"] = set()
+            resumes = _amp._candidate_ids(completed_plan)
+            try:
+                claim_token, completed_token, completed_text = commit_completed_plan(
+                    repo,
+                    plan_path,
+                    plan_relative,
+                    row_id,
+                    owner,
+                    plan_token,
+                    plan_text,
+                    updated,
+                    resumes,
+                )
+                return finalize_completion(
+                    repo,
+                    plan_path,
+                    row_id,
+                    owner,
+                    claim_token,
+                    completed_token,
+                    completed_text,
+                    resumes,
+                    args.no_push,
+                    "recorded observation accepted as the row's PROOF; row flipped",
+                )
+            except _board.BoardError as exc:
+                raise AcceptError(
+                    f"the judgment flip landed, but the root claim could not close: {exc}; "
+                    "repair the root board before taking more work"
+                ) from exc
         _, _, _, _, argv_proof = require_accept_ready_row(
             plan_path, plan_text, row_id, owner
         )
