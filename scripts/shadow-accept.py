@@ -994,11 +994,26 @@ def lead_review_pool(repo: Path) -> Path:
     return pool
 
 
-def create_lead_review_worktree(repo: Path, attempt: Path, lane_id: str, commit: str) -> Path:
+def create_lead_review_worktree(
+    repo: Path, attempt: Path, lane_id: str, commit: str, timeout_seconds: int
+) -> Path:
     destination = attempt / lane_id
     if destination.is_symlink() or destination.exists():
         raise AcceptError("lead review location is unsafe")
-    result = git_completed(repo, "worktree", "add", "--detach", str(destination), commit, timeout=30)
+    try:
+        result = git_completed(
+            repo,
+            "worktree",
+            "add",
+            "--detach",
+            str(destination),
+            commit,
+            timeout=timeout_seconds,
+        )
+    except AcceptError as exc:
+        raise AcceptError(
+            f"a clean lead review checkout could not be created: {exc}"
+        ) from exc
     if result.returncode:
         raise AcceptError("a clean lead review checkout could not be created")
     return destination
@@ -1122,6 +1137,7 @@ def completed_proof_review(
         pool,
         row_id.lstrip("~"),
         source_head,
+        timeout_seconds,
     )
     try:
         require_frozen_review_head(review, source_head)
@@ -1258,6 +1274,7 @@ def accept_local_proposal(
             pool,
             row_id.lstrip("~"),
             source_head,
+            timeout_seconds,
         )
         updated: str | None = None
         try:
@@ -1478,6 +1495,7 @@ def accept_local_plan(
         pool,
         row_id.lstrip("~"),
         source_head,
+        timeout_seconds,
     )
     try:
         issue = script_operand_issue(argv, review)
@@ -2616,7 +2634,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         head = plan_token["head"]
         pool = lead_review_pool(repo)
-        review = create_lead_review_worktree(repo, pool, row_id.lstrip("~"), head)
+        review = create_lead_review_worktree(
+            repo, pool, row_id.lstrip("~"), head, args.timeout_seconds
+        )
         try:
             script_issue = script_operand_issue(
                 argv_proof,
