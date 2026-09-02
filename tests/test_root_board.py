@@ -4816,6 +4816,134 @@ class ManualProofsCanCloseClaims(unittest.TestCase):
             self.assertEqual(payload["entities"][0]["resume"], "~bb22")
 
 
+class RefreshReleasesStrandedCompletedClaims(unittest.TestCase):
+    def _strand(self, home: Path, repo: Path) -> None:
+        """Complete the row on the plan, then age the claim past its lease."""
+        plan_path = repo / "PLAN.md"
+        text = plan_path.read_text(encoding="utf-8")
+        plan_path.write_text(
+            text.replace("- [pending] TASK-BODY", "- [completed] TASK-BODY")
+            + "- 2026-08-10T00:01:00Z ~aa11 PROOF observed -> pass (manual)\n",
+            encoding="utf-8",
+        )
+        git(repo, "add", "PLAN.md")
+        git(repo, "commit", "--quiet", "-m", "record manual proof")
+        payload = board(home)
+        payload["claims"][0]["claimed_at"] = "2026-08-10T00:00:00Z"
+        payload["claims"][0]["return_by"] = "2026-08-10T00:02:00Z"
+        board_api._validate(payload)
+        board_api._write(home / ".shadow" / "board.json", payload)
+        board_api._commit(home / ".shadow", "age the claim past its lease")
+
+    def test_refresh_drops_a_stale_claim_on_a_completed_proven_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            claimed = run(
+                home, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            self._strand(home, repo)
+            self.assertEqual(len(board(home)["claims"]), 1)
+
+            refreshed = run(home, "status", "--root", str(root))
+
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertEqual(board(home)["claims"], [])
+            again = run(home, "status", "--root", str(root))
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertEqual(board(home)["claims"], [])
+
+    def test_refresh_keeps_a_live_lease_on_a_completed_proven_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            claimed = run(
+                home, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            plan_path = repo / "PLAN.md"
+            text = plan_path.read_text(encoding="utf-8")
+            plan_path.write_text(
+                text.replace("- [pending] TASK-BODY", "- [completed] TASK-BODY")
+                + "- 2026-08-10T00:01:00Z ~aa11 PROOF observed -> pass (manual)\n",
+                encoding="utf-8",
+            )
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "record manual proof")
+
+            refreshed = run(home, "status", "--root", str(root))
+
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertEqual(len(board(home)["claims"]), 1)
+
+    def test_refresh_keeps_a_stale_claim_on_an_unfinished_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            claimed = run(
+                home, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            payload = board(home)
+            payload["claims"][0]["claimed_at"] = "2026-08-10T00:00:00Z"
+            payload["claims"][0]["return_by"] = "2026-08-10T00:02:00Z"
+            board_api._validate(payload)
+            board_api._write(home / ".shadow" / "board.json", payload)
+            board_api._commit(home / ".shadow", "age the claim past its lease")
+
+            refreshed = run(home, "status", "--root", str(root))
+
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertEqual(len(board(home)["claims"]), 1)
+
+    def test_refresh_ignores_a_completion_that_was_never_committed(self) -> None:
+        # P2 review on #640: the drop predicate must read committed plan
+        # state. A completed+PROOF edit sitting uncommitted in the worktree
+        # is not the plan's truth; restoring it would leave a pending row
+        # with no claim and no owner.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = project(root)
+            claimed = run(
+                home, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            plan_path = repo / "PLAN.md"
+            text = plan_path.read_text(encoding="utf-8")
+            plan_path.write_text(
+                text.replace("- [pending] TASK-BODY", "- [completed] TASK-BODY")
+                + "- 2026-08-10T00:01:00Z ~aa11 PROOF observed -> pass (manual)\n",
+                encoding="utf-8",
+            )
+            payload = board(home)
+            payload["claims"][0]["claimed_at"] = "2026-08-10T00:00:00Z"
+            payload["claims"][0]["return_by"] = "2026-08-10T00:02:00Z"
+            board_api._validate(payload)
+            board_api._write(home / ".shadow" / "board.json", payload)
+            board_api._commit(home / ".shadow", "age the claim past its lease")
+
+            refreshed = run(home, "status", "--root", str(root))
+
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertEqual(len(board(home)["claims"]), 1)
+
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "--quiet", "-m", "record manual proof")
+            refreshed = run(home, "status", "--root", str(root))
+
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertEqual(board(home)["claims"], [])
+
+
 class ProjectLifecycleLocks(unittest.TestCase):
     LOCK_PROCESS = f"""
 from pathlib import Path
