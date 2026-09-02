@@ -2128,6 +2128,48 @@ class ShadowAcceptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("- [completed] x.txt says hello ~ab12", text)
 
+    def test_worktree_creation_runs_under_the_callers_acceptance_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            pool = root / "pool"
+            pool.mkdir()
+            original = accept.git_completed
+            seen: list[int] = []
+
+            def observe(target: Path, *args: str, **kwargs):
+                seen.append(kwargs.get("timeout"))
+                return original(target, *args, **kwargs)
+
+            with mock.patch.object(accept, "git_completed", side_effect=observe):
+                created = accept.create_lead_review_worktree(
+                    repo, pool, "ab12", "HEAD", 471
+                )
+
+            self.assertEqual(seen, [471])
+            self.assertTrue(created.is_dir())
+
+    def test_worktree_creation_timeout_names_the_failing_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            pool = root / "pool"
+            pool.mkdir()
+
+            def timed_out(target: Path, *args: str, **kwargs):
+                raise accept.AcceptError(
+                    "project Git state cannot be read: "
+                    "Command 'git worktree add' timed out after 471 seconds"
+                )
+
+            with mock.patch.object(accept, "git_completed", side_effect=timed_out):
+                with self.assertRaises(accept.AcceptError) as failure:
+                    accept.create_lead_review_worktree(repo, pool, "ab12", "HEAD", 471)
+
+            message = str(failure.exception)
+            self.assertIn("clean lead review checkout could not be created", message)
+            self.assertIn("timed out after 471 seconds", message)
+
     def test_conflicted_plan_is_refused_before_any_work(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo = make_repo(Path(dirname).resolve())
