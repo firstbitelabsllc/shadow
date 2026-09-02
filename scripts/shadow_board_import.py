@@ -659,6 +659,11 @@ def _reconcile_portfolio(
     for identity, retirement in registered_retired.items():
         if identity not in observed_identities:
             retired[identity] = retirement
+    # A completed row carrying its PROOF receipt is the plan's own truth; an
+    # expired claim still held against it is the board contradicting that
+    # truth. Refresh drops exactly those claims before reconciliation — no
+    # verb, no impersonated owner, unfinished rows untouched.
+    board.release_stranded_completed_claims(home=home)
     return board.reconcile(
         seeds,
         historical,
