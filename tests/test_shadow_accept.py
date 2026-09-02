@@ -4471,6 +4471,51 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             (repo / "PLAN.md").read_text(encoding="utf-8"),
         )
 
+    def test_a_machine_local_read_row_flips_from_its_recorded_observation(self) -> None:
+        dirname = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, dirname, True)
+        root = Path(dirname).resolve()
+        repo = make_repo(root)
+        home = root / "home"
+        home.mkdir()
+        plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(
+            READ_PLAN + "- 2026-08-06T10:02:00Z ~jr01 PROOF deploy looks healthy -> pass (manual)\n",
+            encoding="utf-8",
+        )
+        accept._board.reconcile(
+            [{"plan": str(plan), "project": "demo", "priority": 3, "candidates": ["~jr01"]}],
+            [],
+            home=home,
+        )
+        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
+        output = io.StringIO()
+
+        with mock.patch.dict(os.environ, {"HOME": str(home)}), redirect_stdout(
+            output
+        ), redirect_stderr(output):
+            result = accept.main(
+                [
+                    "--entity",
+                    entity,
+                    "--repo",
+                    str(repo),
+                    "--row",
+                    "~jr01",
+                    "--by",
+                    "seat-a",
+                ]
+            )
+
+        self.assertEqual(result, 0, output.getvalue())
+        text = plan.read_text(encoding="utf-8")
+        self.assertIn("- [completed] review the deploy state ~jr01", text)
+        self.assertEqual(text.count("~jr01 PROOF"), 1)
+        self.assertIn("-> pass (manual)", text)
+        self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

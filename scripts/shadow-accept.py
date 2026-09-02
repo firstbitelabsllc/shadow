@@ -1536,6 +1536,55 @@ def accept_local_plan(
             "root claim reconciled"
         )
         return 0
+    if find_row(plan_text, row_id)[3].split(" ", 1)[0] in {"read", "gate"}:
+        # Machine-local authority, judgment proof: nothing to rerun and
+        # nothing to publish — the recorded observation is the receipt and
+        # the flip is one atomic local write under the plan lock.
+        require_accept_ready_judgment_row(plan_path, plan_text, row_id, owner)
+        with _board.project_lock(plan_path):
+            fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
+            try:
+                fresh_text = fresh_bytes.decode("utf-8")
+            except UnicodeError as exc:
+                raise AcceptError("local plan is not UTF-8") from exc
+            if fresh_token != plan_token or fresh_text != plan_text:
+                raise AcceptError("the local plan changed before the flip; retry")
+            updated = completed_judgment_plan_text(fresh_text, row_id)
+            refuse_lint_blocked_plan(updated, plan_path, row_id=row_id)
+            try:
+                claim_token = _board.reserve_completion(
+                    plan_path,
+                    row_id,
+                    owner,
+                    expected_plan=fresh_token,
+                )
+            except _board.BoardError as exc:
+                raise AcceptError(
+                    f"local claim could not reserve completion: {exc}"
+                ) from exc
+            atomic_write_text(plan_path, updated)
+            completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
+            completed_text = completed_bytes.decode("utf-8")
+            parsed = _amp._parse(completed_text)
+            parsed["claimed"] = set()
+            try:
+                _board.release(
+                    plan_path,
+                    row_id,
+                    owner=owner,
+                    reason="completed",
+                    resumes=_amp._candidate_ids(parsed),
+                    expected_plan=completed_token,
+                    expected_text=completed_text,
+                    expected_claim=claim_token,
+                )
+            except _board.BoardError as exc:
+                raise AcceptError(
+                    "the completed plan is written; the local claim could not "
+                    f"close: {exc}"
+                ) from exc
+        print(f"accepted {row_id}: recorded observation accepted; local row flipped")
+        return 0
     _, _, _, _, argv = require_accept_ready_row(plan_path, plan_text, row_id, owner)
     source_head = frozen_source_head(repo)
     pool = lead_review_pool(repo)
