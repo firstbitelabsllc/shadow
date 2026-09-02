@@ -132,7 +132,10 @@ Agents only. Never give these steps to the person.
 1. Establish one stable public seat name and run `shadow status --by <seat>`
    from any directory.
 2. Resume every live claim owned by that seat. Recover completed or blocked
-   orphan claims instead of reworking them.
+   orphan claims instead of reworking them. On resume, read the packet's
+   `PLAN LEADS` line — the plan's latest LESSON and DECISION — before
+   re-deriving any settled decision; never repeat an identical call, since a
+   repeated call is a missing receipt.
 3. Otherwise select the highest-priority reachable checkpoint across the
    computer and state why it wins now.
 4. Atomically claim it with the exact `shadow throw ... --by <seat>` command

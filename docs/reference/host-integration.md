@@ -119,6 +119,9 @@ file-backed installation and verification boundary.
 
 ## 3. What "activate shadow" means in a session
 
+This is `AGENT.md`'s operating loop, restated for a host that has loaded only
+the goal block.
+
 1. Pick one stable public seat name and run `shadow status --by <seat>` from
    anywhere. Continue every claim owned by that seat before choosing new work.
 2. Name the highest-value reachable checkpoint and why it wins now. Run the

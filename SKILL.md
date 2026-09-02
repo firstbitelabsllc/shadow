@@ -34,27 +34,14 @@ ownership and reviewability; it is never a session, campaign, or ambition cap.
 
 ## Start every cycle
 
-1. Establish one stable public seat name and run `shadow status --by <seat>`;
-   the computer board supplies global priority, ownership, entity pointers,
-   and resume from any directory.
-2. Read the selected entity's repository instructions and its local plan under
-   `~/.shadow/plans/` (or a product's declared release plan), then inspect the
-   relevant source revision, worktree state, and named proof.
-3. Resume every checkpoint owned by that seat; otherwise atomically claim the
-   highest reachable checkpoint and fan out path-disjoint claims when useful.
-   On resume, read the packet's `PLAN LEADS` line — the plan's latest LESSON
-   and DECISION — before re-deriving any settled decision. Never repeat an
-   identical call; a repeated call is a missing receipt.
-4. Drive claimed lanes to recorded results and run their real repository gates.
-5. Record each result, proof, uncertainty, blocked wake, and reachable
-   successor in `PLAN.md`.
-6. Continue until the Outcome is mechanically accepted or every remaining row
-   is behind an exact hard rail.
+Run the operating loop in `AGENT.md`: seat, `shadow status --by <seat>`, resume
+owned claims, claim the highest reachable checkpoint, work, prove, record,
+continue. Two additions apply in a skill session:
 
-A direct read-only question about the seat's current work is not an execution
-cycle. Answer from the first current bounded view, then stop: do not materialize
-the plan, call `shadow amp`, reread status for the footer, or start work unless
-the person asked to resume or act.
+- On resume, read the packet's `PLAN LEADS` line — the plan's latest LESSON and
+  DECISION — before re-deriving any settled decision.
+- A direct read-only question about the seat's current work is not an execution
+  cycle. Answer from the first current bounded view, then stop.
 
 Never overwrite unexplained work or create a second queue. A commit, worker
 message, or receipt is not acceptance proof by itself.
