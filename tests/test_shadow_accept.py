@@ -491,7 +491,9 @@ class ShadowAcceptTests(unittest.TestCase):
             "- [in_progress] establish the source binding ~ef56 | proof: cmd true\n"
             "- [in_progress] establish another source binding ~gh78 | proof: cmd true\n"
             "- [in_progress] preserve legacy source-less acceptance ~cd90 | proof: cmd true\n"
-            "- [in_progress] reject cutover source-less acceptance ~ij90 | proof: cmd true\n",
+            "- [in_progress] reject cutover source-less acceptance ~ij90 | proof: cmd true\n"
+            "- [in_progress] preserve judgment acceptance ~kl12 | "
+            "proof: read evidence/result.md -> expected observation\n",
         )
         missing = accept.completed_plan_text(
             pending,
@@ -541,6 +543,16 @@ class ShadowAcceptTests(unittest.TestCase):
         legacy_proof_changed = legacy.replace(
             "~cd90 | proof: cmd true",
             "~cd90 | proof: cmd false",
+            1,
+        )
+        judgment = accept.append_progress_line(
+            accept.completed_judgment_plan_text(valid, "~kl12"),
+            f"- {modern_stamp} ~kl12 PROOF "
+            "read evidence/result.md -> expected observation -> pass (accept)\n",
+        )
+        judgment_reworded = judgment.replace(
+            "read evidence/result.md -> expected observation",
+            "read evidence/result.md -> different observation",
             1,
         )
         orphaned_legacy_receipt = legacy_only.replace(
@@ -597,6 +609,16 @@ class ShadowAcceptTests(unittest.TestCase):
                 )
             self.assertEqual(
                 accept.local_plan_source_identity(legacy),
+                source_a,
+            )
+
+        with self.subTest(name="judgment acceptance does not bind source"):
+            self.assertEqual(
+                accept.local_plan_source_identity(judgment),
+                source_a,
+            )
+            self.assertEqual(
+                accept.local_plan_source_identity(judgment_reworded),
                 source_a,
             )
 
@@ -4566,6 +4588,7 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, dirname, True)
         root = Path(dirname).resolve()
         repo = make_repo(root)
+        git(repo, "remote", "add", "origin", "https://github.com/example/widget.git")
         home = root / "home"
         home.mkdir()
         plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"

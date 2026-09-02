@@ -588,6 +588,8 @@ def local_plan_source_identity(plan_text: str) -> str | None:
         if row_id not in task_rows:
             continue
         _, _, state, proof, _ = find_row(plan_text, row_id)
+        if proof.startswith(("read ", "gate ")):
+            continue
         if state != "completed" or not proof.startswith("cmd "):
             raise AcceptError(
                 f"{row_id} accept PROOF no longer belongs to a completed cmd row"
@@ -1477,10 +1479,6 @@ def accept_local_plan(
         plan_text = plan_bytes.decode("utf-8")
     except (_board.BoardError, OSError, UnicodeError) as exc:
         raise AcceptError(f"local plan cannot be frozen before proof: {exc}") from exc
-    source_identity = bind_local_plan_to_proof_repo(
-        plan_text,
-        repo,
-    )
     _, _, state, proof, needs = find_row(plan_text, row_id)
     if row_requires_proposal(plan_text, row_id):
         raise AcceptError(
@@ -1523,6 +1521,10 @@ def accept_local_plan(
             return 0
         if not proof.startswith("cmd "):
             raise AcceptError("the completed local row was not accepted from a cmd proof")
+        source_identity = bind_local_plan_to_proof_repo(
+            plan_text,
+            repo,
+        )
         argv = proof_argv(proof[4:])
         if not _board.has_accept_proof_receipt(plan_text, row_id, argv):
             raise AcceptError("the local row is completed without a matching accept proof")
@@ -1618,6 +1620,10 @@ def accept_local_plan(
                 ) from exc
         print(f"accepted {row_id}: recorded observation accepted; local row flipped")
         return 0
+    source_identity = bind_local_plan_to_proof_repo(
+        plan_text,
+        repo,
+    )
     _, _, _, _, argv = require_accept_ready_row(plan_path, plan_text, row_id, owner)
     source_head = frozen_source_head(repo)
     pool = lead_review_pool(repo)
