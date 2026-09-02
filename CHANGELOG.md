@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Public release tags are now `shadow-<version>` (for example `shadow-1.3.0`),
+  not `shadow-v<version>`. On 2026-09-02 the repository history was rewritten
+  to remove two archived plan files that carried private business detail. The
+  six `shadow-v1.x` releases had been published as immutable, so GitHub
+  reserves those tag names permanently even after deletion; the same six
+  release commits are re-tagged and re-published under the new shape, and
+  the install commands, release conduct, and CI baseline follow it.
+
 ## 1.3.0 — 2026-08-22 — the plugin is the umbrella: amplify ships inside it, in the product voice
 
 - The goal compiler ships inside the portable plugin: `skills/amplify/` moved

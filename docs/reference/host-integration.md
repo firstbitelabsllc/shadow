@@ -12,7 +12,7 @@ Cursor exposes a reviewed user-rule surface; Shadow does not invent
 ## 1. Install once
 
 ```bash
-git clone --branch shadow-v1.3.0 --depth 1 \
+git clone --branch shadow-1.3.0 --depth 1 \
   https://github.com/firstbitelabsllc/shadow.git && cd shadow
 bash install.sh
 shadow doctor
