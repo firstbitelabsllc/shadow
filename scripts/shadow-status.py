@@ -1058,6 +1058,10 @@ def main(argv: list[str] | None = None) -> int:
             "schema": "shadow.status.v1",
             "plans": [],
             "v4_plans": v4_records,
+            "portfolio_refresh": {
+                "state": "last-good" if import_error else "current",
+                "error": import_error,
+            },
         }
         report["root_board"] = root_board_view(root_board)
         print(json.dumps(report, indent=2, sort_keys=True))

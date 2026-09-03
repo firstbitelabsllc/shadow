@@ -137,6 +137,77 @@ def make_plan_over_budget(repo: Path) -> None:
     git(repo, "commit", "--quiet", "-m", "exceed the hot-plan byte budget")
 
 
+class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
+    """Degraded authority stays explicit to both humans and JSON callers."""
+
+    def test_json_marks_a_last_good_board_and_carries_the_refresh_cause(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            portfolio = home / "portfolio"
+            portfolio.mkdir()
+            repo = project(portfolio)
+            first = run(home, "status", "--root", str(portfolio), "--json")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(
+                json.loads(first.stdout)["portfolio_refresh"],
+                {"error": None, "state": "current"},
+            )
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace("- Mode: ship", "- Mode: invalid"),
+                encoding="utf-8",
+            )
+
+            degraded = run(home, "status", "--root", str(portfolio), "--json")
+
+            self.assertEqual(degraded.returncode, 1, degraded.stderr)
+            payload = json.loads(degraded.stdout)
+            self.assertEqual(payload["portfolio_refresh"]["state"], "last-good")
+            self.assertIn("plan does not read clean", payload["portfolio_refresh"]["error"])
+            self.assertIn("showing the last-good computer board", degraded.stderr)
+
+    def test_unreadable_upstream_identity_preserves_its_safe_cause(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            module = fresh_board_module("shadow_identity_cause")
+            failure = module._remote_claim.UpstreamBinding(
+                module._remote_claim.RemoteEligibility.UNKNOWN,
+                failure="remote endpoint configuration is unavailable",
+            )
+            with mock.patch.object(
+                module._remote_claim, "upstream_binding", return_value=failure
+            ):
+                with self.assertRaisesRegex(
+                    module.BoardError,
+                    "project Git identity could not be read: remote endpoint configuration is unavailable",
+                ):
+                    module.origin_of(repo)
+
+    def test_absent_unpinnable_and_detached_are_not_mislabeled_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            plan = repo / "PLAN.md"
+            original_identity = board_api.entity_id(plan)
+            git(repo, "checkout", "--detach", "--quiet")
+            self.assertEqual(board_api.entity_id(plan), original_identity)
+
+            untracked = repo / "SECOND" / "PLAN.md"
+            untracked.parent.mkdir()
+            untracked.write_text(plan.read_text(encoding="utf-8"), encoding="utf-8")
+            with self.assertRaisesRegex(
+                board_api.BoardError, "not present at the current Git HEAD"
+            ):
+                board_api.committed_plan_snapshot(untracked)
+
+            missing = repo / "missing" / "PLAN.md"
+            with self.assertRaisesRegex(
+                board_api.BoardError, "regular, non-symlink PLAN.md"
+            ):
+                board_api.committed_plan_snapshot(missing)
+
+
 class PartitionedPlansUseOneLogicalReadBoundary(unittest.TestCase):
     def test_committed_tree_materializes_the_same_authority_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

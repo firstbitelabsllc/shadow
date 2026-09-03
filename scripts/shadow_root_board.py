@@ -637,7 +637,8 @@ def origin_of(repo: Path) -> str:
     )
     if binding.eligibility is _remote_claim.RemoteEligibility.UNKNOWN:
         raise BoardError(
-            "project Git identity could not be read; retry when Git is available"
+            "project Git identity could not be read: "
+            f"{binding.failure or 'configured upstream identity is unavailable'}"
         )
     origin = binding.public_identity
     if origin is None:

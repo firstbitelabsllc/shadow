@@ -4436,7 +4436,9 @@ GATE_PLAN = """# Demo
 """
 
 
-class ShadowAcceptJudgmentTests(unittest.TestCase):
+class AProvenReadRowFlipsOnAPlanTree(unittest.TestCase):
+    """Judgment acceptance, including the canonical partitioned-plan path."""
+
     def _repo_with(self, plan: str, receipt: str | None = None) -> Path:
         dirname = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, dirname, True)
@@ -4461,6 +4463,32 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
         self.assertNotIn("pass (accept)", text)
         home = repo.parent / "home"
         self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
+
+    def test_a_proven_read_row_flips_and_keeps_one_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                READ_PLAN
+                + "- 2026-08-06T10:02:00Z ~jr01 PROOF deploy looks healthy "
+                "-> pass (manual)\n",
+                encoding="utf-8",
+            )
+            install_plan_tree(repo, plan.read_bytes())
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "partition judgment plan")
+
+            result = run_accept(repo, "~jr01")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            logical = accept._board.read_plan_text(plan)
+            self.assertIn("- [completed] review the deploy state ~jr01", logical)
+            self.assertEqual(logical.count("~jr01 PROOF"), 1)
+            self.assertIn("-> pass (manual)", logical)
+            self.assertTrue(accept._board.open_plan(plan).is_tree)
+            self.assertEqual(git(repo, "status", "--porcelain"), "")
+            self.assertEqual(accept._board.snapshot(home=root / "home")["claims"], [])
 
     def test_a_gate_row_flips_once_its_needs_are_completed(self) -> None:
         repo = self._repo_with(GATE_PLAN, "~jg02 PROOF leo approved -> pass (manual)")
