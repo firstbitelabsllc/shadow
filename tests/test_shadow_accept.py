@@ -4718,5 +4718,148 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
         )
 
 
+TREE_READ_PLAN = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+- Origin: github.com/example/widget
+
+## Tasks
+
+### M — judgment rows
+- [in_progress] review the deploy state ~jr01 | proof: read deploy dashboard
+- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut | needs: ~jr01
+
+## Progress
+
+- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command
+
+## Successor pointer
+
+- none yet
+"""
+
+
+class AProvenReadRowFlipsOnAPlanTree(unittest.TestCase):
+    """~lh06/~lh13 (2026-09-02): the observation was recorded, the receipt was
+    preserved, and accept still refused with "record the observation".
+
+    The plan tree was a coincidence. `shadow plan amend --observation`
+    appended its receipt to the END of the plan, so on any plan whose
+    Progress is not the last section the receipt landed under the later
+    heading — outside the one section accept reads. The receipt was visible
+    to the owner and invisible to the tool.
+    """
+
+    def _entity(self) -> tuple[Path, Path, Path, str]:
+        dirname = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, dirname, True)
+        root = Path(dirname).resolve()
+        repo = root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.invalid")
+        git(repo, "config", "user.name", "T")
+        git(repo, "remote", "add", "origin", "git@github.com:example/widget.git")
+        (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "seed")
+        home = root / "home"
+        home.mkdir()
+        plan_root = home / ".shadow" / "plans" / "widget"
+        plan_root.mkdir(parents=True)
+        plan = install_plan_tree(plan_root, TREE_READ_PLAN.encode("utf-8"))
+        accept._board.reconcile(
+            [{"plan": str(plan), "project": "demo", "priority": 3, "candidates": ["~jr01"]}],
+            [],
+            home=home,
+        )
+        accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home
+        )
+        entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
+        self.assertTrue(accept._board.open_plan(plan).is_tree)
+        return repo, home, plan, entity
+
+    def test_an_amended_observation_is_readable_and_flips_the_row(self) -> None:
+        repo, home, plan, entity = self._entity()
+
+        amended = run_shadow(
+            repo,
+            home,
+            "plan",
+            "amend",
+            "--entity",
+            entity,
+            "--row",
+            "~jr01",
+            "--by",
+            "seat-a",
+            "--observation",
+            "deploy looks healthy -> pass (manual)",
+        )
+        self.assertEqual(amended.returncode, 0, amended.stderr)
+
+        recorded = accept._board.read_plan_text(plan)
+        self.assertEqual(
+            accept._board.progress_proof_receipts(recorded, "~jr01"),
+            [("deploy looks healthy", "pass (manual)")],
+        )
+
+        accepted = run_shadow(
+            repo,
+            home,
+            "accept",
+            "--entity",
+            entity,
+            "--repo",
+            str(repo),
+            "--row",
+            "~jr01",
+            "--by",
+            "seat-a",
+        )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        flipped = accept._board.read_plan_text(plan)
+        self.assertIn("- [completed] review the deploy state ~jr01", flipped)
+        self.assertEqual(flipped.count("~jr01 PROOF"), 1)
+        self.assertIn("## Successor pointer\n\n- none yet\n", flipped)
+        self.assertTrue(accept._board.open_plan(plan).is_tree)
+        self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
+
+    def test_a_receipt_stranded_outside_progress_is_named_by_the_refusal(self) -> None:
+        repo, home, plan, entity = self._entity()
+        stranded = TREE_READ_PLAN.rstrip("\n") + (
+            "\n- 2026-08-06T10:02:00Z ~jr01 PROOF deploy looks healthy -> pass (manual)\n"
+        )
+        install_plan_tree(plan.parent, stranded.encode("utf-8"))
+
+        accepted = run_shadow(
+            repo,
+            home,
+            "accept",
+            "--entity",
+            entity,
+            "--repo",
+            str(repo),
+            "--row",
+            "~jr01",
+            "--by",
+            "seat-a",
+        )
+
+        self.assertEqual(accepted.returncode, 1, accepted.stdout + accepted.stderr)
+        self.assertIn("`## Successor pointer`", accepted.stderr)
+        self.assertIn("outside Progress", accepted.stderr)
+        self.assertIn("shadow plan amend --observation", accepted.stderr)
+        self.assertIn(
+            "- [in_progress] review the deploy state ~jr01",
+            accept._board.read_plan_text(plan),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
