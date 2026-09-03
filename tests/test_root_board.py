@@ -5915,7 +5915,7 @@ class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
         cause on the board and in --json when it carries a private shape.
         """
         status = status_api
-        private = "/Users/someone/.shadow/plans/x/PLAN.md: cannot verify local plan migration"
+        private = "/Users/example/.shadow/plans/x/PLAN.md: cannot verify local plan migration"
         self.assertNotIn("/Users/", status.stale_board_notice(private))
         self.assertNotIn("/Users/", status.degraded_view(private)["reason"])
         self.assertIn("stderr", status.degraded_view(private)["reason"])
