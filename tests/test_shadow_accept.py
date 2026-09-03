@@ -4853,6 +4853,8 @@ class AProvenReadRowFlipsOnAPlanTree(unittest.TestCase):
 
         self.assertEqual(accepted.returncode, 1, accepted.stdout + accepted.stderr)
         self.assertIn("`## Successor pointer`", accepted.stderr)
+        self.assertIn("1 PROOF line naming", accepted.stderr)
+        self.assertIn("already sits under", accepted.stderr)
         self.assertIn("outside Progress", accepted.stderr)
         self.assertIn("shadow plan amend --observation", accepted.stderr)
         self.assertIn(
