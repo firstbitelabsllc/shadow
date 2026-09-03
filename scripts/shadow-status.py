@@ -466,6 +466,14 @@ def in_flight_root_board_view(payload: dict) -> dict:
     }
 
 
+def portfolio_refresh_view(import_error: str | None) -> dict[str, str | None]:
+    """Make stale-board fallback explicit on every machine-readable status view."""
+    return {
+        "state": "last-good" if import_error else "current",
+        "error": import_error,
+    }
+
+
 def prepare_status_entities(
     entities: list[dict],
     *,
@@ -1034,6 +1042,7 @@ def main(argv: list[str] | None = None) -> int:
                 "schema": "shadow.in-flight.v1",
                 "rows": rows,
                 "root_board": in_flight_root_board_view(root_board),
+                "portfolio_refresh": portfolio_refresh_view(import_error),
             }
             print(json.dumps(report, indent=2, sort_keys=True))
         else:
@@ -1058,10 +1067,7 @@ def main(argv: list[str] | None = None) -> int:
             "schema": "shadow.status.v1",
             "plans": [],
             "v4_plans": v4_records,
-            "portfolio_refresh": {
-                "state": "last-good" if import_error else "current",
-                "error": import_error,
-            },
+            "portfolio_refresh": portfolio_refresh_view(import_error),
         }
         report["root_board"] = root_board_view(root_board)
         print(json.dumps(report, indent=2, sort_keys=True))

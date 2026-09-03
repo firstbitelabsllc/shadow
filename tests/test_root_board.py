@@ -167,6 +167,24 @@ class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
             self.assertIn("plan does not read clean", payload["portfolio_refresh"]["error"])
             self.assertIn("showing the last-good computer board", degraded.stderr)
 
+            in_flight = run(
+                home,
+                "status",
+                "--root",
+                str(portfolio),
+                "--in-flight",
+                "--json",
+            )
+            self.assertEqual(in_flight.returncode, 1, in_flight.stderr)
+            in_flight_payload = json.loads(in_flight.stdout)
+            self.assertEqual(
+                in_flight_payload["portfolio_refresh"]["state"], "last-good"
+            )
+            self.assertIn(
+                "plan does not read clean",
+                in_flight_payload["portfolio_refresh"]["error"],
+            )
+
     def test_unreadable_upstream_identity_preserves_its_safe_cause(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = project(Path(tmp))
