@@ -5907,5 +5907,22 @@ class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
             ):
                 board_api.committed_plan_snapshot(missing)
 
+    def test_a_private_path_in_the_cause_never_reaches_the_printed_board(self) -> None:
+        """The marker moved the importer's messages onto stdout with it.
+
+        `shadow_board_import` raises f"{source_path}: ..." with an absolute
+        plan path. Before the marker those reached stderr only. Withhold the
+        cause on the board and in --json when it carries a private shape.
+        """
+        status = status_api
+        private = "/Users/someone/.shadow/plans/x/PLAN.md: cannot verify local plan migration"
+        self.assertNotIn("/Users/", status.stale_board_notice(private))
+        self.assertNotIn("/Users/", status.degraded_view(private)["reason"])
+        self.assertIn("stderr", status.degraded_view(private)["reason"])
+        safe = "project Git identity could not be read: remote fetch and push endpoints do not match"
+        self.assertIn("fetch and push", status.stale_board_notice(safe))
+        self.assertEqual(status.degraded_view(safe)["reason"], safe)
+
+
 if __name__ == "__main__":
     unittest.main()

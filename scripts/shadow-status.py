@@ -20,6 +20,7 @@ if str(ROOT / "scripts") not in sys.path:
 import shadow_root_board as _board  # noqa: E402
 import shadow_board_import as _import  # noqa: E402
 import shadow_remote_claim as _remote_claim  # noqa: E402
+from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE  # noqa: E402
 
 # The v4 grammar parser lives in shadow-amp; status reuses it so the two
 # projections can never disagree about what the current milestone or resume
@@ -861,13 +862,29 @@ def stale_board_notice(import_error: str) -> str:
     """
     return (
         "STALE BOARD — portfolio refresh failed; this is the last-good "
-        f"board for this computer, not the current one: {import_error}"
+        f"board for this computer, not the current one: {public_cause(import_error)}"
     )
+
+
+def public_cause(import_error: str) -> str:
+    """The cause a board may print, or a safe stand-in when it cannot.
+
+    The degraded notice used to reach stderr alone. Moving it onto stdout and
+    into --json moved the portfolio importer's messages with it, and those
+    interpolate absolute plan paths (shadow_board_import raises
+    f"{source_path}: ..."). Withholding beats redacting, as elsewhere on this
+    surface: a board that says the cause is private stays honest, while a
+    half-scrubbed path still tells a stranger whose machine this is. The
+    unscrubbed text keeps reaching stderr, where it always went.
+    """
+    if PRIVATE_PATH_RE.search(import_error) or SECRET_SHAPE_RE.search(import_error):
+        return "the cause names a private path and is on stderr only"
+    return import_error
 
 
 def degraded_view(import_error: str) -> dict:
     """The same verdict for a machine reader."""
-    return {"stale": True, "reason": import_error}
+    return {"stale": True, "reason": public_cause(import_error)}
 
 
 def render_in_flight(rows: list[dict], *, stale: str | None = None) -> str:
