@@ -130,11 +130,18 @@ def _amend(
         if not receipts:
             raise PlanStoreError("nothing to amend; the row already carries that proof")
         candidate = "".join(lines)
-        if "\n## Progress" not in candidate:
-            raise PlanStoreError("plan has no Progress section")
         if not candidate.endswith("\n"):
             candidate += "\n"
-        candidate += "".join(receipts)
+        # The receipt has to land INSIDE Progress. Accept reads a row's
+        # receipts from that section only, so appending to the end of the
+        # plan wrote a receipt nothing could read on any plan whose Progress
+        # is not the last section — the observation was recorded, preserved,
+        # and still refused (2026-09-02: ~lh06, ~lh13 under a Successor
+        # pointer section).
+        try:
+            candidate = accept.append_progress_line(candidate, "".join(receipts))
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
         try:
             accept.refuse_lint_blocked_plan(
                 candidate, plan, proof_root=proof_root, row_id=row_id

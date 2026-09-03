@@ -1148,6 +1148,41 @@ def require_accept_ready_row(
     return claim, state, proof, needs, argv
 
 
+def stranded_receipt_detail(plan_text: str, row_id: str) -> str:
+    """Name the row's PROOF lines that were written outside Progress, if any.
+
+    Measured 2026-09-02 on ~lh06 and ~lh13: `shadow plan amend --observation`
+    appended its receipt to the end of the plan, so on a plan carrying a
+    section after Progress the receipt landed under that later heading. The
+    owner could see the passing observation and accept could not, and the
+    refusal said only "record the observation" — true, unusable, and the
+    reason both rows sat blocked. The writer is repaired; a plan already
+    holding a stranded receipt still has to say where it went.
+    """
+    headings: dict[str, int] = {}
+    heading: str | None = None
+    for line in plan_text.splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            continue
+        if heading is None or heading == "Progress" or heading.startswith("Progress "):
+            continue
+        match = _grammar.PROOF_RECEIPT_PREFIX_RE.match(line)
+        if match is not None and match.group("id") == row_id:
+            headings[heading] = headings.get(heading, 0) + 1
+    if not headings:
+        return ""
+    total = sum(headings.values())
+    where = ", ".join(
+        f"`## {name}`" if name else "the plan preamble" for name in headings
+    )
+    return (
+        f"; {total} PROOF {'line' if total == 1 else 'lines'} naming {row_id} "
+        f"already sit under {where}, outside Progress, where no receipt is read — "
+        "re-record the observation with `shadow plan amend --observation`"
+    )
+
+
 def require_accept_ready_judgment_row(
     plan_path: Path,
     plan_text: str,
@@ -1173,7 +1208,7 @@ def require_accept_ready_judgment_row(
     if not any(result.startswith("pass") for _, result in receipts):
         raise AcceptError(
             f"{row_id} is {kind}-classed — record the observation as a passing "
-            "PROOF line in Progress, then accept"
+            f"PROOF line in Progress, then accept{stranded_receipt_detail(plan_text, row_id)}"
         )
     return claim, state, proof, needs
 
