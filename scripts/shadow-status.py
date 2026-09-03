@@ -877,8 +877,18 @@ def public_cause(import_error: str) -> str:
     half-scrubbed path still tells a stranger whose machine this is. The
     unscrubbed text keeps reaching stderr, where it always went.
     """
-    if PRIVATE_PATH_RE.search(import_error) or SECRET_SHAPE_RE.search(import_error):
-        return "the cause names a private path and is on stderr only"
+    named_path = (
+        PRIVATE_PATH_RE.search(import_error)
+        or SECRET_SHAPE_RE.search(import_error)
+        # A relative pointer leaks a private project or plan directory name
+        # without matching an absolute-path shape. Every cause a board may
+        # print is one fixed sentence carrying no separator, so refusing any
+        # separator costs nothing and closes that second vector too.
+        or "/" in import_error
+        or "\\" in import_error
+    )
+    if named_path:
+        return "the cause names a path and is on stderr only"
     return import_error
 
 

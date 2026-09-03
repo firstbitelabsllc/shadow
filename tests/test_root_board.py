@@ -5919,6 +5919,10 @@ class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
         self.assertNotIn("/Users/", status.stale_board_notice(private))
         self.assertNotIn("/Users/", status.degraded_view(private)["reason"])
         self.assertIn("stderr", status.degraded_view(private)["reason"])
+        # A relative pointer names a private project without an absolute shape.
+        relative = "ai-leo/PLAN.md: cannot verify local plan migration"
+        self.assertNotIn("ai-leo", status.stale_board_notice(relative))
+        self.assertNotIn("ai-leo", status.degraded_view(relative)["reason"])
         safe = "project Git identity could not be read: remote fetch and push endpoints do not match"
         self.assertIn("fetch and push", status.stale_board_notice(safe))
         self.assertEqual(status.degraded_view(safe)["reason"], safe)
