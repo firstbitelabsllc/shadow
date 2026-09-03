@@ -1174,7 +1174,7 @@ def stranded_receipt_detail(plan_text: str, row_id: str) -> str:
         return ""
     total = sum(headings.values())
     where = ", ".join(
-        f"`## {name}`" if name else "the plan preamble" for name in headings
+        f"`## {name}`" if name else "an unnamed section" for name in headings
     )
     return (
         f"; {total} PROOF {'line' if total == 1 else 'lines'} naming {row_id} "
