@@ -38,6 +38,10 @@ BUSY_THRESHOLD: Final = 8
 LEGACY_TASK_ALIAS_RE: Final = re.compile(
     r"[A-Z][A-Za-z0-9]{0,7}~[a-z0-9][a-z0-9-]{1,31}"
 )
+BLOCKED_RETURN_RE: Final = re.compile(
+    r"^- (?P<at>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
+    r"(?P<id>~[0-9a-z]{4}) BLOCKED\b"
+)
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -63,6 +67,26 @@ def _priority(plan: dict) -> int:
     if value not in range(1, 6):
         raise _board.BoardError("project Priority must be 1-5 before it can enter the root board")
     return value
+
+
+def _last_blocked_return_wake(text: str, task_id: str) -> str | None:
+    """Read the newest Progress BLOCKED return wake already recorded for a row."""
+    latest: tuple[str, str] | None = None
+    for line in _board.section_lines(text, "Progress"):
+        marker = BLOCKED_RETURN_RE.match(line)
+        if marker is None or marker.group("id") != task_id:
+            continue
+        wake = next(
+            (
+                field.group("value").strip()
+                for field in _amp.FIELD_RE.finditer(line)
+                if field.group("key") == "wake"
+            ),
+            None,
+        )
+        if wake is not None and (latest is None or marker.group("at") >= latest[0]):
+            latest = (marker.group("at"), wake)
+    return latest[1] if latest is not None else None
 
 
 def _repo_for(plan_path: Path) -> Path:
@@ -123,13 +147,19 @@ def _validated_target(
             f"no task carries {canonical_task} in the stored canonical entity plan"
         )
     _, match = located
-    if match.group("state") not in {"pending", "in_progress"}:
-        raise _board.BoardError(f"{task} is [{match.group('state')}], not claimable")
     done = _amp._completed_ids(plan["milestones"])
     fields = {
         field.group("key"): field.group("value").strip()
         for field in _amp.FIELD_RE.finditer(match.group("tail") or "")
     }
+    if match.group("state") not in {"pending", "in_progress"}:
+        raise _board.BoardError(f"{task} is [{match.group('state')}], not claimable")
+    current_wake = fields.get("wake")
+    returned_wake = _last_blocked_return_wake(text, canonical_task)
+    if current_wake and returned_wake is not None and current_wake == returned_wake:
+        raise _board.BoardError(
+            f"{task} has an unchanged wake: {current_wake}"
+        )
     unmet = [ref for ref in _amp.HASH_RE.findall(fields.get("needs", "")) if ref not in done]
     if unmet:
         raise _board.BoardError(f"{task} still needs {', '.join(unmet)}")
