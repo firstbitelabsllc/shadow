@@ -619,6 +619,13 @@ def validate_owner(owner: object) -> str:
     return owner
 
 
+def _unreadable_identity(reason: str | None) -> str:
+    """One refusal that carries the measured cause, not a guess about Git."""
+    if not reason:
+        return "project Git identity could not be read; retry when Git is available"
+    return f"project Git identity could not be read: {reason}"
+
+
 def origin_of(repo: Path) -> str:
     repo = Path(os.path.abspath(repo)).resolve()
     cache = _REPOSITORY_IDENTITIES.get()
@@ -636,9 +643,11 @@ def origin_of(repo: Path) -> str:
         recover_detached=True,
     )
     if binding.eligibility is _remote_claim.RemoteEligibility.UNKNOWN:
-        raise BoardError(
-            "project Git identity could not be read; retry when Git is available"
-        )
+        # Name the fault the probe measured. "Retry when Git is available"
+        # is a claim about Git and credentials this call never tested, and on
+        # 2026-09-03 it sent a whole-portfolio refusal after an endpoint the
+        # checkout could not pin while `ls-remote` answered in a second.
+        raise BoardError(_unreadable_identity(binding.reason))
     origin = binding.public_identity
     if origin is None:
         try:
@@ -862,7 +871,17 @@ def plan_identity_parts(plan: Path, *, require_regular: bool = False) -> tuple[s
             if cache is not None and marker_key is not None:
                 cache.repositories[marker_key] = repo
         elif marker is not None:
-            raise BoardError("project Git identity could not be read; retry when Git is available")
+            # `git -C` on a directory that does not exist fails the same way a
+            # broken Git does. Recorded 2026-08-12 and measured again
+            # 2026-09-03: the fault is a registered pointer into a path this
+            # checkout does not carry — absent from HEAD, or on another branch.
+            raise BoardError(
+                _unreadable_identity(
+                    None
+                    if plan.parent.is_dir()
+                    else "the plan pointer's directory is absent from this checkout"
+                )
+            )
         else:
             repo = plan.parent
     if git_repository:

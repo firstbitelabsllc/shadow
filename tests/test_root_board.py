@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import atexit
+from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -22,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "shadow"
 BOARD_MODULE = ROOT / "scripts" / "shadow_root_board.py"
 PLAN_MODULE = ROOT / "scripts" / "shadow-plan.py"
+STATUS_MODULE = ROOT / "scripts" / "shadow-status.py"
 PROOF_SENTINEL = "PROOF-MUST-NOT-ENTER-THE-BOARD"
 HOT_PLAN_LIMIT = 256 * 1024
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -38,6 +41,15 @@ plan_api = importlib.util.module_from_spec(_PLAN_SPEC)
 assert _PLAN_SPEC and _PLAN_SPEC.loader
 sys.modules[_PLAN_SPEC.name] = plan_api
 _PLAN_SPEC.loader.exec_module(plan_api)
+
+_STATUS_SPEC = importlib.util.spec_from_file_location(
+    "shadow_status_root_board_test",
+    STATUS_MODULE,
+)
+status_api = importlib.util.module_from_spec(_STATUS_SPEC)
+assert _STATUS_SPEC and _STATUS_SPEC.loader
+sys.modules[_STATUS_SPEC.name] = status_api
+_STATUS_SPEC.loader.exec_module(status_api)
 
 
 def fresh_board_module(name: str):
@@ -5732,6 +5744,168 @@ class LocatorNeverRaises(unittest.TestCase):
             self.assertTrue(locator.startswith("repo@"), locator)
             self.assertTrue(locator.endswith("/PLAN.md"), locator)
 
+
+class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
+    """Name the fault that was measured, and never print a stale board as current.
+
+    Measured 2026-09-03 on a 55-entity portfolio: `shadow status` refused with
+    `project Git identity could not be read; retry when Git is available` while
+    `git ls-remote origin master` answered in about a second. The fault was a
+    discovered checkout whose current branch carries no configured upstream and
+    whose `origin` holds different fetch and push URLs, so no single
+    publication endpoint could be pinned. Status then served the last-good
+    board on stdout with the degraded notice on stderr alone, and another
+    project's agent read that board as current and was blocked by it.
+    """
+
+    def test_an_unpinnable_remote_endpoint_names_the_endpoint_disagreement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp), name="unpinnable")
+            git(repo, "remote", "add", "origin", "https://example.invalid/one.git")
+            git(
+                repo,
+                "remote",
+                "set-url",
+                "--push",
+                "origin",
+                "git@example.invalid:two.git",
+            )
+            # A sibling branch pins a remote; the checked-out branch does not,
+            # which is the recovery path that scans every configured head.
+            git(repo, "config", "branch.sibling.remote", "origin")
+            git(repo, "config", "branch.sibling.merge", "refs/heads/sibling")
+
+            with self.assertRaises(board_api.BoardError) as caught:
+                board_api.entity_id(repo / "PLAN.md")
+
+            message = str(caught.exception)
+            self.assertIn("fetch and push", message)
+            self.assertNotIn("retry when Git is available", message)
+
+    def test_a_pointer_into_an_absent_directory_names_the_absent_pointer(self) -> None:
+        # Recorded in the plan's Contradictions on 2026-08-12 and live on this
+        # machine 2026-09-03: a registered plan absent from the checked-out
+        # branch. `git -C` on the missing directory fails exactly as a broken
+        # Git does, and the refusal used to blame Git for it.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp), name="absent")
+
+            # `plan_identity_parts` is the reader the portfolio import uses on
+            # a registered pointer; it does not pre-check the file the way
+            # `entity_id` does, so this refusal is the one an operator sees.
+            with self.assertRaises(board_api.BoardError) as caught:
+                board_api.plan_identity_parts(repo / "gone" / "PLAN.md")
+
+            message = str(caught.exception)
+            self.assertIn("absent from this checkout", message)
+            self.assertNotIn("retry when Git is available", message)
+
+    def degraded_status(self, root: Path, *args: str) -> tuple[int, str, str]:
+        """Run one status surface whose portfolio refresh fails over a live board."""
+        repo = project(root, name="demo")
+        plan = repo / "PLAN.md"
+        payload = {
+            "schema": "shadow.root-board.v1",
+            "revision": 42,
+            "projects": [{"id": "demo", "priority": 1}],
+            "entities": [
+                {
+                    "id": board_api.entity_id(plan),
+                    "project": "demo",
+                    "plan": str(plan),
+                    "resume": "~aa11",
+                }
+            ],
+            "claims": [],
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            mock.patch.dict(
+                status_api.os.environ,
+                {"SHADOW_DEV_ROOT": str(root)},
+                clear=False,
+            ),
+            mock.patch.object(status_api._board, "snapshot", return_value=payload),
+            mock.patch.object(
+                status_api._import,
+                "reconcile_portfolio",
+                side_effect=board_api.BoardError(
+                    "project Git identity could not be read: "
+                    "remote fetch and push endpoints do not match"
+                ),
+            ),
+            mock.patch.object(
+                status_api,
+                "projected_claims",
+                side_effect=lambda entity, project, path, parsed, local: (
+                    list(local),
+                    None,
+                ),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = status_api.main(list(args))
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_a_degraded_read_marks_the_board_it_prints_on_stdout(self) -> None:
+        # Every surface that reconciles. `--by` without `--json` is the seat
+        # fast path: it returns from the local board before reconcile runs, so
+        # it has no degraded read to mark.
+        for args in ((), ("--in-flight",)):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
+                code, stdout, stderr = self.degraded_status(Path(tmp), *args)
+                self.assertEqual(code, 1, (stdout, stderr))
+                self.assertIn("portfolio refresh failed", stderr)
+                self.assertIn("STALE BOARD", stdout)
+                self.assertIn("last-good", stdout)
+
+    def test_a_degraded_read_marks_the_machine_readable_board(self) -> None:
+        surfaces = (
+            ("--json",),
+            ("--in-flight", "--json"),
+            ("--by", "seat-a", "--json"),
+        )
+        for args in surfaces:
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as tmp:
+                code, stdout, stderr = self.degraded_status(Path(tmp), *args)
+                self.assertEqual(code, 1, (stdout, stderr))
+                report = json.loads(stdout)
+                self.assertTrue(report["degraded"]["stale"], report)
+                self.assertIn("fetch and push", report["degraded"]["reason"])
+
+
+
+    def test_absent_unpinnable_and_detached_are_not_mislabeled_credentials(self) -> None:
+        """Ported from the parallel codex/shadow-truth-reporting-m30 lane.
+
+        The row names three fault classes; the tests above cover an absent
+        pointer and an unpinnable endpoint. A detached checkout is the third,
+        and its identity must survive detaching rather than degrade into the
+        credential sentence.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            plan = repo / "PLAN.md"
+            original_identity = board_api.entity_id(plan)
+            git(repo, "checkout", "--detach", "--quiet")
+            self.assertEqual(board_api.entity_id(plan), original_identity)
+
+            untracked = repo / "SECOND" / "PLAN.md"
+            untracked.parent.mkdir()
+            untracked.write_text(plan.read_text(encoding="utf-8"), encoding="utf-8")
+            with self.assertRaisesRegex(
+                board_api.BoardError, "not present at the current Git HEAD"
+            ):
+                board_api.committed_plan_snapshot(untracked)
+
+            missing = repo / "missing" / "PLAN.md"
+            with self.assertRaisesRegex(
+                board_api.BoardError, "regular, non-symlink PLAN.md"
+            ):
+                board_api.committed_plan_snapshot(missing)
 
 if __name__ == "__main__":
     unittest.main()

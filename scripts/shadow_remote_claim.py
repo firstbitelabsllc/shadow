@@ -64,10 +64,25 @@ class UpstreamBinding:
     endpoint: str | None = None
     public_identity: str | None = None
     merge_refs: frozenset[str] = frozenset()
+    # Why the verdict is UNKNOWN, in the words of the probe that measured it.
+    # Diagnostic only: no caller branches on it. Without it every distinct
+    # fault — an endpoint the checkout cannot pin, malformed branch config, a
+    # genuinely unreadable Git — reaches the operator as one sentence blaming
+    # Git availability, which sent a 2026-09-03 portfolio refusal after
+    # credentials that were never at fault.
+    reason: str | None = None
 
 
 LOCAL_ONLY = UpstreamBinding(RemoteEligibility.VERIFIED_LOCAL_ONLY)
-UNKNOWN = UpstreamBinding(RemoteEligibility.UNKNOWN)
+
+
+# The one UNKNOWN whose cause really is an unusable Git, so it keeps the hint.
+_UNREADABLE_BRANCH = "Git could not report the checked-out branch; retry when Git is available"
+
+
+def _unknown(reason: str) -> UpstreamBinding:
+    """Every UNKNOWN verdict, and the measured fault behind it."""
+    return UpstreamBinding(RemoteEligibility.UNKNOWN, reason=reason)
 
 
 def _git(
@@ -219,11 +234,16 @@ def _binding_for_heads(
     if selected_remote is None:
         fingerprints = {resolved[2] for resolved in endpoints.values()}
         if len(fingerprints) != 1:
-            return UNKNOWN
+            return _unknown(
+                "the configured branches track remotes that name different "
+                "repositories, so no one publication endpoint can be pinned"
+            )
         selected_remote = min(endpoints)
     selected = endpoints.get(selected_remote)
     if selected is None:
-        return UNKNOWN
+        return _unknown(
+            "the current branch tracks a remote this checkout does not define"
+        )
     endpoint, public_identity, fingerprint = selected
     refs = frozenset(
         merge_ref
@@ -247,8 +267,8 @@ def _configured_upstream_binding(
     try:
         configured_heads = heads if heads is not None else _configured_branch_heads(repo)
         return _binding_for_heads(repo, configured_heads)
-    except RemoteClaimError:
-        return UNKNOWN
+    except RemoteClaimError as exc:
+        return _unknown(str(exc))
 
 
 _BINDING_MEMO: ContextVar[dict[tuple[str, bool], UpstreamBinding] | None] = (
@@ -300,10 +320,10 @@ def _upstream_binding_uncached(
     if _missing_git_value(branch):
         return _configured_upstream_binding(repo) if recover_detached else LOCAL_ONLY
     if branch.returncode:
-        return UNKNOWN
+        return _unknown(_UNREADABLE_BRANCH)
     name = _one_git_value(branch)
     if name is None:
-        return UNKNOWN
+        return _unknown(_UNREADABLE_BRANCH)
     try:
         heads = _configured_branch_heads(repo)
         current = [head for head in heads if head[0] == name]
@@ -314,8 +334,8 @@ def _upstream_binding_uncached(
                 else LOCAL_ONLY
             )
         return _binding_for_heads(repo, heads, selected_remote=current[0][1])
-    except RemoteClaimError:
-        return UNKNOWN
+    except RemoteClaimError as exc:
+        return _unknown(str(exc))
 
 
 def upstream_eligibility(repo: Path) -> RemoteEligibility:

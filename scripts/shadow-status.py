@@ -851,9 +851,29 @@ def board_in_flight(payload: dict) -> list[dict]:
     return rows
 
 
-def render_in_flight(rows: list[dict]) -> str:
+def stale_board_notice(import_error: str) -> str:
+    """Say on the board itself that the board is not current.
+
+    The degraded notice used to reach stderr alone while stdout printed an
+    ordinary-looking board. On 2026-09-03 another project's agent read that
+    board as current and was blocked by it, so the marker belongs on every
+    surface the board is printed to.
+    """
+    return (
+        "STALE BOARD — portfolio refresh failed; this is the last-good "
+        f"board for this computer, not the current one: {import_error}"
+    )
+
+
+def degraded_view(import_error: str) -> dict:
+    """The same verdict for a machine reader."""
+    return {"stale": True, "reason": import_error}
+
+
+def render_in_flight(rows: list[dict], *, stale: str | None = None) -> str:
     if not rows:
-        return "Nothing in flight on this machine.\n"
+        body = "Nothing in flight on this machine.\n"
+        return f"{stale_board_notice(stale)}\n\n{body}" if stale else body
     # Discovery-failure placeholders are not in-flight work: nobody claimed
     # them, they are the remote being unreadable. Count real rows and say the
     # rest plainly, or "hand-claimed" labels a claim that never happened.
@@ -863,7 +883,8 @@ def render_in_flight(rows: list[dict]) -> str:
     header = f"{len(claimed)} row(s) in flight across {len(projects)} project(s)"
     if failed:
         header += f"; {failed} remote claim discovery failure(s)"
-    out = [header + ":", ""]
+    out = [stale_board_notice(stale), ""] if stale else []
+    out += [header + ":", ""]
     for project in projects:
         out.append(project)
         for row in [r for r in rows if r["project"] == project]:
@@ -1035,9 +1056,11 @@ def main(argv: list[str] | None = None) -> int:
                 "rows": rows,
                 "root_board": in_flight_root_board_view(root_board),
             }
+            if import_error:
+                report["degraded"] = degraded_view(import_error)
             print(json.dumps(report, indent=2, sort_keys=True))
         else:
-            print(render_in_flight(rows), end="")
+            print(render_in_flight(rows, stale=import_error), end="")
         return 1 if import_error or any(row.get("broken") for row in rows) else 0
 
     assert root_board is not None
@@ -1060,9 +1083,13 @@ def main(argv: list[str] | None = None) -> int:
             "v4_plans": v4_records,
         }
         report["root_board"] = root_board_view(root_board)
+        if import_error:
+            report["degraded"] = degraded_view(import_error)
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         blocks = [f"This computer — root board revision {root_board['revision']}"]
+        if import_error:
+            blocks[0] += f"\n{stale_board_notice(import_error)}"
         if args.by:
             focused = seat_focus(v4_records, args.by)
             owned = sum(
