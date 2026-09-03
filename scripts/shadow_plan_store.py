@@ -1261,18 +1261,6 @@ class PlanTransaction:
         self.candidate_content = content
         return self
 
-    def append_receipt(self, receipt: bytes) -> "PlanTransaction":
-        if self.closed:
-            raise PlanStoreError("plan transaction is already closed")
-        if not receipt.startswith(b"- ") or not receipt.endswith(b"\n"):
-            raise PlanStoreError("progress receipt must be one canonical list line")
-        marker = b"\n## Progress"
-        if marker not in self.candidate_content:
-            raise PlanStoreError("plan has no Progress section")
-        if not self.candidate_content.endswith(b"\n"):
-            self.candidate_content += b"\n"
-        self.candidate_content += receipt
-        return self
 
     def publish(
         self,

@@ -1178,7 +1178,8 @@ def stranded_receipt_detail(plan_text: str, row_id: str) -> str:
     )
     return (
         f"; {total} PROOF {'line' if total == 1 else 'lines'} naming {row_id} "
-        f"already sit under {where}, outside Progress, where no receipt is read — "
+        f"already {'sits' if total == 1 else 'sit'} under {where}, outside "
+        "Progress, where no receipt is read — "
         "re-record the observation with `shadow plan amend --observation`"
     )
 
