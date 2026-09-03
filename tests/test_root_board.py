@@ -5876,5 +5876,36 @@ class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
                 self.assertIn("fetch and push", report["degraded"]["reason"])
 
 
+
+    def test_absent_unpinnable_and_detached_are_not_mislabeled_credentials(self) -> None:
+        """Ported from the parallel codex/shadow-truth-reporting-m30 lane.
+
+        The row names three fault classes; the tests above cover an absent
+        pointer and an unpinnable endpoint. A detached checkout is the third,
+        and its identity must survive detaching rather than degrade into the
+        credential sentence.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = project(root)
+            plan = repo / "PLAN.md"
+            original_identity = board_api.entity_id(plan)
+            git(repo, "checkout", "--detach", "--quiet")
+            self.assertEqual(board_api.entity_id(plan), original_identity)
+
+            untracked = repo / "SECOND" / "PLAN.md"
+            untracked.parent.mkdir()
+            untracked.write_text(plan.read_text(encoding="utf-8"), encoding="utf-8")
+            with self.assertRaisesRegex(
+                board_api.BoardError, "not present at the current Git HEAD"
+            ):
+                board_api.committed_plan_snapshot(untracked)
+
+            missing = repo / "missing" / "PLAN.md"
+            with self.assertRaisesRegex(
+                board_api.BoardError, "regular, non-symlink PLAN.md"
+            ):
+                board_api.committed_plan_snapshot(missing)
+
 if __name__ == "__main__":
     unittest.main()
