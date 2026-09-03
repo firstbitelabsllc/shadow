@@ -5927,6 +5927,29 @@ class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
         self.assertIn("fetch and push", status.stale_board_notice(safe))
         self.assertEqual(status.degraded_view(safe)["reason"], safe)
 
+    def test_https_fetch_with_ssh_push_is_one_repository(self) -> None:
+        """A work machine normally fetches over https and pushes over ssh.
+
+        Both spellings normalize to one identity, so the endpoints agree. The
+        transport check used to reject the pair anyway, which marked the
+        identity unreadable and degraded the whole portfolio for every entity
+        on the machine. A different host must still be refused.
+        """
+        remote_claim = board_api._remote_claim
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = project(Path(tmp))
+            git(repo, "remote", "add", "origin", "https://example.test/o/r.git")
+            git(repo, "remote", "set-url", "--push", "origin", "git@example.test:o/r.git")
+            endpoint = remote_claim.remote_endpoint(repo, "origin")
+            self.assertIsNotNone(endpoint)
+            self.assertEqual(endpoint[1], "example.test/o/r")
+
+            git(repo, "remote", "set-url", "--push", "origin", "git@other.test:o/r.git")
+            with self.assertRaisesRegex(
+                remote_claim.RemoteClaimError, "fetch and push endpoints do not match"
+            ):
+                remote_claim.remote_endpoint(repo, "origin")
+
 
 if __name__ == "__main__":
     unittest.main()

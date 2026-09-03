@@ -153,10 +153,19 @@ def remote_endpoint(
     push_identity = _shadow_git.normalized_repo_origin(repo, push_url)
     fetch_transport = _shadow_git.transport_fingerprint(repo, fetch_url)
     push_transport = _shadow_git.transport_fingerprint(repo, push_url)
+    # Fetching over https and pushing over ssh is one repository reached two
+    # ways, and it is how a work machine is normally configured. The normalized
+    # identity already resolves scheme, port, and user away, so when the two
+    # identities agree the endpoints agree. Transport still has to match for a
+    # filesystem remote, where the resolved path IS the endpoint and a scheme
+    # difference can mean a different place.
+    filesystem_remote = fetch_transport[:1] == ("file",) or push_transport[:1] == (
+        "file",
+    )
     if (
         not fetch_identity
         or fetch_identity != push_identity
-        or fetch_transport != push_transport
+        or (filesystem_remote and fetch_transport != push_transport)
     ):
         raise RemoteClaimError("remote fetch and push endpoints do not match")
     return push_url, push_identity, push_transport
