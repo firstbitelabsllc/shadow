@@ -105,9 +105,11 @@ LEGACY_SOURCE_PROSE_RE = re.compile(
     r"(?P<id>~[0-9a-z]{4}) SOURCE (?:"
     r"[0-9a-f]{40} on [A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*(?:/"
     r"[A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*)*"
+    r" -> \S.*"
     r"|/ TEST(?: FOLLOW-UP)? -> candidate [0-9a-f]{40} on "
     r"[A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*(?:/[A-Za-z0-9_]+"
-    r"(?:[._-][A-Za-z0-9_]+)*)*) (?P<prose>\S.*)$"
+    r"(?:[._-][A-Za-z0-9_]+)*)* \S.*"
+    r")$"
 )
 SOURCE_ROW_PREFIX_RE = re.compile(
     r"^- (?P<ts>\S+) (?P<id>~[0-9a-z]{4}) SOURCE(?:\s|$)"

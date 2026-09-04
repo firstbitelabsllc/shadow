@@ -715,6 +715,14 @@ class ShadowAcceptTests(unittest.TestCase):
         )
         self.assertIsNone(accept.local_plan_source_identity(current_shape))
 
+        direct_without_arrow = accept.append_progress_line(
+            accepted,
+            f"- {pre_cutover} {row} SOURCE eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
+            "on codex/rgrc-remote-recovery-20260822 arbitrary prose\n",
+        )
+        with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
+            accept.local_plan_source_identity(direct_without_arrow)
+
         duplicate_accept = accept.append_progress_line(
             accepted,
             f"- 2026-08-22T19:57:53Z {row} PROOF true -> pass (accept)\n",
