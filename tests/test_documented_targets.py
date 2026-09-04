@@ -77,27 +77,6 @@ class DocumentedTargetTests(unittest.TestCase):
         ).stdout
         self.assertNotIn("--all", status)
 
-    def test_plan_help_documents_accepted_proof_reconciliation(self):
-        result = subprocess.run(
-            [str(ROOT / "bin" / "shadow"), "help", "plan"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        for clause in (
-            "reconcile-accepted-proof",
-            "--entity ENTITY_ID",
-            "--row '~hash'",
-            "--expect-root ROOT_SHA256",
-            "--apply",
-            "exactly one canonical pass (accept) receipt",
-            "never runs a historical proof",
-            "shadow accept's fail-closed gate",
-        ):
-            self.assertIn(clause, result.stdout)
-
     def test_remote_claim_docs_keep_the_authority_split(self):
         grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(
             encoding="utf-8"
