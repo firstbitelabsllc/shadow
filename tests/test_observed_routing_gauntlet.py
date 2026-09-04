@@ -38,7 +38,7 @@ from shadow_execution_policy import (
 
 class ExecutionPolicyTests(unittest.TestCase):
     def test_policy_is_small_complete_and_native(self) -> None:
-        self.assertEqual(POLICY_VERSION, "shadow.execution-policy.v2")
+        self.assertEqual(POLICY_VERSION, "shadow.execution-policy.v3")
         self.assertEqual(WORK_CLASSES, ("planning", "coding", "review", "lightweight"))
         self.assertEqual(DELEGATION_MODES, ("direct", "required"))
         self.assertEqual(HOSTS, ("claude-code", "codex", "cursor", "grok", "zai", "codex-zai"))
@@ -53,6 +53,8 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(resolve_route("claude-code", "planning").model, "fable")
         self.assertEqual(resolve_route("claude-code", "coding").model, "opus")
         self.assertEqual(resolve_route("codex", "planning").model, "gpt-5.6-sol")
+        self.assertEqual(resolve_route("codex", "coding").model, "gpt-5.6-luna")
+        self.assertEqual(resolve_route("codex", "review").model, "gpt-5.6-terra")
         self.assertEqual(resolve_route("codex", "lightweight").model, "gpt-5.6-luna")
         self.assertEqual(
             resolve_route("cursor", "planning").model,
@@ -81,6 +83,14 @@ class ExecutionPolicyTests(unittest.TestCase):
             delegation_capability("cursor", "required")
         with self.assertRaises(ExecutionPolicyError):
             delegation_capability("zai", "required")
+
+    def test_codex_policy_roles_and_observation_boundary_are_documented(self) -> None:
+        text = (ROOT / "docs" / "reference" / "execution-policy.md").read_text(encoding="utf-8")
+        self.assertIn("shadow.execution-policy.v3", text)
+        self.assertIn("Sol specifies acceptance and the falsifier", text)
+        self.assertIn("Luna performs bounded implementation", text)
+        self.assertIn("Terra independently reviews", text)
+        self.assertIn("requested route remains distinct from observed provider proof", text)
 
 
 class ScenarioContractTests(unittest.TestCase):
@@ -126,8 +136,8 @@ class FalseGreenMutationTests(unittest.TestCase):
             host="codex",
             scenario_id="exact-code",
             work_class="coding",
-            requested_model="gpt-5.6-sol",
-            observed_model="gpt-5.6-sol",
+            requested_model="gpt-5.6-luna",
+            observed_model="gpt-5.6-luna",
             exit_code=0,
             timed_out=False,
             completion_sentinel="SHADOW_EVAL_EXACT_CODE_OK",
@@ -152,7 +162,7 @@ class FalseGreenMutationTests(unittest.TestCase):
         self.assertFalse(grade.passed, grade.checks)
 
     def test_wrong_model_is_red(self) -> None:
-        self.assert_red(observed_model="gpt-5.6-luna")
+        self.assert_red(observed_model="gpt-5.6-sol")
 
     def test_selector_without_observation_is_red(self) -> None:
         self.assert_red(observed_model=None)
@@ -187,8 +197,8 @@ class LocalSinkBoundaryTests(unittest.TestCase):
             host="codex",
             scenario_id="exact-code",
             work_class="coding",
-            requested_model="gpt-5.6-sol",
-            observed_model="gpt-5.6-sol",
+            requested_model="gpt-5.6-luna",
+            observed_model="gpt-5.6-luna",
             exit_code=0,
             timed_out=False,
             completion_sentinel="SHADOW_EVAL_EXACT_CODE_OK",
@@ -228,8 +238,8 @@ class LocalSinkBoundaryTests(unittest.TestCase):
         def send(spans: list[dict[str, object]]) -> None:
             events.append(("send", *self._span_facts(spans[0])))
 
-        def reject_readback(_trace_id: str) -> bool:
-            events.append(("readback",))
+        def reject_readback(_trace_id: str, minimum_events: int = 1) -> bool:
+            events.append(("readback", minimum_events))
             return False
 
         sink.send_spans = send
@@ -242,7 +252,7 @@ class LocalSinkBoundaryTests(unittest.TestCase):
 
         self.assertEqual(
             events,
-            [("send", False, False, False, 2), ("readback",)],
+            [("send", False, False, False, 2), ("readback", 1)],
         )
 
     def test_green_adjudication_is_emitted_only_after_exact_readback(self) -> None:
@@ -252,8 +262,8 @@ class LocalSinkBoundaryTests(unittest.TestCase):
         def send(spans: list[dict[str, object]]) -> None:
             events.append(("send", *self._span_facts(spans[0])))
 
-        def accept_readback(_trace_id: str) -> bool:
-            events.append(("readback",))
+        def accept_readback(_trace_id: str, minimum_events: int = 1) -> bool:
+            events.append(("readback", minimum_events))
             return True
 
         sink.send_spans = send
@@ -268,10 +278,21 @@ class LocalSinkBoundaryTests(unittest.TestCase):
             events,
             [
                 ("send", False, False, False, 2),
-                ("readback",),
+                ("readback", 1),
                 ("send", True, True, True, 1),
+                ("readback", 2),
             ],
         )
+
+    def test_a_dropped_final_green_span_is_red(self) -> None:
+        sink = object.__new__(gauntlet.LangfuseSink)
+        sink.send_spans = lambda _spans: None
+        sink.verify_trace = mock.Mock(side_effect=(True, False))
+
+        with self.assertRaisesRegex(gauntlet.GauntletError, "final adjudication"):
+            sink.emit_observation(self._passing_native_observation())
+
+        self.assertEqual(sink.verify_trace.call_args_list[-1], mock.call(mock.ANY, minimum_events=2))
 
     def test_langfuse_sink_accepts_only_explicit_loopback_endpoints(self) -> None:
         common = {

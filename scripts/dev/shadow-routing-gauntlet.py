@@ -500,6 +500,8 @@ ORDER BY start_time DESC LIMIT 1 FORMAT JSONEachRow
                 final=True,
             )
         ])
+        if not self.verify_trace(trace_id, minimum_events=2):
+            raise GauntletError("Langfuse final adjudication was not readable")
         return trace_id
 
 

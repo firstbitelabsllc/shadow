@@ -964,12 +964,6 @@ class TheGalleryShowsEveryStateHonestly(unittest.TestCase):
         self.assertNotIn("<style", html,
                          "inline styles are discarded by style-src 'self'; use style.css")
 
-    def test_the_v3_rich_brief_has_a_fixture_with_choices(self) -> None:
-        rich = [r for r in server.gallery_records() if r["briefing"]]
-        self.assertTrue(rich, "no fixture exercises the v3 rich brief card")
-        self.assertTrue(any(r["briefing"]["choices"] for r in rich),
-                        "no fixture shows a waiting decision")
-
     def test_the_gallery_page_and_api_are_served(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             service = server.Server(("127.0.0.1", 0), Path(dirname))
@@ -1005,6 +999,13 @@ class BoardProjectionTests(unittest.TestCase):
         git(repo, "add", "gift-flow/PLAN.md")
         git(repo, "commit", "-qm", "fixture")
         return repo, plan
+
+    @staticmethod
+    def brief_plan(tasks: str) -> str:
+        return (
+            "# Gift flow\n\n## Brief\n\n- Project: snowcubes\n- Mode: ship\n"
+            "- Milestone: Gift flow live\n\n## Tasks\n\n" + tasks
+        )
 
     def test_plan_record_carries_gated_board_fields(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -1100,6 +1101,159 @@ class BoardProjectionTests(unittest.TestCase):
         self.assertEqual(record["project"], "gift-flow")
         self.assertIsNone(record["mode"])
         self.assertIsNone(record["milestone"])
+
+    def test_v4_brief_projects_four_safe_human_fields(self) -> None:
+        plan = self.brief_plan(
+            "### M4 — Gift flow live\n"
+            "- [in_progress] finish checkout smoke ~aa11 | proof: cmd true\n"
+            "- [blocked] wait for the storefront review ~bb22 | proof: gate Leo\n"
+            "- [pending] choose launch timing ~cc33 | proof: gate Leo\n"
+        )
+        brief = board_projection.project_board_brief(plan)
+        self.assertEqual(brief["outcome"], "Gift flow live")
+        self.assertEqual(brief["now"], "Work is in progress.")
+        self.assertEqual(brief["risk"], "1 item in the active milestone is blocked.")
+        self.assertEqual(brief["decision"], "A decision is needed to continue.")
+        self.assertEqual(
+            set(brief) - {"schema", "state", "priority", "milestone", "contradictions_open", "latest_change", "outcome", "now", "risk", "decision"},
+            set(),
+        )
+
+    def test_v4_brief_has_explicit_safe_fallbacks_when_no_rows_remain(self) -> None:
+        plan = self.brief_plan("### M4 — Gift flow live\n- [completed] shipped ~aa11 | proof: cmd true\n")
+        brief = board_projection.project_board_brief(plan)
+        self.assertEqual(brief["outcome"], "Gift flow live")
+        self.assertEqual(brief["now"], "No work is waiting right now.")
+        self.assertEqual(brief["risk"], "No known risk.")
+        self.assertEqual(brief["decision"], "No decision needed right now.")
+
+    def test_v4_brief_withholds_machine_names_commands_hashes_refs_paths_and_ids(self) -> None:
+        plan = self.brief_plan(
+            "### M4 — Release gpt-5.6-sol via claude-code, openai, anthropic, "
+            "gemini, opencode, langfuse, openrouter, xAI, Google AI, Sol, Luna, "
+            "Terra, Fable, Opus, Sonnet, Haiku, o3, o4-mini, deepseek-r1, "
+            "mistral-large, Qwen, llama-3.3-70b, Cohere Command R+, Perplexity sonar, "
+            "Ollama llama3, AWS Bedrock, HuggingFace Inference, Vertex AI, Together AI, "
+            "Fireworks AI, vLLM, HEAD branch release-2026 commit 1234567 sha 1234567\n"
+            "- [in_progress] run git checkout main then npm test deadbeef with "
+            "gpt-5.6-sol; git fetch; git push; git add release.md; git commit -m release; "
+            "git pull origin main; git remote -v; pip install foo; python script.py; "
+            "node script.mjs; npx tool; gh pr view; kubectl get pods; ssh leo@example; "
+            "brew install foo; uv run tests; terraform plan C:\\Users\\Leo\\secret ~abcde "
+            "| proof: gate Leo\n"
+            "- [blocked] inspect refs/heads/codex/unsafe at /Users/leo/private/PLAN.md "
+            "~bb22 | proof: cmd true\n"
+        )
+        brief = board_projection.project_board_brief(plan)
+        visible = json.dumps({key: brief[key] for key in ("outcome", "now", "risk", "decision")})
+        self.assertNotRegex(visible, r"gpt-5\.6-sol|claude-code|openai|anthropic|gemini|opencode|langfuse|openrouter|xAI|Google AI|Sol|Luna|Terra|Fable|Opus|Sonnet|Haiku|o3|o4-mini|deepseek-r1|mistral-large|Qwen|llama-3\.3-70b|Cohere|Perplexity|Ollama|Bedrock|HuggingFace|Vertex AI|Together AI|Fireworks AI|vLLM|HEAD|branch release-2026|commit 1234567|sha 1234567|git checkout main|git fetch|git push|git add|git commit|git pull|git remote|npm test|pip install|python script|deadbeef|node script|npx tool|gh pr|kubectl get|ssh leo@|brew install|uv run|terraform plan|C:\\Users|refs/heads|/Users/|~abcde|~aa11|~bb22")
+        self.assertEqual(brief["outcome"], "Gift flow live")
+        self.assertEqual(brief["now"], "Work is in progress.")
+        self.assertEqual(brief["risk"], "1 item in the active milestone is blocked.")
+        self.assertEqual(brief["decision"], "A decision is needed to continue.")
+        safe = self.brief_plan(
+            "### M4 — Calm launch\n- [in_progress] make the launch calm and go live ~aa11 | proof: cmd true\n"
+        )
+        self.assertEqual(
+            board_projection.project_board_brief(safe)["now"],
+            "Work is in progress.",
+        )
+        numbered = self.brief_plan(
+            "### M4 — Calm launch 2026\n- [in_progress] make the launch calm and go live 1,234,567 1234567 ~abcde | proof: cmd true\n"
+        )
+        self.assertEqual(board_projection.project_board_brief(numbered)["now"], "Work is in progress.")
+
+    def test_v4_brief_withholds_each_git_command_and_provider_family(self) -> None:
+        unsafe_values = (
+            "git add release.md",
+            "git commit -m release",
+            "git pull origin main",
+            "git remote -v",
+            "llama-3.3-70b",
+            "Cohere Command R+",
+            "Perplexity sonar",
+            "Ollama llama3",
+            "AWS Bedrock",
+            "HuggingFace Inference",
+            "Vertex AI",
+            "Together AI",
+            "Fireworks AI",
+            "vLLM",
+            "Kimi K2",
+            "Gemma 3",
+            "Amazon Nova Pro",
+            "AI21 Jamba",
+            "Cerebras Inference",
+            "SambaNova Cloud",
+            "Groq LPU",
+            "NVIDIA NIM",
+            "Replicate API",
+            "LM Studio",
+            "sonar-pro",
+            "jamba-instruct",
+            "nova-pro",
+            "command-r-plus",
+        )
+        for unsafe in unsafe_values:
+            with self.subTest(unsafe=unsafe):
+                plan = self.brief_plan(
+                    f"### M4 — {unsafe} rollout\n"
+                    f"- [in_progress] use {unsafe} for analysis ~abcde | proof: cmd true\n"
+                )
+                brief = board_projection.project_board_brief(plan)
+                visible = json.dumps({key: brief[key] for key in ("outcome", "now", "risk", "decision")})
+                self.assertNotIn(unsafe, visible)
+                self.assertEqual(brief["outcome"], "Gift flow live")
+                self.assertEqual(brief["now"], "Work is in progress.")
+
+    def test_v4_brief_preserves_explicit_human_finance_copy(self) -> None:
+        plan = self.brief_plan(
+            "### M4 — internal machine detail\n"
+            "- [in_progress] internal implementation detail ~abcde | proof: cmd true\n"
+        ).replace(
+            "- Milestone: Gift flow live",
+            "- Milestone: Q2 close\n- Next: Review Annual Budget for the New York office",
+        )
+        brief = board_projection.project_board_brief(plan)
+        self.assertEqual(brief["outcome"], "Q2 close")
+        self.assertEqual(brief["now"], "Review Annual Budget for the New York office")
+
+    def test_v4_brief_counts_blocked_rows_outside_the_active_milestone(self) -> None:
+        plan = self.brief_plan(
+            "### M4 — Current work\n"
+            "- [in_progress] finish the checkout smoke ~aa11 | proof: cmd true\n\n"
+            "### M5 — Later follow-up\n"
+            "- [blocked] wait for a later review ~bb22 | proof: gate Leo\n"
+        )
+        brief = board_projection.project_board_brief(plan)
+        self.assertEqual(brief["outcome"], "Gift flow live")
+        self.assertEqual(brief["risk"], "1 other blocked item needs attention.")
+
+    def test_v4_brief_decision_only_uses_the_current_or_next_reachable_gate(self) -> None:
+        future_gate = self.brief_plan(
+            "### M4 — Current work\n"
+            "- [in_progress] finish the checkout smoke ~aa11 | proof: cmd true\n\n"
+            "### M5 — Later follow-up\n"
+            "- [pending] approve the later review ~bb22 | proof: gate Leo\n"
+        )
+        current_gate = future_gate.replace(
+            "finish the checkout smoke ~aa11 | proof: cmd true",
+            "approve the current review ~aa11 | proof: gate Leo",
+        )
+        pending_gate = future_gate.replace(
+            "finish the checkout smoke ~aa11 | proof: cmd true",
+            "finish the checkout smoke ~aa11 | proof: cmd true\n"
+            "- [pending] approve the next review ~cc33 | proof: gate Leo",
+        ).replace(
+            "### M5 — Later follow-up\n- [pending] approve the later review ~bb22 | proof: gate Leo\n",
+            "",
+        )
+        for plan, expected in (
+            (future_gate, "No decision needed right now."),
+            (current_gate, "A decision is needed to continue."),
+            (pending_gate, "A decision is needed to continue."),
+        ):
+            self.assertEqual(board_projection.project_board_brief(plan)["decision"], expected)
 
 
 

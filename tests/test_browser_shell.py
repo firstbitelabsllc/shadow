@@ -25,40 +25,32 @@ class BrowserShellContract(unittest.TestCase):
         self.assertIn("Your coding chief of staff", HTML)
         self.assertEqual(len(re.findall(r"<script ", HTML)), 1)
 
-    def test_reads_plans_and_only_sends_explicit_local_choices(self) -> None:
+    def test_reads_plans_and_keeps_briefs_read_only(self) -> None:
         self.assertIn("fetch('/api/plans')", APP)
-        self.assertIn("fetch('/api/decision'", APP)
+        self.assertNotIn("fetch('/api/decision'", APP)
         self.assertNotIn("/api/drive", APP)
-        self.assertIn("entity: plan.entity", APP)
-        self.assertIn("root_board_revision: state.boardRevision", APP)
         self.assertIn("id=\"board-warning\"", HTML)
         self.assertIn("boardWarning.hidden = !state.warning", APP)
         self.assertNotIn("localStorage", APP)
         self.assertNotIn("WebSocket", APP)
 
-    def test_names_the_brief_and_choices_in_everyday_language(self) -> None:
-        self.assertIn("text: 'Now'", APP)
-        self.assertIn("row('Change', briefing.changed)", APP)
-        self.assertIn("text: 'Choose what happens next'", APP)
-        self.assertIn("text: 'How Shadow can help'", APP)
-        self.assertIn("'Drive the full outcome'", APP)
-        self.assertIn("'Fan out safe work'", APP)
-        self.assertIn("full acceptance stops the outcome", APP)
-        self.assertIn("only exact hard rails pause it earlier", APP)
-        self.assertIn("briefing.proof ? 'Proof' : 'Proof not available yet'", APP)
-        # PROVEN FALSE GREEN (2026-08-09): this guard was written as
-        # `assertNotIn("text: 'planner'", APP)`, but app.js never writes a role
-        # as a literal `text:` value — the labels come from an array via
-        # `el('dt', { text: work })`. Putting the deleted roster back into the
-        # shipped UI passed 224 tests. The guard was shaped to a code style
-        # that no longer existed. Match the array literal instead.
+    def test_names_the_brief_fields_in_everyday_language(self) -> None:
+        self.assertIn("row('Outcome', brief.outcome)", APP)
+        self.assertIn("row('Now', brief.now)", APP)
+        self.assertIn("row('Risk', brief.risk)", APP)
+        self.assertIn("row('Decision', brief.decision)", APP)
+        self.assertNotIn("brief.priority", APP)
+        self.assertNotIn("brief.contradictions_open", APP)
+        self.assertNotIn("How Shadow can help", APP)
+        self.assertNotIn("Drive the full outcome", APP)
+        self.assertNotIn("Fan out safe work", APP)
         for role in ("'planner'", "'dev'", "'debug'", "'review'", "'hard-dev'", "'lead'"):
             self.assertNotIn(role, APP, f"the deleted roster is back in the shipped UI: {role}")
 
-    def test_keeps_responsive_and_reduced_motion_behavior(self) -> None:
+    def test_keeps_responsive_and_dark_modes_without_dead_motion(self) -> None:
         self.assertIn("@media (max-width: 760px)", CSS)
-        self.assertIn("@media (prefers-reduced-motion: no-preference)", CSS)
         self.assertIn("@media (prefers-color-scheme: dark)", CSS)
+        self.assertNotRegex(CSS, r"\b(?:animation|transition)\s*:")
 
 
 # npm/npx in COMMAND position. Leading indentation counts as line start so an

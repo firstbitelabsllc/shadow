@@ -103,6 +103,9 @@ class GrammarContractTests(unittest.TestCase):
 
     def test_agent_md_carries_the_standing_behaviors(self) -> None:
         text = AGENT.read_text(encoding="utf-8")
+        self.assertLessEqual(len(text.splitlines()), 100)
+        self.assertIn("Outcome, Now, Risk, and exactly one Decision", text)
+        self.assertIn("status is agent/recovery evidence", text)
         for anchor in (
             "plan file",
             "computer board",
@@ -117,6 +120,14 @@ class GrammarContractTests(unittest.TestCase):
             "shadow lint",
             "lesson",
             "read-only",
+            "detached committed checkout",
+            "shadow accept --by",
+            "Progress receipt",
+            "shadow amp",
+            "same-seat claimed row",
+            "PLAN LEADS",
+            "native fallback",
+            "full release train",
         ):
             self.assertIn(anchor, text, anchor)
 

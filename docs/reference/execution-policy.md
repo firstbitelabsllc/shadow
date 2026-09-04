@@ -1,5 +1,7 @@
 # Native execution policy
 
+This release is `shadow.execution-policy.v3`.
+
 Shadow used to seal a task to a native host while leaving that host's model
 entirely implicit. That was safe for credentials, but it made a claimed model
 roster impossible to prove: choosing `codex` did not prove Sol, choosing
@@ -14,13 +16,18 @@ selector and configures the declared execution shape:
 | Work class | Claude Code | Codex | Cursor | Grok | Z.AI | Codex-ZAI |
 | --- | --- | --- | --- | --- | --- | --- |
 | `planning` | Fable | Sol | Fable High | Grok 4.6 | GLM-5.3-Flash | GLM-5.3-Flash via Codex |
-| `coding` | Opus | Sol | Opus High | Grok 4.6 | GLM-5.3-Flash | GLM-5.3 via Codex |
+| `coding` | Opus | Luna | Opus High | Grok 4.6 | GLM-5.3-Flash | GLM-5.3 via Codex |
 | `review` | Fable | Terra | Cursor Grok 4.6 High | Grok 4.6 | GLM-5.3-Flash | GLM-5.3-Flash via Codex |
 | `lightweight` | Sonnet | Luna | Auto | Grok 4.5 | GLM-5.3-Flash | GLM-5.3-Flash via Codex |
 
 `codex-zai` names the two tiers Z.AI actually exposes to Codex and nothing
 more: GLM-5.3 owns `coding`, and GLM-5.3-Flash stays the volume model for
 every other class.
+
+For Codex, Sol specifies acceptance and the falsifier. Luna performs bounded implementation.
+Terra independently reviews. The requested route remains distinct from observed provider proof.
+The selector records what Shadow asked for, while native output and the owner-local gauntlet
+establish what ran.
 
 Use it through the one sealed door:
 

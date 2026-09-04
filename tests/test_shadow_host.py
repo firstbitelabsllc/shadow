@@ -963,7 +963,7 @@ class ShadowHostTests(unittest.TestCase):
                 argv = json.loads(binary.with_suffix(".argv.json").read_text(encoding="utf-8"))
                 resolved = str(repo.resolve())
                 if host in ("codex", "codex-zai"):
-                    model = "glm-5.3" if host == "codex-zai" else "gpt-5.6-sol"
+                    model = "glm-5.3" if host == "codex-zai" else "gpt-5.6-luna"
                     self.assertEqual(argv[1:12], [
                         "exec", "--disable", "multi_agent", "--model", model,
                         "--json", "--ephemeral", "--sandbox", "workspace-write", "-C", resolved,

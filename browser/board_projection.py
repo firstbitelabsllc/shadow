@@ -44,7 +44,7 @@ MAX_ROW_TEXT = 220
 ROW_RE = re.compile(
     r"^- \[(pending|in_progress|blocked|completed)\]\s+(.*)$"
 )
-ID_SPLIT_RE = re.compile(r"\s+~[0-9a-z]{4}\b")
+ID_SPLIT_RE = re.compile(r"\s+~[0-9a-z]{4,}\b")
 FIELD_RE = re.compile(r"^[-*]\s*([A-Za-z][A-Za-z0-9 /_-]*)\s*:\s*(.+)$")
 DOD_RE = re.compile(r"\(DoD\)")
 STATES = ("pending", "in_progress", "blocked", "completed")
@@ -114,6 +114,47 @@ def _public_row(row_text: str, fallback: str | None = None) -> str | None:
 MILESTONE_CODE_RE = re.compile(r"^M\d+\s*[—–:-]+\s*")
 STAMP_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?)\s+")
 HASH_RE = re.compile(r"\b[0-9a-f]{12,64}\b")
+ABSOLUTE_PATH_RE = re.compile(r"(?<![A-Za-z0-9_])/(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+")
+REF_RE = re.compile(r"(?<![A-Za-z0-9_.-])(?:HEAD(?:~\d+)?\b|(?:refs/heads/|origin/|[A-Za-z0-9_.-]+/)[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)")
+PROVIDER_MODEL_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:gpt-\d+(?:\.\d+)?-[a-z][A-Za-z0-9.-]*|"
+    r"(?:claude|openai|anthropic|gemini|opencode|langfuse|openrouter|xai|"
+    r"google\s+ai|codex|cursor|grok|zai|codex-zai|sol|luna|terra|fable|opus|"
+    r"sonnet|haiku|o[34]|deepseek|mistral|qwen|llama|cohere|perplexity|ollama|"
+    r"bedrock|huggingface|vertex\s+ai|together\s+ai|fireworks(?:\s+ai)?|vllm)"
+    r"(?:-[A-Za-z0-9.-]+)?|"
+    r"glm-\d+(?:\.\d+)?(?:-[A-Za-z0-9.-]+)?)\b",
+    re.IGNORECASE,
+)
+COMMAND_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:"
+    r"`[^`\n]+`|"
+    r"shadow\s+[a-z][a-z-]*|"
+    r"git\s+[a-z][a-z-]*\b|"
+    r"(?:npm|pnpm|yarn|bun)\s+(?:test|run|ci|install|build|lint|exec)\b|"
+    r"python(?:\d+(?:\.\d+)*)?\s+(?:-m|-[cC]|\S+\.pyw?)\b|"
+    r"pip\s+(?:install|uninstall|download|wheel|show|check)\b|"
+    r"pytest(?:\s|$)|cargo\s+(?:test|build|run|check|fmt|clippy)\b|"
+    r"(?:go|make)\s+(?:test|build|run|install|fmt|vet|generate|clean)\b|"
+    r"(?:xcodebuild|curl|docker|npx)\s+\S+|"
+    r"node\s+(?:--?\S+|\S+\.(?:js|mjs|cjs))|"
+    r"gh\s+(?:run|pr|issue|repo|auth|workflow|api)\b|"
+    r"kubectl\s+(?:get|apply|delete|describe|logs|exec|config)\b|"
+    r"ssh\s+\S+@\S+|brew\s+(?:install|update|upgrade|uninstall|test)\b|"
+    r"uv\s+(?:run|sync|pip|tool)\b|terraform\s+(?:init|plan|apply|destroy|validate)\b|"
+    r"(?:commit|sha(?:256)?)\s*[:= -]*[0-9a-f]{7,64}\b)",
+    re.IGNORECASE,
+)
+BRIEF_HASH_RE = re.compile(
+    r"\b(?=[0-9a-f]{7,64}\b)[0-9a-f]*[a-f][0-9a-f]*\b",
+    re.IGNORECASE,
+)
+BRIEF_UNSAFE_RE = re.compile(
+    f"(?:{UNSAFE_TEXT_RE.pattern}|{ABSOLUTE_PATH_RE.pattern}|"
+    f"{REF_RE.pattern}|{PROVIDER_MODEL_RE.pattern}|{COMMAND_RE.pattern}|"
+    f"\\bbranch\\s+[A-Za-z0-9_.-]+|~[0-9a-z]{{4,}}\\b|{BRIEF_HASH_RE.pattern})",
+    re.IGNORECASE,
+)
 RECEIPT_KINDS = {
     "STRUCT": "Plan structure changed",
     "PROOF": "Proof recorded",
@@ -121,6 +162,14 @@ RECEIPT_KINDS = {
     "THROWN": "Work claimed",
     "DECISION": "Decision recorded",
 }
+
+
+def _brief_public(text: str | None, fallback: str) -> str:
+    """Return safe human copy for the four fields shown in a Brief card."""
+    if not text:
+        return fallback
+    clean = " ".join(text.split())
+    return clean if not BRIEF_UNSAFE_RE.search(clean) else fallback
 
 
 def _human_title(title: str) -> str:
@@ -231,7 +280,11 @@ def project_board_brief(text: Any) -> dict[str, Any]:
     """One bounded brief for the board.  Total: bad input -> honest 'empty'."""
     if not isinstance(text, str) or not text.strip():
         return {"schema": BOARD_SCHEMA, "state": "empty", "priority": None,
-                "milestone": None, "contradictions_open": 0, "latest_change": None}
+                "milestone": None, "contradictions_open": 0, "latest_change": None,
+                "outcome": "Outcome not available yet.",
+                "now": "Current work not available yet.",
+                "risk": "No known risk.",
+                "decision": "No decision needed right now."}
 
     fields = _brief_fields(text)
     milestones = _milestones(_section(text, "Tasks"))
@@ -267,7 +320,7 @@ def project_board_brief(text: Any) -> dict[str, Any]:
         # card to read, so those withhold to a neutral label; a current/next
         # line simply drops, which the renderer already handles.
         milestone = {
-            "title": _public(_human_title(shown["title"])) or "Milestone",
+            "title": _brief_public(_human_title(shown["title"]), "Milestone"),
             "counts": counts,
             "current": _public_row(current["text"]) if current else None,
             "next": _public_row(nxt["text"]) if nxt else None,
@@ -287,6 +340,55 @@ def project_board_brief(text: Any) -> dict[str, Any]:
         else:
             state = "resting"
 
+    shown_rows = shown["rows"] if shown else []
+    blocked = next((row for row in shown_rows if row["state"] == "blocked"), None)
+    current = next(
+        (row for row in shown["rows"] if row["state"] == "in_progress"), None
+    ) if shown else None
+    pending = next(
+        (row for row in shown["rows"] if row["state"] == "pending"), None
+    ) if shown else None
+    is_gate = lambda row: bool(
+        re.search(r"\|\s*proof\s*:\s*gate\b", row["text"], re.IGNORECASE)
+    )
+    decision_row = None
+    if current is not None and is_gate(current):
+        decision_row = current
+    elif pending is not None and is_gate(pending):
+        decision_row = pending
+    elif current is None and pending is None and blocked is not None and is_gate(blocked):
+        decision_row = blocked
+    blocked_elsewhere = sum(
+        row["state"] == "blocked"
+        for milestone_group in milestones
+        for row in milestone_group["rows"]
+    )
+    open_risks = _open_contradictions(text)
+    if blocked is not None:
+        count = sum(row["state"] == "blocked" for row in shown_rows)
+        noun = "item" if count == 1 else "items"
+        verb = "is" if count == 1 else "are"
+        risk = f"{count} {noun} in the active milestone {verb} blocked."
+    elif blocked_elsewhere:
+        if blocked_elsewhere == 1:
+            risk = "1 other blocked item needs attention."
+        else:
+            risk = f"{blocked_elsewhere} other blocked items need attention."
+    elif open_risks:
+        suffix = "" if open_risks == 1 else "s"
+        risk = f"{open_risks} unresolved risk{suffix} remain."
+    else:
+        risk = "No known risk."
+
+    if current is not None:
+        now = "Work is in progress."
+    elif pending is not None:
+        now = "The next task is ready."
+    elif blocked is not None:
+        now = "This milestone is blocked."
+    else:
+        now = "No work is waiting right now."
+
     return {
         "schema": BOARD_SCHEMA,
         "state": state,
@@ -294,4 +396,14 @@ def project_board_brief(text: Any) -> dict[str, Any]:
         "milestone": milestone,
         "contradictions_open": _open_contradictions(text),
         "latest_change": _human_change(latest) if (latest := _latest_progress(text)) else None,
+        "outcome": _brief_public(
+            fields.get("milestone") or fields.get("outcome"),
+            "Outcome not available yet.",
+        ),
+        "now": _brief_public(fields.get("next"), now),
+        "risk": _brief_public(fields.get("risk"), risk),
+        "decision": (
+            _brief_public(fields.get("decision"), "A decision is needed to continue.")
+            if decision_row else "No decision needed right now."
+        ),
     }

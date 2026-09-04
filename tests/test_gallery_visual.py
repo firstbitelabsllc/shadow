@@ -83,6 +83,7 @@ class TheGalleryLooksRight(unittest.TestCase):
     def tearDownClass(cls) -> None:
         if HAVE_PLAYWRIGHT:
             cls.service.shutdown()
+            cls.service.server_close()
             cls._tmp.cleanup()
 
     @staticmethod
@@ -171,7 +172,7 @@ class TheGalleryLooksRight(unittest.TestCase):
                     const probed = {}, rendered = {};
                     for (const state of states) {
                       probed[state] = probe(`card state-${state}`);
-                      const el = document.querySelector(`.card.state-${state} .status`);
+                      const el = document.querySelector(`.board-card.state-${state} .status`);
                       rendered[state] = el ? signature(el) : null;
                     }
                     return { baseline: probe('card'), probed, rendered };
@@ -209,13 +210,13 @@ class TheGalleryLooksRight(unittest.TestCase):
             page.screenshot(path=str(shots / "gallery.png"), full_page=True)
             browser.close()
 
-    def test_production_views_render_every_milestone_with_human_text(self) -> None:
-        """The rotation contract, proven in the DOM instead of pinned in source.
+    def test_briefs_stay_concise_while_detail_views_render_every_milestone(self) -> None:
+        """Briefs stay calm while the plan and Board views retain detail.
 
-        A plan carrying a real ``milestones`` array must have EVERY milestone
-        iterated by the brief card, the plan page, and the board — never the
-        ``board.milestone`` single fallback — and checkpoint rows must render
-        their human text, never their ``~hash`` id.
+        A plan carrying a real ``milestones`` array must have every milestone
+        iterated by the plan page and Board, while Briefs shows its four-field
+        human contract; checkpoint rows must render their human text, never
+        their ``~hash`` id.
         """
         plan = {
             "id": "rotation-proof",
@@ -252,6 +253,10 @@ class TheGalleryLooksRight(unittest.TestCase):
             "board": {
                 "state": "working",
                 "milestone": {"title": "FALLBACK-TITLE-MUST-NOT-RENDER"},
+                "outcome": "Every milestone stays readable",
+                "now": "Keep both milestones visible",
+                "risk": "No known risk.",
+                "decision": "No decision needed right now.",
             },
             "outcome": {
                 "outcome": {
@@ -291,20 +296,73 @@ class TheGalleryLooksRight(unittest.TestCase):
             browser.close()
         for view, rendered in views.items():
             with self.subTest(view=view):
-                self.assertEqual(
-                    rendered["rotations"],
-                    2,
-                    f"{view} did not iterate the full milestone rotation",
-                )
-                self.assertIn("M1 — First rotation shipped", rendered["text"])
-                self.assertIn("M2 — Second rotation current", rendered["text"])
-                self.assertIn("the first human checkpoint renders", rendered["text"])
-                self.assertIn("the second human checkpoint renders", rendered["text"])
+                expected_rotations = 2 if view == "board" else 0
+                self.assertEqual(rendered["rotations"], expected_rotations,
+                                 f"{view} rendered the wrong milestone detail")
+                if view != "board":
+                    for label in ("Outcome", "Now", "Risk", "Decision"):
+                        self.assertIn(label, rendered["text"])
+                    self.assertNotIn("prove every milestone renders", rendered["text"])
+                else:
+                    self.assertIn("M1 — First rotation shipped", rendered["text"])
+                    self.assertIn("M2 — Second rotation current", rendered["text"])
+                    self.assertIn("the first human checkpoint renders", rendered["text"])
+                    self.assertIn("the second human checkpoint renders", rendered["text"])
                 self.assertNotIn("FALLBACK-TITLE-MUST-NOT-RENDER", rendered["text"])
-                self.assertIsNone(
-                    re.search(r"~[0-9a-z]{4}\b", rendered["text"]),
-                    f"{view} leaked a row id",
-                )
+                if view != "brief":
+                    self.assertIsNone(
+                        re.search(r"~[0-9a-z]{4}\b", rendered["text"]),
+                        f"{view} leaked a row id",
+                    )
+
+    def test_record_from_text_briefs_sidebar_withholds_unsafe_title_and_rows(self) -> None:
+        """Even a supported v3 rich brief uses the safe four-field shell."""
+        plan_text = (
+            "# Release gpt-5.6-sol via DeepSeek\n\n## Brief\n\n"
+            "- Project: snowcubes\n- Mode: ship\n- Milestone: Gift flow live\n"
+            "- Outcome ID: gift-flow\n- Outcome Revision: 1\n"
+            "- Outcome Updated At: 2026-09-04T12:00:00Z\n"
+            "- Outcome State: needs_input\n"
+            "- Outcome: Use mistral-large to publish safely.\n"
+            "- Next: git fetch origin/main then pip install foo\n"
+            "- Decision ID: choose-release\n- Decision: Let Qwen choose?\n"
+            "- Option A ID: release\n- Option A: Release\n"
+            "- Option A Consequence: git push origin/main\n"
+            "- Option B ID: hold\n- Option B: Hold\n"
+            "- Option B Consequence: Keep reviewing.\n"
+            "- Option C ID: revise\n- Option C: Revise\n"
+            "- Option C Consequence: Rewrite the brief.\n"
+            "- Proof ID: unsafe-proof\n- Proof: git status\n"
+            "- Proof Summary: claude-code passed.\n- Proof Delivery: delivered\n\n"
+            "## Tasks\n\n"
+            "### M4 — Gift flow live\n"
+            "- [in_progress] run git checkout main then npm test deadbeef ~aa11 "
+            "| proof: cmd true\n"
+        )
+        record = server.record_from_text(plan_text, "unsafe/PLAN.md", "unsafe")
+        self.assertIsNotNone(record["briefing"], "fixture must exercise supported v3 projection")
+        with sync_playwright() as pw:
+            browser = self._launch(pw)
+            page = browser.new_page()
+            page.goto(f"{self.base}/gallery")
+            page.wait_for_selector(".gallery-cell", timeout=10_000)
+            shell_text = page.evaluate(
+                """(plan) => {
+                    state.plans = [plan];
+                    state.selected = plan.id;
+                    renderProjects();
+                    renderPlan(plan);
+                    return `${projects.textContent}\n${main.textContent}`;
+                }""",
+                record,
+            )
+            browser.close()
+        self.assertNotRegex(
+            shell_text,
+            r"gpt-5\.6-sol|DeepSeek|mistral-large|Qwen|claude-code|git (?:checkout|fetch|push|status)|npm test|pip install|deadbeef|~aa11",
+        )
+        self.assertIn("Gift flow live", shell_text)
+        self.assertIn("Work is in progress.", shell_text)
 
 
 if __name__ == "__main__":

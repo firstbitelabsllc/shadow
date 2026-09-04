@@ -1,15 +1,19 @@
 # Chief-of-staff briefing
 
-The briefing is a pure projection of one validated Outcome. The loopback view
-puts the operator-facing sections in this order:
+The v4 Briefs view is a pure, safe projection of the active milestone. It
+shows exactly four calm fields in this order:
 
-- **Outcome** — what the work is trying to achieve.
-- **Now** — the current move from the owning plan.
-- **Change** — the latest bounded progress.
-- **Proof** — one delivered proof reference, when one exists.
-- **A/B/C decision** — at most three explicit choices when the Outcome needs a
-  decision.
+- **Outcome** — the explicitly human `Milestone` field, or legacy `Outcome`.
+- **Now** — the human `Next` field, or a fixed sentence derived from state.
+- **Risk** — the human `Risk` field, otherwise only blocked/risk counts.
+- **Decision** — the human `Decision` field only while the active milestone
+  has a current or next gate; otherwise a fixed sentence.
 
-The view may also include a short explanation of why the change matters and a
-recommendation. It contains no implementation transcript, provider identity,
-model choice, or machine path.
+Only those explicit `## Brief` fields cross into Briefs; arbitrary milestone,
+checkpoint, proof, and progress prose never does. Row ids, paths, hashes,
+refs, commands, and known provider/model labels in a human field are withheld.
+Plan authors keep all other provider/model choices in detailed task or proof
+text; the explicitly human fields are the semantic publication boundary.
+The detailed Board keeps milestone, checkpoint, state, count, and proof detail.
+Neither view is authority: the computer board owns coordination and each
+entity `PLAN.md` owns milestone and proof meaning.

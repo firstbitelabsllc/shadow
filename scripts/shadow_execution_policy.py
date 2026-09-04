@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import re
 
 
-POLICY_VERSION = "shadow.execution-policy.v2"
+POLICY_VERSION = "shadow.execution-policy.v3"
 HOSTS = ("claude-code", "codex", "cursor", "grok", "zai", "codex-zai")
 WORK_CLASSES = ("planning", "coding", "review", "lightweight")
 DELEGATION_MODES = ("direct", "required")
@@ -74,10 +74,10 @@ _ROUTES = {
         "codex", "planning", "gpt-5.6-sol", r"gpt-5\.6-sol", "frontier planning"
     ),
     ("codex", "coding"): _route(
-        "codex", "coding", "gpt-5.6-sol", r"gpt-5\.6-sol", "frontier implementation"
+        "codex", "coding", "gpt-5.6-luna", r"gpt-5\.6-luna", "bounded implementation"
     ),
     ("codex", "review"): _route(
-        "codex", "review", "gpt-5.6-terra", r"gpt-5\.6-terra", "cost-balanced independent review"
+        "codex", "review", "gpt-5.6-terra", r"gpt-5\.6-terra", "independent review"
     ),
     ("codex", "lightweight"): _route(
         "codex", "lightweight", "gpt-5.6-luna", r"gpt-5\.6-luna", "efficient bounded work"
