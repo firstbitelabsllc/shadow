@@ -280,12 +280,39 @@ def _wake_projection(plan_text: str, row: dict) -> str | None:
     return _safe_projection_text(wake)
 
 
+LIFECYCLE_SUMMARY_READERS = (
+    "lifecycle_summary",
+    "public_lifecycle_summary",
+    "safe_lifecycle_summary",
+)
+LIFECYCLE_STATE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
 def _lifecycle_projection(home: Path) -> dict[tuple[str, str], list[dict[str, str]]]:
-    """Read only authenticated clean previews and retain their safe fields."""
+    """Join the cleanup owner's already-sanitized lifecycle summaries.
+
+    The browser is deliberately not a receipt scanner.  Cleanup owns
+    authentication and state transitions; this boundary only accepts its
+    opaque association summaries and drops anything carrying extra private
+    fields.
+    """
     result: dict[tuple[str, str], list[dict[str, str]]] = {}
+    reader = next(
+        (getattr(_shadow_clean, name, None) for name in LIFECYCLE_SUMMARY_READERS
+         if callable(getattr(_shadow_clean, name, None))),
+        None,
+    )
+    if reader is None:
+        return result
     try:
-        candidates = _shadow_clean.preview(home=home).get("candidates", [])
+        payload = reader(home=home)
     except Exception:
+        return result
+    if isinstance(payload, dict):
+        candidates = payload.get("associations", payload.get("summaries", []))
+    else:
+        candidates = payload
+    if not isinstance(candidates, list):
         return result
     for candidate in candidates:
         if not isinstance(candidate, dict):
@@ -295,13 +322,15 @@ def _lifecycle_projection(home: Path) -> dict[tuple[str, str], list[dict[str, st
         worktree_id = candidate.get("id")
         state = candidate.get("state")
         if (
-            not isinstance(identity, str)
+            set(candidate) - {"id", "entity", "checkpoint", "state"}
+            or not isinstance(identity, str)
             or _root_board.ENTITY_ID.fullmatch(identity) is None
             or not isinstance(checkpoint, str)
             or _root_board.ROW_ID.fullmatch(checkpoint) is None
             or not isinstance(worktree_id, str)
             or re.fullmatch(r"worktree@[0-9a-f]{12}", worktree_id) is None
-            or state not in {"eligible"}
+            or not isinstance(state, str)
+            or LIFECYCLE_STATE_RE.fullmatch(state) is None
         ):
             continue
         result.setdefault((identity, checkpoint), []).append(

@@ -449,7 +449,17 @@ function treeMilestone(milestone) {
   } else {
     content.append(el('p', { className: 'tree-empty', text: 'No checkpoints in this milestone yet.' }));
   }
-  return treeDetails(treeText(milestone.title, 'Milestone'), milestone.state, content, Boolean(milestone.current));
+  return treeDetails(treeText(milestone.title, 'Milestone'), milestoneState(milestone), content, Boolean(milestone.current));
+}
+
+function milestoneState(milestone) {
+  if (typeof milestone.state === 'string' && milestone.state) return milestone.state;
+  const counts = milestone.counts || {};
+  if (Number(counts.blocked) > 0) return 'blocked';
+  if (Number(counts.in_progress) > 0) return 'in_progress';
+  if (Number(counts.pending) > 0) return 'pending';
+  if (Number(counts.completed) > 0) return 'completed';
+  return 'unavailable';
 }
 
 function treeEntity(entity) {

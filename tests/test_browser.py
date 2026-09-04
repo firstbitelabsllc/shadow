@@ -1391,6 +1391,35 @@ class BrowserTreeProjectionTests(unittest.TestCase):
         self.assertNotIn("standalone", payload)
         self.assertNotIn("/Users/leo", payload)
 
+    def test_tree_uses_cleanup_safe_summary_and_keeps_recoverable_states(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan, home = self.make_tree_repo(Path(dirname))
+            board, records, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            entity = board["entities"][0]["id"]
+            summaries = {
+                "associations": [
+                    {"id": "worktree@111111111111", "entity": entity, "checkpoint": "~aa11", "state": "issued"},
+                    {"id": "worktree@222222222222", "entity": entity, "checkpoint": "~aa11", "state": "trashed"},
+                    {"id": "worktree@333333333333", "entity": entity, "checkpoint": "~aa11", "state": "noneligible"},
+                    {"id": "worktree@444444444444", "entity": entity, "checkpoint": "~aa11", "state": "trashed", "path": "/Users/leo/private"},
+                ]
+            }
+            with mock.patch.object(server._shadow_clean, "lifecycle_summary", return_value=summaries, create=True), \
+                    mock.patch.object(server._shadow_clean, "preview", side_effect=AssertionError("browser must not rescan preview")):
+                tree = server.tree_projection(board, records, home)
+
+        checkpoint = tree["projects"][0]["entities"][0]["milestones"][0]["checkpoints"]
+        by_id = {item["id"]: item for item in checkpoint}
+        self.assertEqual(
+            by_id["~aa11"]["worktrees"],
+            [
+                {"id": "worktree@111111111111", "state": "issued"},
+                {"id": "worktree@222222222222", "state": "trashed"},
+                {"id": "worktree@333333333333", "state": "noneligible"},
+            ],
+        )
+
     def test_plans_wire_carries_tree_without_a_second_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             repo, _, home = self.make_tree_repo(Path(dirname))
@@ -1465,6 +1494,7 @@ class BrowserTreeRenderingTests(unittest.TestCase):
             "project.entities",
             "entity.milestones",
             "milestone.checkpoints",
+            "milestoneState(milestone)",
             "source_plan",
             "worktrees",
             "Worktree lifecycle",
