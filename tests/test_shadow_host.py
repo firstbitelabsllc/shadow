@@ -40,6 +40,7 @@ if "--version" in sys.argv:
     print("fake-native-host 1.0")
     raise SystemExit(0)
 
+sys.stdin.read()
 mode = pathlib.Path(__file__).with_suffix(".mode").read_text().strip() if pathlib.Path(__file__).with_suffix(".mode").exists() else "ok"
 proposal_path = pathlib.Path(__file__).with_suffix(".proposal.json")
 capture = pathlib.Path(__file__).with_suffix(".argv.json")

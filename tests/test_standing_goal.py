@@ -59,6 +59,8 @@ class GoalVerb(unittest.TestCase):
             "stranger-install",               # CI proves only its bounded install surface
             "never infer those from CI",      # merge/deploy/live remain separate receipts
             "native host plans",              # disposable UI, never authority
+            "minimum sufficient implementation",  # preserve outcome without speculative machinery
+            "prevent a named current failure",     # additions need a current falsifier
         ):
             self.assertIn(clause, text, f"standing goal lost: {clause}")
 

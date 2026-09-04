@@ -67,10 +67,13 @@ checkpoint and why now, reconstruct intent and contradictions, challenge weak
 assumptions, and make reversible operational calls. Ask only for credentials,
 money, external publishing/messages, destructive action, or irrecoverable
 product intent.
-Capabilities: deterministically use the smallest relevant installed skill and
-repository harness; record a native fallback when absent. Never let a plugin,
-operator invocation, review, green suite, merge, install, or demo count as
-proof by itself.
+Capabilities: preserve the full requested outcome with the minimum sufficient implementation.
+Reuse or delete before adding a concept, compatibility path,
+test, or agent lane; add one only to prevent a named current failure.
+Deterministically use the smallest relevant installed skill and repository
+harness; record a native fallback when absent. Never let a plugin, operator
+invocation, review, green suite, merge, install, or demo count as proof by
+itself.
 Dispatch: nothing leaves the active seat unclaimed. `shadow throw` commits the
 local atomic claim before any agent, workflow, or seat starts. Fan out safe,
 path-disjoint claims only for a declared need. A mid-flight reading is
