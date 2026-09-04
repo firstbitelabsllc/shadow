@@ -5950,6 +5950,18 @@ class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
             ):
                 remote_claim.remote_endpoint(repo, "origin")
 
+            # Within one scheme the fingerprint still decides: two ssh remotes
+            # differing only by user are different endpoints.
+            git(repo, "remote", "set-url", "origin", "ssh://one@example.test/o/r.git")
+            git(
+                repo, "remote", "set-url", "--push", "origin",
+                "ssh://two@example.test/o/r.git",
+            )
+            with self.assertRaisesRegex(
+                remote_claim.RemoteClaimError, "fetch and push endpoints do not match"
+            ):
+                remote_claim.remote_endpoint(repo, "origin")
+
 
 if __name__ == "__main__":
     unittest.main()

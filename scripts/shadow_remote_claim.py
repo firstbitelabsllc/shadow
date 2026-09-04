@@ -119,6 +119,18 @@ def _one_git_value(result: subprocess.CompletedProcess[bytes]) -> str | None:
     return values[0].strip()
 
 
+
+def _transport_scheme(transport: tuple[str, ...]) -> str:
+    """Name the transport family, so two spellings of ssh compare as ssh."""
+    if transport[:1] == ("file",):
+        return "file"
+    if transport[:1] == ("scp",):
+        return "ssh"
+    if transport[:1] == ("url",) and len(transport) > 1:
+        return transport[1]
+    return ""
+
+
 def remote_endpoint(
     repo: Path,
     remote_name: str,
@@ -154,18 +166,26 @@ def remote_endpoint(
     fetch_transport = _shadow_git.transport_fingerprint(repo, fetch_url)
     push_transport = _shadow_git.transport_fingerprint(repo, push_url)
     # Fetching over https and pushing over ssh is one repository reached two
-    # ways, and it is how a work machine is normally configured. The normalized
-    # identity already resolves scheme, port, and user away, so when the two
-    # identities agree the endpoints agree. Transport still has to match for a
-    # filesystem remote, where the resolved path IS the endpoint and a scheme
-    # difference can mean a different place.
-    filesystem_remote = fetch_transport[:1] == ("file",) or push_transport[:1] == (
-        "file",
+    # ways, and it is how a work machine is normally configured. The two
+    # spellings cannot produce equal transport fingerprints — the scheme is
+    # part of the fingerprint — so comparing them across different schemes
+    # only ever rejects. The normalized identity already resolves scheme,
+    # port, and user away, and it is checked below.
+    #
+    # Within ONE scheme the fingerprint still carries meaning that identity
+    # does not: two ssh remotes differing only by user are different
+    # endpoints. So equality is still required whenever the schemes agree,
+    # and always for a filesystem remote, where the resolved path is the
+    # endpoint.
+    fetch_scheme = _transport_scheme(fetch_transport)
+    push_scheme = _transport_scheme(push_transport)
+    comparable = (
+        fetch_scheme == push_scheme or "file" in (fetch_scheme, push_scheme)
     )
     if (
         not fetch_identity
         or fetch_identity != push_identity
-        or (filesystem_remote and fetch_transport != push_transport)
+        or (comparable and fetch_transport != push_transport)
     ):
         raise RemoteClaimError("remote fetch and push endpoints do not match")
     return push_url, push_identity, push_transport
