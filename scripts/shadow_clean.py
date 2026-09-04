@@ -68,8 +68,8 @@ def _public_reason(value: str) -> str:
         "registration changed", "symlink", "Trash artifact",
         "Trash destination", "worktree lock", "already locked", "registration",
         "restore artifact", "restore journal", "original path", "same device",
-        "source race", "private cleanup", "private restore", "payload changed",
-        "content changed", "recovery required",
+        "recovery required", "source race", "private cleanup", "private restore", "payload changed",
+        "content changed",
     )
     for marker in known:
         if marker in value:
@@ -2141,19 +2141,47 @@ def restore_apply(
             )
             _fsync_directory(private_stage.parent)
             _fsync_directory(target.parent)
+            # Keep this identity/content boundary inside the move transaction.
+            # A same-UID replacement after the native rename is a recovery
+            # case, not evidence that the authenticated worktree was restored.
+            _validate_restored_target(receipt, target, expected)
         except CleanMoveCommittedError:
-            # The target rename committed; retain the prepared restore intent
-            # for recovery to validate and advance to moved.
+            # The native rename committed but its filesystem sync did not.
+            # Retain the prepared intent for authenticated retry; this is not
+            # a content/provenance mismatch.
             raise
-        except CleanError:
-            if target.is_dir() and not trash.exists() and not private_stage.exists():
-                raise CleanMoveCommittedError("worktree restore committed; filesystem sync is incomplete")
-            # The retirement remains safely locked in Trash when the restore
-            # source or destination changes. Keep the prepared intent for an
-            # authenticated retry; never unlock the retired worktree here.
-            _flag_restore_recovery(journal_path, restore_journal)
-            raise
-        _validate_restored_target(receipt, target, expected)
+        except CleanError as exc:
+            committed_target = False
+            try:
+                committed = target.lstat()
+                committed_target = (
+                    (committed.st_dev, committed.st_ino) ==
+                    (receipt["device"], receipt["inode"])
+                    and not trash.exists()
+                    and not private_stage.exists()
+                )
+            except OSError:
+                pass
+            post_hop_mismatch = (
+                not (private_stage.exists() or private_stage.is_symlink())
+                and not (trash.exists() or trash.is_symlink())
+                and (target.exists() or target.is_symlink())
+            )
+            if committed_target and "sync" in str(exc).lower():
+                raise CleanMoveCommittedError(
+                    "worktree restore committed; filesystem sync is incomplete"
+                ) from exc
+            if not post_hop_mismatch:
+                # A pre-hop source or destination refusal remains its
+                # original bounded diagnostic; the durable marker still
+                # prevents a retry from being mistaken for a clean restore.
+                _flag_restore_recovery(journal_path, restore_journal)
+                raise
+            # A raced or changed post-hop payload is never treated as a
+            # committed restore. Preserve the journal, exact lock, and any
+            # observed bytes for manual recovery, without issuing a receipt.
+            _flag_restore_recovery(journal_path, restore_journal, state="recovery_required")
+            raise CleanError("recovery required after restore source race") from exc
         _remove_empty_private_stage(private_stage)
         restore_journal = {**restore_journal, "state": "moved", "source_race": False, "recovery_required": False}
         _replace(journal_path, restore_journal)
