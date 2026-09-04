@@ -797,6 +797,10 @@ def prepare_manifest(candidate: dict[str, Any], *, home: Path | None = None, now
     candidate_target = candidate.get("worktree") or candidate.get("target")
     if not isinstance(candidate_target, dict) or not isinstance(candidate_target.get("path"), str):
         raise CleanError("manifest lineage changed")
+    if "worktree" in candidate and "target" in candidate and candidate["worktree"] != candidate["target"]:
+        raise CleanError("manifest lineage changed")
+    if "landed_ref" in candidate and candidate_target.get("landed_ref") not in {None, candidate["landed_ref"]}:
+        raise CleanError("manifest lineage changed")
     try:
         candidate_path = _real_absolute(Path(candidate_target["path"]), "worktree")
     except CleanError:
@@ -1907,9 +1911,8 @@ def restore_apply(
             if target.is_dir() and not trash.exists():
                 raise CleanMoveCommittedError("worktree restore committed; filesystem sync is incomplete")
             # The retirement remains safely locked in Trash when the restore
-            # destination races into existence; discard only this prepared
-            # restore intent and never unlock the retired worktree.
-            journal_path.unlink(missing_ok=True)
+            # source or destination changes. Keep the prepared intent for an
+            # authenticated retry; never unlock the retired worktree here.
             raise
         _validate_restored_target(receipt, target, expected)
         restore_journal = {**restore_journal, "state": "moved"}

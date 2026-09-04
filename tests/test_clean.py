@@ -569,6 +569,8 @@ class CleanApplyTests(unittest.TestCase):
         for altered in (
             {**base, "entity": "f" * 64},
             {**base, "worktree": {**base["worktree"], "landed_ref": "refs/heads/other"}},
+            {**base, "target": {**base["worktree"], "landed_ref": "refs/heads/other"}},
+            {**base, "landed_ref": "refs/heads/other"},
         ):
             with self.assertRaisesRegex(self.clean.CleanError, "lineage|created|entity|checkpoint|landed"):
                 self.clean.prepare_manifest(altered, home=self.home)
@@ -1126,10 +1128,11 @@ class CleanApplyTests(unittest.TestCase):
         with mock.patch.object(self.clean, "_atomic_move_noreplace", side_effect=substitute):
             with self.assertRaisesRegex(self.clean.CleanError, "identity|content|changed"):
                 self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
-        self.assertTrue(destination.is_dir())
-        self.assertFalse((destination / "PLAN.md").exists())
+        self.assertFalse(destination.exists())
         self.assertTrue((admin / "locked").is_file())
         self.assertTrue(aside.is_dir())
+        self.assertTrue(next(trash.iterdir()).is_dir())
+        self.assertTrue(next((self.home / ".shadow" / "clean" / "restore-journals").glob("*.json")).is_file())
 
     def test_restore_source_identity_change_before_unlock_refuses_and_keeps_lock(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
