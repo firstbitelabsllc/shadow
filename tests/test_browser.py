@@ -270,6 +270,7 @@ class BrowserTests(unittest.TestCase):
                 service.server_close()
                 thread.join(timeout=2)
 
+
     def test_browser_projects_every_open_milestone_with_checkpoint_owners(self) -> None:
         multi = """# m20 — Rotation
 
@@ -1412,6 +1413,189 @@ class TheBoardSpeaksHumanNotMachine(unittest.TestCase):
         record = server.record_from_text(plan, "demo/PLAN.md", "demo")
         self.assertIsNone(record["board"]["priority"])
         self.assertNotIn(private_path, json.dumps(record["board"]))
+
+
+class BrowserTreeProjectionTests(unittest.TestCase):
+    TREE_PLAN = """# Tree fixture
+
+## Brief
+
+- Project: tree-fixture
+- Mode: ship
+
+## Tasks
+
+### M1 — Canonical work
+- [completed] finished proof ~aa11 | proof: read receipt -> okay
+- [in_progress] active proof ~bb22 | proof: cmd scripts/shadow-python.sh -m unittest
+- [blocked] parked proof ~cc33 (DoD) | proof: gate owner review
+
+## Deferred
+
+- ~cc33 parked proof | wake: Leo reviews the owner decision
+
+## Progress
+
+- 2026-09-03T00:00:00Z ~aa11 PROOF read receipt -> okay
+"""
+
+    def make_tree_repo(self, root: Path) -> tuple[Path, Path, Path]:
+        repo = root / "repo"
+        home = root / "home"
+        plan = repo / "PLAN.md"
+        repo.mkdir()
+        home.mkdir()
+        plan.write_text(self.TREE_PLAN, encoding="utf-8")
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "test@example.invalid")
+        git(repo, "config", "user.name", "Test")
+        git(repo, "add", "PLAN.md")
+        git(repo, "commit", "-qm", "tree fixture")
+        return repo, plan, home
+
+    def test_tree_projects_complete_canonical_hierarchy_and_safe_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan, home = self.make_tree_repo(Path(dirname))
+            board, records, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            entity = board["entities"][0]
+            server._root_board.claim(
+                plan, "~bb22", "seat-a", project="tree-fixture", priority=1, home=home
+            )
+            board, records, warning = server.board_plan_records(repo, home)
+            tree = server.tree_projection(
+                board, records, home, computer_id="computer@fixture"
+            )
+
+        self.assertEqual(set(tree), {"computer", "projects"})
+        self.assertEqual(tree["computer"], {"id": "computer@fixture", "revision": board["revision"]})
+        self.assertEqual(len(tree["projects"]), 1)
+        project = tree["projects"][0]
+        self.assertEqual(set(project), {"id", "priority", "entities"})
+        self.assertEqual(project["id"], "tree-fixture")
+        self.assertEqual(project["priority"], board["projects"][0]["priority"])
+        projected = project["entities"][0]
+        self.assertEqual(projected["id"], entity["id"])
+        self.assertEqual(set(projected), {"id", "source_plan", "integrity", "resume", "milestones"})
+        self.assertEqual(projected["integrity"], "ok")
+        self.assertEqual(projected["resume"], "~bb22")
+        self.assertNotIn(str(repo), json.dumps(tree))
+
+        milestone = projected["milestones"][0]
+        self.assertEqual(set(milestone), {"title", "counts", "current", "owners", "checkpoints"})
+        self.assertEqual(milestone["counts"]["completed"], 1)
+        checkpoints = {item["id"]: item for item in milestone["checkpoints"]}
+        self.assertEqual(set(checkpoints), {"~aa11", "~bb22", "~cc33"})
+        self.assertEqual(checkpoints["~bb22"]["owners"], ["seat-a"])
+        self.assertEqual(checkpoints["~cc33"]["wake"], "Leo reviews the owner decision")
+        self.assertEqual(checkpoints["~aa11"]["proof"], {"class": "read", "text": "receipt -> okay"})
+
+    def test_tree_withholds_private_git_and_secret_proof_wake_values(self) -> None:
+        unsafe = self.TREE_PLAN.replace(
+            "read receipt -> okay", "read /Users/leo/private -> okay"
+        ).replace(
+            "Leo reviews the owner decision", "push refs/heads/main 0123456789abcdef0123456789abcdef01234567 sk-ant-abcdefghijk"
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan, home = self.make_tree_repo(Path(dirname))
+            board, records, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            entity = board["entities"][0]
+            plan.write_text(unsafe, encoding="utf-8")
+            records = [server._board_plan_record(
+                board, entity, {item["id"]: item["priority"] for item in board["projects"]}
+            )]
+            tree = server.tree_projection(board, records, home)
+        payload = json.dumps(tree)
+        self.assertNotIn("/Users/leo", payload)
+        self.assertNotIn("refs/heads/main", payload)
+        self.assertNotIn("0123456789abcdef", payload)
+        self.assertNotIn("sk-ant-", payload)
+        checkpoints = tree["projects"][0]["entities"][0]["milestones"][0]["checkpoints"]
+        by_id = {item["id"]: item for item in checkpoints}
+        self.assertIsNone(by_id["~aa11"]["proof"])
+        self.assertIsNone(by_id["~cc33"]["wake"])
+
+    def test_tree_marks_broken_or_symlinked_canonical_plans_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo, plan, home = self.make_tree_repo(root)
+            board, _, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            outside = root / "outside-PLAN.md"
+            outside.write_text(self.TREE_PLAN.replace("Tree fixture", "external authority"), encoding="utf-8")
+            plan.unlink()
+            plan.symlink_to(outside)
+            priorities = {item["id"]: item["priority"] for item in board["projects"]}
+            records = [server._board_plan_record(board, board["entities"][0], priorities)]
+            tree = server.tree_projection(board, records, home)
+        entity = tree["projects"][0]["entities"][0]
+        self.assertEqual(entity["integrity"], "broken")
+        self.assertEqual(entity["milestones"], [])
+        self.assertNotIn("external authority", json.dumps(tree))
+
+    def test_tree_ignores_injected_project_names_and_standalone_receipts(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, plan, home = self.make_tree_repo(Path(dirname))
+            board, records, warning = server.board_plan_records(repo, home)
+            self.assertIsNone(warning)
+            board["projects"][0]["name"] = "/Users/leo/secret project"
+            clean = home / ".shadow" / "clean"
+            (clean / "receipts").mkdir(parents=True)
+            (clean / "journals").mkdir()
+            (clean / "receipts" / "standalone.json").write_text(
+                json.dumps({"schema": "shadow.worktree-creation.v1", "worktree": {"path": "/Users/leo/private"}}),
+                encoding="utf-8",
+            )
+            tree = server.tree_projection(board, records, home)
+        payload = json.dumps(tree)
+        self.assertNotIn("name", payload)
+        self.assertNotIn("standalone", payload)
+        self.assertNotIn("/Users/leo", payload)
+
+    def test_plans_wire_carries_tree_without_a_second_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, _, home = self.make_tree_repo(Path(dirname))
+            service = server.Server(("127.0.0.1", 0), repo, home=home)
+            service.RequestHandlerClass.log_message = lambda *args: None
+            thread = threading.Thread(target=service.serve_forever, daemon=True)
+            thread.start()
+            port = service.server_address[1]
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", "/api/plans")
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                connection.request("GET", "/api/tree")
+                missing = connection.getresponse()
+                missing.read()
+                connection.close()
+            finally:
+                service.shutdown()
+                service.server_close()
+                thread.join(timeout=2)
+        self.assertEqual(response.status, 200, payload)
+        self.assertIn("tree", payload)
+        self.assertEqual(missing.status, 404)
+
+    def test_deferred_wake_parser_refuses_missing_and_duplicate_rows(self) -> None:
+        import shadow_plan_grammar as grammar
+
+        missing = self.TREE_PLAN.replace(
+            "- ~cc33 parked proof | wake: Leo reviews the owner decision", "- ~cc33 parked proof"
+        )
+        duplicate = self.TREE_PLAN.replace(
+            "- ~cc33 parked proof | wake: Leo reviews the owner decision",
+            "- ~cc33 parked proof | wake: first\n- ~cc33 parked proof | wake: second",
+        )
+        with self.assertRaises(ValueError):
+            grammar.deferred_wake_projection(missing, "~cc33")
+        with self.assertRaises(ValueError):
+            grammar.deferred_wake_projection(duplicate, "~cc33")
+        self.assertEqual(
+            grammar.deferred_wake_projection(self.TREE_PLAN, "~cc33"),
+            "Leo reviews the owner decision",
+        )
 
 
 if __name__ == "__main__":

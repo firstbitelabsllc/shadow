@@ -42,6 +42,8 @@ from shadow_root_board import (
     origin_repo_name as _origin_repo_name,
 )
 import shadow_root_board as _root_board
+import shadow_clean as _shadow_clean
+import shadow_plan_grammar as _grammar
 from shadow_git import sanitized_git_env as _sanitized_git_env
 import shadow_board_import as _board_import
 import importlib.util as _ilu
@@ -69,6 +71,12 @@ RECEIPT_MARKER_RE = re.compile(r"\s*\[receipt:[a-f0-9]{16}]\s*")
 # browser filter is never weaker than the evidence filters guarding this rail.
 UNSAFE_TITLE_RE = re.compile(
     f"(?:{DRIVE_PRIVATE_PATH_RE.pattern}|{DRIVE_SECRET_SHAPE_RE.pattern})",
+    re.IGNORECASE,
+)
+UNSAFE_PROJECTION_RE = re.compile(
+    f"(?:{DRIVE_PRIVATE_PATH_RE.pattern}|{DRIVE_SECRET_SHAPE_RE.pattern}|"
+    r"(?<![0-9a-f])[0-9a-f]{40,64}(?![0-9a-f])|"
+    r"(?<![A-Za-z0-9_])refs/(?:heads|tags)/[-A-Za-z0-9._/]+)",
     re.IGNORECASE,
 )
 # Board fields are closed vocabularies or title-gated text, so a plan line can
@@ -258,10 +266,73 @@ def _claimed_board(text: str, row_id: str) -> dict[str, Any]:
     return project_board_brief(re.sub(shadow_amp.ROW_RE.pattern, activate, text, flags=re.MULTILINE))
 
 
+def _safe_projection_text(value: object, *, limit: int = 220) -> str | None:
+    """Return bounded human text, withholding machine-private values whole."""
+    if not isinstance(value, str) or UNSAFE_PROJECTION_RE.search(value):
+        return None
+    clean = _rotation_text(value, "", limit=limit)
+    return clean or None
+
+
+def _proof_projection(row: dict) -> dict[str, str] | None:
+    raw = row.get("fields", {}).get("proof")
+    if not isinstance(raw, str):
+        return None
+    parts = raw.strip().split(None, 1)
+    if len(parts) != 2 or parts[0] not in {"cmd", "read", "gate"}:
+        return None
+    text = _safe_projection_text(parts[1])
+    return {"class": parts[0], "text": text} if text is not None else None
+
+
+def _wake_projection(plan_text: str, row: dict) -> str | None:
+    if row.get("state") != "blocked":
+        return None
+    try:
+        wake = _grammar.deferred_wake_projection(plan_text, row["id"])
+    except (KeyError, ValueError):
+        return None
+    return _safe_projection_text(wake)
+
+
+def _lifecycle_projection(home: Path) -> dict[tuple[str, str], list[dict[str, str]]]:
+    """Read only authenticated clean previews and retain their safe fields."""
+    result: dict[tuple[str, str], list[dict[str, str]]] = {}
+    try:
+        candidates = _shadow_clean.preview(home=home).get("candidates", [])
+    except Exception:
+        return result
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        identity = candidate.get("entity")
+        checkpoint = candidate.get("checkpoint")
+        worktree_id = candidate.get("id")
+        state = candidate.get("state")
+        if (
+            not isinstance(identity, str)
+            or _root_board.ENTITY_ID.fullmatch(identity) is None
+            or not isinstance(checkpoint, str)
+            or _root_board.ROW_ID.fullmatch(checkpoint) is None
+            or not isinstance(worktree_id, str)
+            or re.fullmatch(r"worktree@[0-9a-f]{12}", worktree_id) is None
+            or state not in {"eligible"}
+        ):
+            continue
+        result.setdefault((identity, checkpoint), []).append(
+            {"id": worktree_id, "state": state}
+        )
+    return result
+
+
 def _milestone_rotation(
     parsed: dict,
     resume_id: str | None,
     claims: list[dict],
+    *,
+    entity_id: str | None = None,
+    include_completed: bool = False,
+    lifecycle: dict[tuple[str, str], list[dict[str, str]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Project every live milestone from the already parsed canonical plan."""
     owners: dict[str, list[str]] = {}
@@ -275,24 +346,33 @@ def _milestone_rotation(
         for row in milestone["rows"]:
             row_owners = sorted(set(owners.get(row["id"], [])))
             is_resume = row["id"] == resume_id
-            if row["state"] == "completed" and not row_owners and not is_resume:
+            if row["state"] == "completed" and not include_completed and not row_owners and not is_resume:
                 continue
-            checkpoints.append(
-                {
-                    "id": row["id"],
-                    "state": row["state"],
-                    "text": _rotation_text(row["text"], "Checkpoint text withheld"),
-                    "availability": (
-                        "claimed" if row_owners else
-                        "blocked" if row["state"] == "blocked" else
-                        "reachable" if row["id"] in reachable else
-                        "waiting"
-                    ),
-                    "resume": is_resume,
-                    "owners": row_owners,
-                }
-            )
-        if not any(row["state"] != "completed" for row in milestone["rows"]) and not checkpoints:
+            checkpoint = {
+                "id": row["id"],
+                "state": row["state"],
+                "text": _rotation_text(row["text"], "Checkpoint text withheld"),
+                "availability": (
+                    "claimed" if row_owners else
+                    "blocked" if row["state"] == "blocked" else
+                    "reachable" if row["id"] in reachable else
+                    "waiting"
+                ),
+                "resume": is_resume,
+                "owners": row_owners,
+            }
+            if include_completed:
+                checkpoint.update(
+                    {
+                        "proof": _proof_projection(row),
+                        "wake": _wake_projection(parsed.get("text", ""), row),
+                        "worktrees": (
+                            (lifecycle or {}).get((entity_id or "", row["id"]), [])
+                        ),
+                    }
+                )
+            checkpoints.append(checkpoint)
+        if not include_completed and not any(row["state"] != "completed" for row in milestone["rows"]) and not checkpoints:
             continue
         counts = {
             state: sum(1 for row in milestone["rows"] if row["state"] == state)
@@ -322,6 +402,9 @@ def _board_plan_record(
     payload: dict,
     entity: dict,
     priorities: dict[str, int],
+    *,
+    include_completed: bool = False,
+    lifecycle: dict[tuple[str, str], list[dict[str, str]]] | None = None,
 ) -> dict[str, Any]:
     """Project one canonical entity pointer without making its locator authority."""
     plan = Path(entity["plan"])
@@ -362,7 +445,14 @@ def _board_plan_record(
         }
     )
     record["milestones"] = (
-        _milestone_rotation(parsed, entity["resume"], claims)
+        _milestone_rotation(
+            parsed,
+            entity["resume"],
+            claims,
+            entity_id=entity["id"],
+            include_completed=include_completed,
+            lifecycle=lifecycle,
+        )
         if parsed is not None else []
     )
     record["board"]["priority"] = str(priorities[entity["project"]])
@@ -418,6 +508,113 @@ def board_plan_records(root: Path, home: Path) -> tuple[dict, list[dict[str, Any
     if broken:
         warning = warning or f"{broken} computer-board entity pointer(s) are broken"
     return payload, records, warning
+
+
+def tree_projection(
+    payload: dict,
+    records: list[dict[str, Any]],
+    home: Path,
+    *,
+    computer_id: str | None = None,
+) -> dict[str, Any]:
+    """Project the canonical computer board and plans into one safe Tree."""
+    if not isinstance(payload, dict):
+        raise BrowserError("root board payload is required")
+    priorities = {
+        item["id"]: item["priority"]
+        for item in payload.get("projects", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("priority"), int)
+        and not isinstance(item.get("priority"), bool)
+    }
+    by_entity = {
+        record.get("entity"): record
+        for record in records
+        if isinstance(record, dict) and isinstance(record.get("entity"), str)
+    }
+    lifecycle = _lifecycle_projection(home)
+    projects: list[dict[str, Any]] = []
+    for project in payload.get("projects", []):
+        if not isinstance(project, dict):
+            continue
+        project_id = project.get("id")
+        priority = priorities.get(project_id)
+        if not isinstance(project_id, str) or priority is None:
+            continue
+        entities: list[dict[str, Any]] = []
+        for entity in payload.get("entities", []):
+            if not isinstance(entity, dict) or entity.get("project") != project_id:
+                continue
+            identity = entity.get("id")
+            if not isinstance(identity, str) or _root_board.ENTITY_ID.fullmatch(identity) is None:
+                continue
+            record = by_entity.get(identity)
+            if record is None:
+                integrity = "unavailable"
+                source_plan = None
+                milestones: list[dict[str, Any]] = []
+            else:
+                integrity = "broken" if record.get("broken") else "ok"
+                source_plan = record.get("path")
+                if not isinstance(source_plan, str) or UNSAFE_PROJECTION_RE.search(source_plan):
+                    source_plan = None
+                # Reuse the canonical pointer and parser, while asking the
+                # existing projection to retain completed history for Tree.
+                complete = _board_plan_record(
+                    payload,
+                    entity,
+                    priorities,
+                    include_completed=True,
+                    lifecycle=lifecycle,
+                )
+                milestones = [
+                    {
+                        "title": milestone.get("title"),
+                        "counts": milestone.get("counts", {}),
+                        "current": milestone.get("current", False),
+                        "owners": milestone.get("owners", []),
+                        "checkpoints": [
+                            {
+                                "id": checkpoint.get("id"),
+                                "state": checkpoint.get("state"),
+                                "availability": checkpoint.get("availability"),
+                                "owners": checkpoint.get("owners", []),
+                                "proof": checkpoint.get("proof"),
+                                "wake": checkpoint.get("wake"),
+                                "worktrees": checkpoint.get("worktrees", []),
+                            }
+                            for checkpoint in milestone.get("checkpoints", [])
+                        ],
+                    }
+                    for milestone in complete.get("milestones", [])
+                ]
+                if complete.get("broken"):
+                    integrity = "broken"
+                    milestones = []
+            entities.append(
+                {
+                    "id": identity,
+                    "source_plan": source_plan,
+                    "integrity": integrity,
+                    "resume": entity.get("resume"),
+                    "milestones": milestones,
+                }
+            )
+        projects.append({"id": project_id, "priority": priority, "entities": entities})
+    if computer_id is None:
+        computer_id = "computer@" + hashlib.sha256(
+            json.dumps(
+                {"schema": payload.get("schema"), "revision": payload.get("revision")},
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()[:12]
+    if not isinstance(computer_id, str) or not re.fullmatch(r"[A-Za-z0-9_.:@-]{3,128}", computer_id):
+        raise BrowserError("computer identity is unsafe")
+    return {
+        "computer": {"id": computer_id, "revision": payload.get("revision")},
+        "projects": projects,
+    }
 
 
 def board_entity_plan(identity: Any, revision: Any, home: Path) -> Path:
@@ -1403,12 +1600,19 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/plans":
             try:
                 payload, plans, warning = board_plan_records(self.scan_root, self.board_home)
+                tree = tree_projection(
+                    payload,
+                    plans,
+                    self.board_home,
+                    computer_id=root_id(self.scan_root),
+                )
                 self._json(
                     200,
                     {
                         "product": PRODUCT,
                         "root_board_revision": payload["revision"],
                         "plans": plans,
+                        "tree": tree,
                         "warning": warning,
                     },
                 )
