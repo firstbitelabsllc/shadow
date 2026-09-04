@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+import copy
 from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
@@ -23,7 +24,7 @@ import shlex
 import stat
 import subprocess
 import tempfile
-from typing import Callable, Iterator
+from typing import Callable, Iterator, NamedTuple
 
 import shadow_git as _shadow_git
 import shadow_remote_claim as _remote_claim
@@ -33,6 +34,7 @@ import shadow_plan_store as _plan_store
 
 
 SCHEMA = "shadow.root-board.v1"
+V2_SCHEMA = "shadow.root-board.v2"
 DEFAULT_CLAIM_HOURS = 8
 COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = "probe-proof-then-adopt-park-or-close"
@@ -60,6 +62,12 @@ GIT_TIMEOUT_SECONDS = 30
 
 class BoardError(ValueError):
     """The local board is unsafe, malformed, or could not be updated."""
+
+
+class BoardMutation(NamedTuple):
+    payload: dict
+    changed: bool
+    event: dict[str, object] | None
 
 
 class AlreadyClaimed(BoardError):
@@ -1060,7 +1068,7 @@ def project_lock(plan: Path) -> Iterator[None]:
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
-def _validate(payload: object) -> dict:
+def _validate_v1(payload: object) -> dict:
     if not isinstance(payload, dict) or set(payload) != {
         "schema", "revision", "projects", "entities", "claims"
     }:
@@ -1145,11 +1153,173 @@ def _validate(payload: object) -> dict:
     return payload
 
 
+def _validate_write_scope(value: object) -> list[str]:
+    if not isinstance(value, list) or len(value) > 256:
+        raise BoardError("claim write scope must be a bounded list")
+    for prefix in value:
+        try:
+            encoded_length = len(prefix.encode("utf-8")) if isinstance(prefix, str) else 0
+        except UnicodeError as exc:
+            raise BoardError("claim write scope must be valid UTF-8") from exc
+        if (
+            not isinstance(prefix, str)
+            or not prefix
+            or encoded_length > 1024
+            or CONTROL.search(prefix)
+            or "\\" in prefix
+            or any(character in prefix for character in "*?[]")
+            or prefix.startswith("/")
+        ):
+            raise BoardError("claim write scope contains a noncanonical path")
+        components = prefix.split("/")
+        if prefix != "." and (
+            any(component in {"", ".", ".."} for component in components)
+            or ".git" in components
+        ):
+            raise BoardError("claim write scope contains a noncanonical path")
+    if value != sorted(set(value)):
+        raise BoardError("claim write scope must be sorted and unique")
+    return value
+
+
+def _validate_repository_binding(value: object) -> dict:
+    if not isinstance(value, dict) or set(value) != {
+        "common_dir_sha256", "remote_identity"
+    }:
+        raise BoardError("claim repository binding has unknown or missing fields")
+    digest = value["common_dir_sha256"]
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise BoardError("claim repository binding digest must be lowercase SHA-256")
+    identity = value["remote_identity"]
+    if identity is not None:
+        if (
+            not isinstance(identity, str)
+            or "?" in identity
+            or "#" in identity
+            or SECRET_SHAPE_RE.search(identity)
+            or PRIVATE_PATH_RE.search(identity)
+        ):
+            raise BoardError("claim remote identity is not a normalized Git identity")
+        try:
+            well_formed_proof_origin(identity)
+        except ValueError as exc:
+            raise BoardError(
+                "claim remote identity is not a normalized Git identity"
+            ) from exc
+    return value
+
+
+def _validate_v2(payload: object) -> dict:
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema", "revision", "projects", "entities", "claims", "huddles"
+    }:
+        raise BoardError("board has unknown or missing top-level fields")
+    if payload["schema"] != V2_SCHEMA:
+        raise BoardError("board schema is not supported")
+    if not isinstance(payload["claims"], list):
+        raise BoardError("board projects, entities, and claims must be lists")
+    claim_fields = {
+        "entity", "row", "owner", "claimed_at", "return_by", "recovery",
+        "claim_revision", "access", "repository_binding", "write_scope",
+    }
+    old_claim_fields = {
+        "entity", "row", "owner", "claimed_at", "return_by", "recovery",
+    }
+    for claim in payload["claims"]:
+        if not isinstance(claim, dict) or set(claim) != claim_fields:
+            raise BoardError("claims have unknown or missing fields")
+
+    v1_projection = {
+        "schema": SCHEMA,
+        "revision": payload["revision"],
+        "projects": payload["projects"],
+        "entities": payload["entities"],
+        "claims": [
+            {key: claim[key] for key in old_claim_fields}
+            for claim in payload["claims"]
+        ],
+    }
+    _validate_v1(v1_projection)
+
+    for claim in payload["claims"]:
+        claim_revision = claim["claim_revision"]
+        if (
+            isinstance(claim_revision, bool)
+            or not isinstance(claim_revision, int)
+            or claim_revision < 0
+            or claim_revision > payload["revision"]
+        ):
+            raise BoardError("claim revision must be a current nonnegative integer")
+        access = claim["access"]
+        if not isinstance(access, str) or access not in {"unscoped", "read_only", "write"}:
+            raise BoardError("claim access is not supported")
+        scope = _validate_write_scope(claim["write_scope"])
+        binding = claim["repository_binding"]
+
+        if access == "read_only":
+            if binding is not None or scope:
+                raise BoardError("read-only claims must be unbound with empty scope")
+        elif access == "unscoped":
+            if binding is not None or claim_revision != 0:
+                _validate_repository_binding(binding)
+            if scope:
+                raise BoardError("unscoped claims must have empty scope")
+        else:
+            _validate_repository_binding(binding)
+            if not scope:
+                raise BoardError("write claims must have nonempty scope")
+
+    if not isinstance(payload["huddles"], list):
+        raise BoardError("board huddles must be a list")
+    if payload["huddles"]:
+        raise BoardError("nonempty Huddles are not supported in this increment")
+    return payload
+
+
+def _validate(payload: object) -> dict:
+    if not isinstance(payload, dict):
+        raise BoardError("board has unknown or missing top-level fields")
+    schema = payload.get("schema")
+    if schema == SCHEMA:
+        return _validate_v1(payload)
+    if schema == V2_SCHEMA:
+        return _validate_v2(payload)
+    raise BoardError("board schema is not supported")
+
+
+def migrate_v1_to_v2(payload: dict) -> dict:
+    """Return a strict, lossless v2 projection without changing its source."""
+    _validate_v1(payload)
+    migrated = copy.deepcopy(payload)
+    migrated["schema"] = V2_SCHEMA
+    for claim in migrated["claims"]:
+        claim.update({
+            "claim_revision": 0,
+            "access": "unscoped",
+            "repository_binding": None,
+            "write_scope": [],
+        })
+    migrated["huddles"] = []
+    return _validate_v2(migrated)
+
+
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict:
+    value: dict = {}
+    for key, item in pairs:
+        if key in value:
+            raise BoardError("board JSON contains duplicate object keys")
+        value[key] = item
+    return value
+
+
 def _decode(path: Path) -> dict:
     if path.is_symlink():
         raise BoardError("board file must not be a symlink")
     try:
-        return _validate(json.loads(path.read_text(encoding="utf-8")))
+        return _validate(json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_strict_json_object,
+        ))
     except (OSError, UnicodeError, ValueError) as exc:
         raise BoardError("board file is unreadable or malformed") from exc
 
@@ -1553,7 +1723,9 @@ def _transaction(home: Path | None = None) -> Iterator[tuple[Path, Path, dict]]:
                 if historical.returncode:
                     raise BoardError("root board history exists but board.json is missing")
                 try:
-                    payload = _validate(json.loads(historical.stdout))
+                    payload = _validate(json.loads(
+                        historical.stdout, object_pairs_hook=_strict_json_object
+                    ))
                 except ValueError as exc:
                     raise BoardError("root board history contains malformed board.json") from exc
                 _write(path, payload)
@@ -1571,6 +1743,58 @@ def _transaction(home: Path | None = None) -> Iterator[tuple[Path, Path, dict]]:
 def ensure(*, home: Path | None = None) -> dict:
     with _transaction(home) as (_, _, payload):
         return json.loads(json.dumps(payload))
+
+
+def _rollback_v2_to_v1(
+    home: Path,
+    expected_revision: int,
+    *,
+    remote_parity: Callable[[dict], bool],
+) -> dict:
+    """Downgrade one empty v2 authority; retries against v1 are refused."""
+    if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+        raise BoardError("rollback expected revision must be an integer")
+    if not callable(remote_parity):
+        raise BoardError("rollback remote parity callback is required")
+    with _transaction(home) as (root, path, payload):
+        if payload["schema"] != V2_SCHEMA:
+            raise BoardError("rollback requires an active v2 board")
+        if payload["revision"] != expected_revision:
+            raise BoardError("rollback revision does not match current authority")
+        if payload["claims"]:
+            raise BoardError("cannot downgrade a board with active claims")
+        if payload["huddles"]:
+            raise BoardError("cannot downgrade a board with Huddles")
+
+        projection = {
+            "schema": SCHEMA,
+            "revision": payload["revision"] + 1,
+            "projects": copy.deepcopy(payload["projects"]),
+            "entities": copy.deepcopy(payload["entities"]),
+            "claims": [],
+        }
+        _validate_v1(projection)
+        try:
+            parity = remote_parity(copy.deepcopy(projection))
+        except Exception as exc:
+            raise BoardError("rollback remote parity could not be established") from exc
+        if parity is not True:
+            raise BoardError("rollback remote parity did not match local authority")
+
+        _write_and_commit(
+            root,
+            path,
+            projection,
+            "shadow board: roll back v2 to v1",
+        )
+        try:
+            raw = json.loads(
+                path.read_text(encoding="utf-8"),
+                object_pairs_hook=_strict_json_object,
+            )
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise BoardError("rolled-back board is unreadable or malformed") from exc
+        return copy.deepcopy(_validate_v1(raw))
 
 
 def snapshot(*, home: Path | None = None) -> dict | None:
