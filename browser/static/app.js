@@ -1,11 +1,13 @@
-const state = { plans: [], selected: null, view: 'briefs', boardRevision: null, warning: null };
+const state = { plans: [], tree: undefined, selected: null, view: 'briefs', boardRevision: null, warning: null };
 const projects = document.getElementById('projects');
 const main = document.getElementById('main');
 const refresh = document.getElementById('refresh');
 const board = document.getElementById('board');
+const tree = document.getElementById('tree');
 const shell = document.querySelector('.shell');
 const viewBoard = document.getElementById('view-board');
 const viewBriefs = document.getElementById('view-briefs');
+const viewTree = document.getElementById('view-tree');
 const boardWarning = document.getElementById('board-warning');
 
 function el(tag, options = {}) {
@@ -200,16 +202,155 @@ function renderBoard() {
   }
 }
 
+function treeText(value, fallback = 'Not available yet') {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (Array.isArray(value)) return value.length ? value.join(', ') : fallback;
+  return String(value);
+}
+
+function treeField(label, value, fallback = 'Not available yet') {
+  const field = el('div', { className: 'tree-field' });
+  field.append(el('dt', { text: label }), el('dd', { text: treeText(value, fallback) }));
+  return field;
+}
+
+function treeDetails(label, stateValue, content, open = false) {
+  const details = el('details', { className: 'tree-node' });
+  details.open = open;
+  const summary = el('summary', { className: 'tree-summary' });
+  summary.append(el('span', { className: 'tree-label', text: label }));
+  if (stateValue) summary.append(stateChip(stateValue));
+  details.append(summary, content);
+  return details;
+}
+
+function treeFields(fields) {
+  const list = el('dl', { className: 'tree-fields' });
+  for (const [label, value, fallback] of fields) list.append(treeField(label, value, fallback));
+  return list;
+}
+
+function treeCheckpoint(checkpoint) {
+  const fields = treeFields([
+    ['Ownership', checkpoint.owners?.length ? checkpoint.owners.join(', ') : null],
+    ['Proof', checkpoint.proof ? `${treeText(checkpoint.proof.class, 'Proof')} — ${treeText(checkpoint.proof.text)}` : null, 'Proof not available yet'],
+    ['Wake', checkpoint.wake, 'No wake recorded'],
+  ]);
+  const worktrees = el('div', { className: 'tree-worktrees' });
+  worktrees.append(el('dt', { text: 'Worktree lifecycle' }));
+  const lifecycle = Array.isArray(checkpoint.worktrees) ? checkpoint.worktrees : [];
+  if (lifecycle.length) {
+    for (const item of lifecycle) {
+      worktrees.append(el('dd', { text: `${treeText(item.id, 'Worktree')} — ${treeText(item.state, 'state unavailable')}` }));
+    }
+  } else {
+    worktrees.append(el('dd', { text: 'No associated worktree' }));
+  }
+  fields.append(worktrees);
+  return treeDetails(treeText(checkpoint.id, 'Checkpoint'), checkpoint.state || 'unavailable', fields);
+}
+
+function treeMilestone(milestone) {
+  const content = el('div', { className: 'tree-children' });
+  const counts = milestone.counts || {};
+  const total = ['pending', 'in_progress', 'blocked', 'completed']
+    .reduce((sum, key) => sum + (Number(counts[key]) || 0), 0);
+  content.append(treeFields([
+    ['Ownership', milestone.owners?.length ? milestone.owners.join(', ') : null],
+    ['Progress', total ? `${Number(counts.completed) || 0}/${total} checkpoints complete` : 'No checkpoints yet'],
+  ]));
+  const checkpoints = Array.isArray(milestone.checkpoints) ? milestone.checkpoints : [];
+  if (checkpoints.length) {
+    const group = el('div', { className: 'tree-children' });
+    for (const checkpoint of checkpoints) group.append(treeCheckpoint(checkpoint));
+    content.append(group);
+  } else {
+    content.append(el('p', { className: 'tree-empty', text: 'No checkpoints in this milestone yet.' }));
+  }
+  return treeDetails(treeText(milestone.title, 'Milestone'), milestone.state, content, Boolean(milestone.current));
+}
+
+function treeEntity(entity) {
+  const content = el('div', { className: 'tree-children' });
+  content.append(treeFields([
+    ['Ownership', entity.resume ? `resume ${entity.resume}` : null],
+    ['Source plan', entity.source_plan],
+  ]));
+  const milestones = Array.isArray(entity.milestones) ? entity.milestones : [];
+  if (milestones.length) {
+    const group = el('div', { className: 'tree-children' });
+    for (const milestone of milestones) group.append(treeMilestone(milestone));
+    content.append(group);
+  } else {
+    content.append(el('p', { className: 'tree-empty', text: entity.integrity === 'ok' ? 'No milestones in this entity yet.' : 'Plan details are unavailable.' }));
+  }
+  return treeDetails(treeText(entity.id, 'Entity'), entity.integrity || 'unavailable', content);
+}
+
+function treeProject(project) {
+  const content = el('div', { className: 'tree-children' });
+  content.append(treeFields([['Priority', project.priority]]));
+  const entities = Array.isArray(project.entities) ? project.entities : [];
+  if (entities.length) {
+    for (const entity of entities) content.append(treeEntity(entity));
+  } else {
+    content.append(el('p', { className: 'tree-empty', text: 'No entities in this project yet.' }));
+  }
+  return treeDetails(treeText(project.id, 'Project'), null, content, true);
+}
+
+function renderTree() {
+  tree.replaceChildren();
+  if (state.tree === undefined) {
+    tree.append(el('p', { className: 'loading', text: 'Reading the plan tree…' }));
+    return;
+  }
+  if (state.tree === null) {
+    const card = el('section', { className: 'tree-card empty' });
+    card.append(el('h2', { text: 'Plan tree unavailable' }));
+    card.append(el('p', { text: 'Shadow could not read the canonical plan tree. Refresh to try again.' }));
+    tree.append(card);
+    return;
+  }
+  const projectsInTree = Array.isArray(state.tree.projects) ? state.tree.projects : [];
+  if (!projectsInTree.length) {
+    const card = el('section', { className: 'tree-card empty' });
+    card.append(el('h2', { text: 'No projects in the plan tree yet' }));
+    card.append(el('p', { text: 'Run shadow init --here in a Git project, then refresh.' }));
+    card.append(el('p', { className: 'tree-authority', text: 'The Tree is a read-only view. Board and plans remain the authority.' }));
+    tree.append(card);
+    return;
+  }
+  const root = el('section', { className: 'tree-card' });
+  root.append(el('p', { className: 'tree-authority', text: 'The Tree is a read-only view. Board and plans remain the authority.' }));
+  const computer = state.tree.computer || {};
+  const computerContent = el('div', { className: 'tree-children' });
+  computerContent.append(treeFields([
+    ['Computer', computer.id],
+    ['Board revision', computer.revision],
+  ]));
+  for (const project of projectsInTree) computerContent.append(treeProject(project));
+  root.append(treeDetails(treeText(computer.id, 'Computer'), null, computerContent, true));
+  tree.append(root);
+}
+
 function render() {
   const plan = selectedPlan();
   if (plan && !state.selected) state.selected = plan.id;
   const boardActive = state.view === 'board';
+  const treeActive = state.view === 'tree';
   board.hidden = !boardActive;
-  shell.hidden = boardActive;
+  tree.hidden = !treeActive;
+  shell.hidden = boardActive || treeActive;
   viewBoard.classList.toggle('active', boardActive);
-  viewBriefs.classList.toggle('active', !boardActive);
+  viewBriefs.classList.toggle('active', !boardActive && !treeActive);
+  viewTree.classList.toggle('active', treeActive);
   if (boardActive) {
     renderBoard();
+    return;
+  }
+  if (treeActive) {
+    renderTree();
     return;
   }
   renderProjects();
@@ -218,6 +359,7 @@ function render() {
 
 viewBoard.addEventListener('click', () => { state.view = 'board'; render(); });
 viewBriefs.addEventListener('click', () => { state.view = 'briefs'; render(); });
+viewTree.addEventListener('click', () => { state.view = 'tree'; render(); });
 
 async function load() {
   refresh.disabled = true;
@@ -226,6 +368,7 @@ async function load() {
     if (!response.ok) throw new Error('Shadow could not read plans.');
     const data = await response.json();
     state.plans = Array.isArray(data.plans) ? data.plans : [];
+    state.tree = data.tree && typeof data.tree === 'object' ? data.tree : null;
     state.boardRevision = data.root_board_revision;
     state.warning = data.warning || null;
     boardWarning.textContent = state.warning ? `Computer board needs attention: ${state.warning}` : '';
@@ -234,7 +377,12 @@ async function load() {
     render();
   } catch (error) {
     boardWarning.hidden = true;
-    main.replaceChildren(el('p', { className: 'error', text: error.message }));
+    state.tree = null;
+    if (state.view === 'tree') {
+      renderTree();
+    } else {
+      main.replaceChildren(el('p', { className: 'error', text: error.message }));
+    }
   } finally {
     refresh.disabled = false;
   }
