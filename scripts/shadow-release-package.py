@@ -33,6 +33,13 @@ CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
 # growth budget, not a target.
 MAX_FILE_COUNT = 160
 MAX_UNPACKED_BYTES = 2_000_000
+STRANGER_CLEANUP_PROOF = {
+    "preview_zero_write": True,
+    "auto_round_trip": True,
+    "creation_receipt": True,
+    "manifest_apply": True,
+    "trash_recovery": True,
+}
 REQUIRED_FILES = {
     ".agents/plugins/marketplace.json",
     ".claude-plugin/plugin.json",
@@ -536,6 +543,29 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
     def count_entries(directory: Path) -> int:
         return len(list(directory.iterdir())) if directory.is_dir() else 0
 
+    def tree_snapshot(directory: Path) -> tuple[tuple[str, int, int, int, int, int, str], ...]:
+        if not directory.is_dir():
+            return ()
+        entries = []
+        for path in sorted(directory.rglob("*"), key=lambda item: str(item.relative_to(directory))):
+            metadata = path.lstat()
+            if path.is_symlink():
+                digest = f"symlink:{os.readlink(path)}"
+            elif path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            else:
+                digest = "directory"
+            entries.append((
+                str(path.relative_to(directory)),
+                metadata.st_mode,
+                metadata.st_size,
+                metadata.st_ino,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+                digest,
+            ))
+        return tuple(entries)
+
     preference = home / ".shadow" / "clean" / "automatic.json"
     clean_root = home / ".shadow" / "clean"
     initial_status = json_command(["clean", "--auto", "status"])
@@ -564,16 +594,32 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
     first_id = created.get("id")
     if not isinstance(first_id, str) or not first_id.startswith("worktree@") or not first_child.is_dir():
         raise RuntimeError("installed clean --create did not issue a managed child")
-    before_preview_manifests = count_files(clean_root / "manifests", "*.json")
-    before_preview_trash = count_entries(trash)
+    creation_receipts = sorted((clean_root / "receipts").glob("*.json"))
+    if len(creation_receipts) != 1:
+        raise RuntimeError("installed clean --create did not persist one creation receipt")
+    creation_receipt = json.loads(creation_receipts[0].read_text(encoding="utf-8"))
+    if (
+        creation_receipt.get("schema") != "shadow.worktree-creation.v1"
+        or creation_receipt.get("claim") != {
+            "entity": entity,
+            "checkpoint": "~aa11",
+            "seat": "release-seat",
+        }
+        or creation_receipt.get("worktree", {}).get("path") != str(first_child)
+        or first_id != f"worktree@{creation_receipt.get('receipt_sha256', '')[:12]}"
+    ):
+        raise RuntimeError("installed creation receipt did not bind exact provenance")
+    before_preview_clean = tree_snapshot(clean_root)
+    before_preview_trash = tree_snapshot(trash)
     refused = json_command(["clean", "--repo", str(project)])
     first_preview = next((item for item in refused.get("candidates", []) if item.get("id") == first_id), None)
     if (
         not isinstance(first_preview, dict)
         or first_preview.get("state") != "refused"
         or first_preview.get("reason") not in {"active claim", "checkpoint is not terminal"}
-        or count_files(clean_root / "manifests", "*.json") != before_preview_manifests
-        or count_entries(trash) != before_preview_trash
+        or tree_snapshot(clean_root) != before_preview_clean
+        or tree_snapshot(trash) != before_preview_trash
+        or preference.exists()
     ):
         raise RuntimeError("installed default cleanup preview did not preserve the active claim refusal")
 
@@ -591,14 +637,24 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
     if applied.get("action") != "trashed" or applied.get("receipt") != first_id or first_child.exists():
         raise RuntimeError("installed clean --apply did not move the exact child to Trash")
     first_receipts = count_files(clean_root / "trash-receipts", "*.json")
-    if count_entries(trash) != 1 or first_receipts != 1:
+    trash_entries = list(trash.iterdir())
+    if (
+        len(trash_entries) != 1
+        or trash_entries[0].lstat().st_ino != original_inode
+        or first_receipts != 1
+    ):
         raise RuntimeError("installed clean --apply did not leave one recoverable Trash artifact and receipt")
     restored_preview = json_command(["clean", "--restore", "--receipt", first_id])
     restore_cas = restored_preview.get("cas")
     if restored_preview.get("action") != "would_restore" or not isinstance(restore_cas, str):
         raise RuntimeError("installed clean --restore preview did not issue a CAS")
     restored = json_command(["clean", "--restore", "--receipt", first_id, "--apply", "--expect", restore_cas])
-    if restored.get("action") != "restored" or not first_child.is_dir() or first_child.lstat().st_ino != original_inode:
+    if (
+        restored.get("action") != "restored"
+        or not first_child.is_dir()
+        or first_child.lstat().st_ino != original_inode
+        or count_entries(trash) != 0
+    ):
         raise RuntimeError("installed clean restore did not recover the original inode and path")
 
     command([str(cli), "throw", "--repo", str(project), "--task", "~bb22", "--by", "release-seat"], project, env=lifecycle_env)
@@ -611,6 +667,13 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
     if not isinstance(second_id, str) or not second_child.is_dir():
         raise RuntimeError("installed clean --create did not issue the second managed child")
     command([str(cli), "clean", "--auto", "enable"], project, env=lifecycle_env)
+    enabled_status = json_command(["clean", "--auto", "status"])
+    if (
+        enabled_status.get("automatic_trash") is not True
+        or not preference.is_file()
+        or preference.lstat().st_mode & 0o777 != 0o600
+    ):
+        raise RuntimeError("installed automatic cleanup preference did not enable exactly")
     accepted = command(
         [str(cli), "accept", "--repo", str(project), "--row", "~bb22", "--by", "release-seat", "--no-push"],
         project,
@@ -629,7 +692,11 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
         raise RuntimeError("installed lifecycle accept did not perform one bounded automatic Trash move")
     command([str(cli), "clean", "--auto", "disable"], project, env=lifecycle_env)
     final_status = json_command(["clean", "--auto", "status"])
-    if final_status.get("automatic_trash") is not False:
+    if (
+        final_status.get("automatic_trash") is not False
+        or not preference.is_file()
+        or preference.lstat().st_mode & 0o777 != 0o600
+    ):
         raise RuntimeError("installed automatic cleanup preference did not disable cleanly")
 
     board = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
@@ -643,13 +710,7 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
         or "~bb22 PROOF" not in completed
     ):
         raise RuntimeError("installed accept did not persist its completion proof")
-    return {
-        "preview_zero_write": True,
-        "auto_round_trip": True,
-        "creation_receipt": True,
-        "manifest_apply": True,
-        "trash_recovery": True,
-    }
+    return dict(STRANGER_CLEANUP_PROOF)
 
 
 def verify(
@@ -698,16 +759,12 @@ def verify(
         if first_sha != second_sha or manifest.get("files") != second_manifest.get("files"):
             errors.append("repeated git archive runs are not reproducible")
         install_ok = False
-        cleanup_proof = {
-            "preview_zero_write": False,
-            "auto_round_trip": False,
-            "creation_receipt": False,
-            "manifest_apply": False,
-            "trash_recovery": False,
-        }
+        cleanup_proof = {key: False for key in STRANGER_CLEANUP_PROOF}
         if not errors:
             cleanup_proof = stranger_install(tarball, temp, version)
-            install_ok = all(cleanup_proof.values())
+            install_ok = cleanup_proof == STRANGER_CLEANUP_PROOF
+            if not install_ok:
+                errors.append("stranger cleanup proof was incomplete")
     return {
         "schema": "shadow.release.v1",
         "ok": not errors,

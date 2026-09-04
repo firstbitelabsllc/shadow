@@ -252,6 +252,28 @@ class ReleasePackageTests(unittest.TestCase):
         )
         self.assertFalse(report["publishable"])
 
+    def test_incomplete_stranger_cleanup_proof_fails_the_release(self) -> None:
+        identity = {"commit": "a" * 40, "release_ref": None, "errors": []}
+        manifest = {"files": [], "unpackedSize": 0}
+        packed = (manifest, Path("/unused/archive.tar.gz"), "b" * 64)
+        invalid_proofs = (
+            {key: False for key in mod.STRANGER_CLEANUP_PROOF},
+            {"preview_zero_write": True},
+            {**mod.STRANGER_CLEANUP_PROOF, "unexpected": True},
+        )
+        for proof in invalid_proofs:
+            with self.subTest(proof=proof), mock.patch.object(
+                mod, "inspect_release_identity", return_value=identity
+            ), mock.patch.object(mod, "pack", return_value=packed), mock.patch.object(
+                mod, "dirty_files", return_value=set()
+            ), mock.patch.object(mod, "tracked_files", return_value=set()), mock.patch.object(
+                mod, "validate_release_candidate", return_value=[]
+            ), mock.patch.object(mod, "stranger_install", return_value=proof):
+                report = mod.verify(ROOT)
+            self.assertFalse(report["ok"])
+            self.assertFalse(report["stranger_install"])
+            self.assertEqual(report["errors"], ["stranger cleanup proof was incomplete"])
+
 
 class DirtyFilePorcelain(unittest.TestCase):
     def test_a_rename_then_delete_consumes_both_paths_without_a_phantom(self) -> None:
