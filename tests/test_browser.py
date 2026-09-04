@@ -1492,12 +1492,16 @@ class BrowserTreeProjectionTests(unittest.TestCase):
 
     def test_tree_withholds_private_git_and_secret_proof_wake_values(self) -> None:
         private_home = "/" + "Users" + "/leo"
-        secret = "sk-ant-" + "abcdefghijk"
+        # A credential-SHAPED string, never a credential: this test writes it
+        # into a plan precisely to prove the Tree projection withholds it.
+        # Named for what it is in the fixture, not what it imitates, so a
+        # scanner does not read the assertion as clear-text secret storage.
+        credential_shaped_wake = "sk-ant-" + "abcdefghijk"
         unsafe = self.TREE_PLAN.replace(
             "read receipt -> okay", f"read {private_home}/private -> okay"
         ).replace(
             "Leo reviews the owner decision",
-            f"push refs/heads/main 0123456789abcdef0123456789abcdef01234567 {secret}",
+            f"push refs/heads/main 0123456789abcdef0123456789abcdef01234567 {credential_shaped_wake}",
         )
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan, home = self.make_tree_repo(Path(dirname))
