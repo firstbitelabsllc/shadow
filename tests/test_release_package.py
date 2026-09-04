@@ -88,6 +88,29 @@ class ReleasePackageTests(unittest.TestCase):
         for option in ("--retirement-manifest", "--expect", "--by"):
             self.assertIn(option, argparse_help.stdout)
 
+    def test_worktree_cleanup_payload_and_help_ship_with_the_dispatcher(self) -> None:
+        for path in ("scripts/shadow-clean.py", "scripts/shadow_clean.py"):
+            self.assertIn(path, mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "help", "clean"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        for clause in (
+            "strictly zero-write",
+            "--auto enable|disable|status",
+            "--create",
+            "--prepare",
+            "--apply --manifest /ABS/manifest.json --expect CAS --by SEAT",
+            "--restore --receipt WORKTREE_ID",
+            "recoverable Trash",
+            "never hard-deletes or force-removes",
+        ):
+            self.assertIn(clause, output.stdout)
+
     def test_plan_migration_command_ships_with_its_store(self) -> None:
         self.assertIn("scripts/shadow-plan.py", mod.REQUIRED_FILES)
         self.assertIn("scripts/shadow_plan_store.py", mod.REQUIRED_FILES)
