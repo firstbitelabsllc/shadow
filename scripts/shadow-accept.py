@@ -102,8 +102,16 @@ SOURCE_RECEIPT_RE = re.compile(
 )
 LEGACY_SOURCE_PROSE_RE = re.compile(
     r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
-    r"(?P<id>~[0-9a-z]{4}) SOURCE [0-9a-f]{40} on "
-    r"[A-Za-z0-9][A-Za-z0-9._/-]* -> (?P<prose>\S.*)$"
+    r"(?P<id>~[0-9a-z]{4}) SOURCE (?:"
+    r"[0-9a-f]{40} on [A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*(?:/"
+    r"[A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*)*"
+    r"|/ TEST(?: FOLLOW-UP)? -> candidate [0-9a-f]{40} on "
+    r"[A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*(?:/[A-Za-z0-9_]+"
+    r"(?:[._-][A-Za-z0-9_]+)*)*)"
+    r" -> (?P<prose>\S.*)$"
+)
+SOURCE_ROW_PREFIX_RE = re.compile(
+    r"^- (?P<ts>\S+) (?P<id>~[0-9a-z]{4}) SOURCE(?:\s|$)"
 )
 LEGACY_LOCAL_SOURCE_ID_RE = re.compile(r"local-git@(?P<digest>[0-9a-f]{12})")
 OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
@@ -489,6 +497,18 @@ def canonical_source_identity(identity: str) -> str:
         raise AcceptError("SOURCE identity is not one public normalized identity") from exc
 
 
+def _source_lines_for_row(plan_text: str, row_id: str) -> list[str]:
+    """Collect only Progress lines whose row prefix owns the SOURCE marker."""
+    return [
+        line
+        for line in _board.section_lines(plan_text, "Progress")
+        if (
+            (match := SOURCE_ROW_PREFIX_RE.match(line)) is not None
+            and match.group("id") == row_id
+        )
+    ]
+
+
 def local_source_receipt(
     plan_text: str,
     row_id: str,
@@ -496,9 +516,7 @@ def local_source_receipt(
 ) -> tuple[str, str]:
     """Return the one source identity and commit bound to a local completion."""
     receipts: list[tuple[str, str, str]] = []
-    for line in _board.section_lines(plan_text, "Progress"):
-        if f" {row_id} SOURCE " not in line:
-            continue
+    for line in _source_lines_for_row(plan_text, row_id):
         match = SOURCE_RECEIPT_RE.fullmatch(line)
         if match is None:
             raise AcceptError(
@@ -597,11 +615,7 @@ def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
             if state != "completed" or not proof.startswith("cmd "):
                 continue
             argv = proof_argv(proof[4:])
-            source_lines = [
-                candidate
-                for candidate in progress_lines
-                if f" {receipt[0]} SOURCE " in candidate
-            ]
+            source_lines = _source_lines_for_row(plan_text, receipt[0])
             canonical_source_lines = [
                 candidate
                 for candidate in source_lines
@@ -682,11 +696,7 @@ def local_plan_source_identity(plan_text: str) -> str | None:
             raise AcceptError(
                 f"{row_id} task proof no longer matches its canonical accept PROOF"
             )
-        source_lines = [
-            line
-            for line in _board.section_lines(plan_text, "Progress")
-            if f" {row_id} SOURCE " in line
-        ]
+        source_lines = _source_lines_for_row(plan_text, row_id)
         canonical_source_lines = [
             line
             for line in source_lines
