@@ -48,6 +48,7 @@ WORKTREE_ID_RE = re.compile(r"^worktree@([0-9a-f]{12})$")
 TRASH_RECEIPT_SCHEMA = "shadow.clean-trash-receipt.v1"
 TRASH_JOURNAL_SCHEMA = "shadow.clean-trash-journal.v1"
 RESTORE_JOURNAL_SCHEMA = "shadow.clean-restore-journal.v1"
+AUTOMATIC_SCHEMA = "shadow.clean-automatic.v1"
 
 
 class CleanError(ValueError):
@@ -70,6 +71,7 @@ def _public_reason(value: str) -> str:
         "restore artifact", "restore journal", "original path", "same device",
         "recovery required", "source race", "private cleanup", "private restore", "payload changed",
         "content changed",
+        "mutually exclusive",
     )
     for marker in known:
         if marker in value:
@@ -210,6 +212,77 @@ def _replace(path: Path, value: dict[str, Any]) -> None:
     except OSError as exc:
         temporary.unlink(missing_ok=True)
         raise CleanError("clean issuance journal could not be updated safely") from exc
+
+
+def _automatic_path(home: Path | None = None) -> Path:
+    """Return the computer-local automatic-cleanup preference path."""
+    return _root(home) / "clean" / "automatic.json"
+
+
+def _automatic_value(home: Path | None = None) -> bool:
+    """Read the opt-in preference without creating any private state.
+
+    Absence is the safe default.  If present, the record is authenticated by
+    the same no-follow, owner, mode, bounded-read checks as other private
+    records, and its schema is deliberately tiny so future fields cannot
+    silently widen the cleanup authority.
+    """
+    path = _automatic_path(home)
+    if not path.exists() and not path.is_symlink():
+        return False
+    try:
+        value = json.loads(_read(path))
+    except (CleanError, OSError, json.JSONDecodeError) as exc:
+        raise CleanError("automatic cleanup preference is malformed") from exc
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema", "automatic_trash"}
+        or value.get("schema") != AUTOMATIC_SCHEMA
+        or not isinstance(value.get("automatic_trash"), bool)
+    ):
+        raise CleanError("automatic cleanup preference is malformed")
+    return value["automatic_trash"]
+
+
+def _write_automatic(value: bool, *, home: Path | None = None) -> bool:
+    """Atomically set the local opt-in, returning whether bytes changed."""
+    path = _automatic_path(home)
+    clean_root = path.parent
+    if clean_root.exists() and (clean_root.is_symlink() or not clean_root.is_dir()):
+        raise CleanError("private clean root is unsafe")
+    clean_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(clean_root, 0o700)
+    desired = {"schema": AUTOMATIC_SCHEMA, "automatic_trash": value}
+    if path.exists() or path.is_symlink():
+        if _automatic_value(home) == value:
+            return False
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}")
+    encoded = (json.dumps(desired, sort_keys=True, indent=2) + "\n").encode()
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+        _fsync_directory(clean_root)
+    except OSError as exc:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise CleanError("automatic cleanup preference could not be written safely") from exc
+    return True
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -644,6 +717,103 @@ def preview(*, repo: Path | None = None, worktree: Path | None = None, home: Pat
     if narrowed is not None and not candidates:
         report["reason"] = "not Shadow-created"
     return report
+
+
+def automatic_status(*, home: Path | None = None) -> dict[str, Any]:
+    """Project the computer-local automatic Trash preference."""
+    return {
+        "schema": AUTOMATIC_SCHEMA,
+        "automatic_trash": _automatic_value(home),
+        "changed": False,
+    }
+
+
+def run_automatic_cleanup(
+    repo: Path,
+    *,
+    home: Path | None = None,
+    trash_root: Path | None = None,
+    entity: str | None = None,
+    checkpoint: str | None = None,
+) -> dict[str, Any]:
+    """Perform one lifecycle-bound cleanup pass when the computer opted in.
+
+    The pass deliberately has no retry loop.  Each receipt is previewed,
+    prepared into a fresh manifest, and handed to the existing strict apply
+    transaction at most once.  Reports contain only opaque worktree ids and
+    bounded reason labels; paths and provider/private records never cross the
+    lifecycle boundary.
+    """
+    if not _automatic_value(home):
+        return {
+            "schema": AUTOMATIC_SCHEMA,
+            "action": "automatic_cleanup",
+            "enabled": False,
+            "changed": False,
+            "candidates": [],
+        }
+    source = _real_absolute(Path(repo), "repository")
+    candidates: list[dict[str, Any]] = []
+    for receipt, journal in _valid_records(home):
+        if Path(journal["source_repo"]).resolve() != source:
+            continue
+        claim = receipt.get("claim") or {}
+        if entity is not None and claim.get("entity") != entity:
+            continue
+        if checkpoint is not None and claim.get("checkpoint") != checkpoint:
+            continue
+        worktree_id = f"worktree@{receipt['receipt_sha256'][:12]}"
+        base = {
+            "id": worktree_id,
+            "entity": claim.get("entity"),
+            "checkpoint": claim.get("checkpoint"),
+        }
+        try:
+            refusal = _preview_refusal(receipt, journal, (home or Path.home()).resolve())
+            if refusal is not None:
+                candidates.append({**base, "state": "refused", "reason": refusal})
+                continue
+            target = receipt["worktree"]
+            prepared = prepare_manifest(
+                {
+                    "worktree": {
+                        "path": target["path"],
+                        "head": receipt["initial"]["head"],
+                        "landed_ref": receipt["landed_ref"],
+                    },
+                    "entity": claim["entity"],
+                    "checkpoint": claim["checkpoint"],
+                    "creation_receipt": receipt["receipt_sha256"],
+                    "issuance_journal": receipt["issuance_journal_sha256"],
+                },
+                home=home,
+            )
+            applied = apply_manifest(
+                prepared["id"],
+                expected_sha256=prepared["cas"],
+                home=home,
+                trash_root=trash_root,
+            )
+            candidates.append({
+                **base,
+                "state": applied.get("action", "applied"),
+                "changed": bool(applied.get("changed", False)),
+            })
+        except Exception as exc:  # one candidate must not block the pass
+            # Do not expose exception text from Git, filesystem, or private
+            # records.  _public_reason is an allowlisted opaque vocabulary.
+            candidates.append({
+                **base,
+                "state": "refused",
+                "reason": _public_reason(str(exc)),
+            })
+    return {
+        "schema": AUTOMATIC_SCHEMA,
+        "action": "automatic_cleanup",
+        "enabled": True,
+        "changed": any(item.get("changed", False) for item in candidates),
+        "candidates": candidates,
+    }
 
 
 def lifecycle_summaries(*, home: Path | None = None) -> list[dict[str, Any]]:
@@ -2227,6 +2397,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expect")
     parser.add_argument("--restore", action="store_true")
     parser.add_argument("--receipt")
+    parser.add_argument(
+        "--auto",
+        choices=("enable", "disable", "status"),
+        help="enable, disable, or inspect lifecycle-bound automatic Trash",
+    )
     parser.add_argument("--create", action="store_true")
     parser.add_argument("--entity")
     parser.add_argument("--row", "--checkpoint", dest="checkpoint")
@@ -2236,7 +2411,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     home = _root().parent
     try:
-        if args.restore:
+        if args.auto is not None:
+            operational = (
+                args.repo, args.worktree, args.prepare, args.apply, args.manifest,
+                args.expect, args.restore, args.receipt, args.create, args.entity,
+                args.checkpoint, args.seat, args.ref != "HEAD", args.landed_ref,
+            )
+            if any(value not in (None, False) for value in operational):
+                raise CleanError("--auto is mutually exclusive with cleanup operations")
+            if args.auto == "status":
+                result = automatic_status(home=home)
+            else:
+                changed = _write_automatic(args.auto == "enable", home=home)
+                result = {
+                    "schema": AUTOMATIC_SCHEMA,
+                    "action": args.auto,
+                    "automatic_trash": args.auto == "enable",
+                    "changed": changed,
+                }
+        elif args.restore:
             if not args.receipt:
                 raise CleanError("--restore requires --receipt")
             if args.apply:
@@ -2295,6 +2488,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"issued: {result['id']}")
             elif result.get("state") == "prepared":
                 print(f"prepared: {result['id']} cas:{result['cas']}")
+            elif result.get("action") in {"enable", "disable", "status"}:
+                state = "enabled" if result.get("automatic_trash") else "disabled"
+                print(f"automatic cleanup: {state}")
             elif result.get("action") in {"trashed", "already_trashed", "restored", "already_restored", "would_restore"}:
                 suffix = f" cas:{result['cas']}" if result.get("cas") else ""
                 print(f"{result['action']}: {result.get('receipt', '')}{suffix}")
