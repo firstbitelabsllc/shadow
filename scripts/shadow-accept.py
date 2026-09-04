@@ -100,6 +100,10 @@ SOURCE_RECEIPT_RE = re.compile(
     r"HEAD (?P<head>[0-9a-f]{40}) "
     r"-> proof and final lint \(accept\)$"
 )
+LEGACY_SOURCE_PROSE_RE = re.compile(
+    r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
+    r"(?P<id>~[0-9a-z]{4}) SOURCE PROOF(?:\s|$)"
+)
 LEGACY_LOCAL_SOURCE_ID_RE = re.compile(r"local-git@(?P<digest>[0-9a-f]{12})")
 OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
     r"local\.shadow\.invalid/(?P<digest>[0-9a-f]{12})"
@@ -516,6 +520,43 @@ def local_source_receipt(
     return canonical_source_identity(receipts[0][1]), receipts[0][2]
 
 
+def _require_legacy_source_prose(
+    plan_text: str,
+    source_lines: list[str],
+    accepted_at: str,
+    row_id: str,
+    argv: list[str],
+) -> None:
+    """Allow only timestamped, pre-cutover prose paired with one old accept."""
+    for line in source_lines:
+        match = LEGACY_SOURCE_PROSE_RE.match(line)
+        if match is None or match.group("id") != row_id:
+            raise AcceptError(
+                f"{row_id} has a malformed SOURCE receipt; root claim stays open"
+            )
+        timestamp = match.group("ts")
+        try:
+            datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError as exc:
+            raise AcceptError(
+                f"{row_id} has a malformed SOURCE receipt; root claim stays open"
+            ) from exc
+        if timestamp >= LOCAL_SOURCE_RECEIPT_CUTOVER:
+            raise AcceptError(
+                f"{row_id} has a malformed SOURCE receipt (post-cutover "
+                "noncanonical); root claim stays open"
+            )
+    if accepted_at >= LOCAL_SOURCE_RECEIPT_CUTOVER:
+        raise AcceptError(
+            f"{row_id} has a malformed SOURCE receipt (post-cutover "
+            "noncanonical); root claim stays open"
+        )
+    if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
+        raise AcceptError(
+            f"{row_id} has no single canonical legacy accept PROOF"
+        )
+
+
 def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
     """Whether a current completed row has one exact pre-cutover acceptance."""
     progress_lines = _board.section_lines(plan_text, "Progress")
@@ -548,10 +589,20 @@ def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
                 for candidate in source_lines
                 if SOURCE_RECEIPT_RE.fullmatch(candidate) is not None
             ]
-            if (
-                match.group("ts") < LOCAL_SOURCE_RECEIPT_CUTOVER
-                and not canonical_source_lines
-            ):
+            if canonical_source_lines:
+                if len(canonical_source_lines) != len(source_lines):
+                    raise AcceptError(
+                        f"{receipt[0]} has a malformed SOURCE receipt; "
+                        "root claim stays open"
+                    )
+            elif source_lines:
+                _require_legacy_source_prose(
+                    plan_text,
+                    source_lines,
+                    match.group("ts"),
+                    receipt[0],
+                    argv,
+                )
                 source_lines = []
             if (
                 receipt[1] == shlex.join(argv)
@@ -619,17 +670,19 @@ def local_plan_source_identity(plan_text: str) -> str | None:
             for line in source_lines
             if SOURCE_RECEIPT_RE.fullmatch(line) is not None
         ]
-        # Historical Progress may say ``SOURCE PROOF`` in prose. Before the
-        # cutover it is not a source receipt, and treating that substring as a
-        # malformed receipt makes every later local acceptance unrecoverable.
-        # Keep strict parsing for post-cutover receipts, where the canonical
-        # shape is the only accepted source contract.
-        if accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER and not canonical_source_lines:
-            if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
-                raise AcceptError(
-                    f"{row_id} has no single canonical legacy accept PROOF"
-                )
+        if source_lines and not canonical_source_lines:
+            _require_legacy_source_prose(
+                plan_text,
+                source_lines,
+                accepted_at,
+                row_id,
+                argv,
+            )
             continue
+        if canonical_source_lines and len(canonical_source_lines) != len(source_lines):
+            raise AcceptError(
+                f"{row_id} has a malformed SOURCE receipt; root claim stays open"
+            )
         if not source_lines and accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER:
             if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
                 raise AcceptError(

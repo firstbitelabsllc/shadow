@@ -687,6 +687,75 @@ class ShadowAcceptTests(unittest.TestCase):
                 with self.assertRaisesRegex(accept.AcceptError, message):
                     accept.local_plan_source_identity(plan_text)
 
+    def test_legacy_source_prose_is_gated_per_line_timestamp(self) -> None:
+        """Legacy prose is tolerated only when every such line is pre-cutover."""
+        source_head = "a" * 40
+        source_identity = "source-a.invalid/repository"
+        row = "~rgrc"
+        pre_cutover = "2026-08-22T18:26:39Z"
+        post_cutover = accept.LOCAL_SOURCE_RECEIPT_CUTOVER
+        pending = PLAN.replace(
+            "### M — file speaks\n",
+            "### M — file speaks\n"
+            f"- [in_progress] current receipt shape {row} | proof: cmd true\n",
+        )
+        accepted = accept.completed_plan_text(
+            pending,
+            row,
+            ["true"],
+            pre_cutover,
+        )
+
+        current_shape = accept.append_progress_line(
+            accepted,
+            f"- {pre_cutover} {row} SOURCE PROOF -> historical prose, "
+            "not a source receipt\n",
+        )
+        self.assertIsNone(accept.local_plan_source_identity(current_shape))
+
+        post_cutover_prose = accept.append_progress_line(
+            accepted,
+            f"- {post_cutover} {row} SOURCE PROOF -> forged historical prose\n",
+        )
+        with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
+            accept.local_plan_source_identity(post_cutover_prose)
+
+        malformed_timestamp = accept.append_progress_line(
+            accepted,
+            f"- not-a-timestamp {row} SOURCE PROOF -> malformed prose\n",
+        )
+        with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
+            accept.local_plan_source_identity(malformed_timestamp)
+
+        invalid_timestamp = accept.append_progress_line(
+            accepted,
+            f"- 2026-99-99T99:99:99Z {row} SOURCE PROOF -> invalid prose\n",
+        )
+        with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
+            accept.local_plan_source_identity(invalid_timestamp)
+
+        unparseable_receipt = accept.append_progress_line(
+            accepted,
+            f"- {pre_cutover} {row} SOURCE source-a.invalid HEAD malformed\n",
+        )
+        with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
+            accept.local_plan_source_identity(unparseable_receipt)
+
+        canonical = accept.completed_local_plan_text(
+            pending,
+            row,
+            ["true"],
+            pre_cutover,
+            source_identity,
+            source_head,
+        )
+        mixed = accept.append_progress_line(
+            canonical,
+            f"- {pre_cutover} {row} SOURCE PROOF -> extra historical prose\n",
+        )
+        with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
+            accept.local_plan_source_identity(mixed)
+
     def test_local_completed_retry_uses_the_recorded_source_head(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
