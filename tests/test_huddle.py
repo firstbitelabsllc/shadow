@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -17,6 +18,7 @@ import shadow_root_board as board_api
 
 
 E1 = "a" * 64
+NOW = datetime(2026, 9, 4, 16, 0, tzinfo=timezone.utc)
 
 
 class HuddleTestCase(unittest.TestCase):
@@ -304,6 +306,169 @@ class HuddleMigrationTests(HuddleTestCase):
 
                 self.assertEqual(self.authority(), before)
                 self.assertEqual(git(root, "status", "--porcelain", "--", board_api.BOARD_NAME), "")
+
+
+class HuddleAccessTests(HuddleTestCase):
+    def repo(self, name="repo"):
+        repo = self.home / name
+        repo.mkdir()
+        git(repo, "init", "-b", "main")
+        git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.test",
+            "commit", "--allow-empty", "-m", "fixture")
+        return repo
+
+    def test_binding_matches_worktrees_and_separate_clones_without_paths(self):
+        repo = self.repo()
+        first = board_api.repository_binding(repo)
+        self.assertIsNone(first["remote_identity"])
+        self.assertNotIn(str(repo), json.dumps(first))
+        linked = self.home / "linked"
+        git(repo, "worktree", "add", "--detach", str(linked))
+        self.assertEqual(board_api.repository_binding(linked), first)
+        git(repo, "remote", "add", "origin", "https://GitHub.com/Example/Repo.git")
+        other = self.repo("other")
+        git(other, "remote", "add", "origin", "git@github.com:Example/Repo.git")
+        left, right = board_api.repository_binding(repo), board_api.repository_binding(other)
+        self.assertEqual(left["remote_identity"], "github.com/Example/Repo")
+        self.assertEqual(left["remote_identity"], right["remote_identity"])
+        self.assertNotEqual(left["common_dir_sha256"], right["common_dir_sha256"])
+
+    def test_binding_refuses_ambiguous_and_secret_urls(self):
+        repo = self.repo()
+        for url in ("https://github.com/org/repo?token=secret", "https://user:pass@github.com/org/repo",
+                    "https://github.com/org/repo#fragment", "/private/repository"):
+            git(repo, "config", "remote.origin.url", url)
+            with self.subTest(url=url), self.assertRaises(board_api.BoardError):
+                board_api.repository_binding(repo)
+        git(repo, "config", "remote.origin.url", "https://github.com/org/repo")
+        git(repo, "config", "--add", "remote.origin.url", "https://github.com/other/repo")
+        with self.assertRaises(board_api.BoardError):
+            board_api.repository_binding(repo)
+
+    def test_scope_is_lexical_and_never_follows_parent_links(self):
+        repo = self.repo()
+        outside = self.home / "outside"
+        outside.mkdir()
+        (repo / "link").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(board_api.normalize_write_scope(repo, ["link", "new", "new"]), ["link", "new"])
+        for scope in (["link/file"], ["../outside"], ["a//b"], [".git"], ["/absolute"], ["a\\b"]):
+            with self.subTest(scope=scope), self.assertRaises(board_api.BoardError):
+                board_api.normalize_write_scope(repo, scope)
+        self.assertEqual(board_api.normalize_write_scope(repo, ["a" * 600, "b" * 600]), ["a" * 600, "b" * 600])
+        with self.assertRaises(board_api.BoardError):
+            board_api.normalize_write_scope(repo, ["x" * 1025])
+
+
+class HuddleGraphTests(HuddleTestCase):
+    def seed(self, scopes):
+        payload = self.v2_board(with_claim=False)
+        payload["entities"] = []
+        payload["revision"] = len(scopes) + 1
+        for index, scope in enumerate(scopes, 1):
+            entity = f"{index:064x}"
+            payload["entities"].append({"id": entity, "project": "shadow",
+                "plan": str(self.home / str(index) / "PLAN.md"), "resume": "~aa11"})
+            claim = self.v1_board()["claims"][0]
+            claim.update(entity=entity, owner=chr(64 + index), claim_revision=index,
+                         access="write", repository_binding={"common_dir_sha256": "c" * 64,
+                         "remote_identity": None}, write_scope=scope)
+            payload["claims"].append(claim)
+        self.seed_v2(payload)
+        return payload["claims"]
+
+    def open(self, claim, peers):
+        return board_api.open_or_join_huddle(claim=claim, overlap=peers,
+            reason="write_scope_overlap", now=NOW, home=self.home)
+
+    def test_direct_edges_hold_b_without_serializing_a_and_c(self):
+        a, b, c = self.seed([["a"], ["a", "b"], ["b"]])
+        result = self.open(b, [a])
+        huddle = result.payload["huddles"][0]
+        self.assertEqual([ref["owner"] for ref in huddle["holds"]], ["B"])
+        self.assertEqual(len(huddle["edges"]), 2)
+        self.assertEqual([ref["owner"] for ref in huddle["claims"]], ["A", "B", "C"])
+        before = self.authority()
+        replay = self.open(c, [b])
+        self.assertFalse(replay.changed)
+        self.assertIsNone(replay.event)
+        self.assertEqual(self.authority(), before)
+        self.assertEqual(board_api.huddle_show(huddle["id"], home=self.home), huddle)
+        self.assertEqual(self.authority(), before)
+
+    def test_bridge_refuses_without_changing_board_or_journal(self):
+        a, b, c, d, bridge = self.seed([["a"], ["a"], ["b"], ["b"], ["c"]])
+        self.open(a, [b])
+        self.open(c, [d])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "bridge"):
+            board_api.open_or_join_huddle(claim=bridge, overlap=[a, c],
+                reason="semantic_suspicion", now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_stale_claim_and_malformed_graph_refuse(self):
+        a, b = self.seed([["a"], ["a"]])
+        before = self.authority()
+        stale = dict(a, claim_revision=0)
+        with self.assertRaises(board_api.BoardError):
+            self.open(stale, [b])
+        self.assertEqual(self.authority(), before)
+        result = self.open(a, [b])
+        for change in (lambda h: h.update(extra=True), lambda h: h.update(holds=[]),
+                       lambda h: h["edges"][0].update(kinds=["unknown"]),
+                       lambda h: h["claims"][0].update(claim_revision=True),
+                       lambda h: h["edges"][0]["left"].update(claim_revision=True),
+                       lambda h: h["holds"][0].update(claim_revision=True),
+                       lambda h: h["claims"].append(h["claims"][0])):
+            value = copy.deepcopy(result.payload)
+            change(value["huddles"][0])
+            with self.assertRaises(board_api.BoardError):
+                board_api._validate(value)
+
+    def test_missing_real_edge_cannot_authorize_overlapping_writers(self):
+        a, b, c = self.seed([["a"], ["a", "b"], ["b"]])
+        value = self.open(b, [a]).payload
+        huddle = value["huddles"][0]
+        huddle["edges"].pop()
+        huddle["holds"] = board_api.claim_holds(huddle)
+        with self.assertRaises(board_api.BoardError):
+            board_api._validate(value)
+
+    def test_legacy_unknown_blocks_write_and_preflight_opens_real_overlap(self):
+        a, b = self.seed([["a"], ["a"]])
+        repo = self.home / "source"
+        repo.mkdir()
+        git(repo, "init", "-b", "main")
+        binding = board_api.repository_binding(repo)
+        with board_api._transaction(self.home) as (root, path, payload):
+            for claim in payload["claims"]:
+                claim.update(claim_revision=0, access="unscoped", repository_binding=None, write_scope=[])
+            board_api._write_and_commit(root, path, payload, "test: legacy claims")
+        def preflight(claim, access):
+            current = board_api.snapshot(home=self.home)
+            return board_api.preflight_access(entity=claim["entity"], row=claim["row"], owner=claim["owner"],
+                repo=repo, access=access, write_scope=["a"] if access == "write" else [],
+                expected_claim_revision=0, expected_board_revision=current["revision"], now=NOW, home=self.home)
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "legacy_binding_unknown"):
+            preflight(a, "write")
+        self.assertEqual(self.authority(), before)
+        preflight(b, "read_only")
+        first = preflight(a, "write")
+        self.assertEqual(first.payload["claims"][0]["claim_revision"], 0)
+        second = preflight(b, "write")
+        self.assertEqual([ref["owner"] for ref in second.payload["huddles"][0]["holds"]], ["B"])
+
+    def test_contradictory_binding_refuses_without_authority_change(self):
+        a, b = self.seed([["a"], ["a"]])
+        with board_api._transaction(self.home) as (root, path, payload):
+            payload["claims"][0]["repository_binding"]["remote_identity"] = "github.com/org/one"
+            payload["claims"][1]["repository_binding"]["remote_identity"] = "github.com/org/two"
+            board_api._write_and_commit(root, path, payload, "test: conflicting identities")
+            a, b = copy.deepcopy(payload["claims"])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "contradict"):
+            self.open(a, [b])
+        self.assertEqual(self.authority(), before)
 
 
 if __name__ == "__main__":
