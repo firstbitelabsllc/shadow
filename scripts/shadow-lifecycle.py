@@ -2661,6 +2661,13 @@ def print_text(report: dict, *, apply_mode: bool) -> None:
             )
         else:
             print(f"Successor: {successor['action']} — {successor['reason']}")
+    automatic = report.get("automatic_cleanup")
+    if isinstance(automatic, dict):
+        print(
+            "Automatic cleanup: "
+            f"{automatic.get('action', 'automatic_cleanup')} — "
+            f"{automatic.get('changed', False)}"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2757,7 +2764,7 @@ def main(argv: list[str] | None = None) -> int:
             report["automatic_cleanup"] = _clean.run_automatic_cleanup(repo)
         except Exception as exc:
             report["automatic_cleanup"] = {
-                "schema": _clean.AUTOMATIC_SCHEMA,
+                "schema": _clean.AUTOMATIC_RUN_SCHEMA,
                 "action": "automatic_cleanup",
                 "enabled": False,
                 "changed": False,

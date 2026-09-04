@@ -49,6 +49,7 @@ TRASH_RECEIPT_SCHEMA = "shadow.clean-trash-receipt.v1"
 TRASH_JOURNAL_SCHEMA = "shadow.clean-trash-journal.v1"
 RESTORE_JOURNAL_SCHEMA = "shadow.clean-restore-journal.v1"
 AUTOMATIC_SCHEMA = "shadow.clean-automatic.v1"
+AUTOMATIC_RUN_SCHEMA = "shadow.clean-automatic-run.v1"
 
 
 class CleanError(ValueError):
@@ -723,6 +724,7 @@ def automatic_status(*, home: Path | None = None) -> dict[str, Any]:
     """Project the computer-local automatic Trash preference."""
     return {
         "schema": AUTOMATIC_SCHEMA,
+        "action": "status",
         "automatic_trash": _automatic_value(home),
         "changed": False,
     }
@@ -746,7 +748,7 @@ def run_automatic_cleanup(
     """
     if not _automatic_value(home):
         return {
-            "schema": AUTOMATIC_SCHEMA,
+            "schema": AUTOMATIC_RUN_SCHEMA,
             "action": "automatic_cleanup",
             "enabled": False,
             "changed": False,
@@ -808,7 +810,7 @@ def run_automatic_cleanup(
                 "reason": _public_reason(str(exc)),
             })
     return {
-        "schema": AUTOMATIC_SCHEMA,
+        "schema": AUTOMATIC_RUN_SCHEMA,
         "action": "automatic_cleanup",
         "enabled": True,
         "changed": any(item.get("changed", False) for item in candidates),
