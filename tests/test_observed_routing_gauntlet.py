@@ -334,7 +334,8 @@ class LocalSinkBoundaryTests(unittest.TestCase):
                 "root.project_id = 'project_test'" in query,
                 "turn.metadata_values[indexOf(turn.metadata_names, 'resourceAttributes.env')]" in query,
                 "root.metadata_values[indexOf(root.metadata_names, 'resourceAttributes.env')]" in query,
-                "turn.parent_span_id IN" in query,
+                "(turn.trace_id, turn.parent_span_id) IN" in query,
+                "SELECT root.trace_id, root.span_id" in query,
                 "name = 'op.dispatch.turn_input'" in query,
                 "ORDER BY turn.start_time ASC" in query,
             ))

@@ -386,8 +386,8 @@ FROM default.events_core AS turn
 WHERE turn.name = 'session_task.turn'
   AND turn.project_id = '{self.project_id}'
   AND turn.metadata_values[indexOf(turn.metadata_names, 'resourceAttributes.env')] = '{environment}'
-  AND turn.parent_span_id IN (
-    SELECT root.span_id
+  AND (turn.trace_id, turn.parent_span_id) IN (
+    SELECT root.trace_id, root.span_id
     FROM default.events_core AS root
     WHERE root.name = 'op.dispatch.turn_input'
       AND root.project_id = '{self.project_id}'
