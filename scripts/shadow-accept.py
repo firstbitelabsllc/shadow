@@ -49,6 +49,7 @@ from shadow_cmd_proof import script_operand_issue  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
 from shadow_durable_lib import durable_write  # noqa: E402
+import shadow_clean as _clean  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_accept_amp", ROOT / "scripts" / "shadow-amp.py"
@@ -2714,6 +2715,28 @@ def finalize_completion(
     return 0
 
 
+def _automatic_after_accept(
+    repo: Path, plan_path: Path, row_id: str, result: int, *, released: bool = True,
+) -> None:
+    """Best-effort lifecycle boundary hook; never changes acceptance result."""
+    if result != 0 or not released:
+        return
+    try:
+        entity = _board.entity_id(plan_path)
+        report = _clean.run_automatic_cleanup(repo, entity=entity, checkpoint=row_id)
+        if report.get("enabled"):
+            # Keep the optional follow-up visible, bounded, and path-free.
+            print(
+                "automatic cleanup: "
+                + json.dumps(report, sort_keys=True, separators=(",", ":"))
+            )
+    except Exception:
+        # Automatic Trash is an optional follow-up.  Its refusal, malformed
+        # preference, or recovery wake must never turn a successful accept
+        # into a failed terminal boundary or leak private diagnostics.
+        return
+
+
 def finalize_completed_retry_without_local_claim(
     repo: Path,
     plan_path: Path,
@@ -2830,9 +2853,9 @@ def main(argv: list[str] | None = None) -> int:
                             "--repo <proof-source-checkout>"
                         )
                     source_root = proof_source_checkout(args.repo)
-                    owned_claim(_board.entity_state(plan_path), row_id, owner)
+                    local_claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
                     if args.proposal is not None:
-                        return accept_local_proposal(
+                        result = accept_local_proposal(
                             source_root,
                             plan_path,
                             args.entity,
@@ -2841,13 +2864,23 @@ def main(argv: list[str] | None = None) -> int:
                             args.proposal,
                             args.timeout_seconds,
                         )
-                    return accept_local_plan(
+                        _automatic_after_accept(
+                            source_root, plan_path, row_id, result,
+                            released=local_claim is not None,
+                        )
+                        return result
+                    result = accept_local_plan(
                         source_root,
                         plan_path,
                         row_id,
                         owner,
                         args.timeout_seconds,
                     )
+                    _automatic_after_accept(
+                        source_root, plan_path, row_id, result,
+                        released=local_claim is not None,
+                    )
+                    return result
                 if args.repo is not None:
                     raise AcceptError(
                         "Git-backed --entity recovery does not take --repo; "
@@ -2929,7 +2962,7 @@ def main(argv: list[str] | None = None) -> int:
                     parsed["claimed"] = set()
                     try:
                         with _board.project_lock(plan_path):
-                            return finalize_completion(
+                            result = finalize_completion(
                                 repo,
                                 plan_path,
                                 row_id,
@@ -2942,6 +2975,11 @@ def main(argv: list[str] | None = None) -> int:
                                 "recorded observation authenticated; "
                                 "root claim reconciled",
                             )
+                        _automatic_after_accept(
+                            repo, plan_path, row_id, result,
+                            released=not args.no_push,
+                        )
+                        return result
                     except (_board.BoardError, AcceptError) as exc:
                         raise AcceptError(
                             f"the completed row's root claim could not reconcile: {exc}"
@@ -3001,7 +3039,7 @@ def main(argv: list[str] | None = None) -> int:
                     parsed["claimed"] = set()
                     try:
                         with _board.project_lock(plan_path):
-                            return finalize_completion(
+                            result = finalize_completion(
                                 repo,
                                 plan_path,
                                 row_id,
@@ -3014,6 +3052,11 @@ def main(argv: list[str] | None = None) -> int:
                                 "completed proof reran in its clean source "
                                 "checkout; root claim reconciled",
                             )
+                        _automatic_after_accept(
+                            repo, plan_path, row_id, result,
+                            released=not args.no_push,
+                        )
+                        return result
                     except (_board.BoardError, AcceptError) as exc:
                         raise AcceptError(
                             f"the completed row's root claim could not reconcile: {exc}"
@@ -3053,7 +3096,7 @@ def main(argv: list[str] | None = None) -> int:
                     updated,
                     resumes,
                 )
-                return finalize_completion(
+                result = finalize_completion(
                     repo,
                     plan_path,
                     row_id,
@@ -3065,6 +3108,11 @@ def main(argv: list[str] | None = None) -> int:
                     args.no_push,
                     "recorded observation accepted as the row's PROOF; row flipped",
                 )
+                _automatic_after_accept(
+                    repo, plan_path, row_id, result,
+                    released=not args.no_push,
+                )
+                return result
             except _board.BoardError as exc:
                 raise AcceptError(
                     f"the judgment flip landed, but the root claim could not close: {exc}; "
@@ -3157,7 +3205,7 @@ def main(argv: list[str] | None = None) -> int:
                 updated,
                 resumes,
             )
-            return finalize_completion(
+            result = finalize_completion(
                 repo,
                 plan_path,
                 row_id,
@@ -3169,6 +3217,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.no_push,
                 "proof passed in a clean checkout; row flipped with its PROOF line",
             )
+            _automatic_after_accept(
+                repo, plan_path, row_id, result,
+                released=not args.no_push,
+            )
+            return result
         except _board.BoardError as exc:
             raise AcceptError(
                 f"the project proof landed, but the root claim could not close: {exc}; "
