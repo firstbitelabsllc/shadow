@@ -2117,6 +2117,20 @@ def _open_huddle(payload: dict, claim: dict, overlap: list[dict], reason: str, n
     prior_keys = {_claim_key(c) for c in old["claims"]} if old else set()
     if not (keys - prior_keys) <= incident:
         raise BoardError("Huddle participants must have a direct conflict edge")
+    reachable = set(prior_keys) if old else {primary}
+    pending = list(reachable)
+    neighbors = {key: set() for key in keys}
+    for edge in edges:
+        left, right = _claim_key(edge["left"]), _claim_key(edge["right"])
+        neighbors[left].add(right)
+        neighbors[right].add(left)
+    while pending:
+        for neighbor in neighbors.get(pending.pop(), ()):
+            if neighbor not in reachable:
+                reachable.add(neighbor)
+                pending.append(neighbor)
+    if not keys <= reachable:
+        raise BoardError("new Huddle participants must connect to the initiating claim or existing Huddle")
     refs = [_claim_ref(c) for c in claims]
     if old is not None and not scope_changed and old["claims"] == refs and old["edges"] == edges:
         return None

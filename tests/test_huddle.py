@@ -658,6 +658,18 @@ class HuddleScopeTransitionTests(HuddleTestCase):
             self.open(a, [b, c])
         self.assertEqual(self.authority(), before)
 
+    def test_open_and_join_cannot_smuggle_a_disconnected_conflicting_pair(self):
+        repo, (a, b, c, d) = self.seed([["a"], ["a"], ["b"], ["b"]])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "connect"):
+            self.open(a, [b, c, d])
+        self.assertEqual(self.authority(), before)
+        self.open(a, [b])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "connect"):
+            self.open(a, [b, c, d])
+        self.assertEqual(self.authority(), before)
+
     def test_read_only_classification_resolves_and_retains_historical_refs(self):
         repo, (a, b) = self.seed([[], ["a"]], unscoped=(0,))
         self.open(b, [a], reason="scope_request")
