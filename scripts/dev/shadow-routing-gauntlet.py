@@ -101,7 +101,11 @@ def prompt_for_host(host: str, scenario: Scenario) -> str:
         return prompt
     instruction = {
         "claude-code": "You MUST invoke the configured shadow-evidence Agent for manifest-a.txt.",
-        "codex": "You MUST call spawn_agent for the manifest-a.txt evidence lane, then reconcile its result.",
+        "codex": (
+            "You MUST call the native spawn_agent tool directly with "
+            f'model="{resolve_route("codex", "coding").model}" and fork_turns="none" '
+            "for the manifest-a.txt evidence lane, then reconcile its result."
+        ),
         "cursor": "You MUST use a native child agent if the CLI exposes one; never invent child lineage.",
         "grok": (
             "You MUST call spawn_subagent for manifest-a.txt with subagent_type "
