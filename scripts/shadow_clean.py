@@ -793,6 +793,28 @@ def prepare_manifest(candidate: dict[str, Any], *, home: Path | None = None, now
     )
     if matched is None:
         raise CleanError("not Shadow-created")
+    created, issuance = matched
+    candidate_target = candidate.get("worktree") or candidate.get("target")
+    if not isinstance(candidate_target, dict) or not isinstance(candidate_target.get("path"), str):
+        raise CleanError("manifest lineage changed")
+    try:
+        candidate_path = _real_absolute(Path(candidate_target["path"]), "worktree")
+    except CleanError:
+        raise CleanError("manifest lineage changed") from None
+    if candidate_path != Path(created["worktree"]["path"]).resolve():
+        raise CleanError("manifest lineage changed")
+    if candidate.get("entity") != created["claim"]["entity"] or candidate.get("checkpoint") != created["claim"]["checkpoint"]:
+        raise CleanError("manifest lineage changed")
+    if (candidate_target.get("landed_ref") or candidate.get("landed_ref")) != created["landed_ref"]:
+        raise CleanError("manifest lineage changed")
+    if candidate.get("creation_receipt") not in {None, created["receipt_sha256"]}:
+        raise CleanError("manifest lineage changed")
+    if candidate.get("receipt_sha256") not in {None, created["receipt_sha256"]}:
+        raise CleanError("manifest lineage changed")
+    if candidate.get("issuance_journal") not in {None, _journal_digest(issuance)}:
+        raise CleanError("manifest lineage changed")
+    if candidate.get("issuance_journal_sha256") not in {None, _journal_digest(issuance)}:
+        raise CleanError("manifest lineage changed")
     refusal = _preview_refusal(matched[0], matched[1], (home or Path.home()).resolve())
     if refusal is not None:
         raise CleanError(refusal)
@@ -1118,7 +1140,9 @@ def _fsync_directory(path: Path) -> None:
         raise CleanError("filesystem directory could not be synchronized") from exc
 
 
-def _atomic_move_noreplace(source: Path, destination: Path) -> None:
+def _atomic_move_noreplace(
+    source: Path, destination: Path, *, expected_source: tuple[int, int] | None = None,
+) -> None:
     """Rename one directory without ever replacing an intervening entry."""
     flags = (getattr(os, "O_RDONLY", 0) | getattr(os, "O_DIRECTORY", 0)
              | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0))
@@ -1129,6 +1153,9 @@ def _atomic_move_noreplace(source: Path, destination: Path) -> None:
         old_stat, new_stat = os.fstat(oldfd), os.fstat(newfd)
         if not stat.S_ISDIR(old_stat.st_mode) or not stat.S_ISDIR(new_stat.st_mode) or old_stat.st_dev != new_stat.st_dev:
             raise CleanError("atomic no-replace move requires one filesystem")
+        source_stat = os.stat(source.name, dir_fd=oldfd, follow_symlinks=False)
+        if not stat.S_ISDIR(source_stat.st_mode) or (expected_source is not None and (source_stat.st_dev, source_stat.st_ino) != expected_source):
+            raise CleanError("source changed before atomic move")
         libc = ctypes.CDLL(None, use_errno=True)
         encoded_old = os.fsencode(source.name)
         encoded_new = os.fsencode(destination.name)
@@ -1227,6 +1254,15 @@ def _rollback_apply_lock(info: dict[str, Any], worktree_id: str, manifest_digest
     # retire that transaction merely because a retry currently sees an
     # intervening original-path entry; leave it durable for a safe retry.
     if journal.get("state") != "prepared":
+        return
+    target = Path(journal.get("target", ""))
+    try:
+        target_stat = target.lstat()
+    except (OSError, ValueError):
+        return
+    if (target_stat.st_dev, target_stat.st_ino) != (journal.get("device"), journal.get("inode")):
+        # The canonical path no longer contains the authenticated worktree;
+        # never unlock or retire a journal around an untrusted replacement.
         return
     locked = info["admin_dir"] / "locked"
     if locked.is_file() and not locked.is_symlink():
@@ -1565,7 +1601,10 @@ def apply_manifest(
         if info["target"].exists():
             _final_apply_check(info, worktree_id=worktree_id, manifest_digest=digest, journal_path=journal_path)
             try:
-                _atomic_move_noreplace(info["target"], destination)
+                _atomic_move_noreplace(
+                    info["target"], destination,
+                    expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
+                )
             except CleanMoveCommittedError:
                 # The directory rename already committed. Keep the prepared
                 # journal and exact lock so retry can authenticate the Trash
@@ -1580,7 +1619,10 @@ def apply_manifest(
                 _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
             except CleanError:
                 try:
-                    _atomic_move_noreplace(destination, info["target"])
+                    _atomic_move_noreplace(
+                        destination, info["target"],
+                        expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
+                    )
                     _fsync_directory(info["target"].parent)
                     _git(info["source"], "worktree", "unlock", "--", str(info["target"]))
                     journal_path.unlink(missing_ok=True)
@@ -1603,7 +1645,10 @@ def apply_manifest(
                 # journal/lock/Trash artifact for a later authenticated retry.
                 if not info["target"].exists():
                     try:
-                        _atomic_move_noreplace(destination, info["target"])
+                        _atomic_move_noreplace(
+                            destination, info["target"],
+                            expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
+                        )
                         _fsync_directory(info["target"].parent)
                         _git(info["source"], "worktree", "unlock", "--", str(info["target"]))
                         journal_path.unlink(missing_ok=True)
@@ -1728,6 +1773,30 @@ def _registration_lock_state(source: Path, target: Path, worktree_id: str, manif
     raise CleanError("worktree registration is missing")
 
 
+def _authenticate_restore_registration(
+    receipt: dict[str, Any], source: Path, target: Path, worktree_id: str, home: Path,
+) -> None:
+    """Rebind source and target Git identities at the unlock boundary."""
+    authenticated = [
+        (created, journal) for created, journal in _valid_records(home)
+        if created.get("receipt_sha256") == receipt.get("creation_receipt")
+    ]
+    if len(authenticated) != 1:
+        raise CleanError("restore source provenance is unavailable")
+    created, _journal = authenticated[0]
+    if _source_identity(source) != created["source"]["repository"]:
+        raise CleanError("restore source repository identity changed")
+    common = Path(_git(target, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()).resolve()
+    admin = Path(_git(target, "rev-parse", "--path-format=absolute", "--git-dir").stdout.strip()).resolve()
+    if common != Path(created["git"]["common_dir"]).resolve() or admin != Path(created["git"]["admin_dir"]).resolve():
+        raise CleanError("restore Git binding changed")
+    source_common = Path(_git(source, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()).resolve()
+    if source_common != common:
+        raise CleanError("restore Git common directory changed")
+    if not _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"]):
+        raise CleanError("worktree is not locked by this retirement")
+
+
 def _load_restore_journal(path: Path, *, worktree_id: str, receipt: dict[str, Any]) -> dict[str, Any]:
     try:
         value = json.loads(_read(path))
@@ -1801,8 +1870,8 @@ def restore_apply(
             if restore_journal["state"] == "moved":
                 _replace(journal_path, {**restore_journal, "state": "unlocking"})
                 restore_journal = {**restore_journal, "state": "unlocking"}
-            if _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"]):
-                _git(source, "worktree", "unlock", "--", str(target))
+            _authenticate_restore_registration(receipt, source, target, worktree_id, private_home)
+            _git(source, "worktree", "unlock", "--", str(target))
             if restore_journal["state"] != "unlocked":
                 _replace(journal_path, {**restore_journal, "state": "unlocked"})
             _crash_point("restore_after_unlock", crash_at)
@@ -1824,7 +1893,10 @@ def restore_apply(
         if journal_path.exists() is False:
             _exclusive(journal_path, restore_journal)
         try:
-            _atomic_move_noreplace(trash, target)
+            _atomic_move_noreplace(
+                trash, target,
+                expected_source=(receipt["device"], receipt["inode"]),
+            )
             _fsync_directory(target.parent)
             _fsync_directory(trash.parent)
         except CleanMoveCommittedError:
@@ -1845,6 +1917,7 @@ def restore_apply(
         _crash_point("restore_after_rename", crash_at)
         restore_journal = {**restore_journal, "state": "unlocking"}
         _replace(journal_path, restore_journal)
+        _authenticate_restore_registration(receipt, source, target, worktree_id, private_home)
         _git(source, "worktree", "unlock", "--", str(target))
         restore_journal = {**restore_journal, "state": "unlocked"}
         _replace(journal_path, restore_journal)
