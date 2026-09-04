@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SHADOW_CLEAN_BIN="${BASH_SOURCE[0]}"
+while [[ -L "${SHADOW_CLEAN_BIN}" ]]; do
+  SHADOW_CLEAN_DIR="$(cd -P "$(dirname "${SHADOW_CLEAN_BIN}")" && pwd)"
+  SHADOW_CLEAN_BIN="$(readlink "${SHADOW_CLEAN_BIN}")"
+  [[ "${SHADOW_CLEAN_BIN}" != /* ]] && SHADOW_CLEAN_BIN="${SHADOW_CLEAN_DIR}/${SHADOW_CLEAN_BIN}"
+done
+SHADOW_ROOT="${SHADOW_ROOT:-$(cd "$(dirname "${SHADOW_CLEAN_BIN}")/.." && pwd)}"
+SHADOW_PYTHON_COMMAND="clean" "${SHADOW_ROOT}/scripts/shadow-python.sh" "${SHADOW_ROOT}/scripts/shadow-clean.py" "$@"
