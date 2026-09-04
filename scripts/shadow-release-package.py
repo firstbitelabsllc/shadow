@@ -666,6 +666,10 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
     second_id = created_second.get("id")
     if not isinstance(second_id, str) or not second_child.is_dir():
         raise RuntimeError("installed clean --create did not issue the second managed child")
+    second_inode = second_child.lstat().st_ino
+    before_auto_receipts = {
+        path.name for path in (clean_root / "trash-receipts").glob("*.json")
+    }
     command([str(cli), "clean", "--auto", "enable"], project, env=lifecycle_env)
     enabled_status = json_command(["clean", "--auto", "status"])
     if (
@@ -680,14 +684,36 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
         env=lifecycle_env,
     )
     automatic_output = accepted.stdout
+    automatic_trash_entries = list(trash.iterdir())
+    after_auto_receipts = {
+        path.name for path in (clean_root / "trash-receipts").glob("*.json")
+    }
+    new_receipts = after_auto_receipts - before_auto_receipts
+    automatic_receipt = (
+        json.loads(
+            ((clean_root / "trash-receipts") / next(iter(new_receipts))).read_text(
+                encoding="utf-8"
+            )
+        )
+        if len(new_receipts) == 1
+        else {}
+    )
     if (
         "automatic cleanup:" not in automatic_output
         or str(home) in automatic_output
         or str(project) in automatic_output
         or second_child.exists()
         or not first_child.is_dir()
-        or count_entries(trash) != 1
+        or len(automatic_trash_entries) != 1
+        or automatic_trash_entries[0].lstat().st_ino != second_inode
         or count_files(clean_root / "trash-receipts", "*.json") != first_receipts + 1
+        or automatic_receipt.get("schema") != "shadow.clean-trash-receipt.v1"
+        or automatic_receipt.get("worktree_id") != second_id
+        or automatic_receipt.get("target") != str(second_child)
+        or automatic_receipt.get("trash") != str(automatic_trash_entries[0])
+        or automatic_receipt.get("inode") != second_inode
+        or automatic_receipt.get("entity") != entity
+        or automatic_receipt.get("checkpoint") != "~bb22"
     ):
         raise RuntimeError("installed lifecycle accept did not perform one bounded automatic Trash move")
     command([str(cli), "clean", "--auto", "disable"], project, env=lifecycle_env)
