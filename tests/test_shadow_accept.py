@@ -792,14 +792,16 @@ class ShadowAcceptTests(unittest.TestCase):
             accepted_at,
         )
         first = (
-            f"- 2026-08-22T20:07:03Z {row} SOURCE / TEST -> candidate "
+            "- 2026-08-22T20:07:03Z ~rlex SOURCE / TEST -> candidate "
             "eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
-            "on codex/remote-completion-reservation-20260822 -> historical proof\n"
+            "on codex/remote-completion-reservation-20260822 adds remote "
+            "completion reservation proof\n"
         )
         follow_up = (
-            f"- 2026-08-22T20:17:43Z {row} SOURCE / TEST FOLLOW-UP -> candidate "
+            "- 2026-08-22T20:17:43Z ~rlex SOURCE / TEST FOLLOW-UP -> candidate "
             "eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
-            "on codex/published-behind-completion-20260822 -> follow-up proof\n"
+            "on codex/published-behind-completion-20260822 adds published-behind "
+            "completion proof\n"
         )
         embedded_cross_row = (
             "- 2026-08-22T21:00:00Z ~rgrc ATTRIBUTION CORRECTION / ~rlex "
