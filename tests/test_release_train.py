@@ -32,6 +32,12 @@ def pressure(**overrides: str) -> dict[str, str]:
 
 
 class ReleaseTrainTriggersAreDeterministic(unittest.TestCase):
+    def test_a_deleted_test_path_keeps_the_surviving_baseline(self) -> None:
+        selected = ci.select_paths(["tests/test_all_boats_law.py"])
+        self.assertFalse(selected.run_all)
+        self.assertNotIn("tests.test_all_boats_law", selected.modules)
+        self.assertIn("tests.test_release_train", selected.modules)
+
     def test_no_accepted_change_never_launches_an_empty_train(self) -> None:
         run, reason = ci.pressure_decision(
             pressure(ACCEPTED_CHANGE_COUNT="0", SEVERITY="critical")

@@ -177,7 +177,8 @@ def select_paths(paths: Iterable[str]) -> Selection:
     for path in normalized:
         matched = False
         if path.startswith("tests/test_") and path.endswith(".py"):
-            modules.add(path[:-3].replace("/", "."))
+            if (ROOT / path).is_file():
+                modules.add(path[:-3].replace("/", "."))
             matched = True
         if _matches(path, DOC_ROOTS):
             modules.update(DOC_MODULES)
