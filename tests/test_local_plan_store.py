@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_root_board as board  # noqa: E402
+import shadow_plan_store as plan_store  # noqa: E402
 from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
 
 
@@ -55,6 +57,14 @@ lifecycle = importlib.util.module_from_spec(_LIFECYCLE_SPEC)
 sys.modules[_LIFECYCLE_SPEC.name] = lifecycle
 _LIFECYCLE_SPEC.loader.exec_module(lifecycle)
 
+_ACCEPT_SPEC = importlib.util.spec_from_file_location(
+    "shadow_accept_reconcile_test", ROOT / "scripts" / "shadow-accept.py"
+)
+assert _ACCEPT_SPEC and _ACCEPT_SPEC.loader
+accepted_proof_accept = importlib.util.module_from_spec(_ACCEPT_SPEC)
+sys.modules[_ACCEPT_SPEC.name] = accepted_proof_accept
+_ACCEPT_SPEC.loader.exec_module(accepted_proof_accept)
+
 
 def lifecycle_tombstone_re(slug: str) -> str:
     """The lifecycle module's own tombstone reader, for the archived slug."""
@@ -84,6 +94,28 @@ ARCHIVABLE_PLAN = """# Local demo
 - 2026-08-11T00:00:00Z ~aa11 PROOF true -> pass
 - 2026-08-11T00:01:00Z ~bb22 PROOF true -> pass
 - 2026-08-11T00:02:00Z NOTE unrelated history remains live
+"""
+
+
+ACCEPTED_COMPLETED_PLAN = """# Local demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+- Priority: 2
+- Origin: github.com/example/widget
+
+## Tasks
+
+### Finished work
+- [completed] prove local authority ~aa11 | proof: cmd false
+- [pending] preserve unrelated work ~cc33 | proof: cmd true
+
+## Progress
+
+- 2026-08-11T00:00:00Z ~aa11 PROOF true -> pass (accept)
+- 2026-08-11T00:01:00Z NOTE unrelated history remains live
 """
 
 
@@ -1151,6 +1183,314 @@ def _amend(home: Path, entity: str, *extra: str) -> subprocess.CompletedProcess[
         text=True,
         check=False,
     )
+
+
+def _accepted_tree(root: Path, source: str = ACCEPTED_COMPLETED_PLAN):
+    root = root.resolve()
+    home = root / "home"
+    plan_root = home / ".shadow" / "plans" / "widget"
+    plan_root.mkdir(parents=True)
+    plan = install_plan_tree(plan_root, source.encode("utf-8"))
+    board.reconcile(
+        [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~cc33"]}],
+        [],
+        home=home,
+    )
+    entity = board.entity_state(plan, home=home)["entity"]["id"]
+    return home, plan, entity
+
+
+def _reconcile_accepted(home: Path, entity: str, root: str, *extra: str):
+    return subprocess.run(
+        [
+            str(ROOT / "bin" / "shadow"), "plan", "reconcile-accepted-proof",
+            "--entity", entity, "--row", "~aa11", "--by", "local-seat",
+            "--expect-root", root, "--apply", *extra,
+        ],
+        env={**os.environ, "HOME": str(home)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+class AcceptedProofReconciliationTests(unittest.TestCase):
+    def test_single_canonical_accept_receipt_rewrites_only_proof_and_appends_exact_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home, plan, entity = _accepted_tree(Path(tmp))
+            before = board.open_plan(plan).root_sha256
+            result = _reconcile_accepted(home, entity, before)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["schema"], "shadow.plan-reconcile-accepted-proof.v1")
+            self.assertEqual(payload["action"], "reconciled")
+            self.assertEqual(payload["entity"], entity)
+            self.assertEqual(payload["row"], "~aa11")
+            self.assertEqual(payload["previous_root"], before)
+            self.assertNotIn("true", result.stdout)
+            logical = board.read_plan_text(plan)
+            self.assertIn("[completed] prove local authority ~aa11 | proof: cmd true", logical)
+            self.assertIn("~aa11 PROOF true -> pass (accept)", logical)
+            reshape = [line for line in logical.splitlines() if "RESHAPE accepted-proof" in line]
+            self.assertEqual(len(reshape), 1)
+            provenance = json.loads(reshape[0].split("RESHAPE accepted-proof ", 1)[1])
+            self.assertEqual(
+                provenance,
+                {
+                    "accepted_at": "2026-08-11T00:00:00Z",
+                    "by": "local-seat",
+                    "new_proof": "cmd true",
+                    "old_proof": "cmd false",
+                    "repaired_at": provenance["repaired_at"],
+                    "type": "RESHAPE accepted-proof",
+                },
+            )
+            self.assertRegex(provenance["repaired_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+    def test_non_accept_history_is_allowed_but_equal_proof_is_replay(self) -> None:
+        source = ACCEPTED_COMPLETED_PLAN.replace(
+            "- 2026-08-11T00:01:00Z NOTE unrelated history remains live\n",
+            "- 2026-08-11T00:01:00Z ~aa11 PROOF true -> fail (accept)\n"
+            "- 2026-08-11T00:02:00Z NOTE unrelated history remains live\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            home, plan, entity = _accepted_tree(Path(tmp), source)
+            result = _reconcile_accepted(home, entity, board.open_plan(plan).root_sha256)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        replay_source = ACCEPTED_COMPLETED_PLAN.replace(
+            "proof: cmd false", "proof: cmd true"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            home, plan, entity = _accepted_tree(Path(tmp), replay_source)
+            before = board.open_plan(plan).root_sha256
+            result = _reconcile_accepted(home, entity, before)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("already matches", result.stderr)
+            self.assertEqual(board.open_plan(plan).root_sha256, before)
+
+    def test_unpartitioned_plan_is_ineligible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            plan = home / ".shadow" / "plans" / "widget" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(ACCEPTED_COMPLETED_PLAN, encoding="utf-8")
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~cc33"]}],
+                [], home=home,
+            )
+            entity = board.entity_state(plan, home=home)["entity"]["id"]
+            result = _reconcile_accepted(home, entity, board.open_plan(plan).root_sha256)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("partitioned", result.stderr)
+
+    def test_competing_root_after_validation_refuses_without_reshape(self) -> None:
+        spec = importlib.util.spec_from_file_location("shadow_plan_reconcile", ROOT / "scripts" / "shadow-plan.py")
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            home, plan, entity = _accepted_tree(Path(tmp))
+            expected = board.open_plan(plan).root_sha256
+            original_publish = plan_store.PlanTransaction.publish
+            injected = False
+
+            def compete(transaction, *args, **kwargs):
+                nonlocal injected
+                if not injected:
+                    injected = True
+                    competing = plan_store.PlanTransaction.begin(
+                        plan, expected_root=transaction.expected_root
+                    )
+                    competing.replace_content(
+                        competing.original_content.decode("utf-8")
+                        .replace("proof: cmd false", "proof: cmd false | needs: ~cc33")
+                        .encode("utf-8")
+                    )
+                    original_publish(competing)
+                return original_publish(transaction, *args, **kwargs)
+
+            with mock.patch.object(plan_store.PlanTransaction, "publish", compete):
+                with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                    with self.assertRaises(module.PlanStoreError):
+                        module._reconcile_accepted_proof(
+                            entity, "~aa11", "local-seat", expected, apply=True
+                        )
+            self.assertTrue(injected)
+            self.assertIn("needs: ~cc33", board.read_plan_text(plan))
+            self.assertNotIn("RESHAPE accepted-proof", board.read_plan_text(plan))
+
+    def test_zero_duplicate_or_malformed_accept_receipts_refuse_without_writes(self) -> None:
+        cases = (
+            ACCEPTED_COMPLETED_PLAN.replace("- 2026-08-11T00:00:00Z ~aa11 PROOF true -> pass (accept)\n", ""),
+            ACCEPTED_COMPLETED_PLAN.replace(
+                "- 2026-08-11T00:01:00Z NOTE unrelated history remains live\n",
+                "- 2026-08-11T00:00:00Z ~aa11 PROOF true -> pass (accept)\n"
+                "- 2026-08-11T00:01:00Z NOTE unrelated history remains live\n",
+            ),
+            ACCEPTED_COMPLETED_PLAN.replace(
+                "~aa11 PROOF true -> pass (accept)", "~aa11 PROOF true => pass (accept)"
+            ),
+        )
+        for source in cases:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                home, plan, entity = _accepted_tree(Path(tmp), source)
+                before = board.open_plan(plan).root_sha256
+                result = _reconcile_accepted(home, entity, before)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(board.open_plan(plan).root_sha256, before)
+                self.assertNotIn("RESHAPE accepted-proof", board.read_plan_text(plan))
+
+    def test_unparseable_or_noncanonical_receipt_argv_refuses_without_writes(self) -> None:
+        for proof in ('echo "unterminated', "echo  hi"):
+            with self.subTest(proof=proof), tempfile.TemporaryDirectory() as tmp:
+                source = ACCEPTED_COMPLETED_PLAN.replace(
+                    "~aa11 PROOF true -> pass (accept)",
+                    f"~aa11 PROOF {proof} -> pass (accept)",
+                )
+                home, plan, entity = _accepted_tree(Path(tmp), source)
+                before = board.open_plan(plan).root_sha256
+                result = _reconcile_accepted(home, entity, before)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(board.open_plan(plan).root_sha256, before)
+
+    def test_pending_completed_read_and_completed_gate_rows_are_ineligible(self) -> None:
+        cases = (
+            ACCEPTED_COMPLETED_PLAN.replace("[completed] prove", "[pending] prove"),
+            ACCEPTED_COMPLETED_PLAN.replace("proof: cmd false", "proof: read dashboard"),
+            ACCEPTED_COMPLETED_PLAN.replace("proof: cmd false", "proof: gate manual"),
+        )
+        for source in cases:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                home, plan, entity = _accepted_tree(Path(tmp), source)
+                before = board.open_plan(plan).root_sha256
+                result = _reconcile_accepted(home, entity, before)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(board.open_plan(plan).root_sha256, before)
+
+    def test_stale_root_after_state_receipt_or_needs_change_refuses_and_preserves_new_root(self) -> None:
+        for mutation in (
+            lambda text: text + "\n- 2026-08-11T00:02:00Z NOTE state changed\n",
+            lambda text: text.replace("proof: cmd false", "proof: cmd false | needs: ~cc33"),
+        ):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as tmp:
+                home, plan, entity = _accepted_tree(Path(tmp))
+                expected = board.open_plan(plan).root_sha256
+                transaction = __import__("shadow_plan_store").PlanTransaction.begin(
+                    plan, expected_root=expected
+                )
+                transaction.replace_content(
+                    mutation(transaction.original_content.decode("utf-8")).encode("utf-8")
+                ).publish()
+                competing = board.open_plan(plan).root_sha256
+                result = _reconcile_accepted(home, entity, expected)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(board.open_plan(plan).root_sha256, competing)
+                self.assertNotIn("RESHAPE accepted-proof", board.read_plan_text(plan))
+
+    def test_board_claims_resume_and_every_unrelated_plan_byte_remain_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home, plan, entity = _accepted_tree(Path(tmp))
+            board.claim(plan, "~cc33", "other-seat", project="widget", priority=2, home=home)
+            board_before = (home / ".shadow" / "board.json").read_bytes()
+            before_lines = board.read_plan_text(plan).splitlines()
+            root = board.open_plan(plan).root_sha256
+            result = _reconcile_accepted(home, entity, root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), board_before)
+            after_lines = board.read_plan_text(plan).splitlines()
+            self.assertEqual(
+                [line for line in after_lines if "RESHAPE accepted-proof" not in line],
+                [
+                    line.replace("proof: cmd false", "proof: cmd true")
+                    if "~aa11 | proof: cmd false" in line else line
+                    for line in before_lines
+                ],
+            )
+
+    def test_repaired_fixture_unblocks_local_plan_source_identity_while_accept_stays_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home, plan, entity = _accepted_tree(Path(tmp))
+            with self.assertRaisesRegex(
+                accepted_proof_accept.AcceptError,
+                "task proof no longer matches its canonical accept PROOF",
+            ):
+                accepted_proof_accept.local_plan_source_identity(
+                    board.read_plan_text(plan)
+                )
+            root = board.open_plan(plan).root_sha256
+            result = _reconcile_accepted(home, entity, root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("task proof no longer matches", result.stderr)
+            self.assertEqual(
+                accepted_proof_accept.local_plan_source_identity(
+                    board.read_plan_text(plan)
+                ),
+                "github.com/example/widget",
+            )
+            accepted = subprocess.run(
+                [str(ROOT / "bin" / "shadow"), "accept", "--entity", entity,
+                 "--row", "~aa11", "--by", "local-seat"],
+                env={**os.environ, "HOME": str(home)}, capture_output=True, text=True,
+                check=False,
+            )
+            self.assertNotEqual(accepted.returncode, 0)
+            self.assertIn("machine-local --entity accept also requires", accepted.stderr)
+
+    def test_path_shaped_historical_proofs_are_preserved_privately_but_never_run_or_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            sentinel = root / "historical-proof-ran"
+            receipt_proof = shlex.join(["touch", str(sentinel)])
+            old_proof = "cmd /Users/private/stale-proof"
+            source = ACCEPTED_COMPLETED_PLAN.replace(
+                "proof: cmd false", f"proof: {old_proof}"
+            ).replace(
+                "~aa11 PROOF true -> pass (accept)",
+                f"~aa11 PROOF {receipt_proof} -> pass (accept)",
+            )
+            home, plan, entity = _accepted_tree(root, source)
+            result = _reconcile_accepted(
+                home, entity, board.open_plan(plan).root_sha256
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(sentinel.exists())
+            self.assertNotIn(str(root), result.stdout + result.stderr)
+            self.assertNotIn("/Users/private", result.stdout + result.stderr)
+            logical = board.read_plan_text(plan)
+            self.assertIn(f"proof: cmd {receipt_proof}", logical)
+            reshape = next(
+                line for line in logical.splitlines()
+                if "RESHAPE accepted-proof" in line
+            )
+            provenance = json.loads(
+                reshape.split("RESHAPE accepted-proof ", 1)[1]
+            )
+            self.assertEqual(provenance["old_proof"], old_proof)
+            self.assertEqual(provenance["new_proof"], f"cmd {receipt_proof}")
+
+    def test_partitioned_plan_outside_machine_local_store_is_ineligible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home = root / "home"
+            repo = _origin_checkout(root)
+            (repo / "plans" / "widget").mkdir(parents=True)
+            plan = install_plan_tree(
+                repo / "plans" / "widget", ACCEPTED_COMPLETED_PLAN.encode("utf-8")
+            )
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2,
+                  "candidates": ["~cc33"]}],
+                [],
+                home=home,
+            )
+            entity = board.entity_state(plan, home=home)["entity"]["id"]
+            result = _reconcile_accepted(
+                home, entity, board.open_plan(plan).root_sha256
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("machine-local plans only", result.stderr)
 
 
 class AmendRewritesAClaimedRowOnAPlanTree(unittest.TestCase):
