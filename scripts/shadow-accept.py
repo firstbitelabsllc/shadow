@@ -484,6 +484,13 @@ def canonical_source_identity(identity: str) -> str:
         raise AcceptError("SOURCE identity is not one public normalized identity") from exc
 
 
+def source_lines_for_row(plan_text: str, row_id: str) -> list[str]:
+    prefix = re.compile(
+        rf"^- \d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z {re.escape(row_id)} SOURCE "
+    )
+    return [line for line in _board.section_lines(plan_text, "Progress") if prefix.match(line)]
+
+
 def local_source_receipt(
     plan_text: str,
     row_id: str,
@@ -491,9 +498,7 @@ def local_source_receipt(
 ) -> tuple[str, str]:
     """Return the one source identity and commit bound to a local completion."""
     receipts: list[tuple[str, str, str]] = []
-    for line in _board.section_lines(plan_text, "Progress"):
-        if f" {row_id} SOURCE " not in line:
-            continue
+    for line in source_lines_for_row(plan_text, row_id):
         match = SOURCE_RECEIPT_RE.fullmatch(line)
         if match is None:
             raise AcceptError(
@@ -599,16 +604,27 @@ def local_plan_source_identity(plan_text: str) -> str | None:
             raise AcceptError(
                 f"{row_id} task proof no longer matches its canonical accept PROOF"
             )
-        source_lines = [
-            line
-            for line in _board.section_lines(plan_text, "Progress")
-            if f" {row_id} SOURCE " in line
-        ]
+        source_lines = source_lines_for_row(plan_text, row_id)
+        proof_stamps = _receipt_stamps(plan_text, row_id, argv)
         if not source_lines and accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER:
-            if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
+            if proof_stamps != [accepted_at]:
                 raise AcceptError(
                     f"{row_id} has no single canonical legacy accept PROOF"
                 )
+            continue
+        legacy_note = re.compile(
+            rf"- (?P<ts>\d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z) "
+            rf"{re.escape(row_id)} SOURCE (?!.* HEAD ).+ -> .+"
+        )
+        legacy_notes = [legacy_note.fullmatch(line) for line in source_lines]
+        if (
+            accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER
+            and declared is not None
+            and source_lines
+            and all(legacy_notes)
+            and max(note.group("ts") for note in legacy_notes) <= min(proof_stamps)
+            and max(proof_stamps) < LOCAL_SOURCE_RECEIPT_CUTOVER
+        ):
             continue
         source_identity, _ = local_source_receipt(
             plan_text,

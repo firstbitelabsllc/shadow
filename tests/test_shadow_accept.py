@@ -534,12 +534,27 @@ class ShadowAcceptTests(unittest.TestCase):
             ["true"],
             legacy_stamp,
         )
+        legacy_incidental_source = accept.append_progress_line(
+            legacy_only,
+            "- 2026-08-28T04:20:00Z ~ef56 ATTRIBUTION / "
+            "~cd90 SOURCE -> note\n",
+        )
         legacy = accept.completed_plan_text(
             valid,
             "~cd90",
             ["true"],
             legacy_stamp,
         )
+        legacy_prose_source = legacy
+        for line in (
+            "- 2026-08-28T04:19:00Z ~ef56 ATTRIBUTION / ~cd90 SOURCE -> note\n",
+            "- 2026-08-28T04:20:00Z ~cd90 SOURCE first handoff -> notes\n",
+            "- 2026-08-28T04:21:00Z ~cd90 SOURCE follow-up -> notes\n",
+            "- 2026-08-28T04:25:00Z ~cd90 PROOF true -> pass (accept)\n",
+        ):
+            legacy_prose_source = accept.append_progress_line(
+                legacy_prose_source, line
+            )
         legacy_proof_changed = legacy.replace(
             "~cd90 | proof: cmd true",
             "~cd90 | proof: cmd false",
@@ -566,6 +581,11 @@ class ShadowAcceptTests(unittest.TestCase):
             "~ij90",
             ["true"],
             cutover_stamp,
+        )
+        cutover_prose_source = accept.append_progress_line(
+            cutover_missing,
+            f"- {cutover_stamp} ~ij90 SOURCE old local handoff text "
+            "-> pre-cutover proof notes\n",
         )
         archived = (
             "\n".join(
@@ -611,6 +631,10 @@ class ShadowAcceptTests(unittest.TestCase):
                 accept.local_plan_source_identity(legacy),
                 source_a,
             )
+            self.assertEqual(
+                accept.local_plan_source_identity(legacy_prose_source),
+                source_a,
+            )
 
         with self.subTest(name="judgment acceptance does not bind source"):
             self.assertEqual(
@@ -636,6 +660,23 @@ class ShadowAcceptTests(unittest.TestCase):
             ):
                 accept.bind_local_plan_to_proof_repo(
                     orphaned_legacy_receipt,
+                    Path("/unused"),
+                )
+
+        with self.subTest(name="incidental legacy source cannot bind"):
+            self.assertIsNone(
+                accept.local_plan_source_identity(legacy_incidental_source),
+            )
+            with mock.patch.object(
+                accept,
+                "public_source_identity",
+                return_value=source_a,
+            ), self.assertRaisesRegex(
+                accept.AcceptError,
+                r"the local plan has no Origin",
+            ):
+                accept.bind_local_plan_to_proof_repo(
+                    legacy_incidental_source,
                     Path("/unused"),
                 )
 
@@ -669,6 +710,16 @@ class ShadowAcceptTests(unittest.TestCase):
                 "exact cutover missing",
                 cutover_missing,
                 r"~ij90 has 0 canonical SOURCE receipts",
+            ),
+            (
+                "exact cutover prose",
+                cutover_prose_source,
+                r"~ij90 has a malformed SOURCE receipt",
+            ),
+            (
+                "legacy prose without declared Origin",
+                legacy_prose_source.replace(f"- Origin: {source_a}\n", ""),
+                r"~cd90 has a malformed SOURCE receipt",
             ),
             (
                 "conflicting",
