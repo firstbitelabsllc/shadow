@@ -251,6 +251,40 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
                 [("~bb22", "seat-a")],
             )
 
+    def test_blocked_row_with_changed_returned_wake_still_refuses(self) -> None:
+        # Regression pin: the wake guard is additive. A [blocked] row stays
+        # unclaimable even when its wake changed since the last BLOCKED return
+        # and everything else about it (proof, needs) would admit a claim.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8")
+                .replace(
+                    "- [pending] the ready row ~bb22 | proof: cmd true",
+                    "- [blocked] the ready row ~bb22 | proof: cmd true "
+                    "| wake: Leo selected the split",
+                )
+                .replace(
+                    "## Progress",
+                    "## Deferred\n\n"
+                    "- ~bb22 waits on Leo | wake: Leo selected the split\n\n"
+                    "## Progress\n\n"
+                    "- 2026-09-02T00:00:00Z ~bb22 BLOCKED returned "
+                    "| wake: no Leo selection exists",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "block row"], check=True)
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("is [blocked], not claimable", result.stderr)
+            board = home / ".shadow" / "board.json"
+            if board.exists():
+                self.assertEqual(json.loads(board.read_text())["claims"], [])
+
     def test_pending_row_without_wake_is_claimable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))
