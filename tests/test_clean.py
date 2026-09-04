@@ -143,6 +143,28 @@ class CleanPreviewTests(unittest.TestCase):
         self.assertNotIn(str(destination), result.stdout)
         self.assertNotIn("receipt_path", public)
 
+    def test_prepare_cli_exposes_only_opaque_manifest_metadata(self):
+        destination = self.repo.parent / "managed-prepare"
+        create = subprocess.run(
+            [str(CLI), "clean", "--create", "--repo", str(self.repo), "--worktree", str(destination),
+             "--entity", self.entity, "--row", "~aa11", "--by", "seat-a", "--landed-ref", "refs/heads/master", "--json"],
+            env={**os.environ, "HOME": str(self.home)}, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(create.returncode, 0, create.stderr)
+        result = subprocess.run(
+            [str(CLI), "clean", "--prepare", "--worktree", str(destination), "--json"],
+            env={**os.environ, "HOME": str(self.home)}, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        public = json.loads(result.stdout)
+        self.assertEqual(public["state"], "prepared")
+        self.assertTrue(public["id"].startswith("manifest@"))
+        self.assertTrue(public["worktree_id"].startswith("worktree@"))
+        self.assertNotIn(str(destination), result.stdout)
+        self.assertNotIn("receipt", result.stdout)
+        self.assertNotIn("journal", result.stdout)
+        self.assertNotIn("manifest_path", result.stdout)
+
     def test_interrupted_issuance_can_only_resume_matching_pending_nonce(self):
         destination = self.repo.parent / "managed"
         pending = self.clean.prepare_creation(
@@ -161,6 +183,30 @@ class CleanPreviewTests(unittest.TestCase):
         issued = self.clean.finish_creation(pending["nonce"], home=self.home, destination=destination)
         self.assertEqual(issued["state"], "issued")
         self.assertTrue((self.home / ".shadow" / "clean" / "receipts").exists())
+
+    def test_cli_retries_after_post_add_interruption_without_touching_child(self):
+        destination = self.repo.parent / "managed-retry"
+        pending = self.clean.prepare_creation(
+            self.repo,
+            destination,
+            entity=self.entity,
+            checkpoint="~aa11",
+            seat="seat-a",
+            ref="HEAD",
+            landed_ref="refs/heads/master",
+            home=self.home,
+        )
+        git(self.repo, "worktree", "add", "-q", str(destination), "HEAD")
+        child_stat = destination.stat()
+        result = subprocess.run(
+            [str(CLI), "clean", "--create", "--repo", str(self.repo), "--worktree", str(destination),
+             "--entity", self.entity, "--row", "~aa11", "--by", "seat-a", "--landed-ref", "refs/heads/master", "--json"],
+            env={**os.environ, "HOME": str(self.home)}, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["state"], "issued")
+        self.assertEqual(destination.stat().st_ino, child_stat.st_ino)
+        self.assertEqual(pending["state"], "pending")
 
     def test_standalone_receipt_and_preexisting_worktree_are_not_candidates(self):
         preexisting = self.repo.parent / "old"
@@ -187,9 +233,63 @@ class CleanPreviewTests(unittest.TestCase):
         prepared = self.clean.prepare_manifest(
             {"worktree": {"path": "/tmp/managed", "head": "a" * 40}, "entity": self.entity, "checkpoint": "~aa11", "landed_ref": "refs/heads/master", "creation_receipt": "b" * 64, "issuance_journal": "c" * 64},
             home=self.home,
-            now="2026-09-03T00:00:00Z",
         )
-        self.assertTrue(Path(prepared["manifest_path"]).is_relative_to((self.home / ".shadow" / "clean" / "manifests").resolve()))
+        self.assertEqual(prepared["schema"], "shadow.clean-manifest.v1")
+        self.assertEqual(prepared["state"], "prepared")
+        self.assertTrue(prepared["id"].startswith("manifest@"))
+        self.assertTrue(prepared["worktree_id"].startswith("worktree@"))
+        self.assertNotIn("manifest_path", prepared)
+        self.assertNotIn("manifest", prepared)
+        self.assertNotIn("target", prepared)
+        self.assertNotIn("creation_receipt", prepared)
+        self.assertNotIn("issuance_journal", prepared)
+        self.assertNotIn("head", json.dumps(prepared))
+        manifest, digest, manifest_path = self.clean.resolve_manifest(prepared["id"], home=self.home)
+        self.assertEqual(prepared["cas"], digest)
+        self.assertEqual(manifest["schema"], "shadow.clean-manifest.v1")
+        self.assertTrue(manifest_path.is_relative_to((self.home / ".shadow" / "clean" / "manifests").resolve()))
+
+    def test_expired_claim_is_rejected_before_pending_write(self):
+        board_path = self.home / ".shadow" / board.BOARD_NAME
+        payload = board.snapshot(home=self.home)
+        self.assertIsNotNone(payload)
+        payload["claims"][0]["claimed_at"] = "1999-01-01T00:00:00Z"
+        payload["claims"][0]["return_by"] = "2000-01-01T00:00:00Z"
+        board_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        os.chmod(board_path, 0o600)
+        with self.assertRaisesRegex(self.clean.CleanError, "expired"):
+            self.clean.create_managed_worktree(
+                self.repo, self.repo.parent / "stale", entity=self.entity,
+                checkpoint="~aa11", seat="seat-a", landed_ref="refs/heads/master", home=self.home,
+            )
+        self.assertFalse((self.home / ".shadow" / "clean" / "journals").exists())
+
+    def test_preview_rejects_receipt_and_journal_with_relaxed_modes(self):
+        destination = self.repo.parent / "managed-mode"
+        created = self.clean.create_managed_worktree(
+            self.repo, destination, entity=self.entity, checkpoint="~aa11", seat="seat-a",
+            landed_ref="refs/heads/master", home=self.home,
+        )
+        receipt_path = Path(created["receipt_path"])
+        journal_path = next((self.home / ".shadow" / "clean" / "journals").glob("*.json"))
+        os.chmod(receipt_path, 0o644)
+        self.assertEqual(self.clean.preview(home=self.home)["candidates"], [])
+        os.chmod(receipt_path, 0o600)
+        os.chmod(journal_path, 0o644)
+        self.assertEqual(self.clean.preview(home=self.home)["candidates"], [])
+
+    def test_manifest_read_rejects_relaxed_mode(self):
+        prepared = self.clean.prepare_manifest(
+            {"worktree": {"path": "/tmp/managed", "head": "a" * 40}, "entity": self.entity,
+             "checkpoint": "~aa11", "landed_ref": "refs/heads/master",
+             "creation_receipt": "b" * 64, "issuance_journal": "c" * 64},
+            home=self.home, now="2026-09-03T00:00:00Z",
+        )
+        manifest_path = next((self.home / ".shadow" / "clean" / "manifests").glob("*.json"))
+        self.assertTrue(prepared["id"].startswith("manifest@"))
+        os.chmod(manifest_path, 0o644)
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._load_manifest(manifest_path, home=self.home)
 
     def test_expired_manifest_and_changed_manifest_refuse(self):
         payload = {
