@@ -278,6 +278,8 @@ class BrowserTests(unittest.TestCase):
 - Project: rotation
 - Mode: ship
 - Priority: 2
+  - outcome: stale outcome
+-   Next: stale next
 
 ## Tasks
 
@@ -287,7 +289,7 @@ class BrowserTests(unittest.TestCase):
 
 ### M1 — groundwork waits
 - [completed] groundwork landed ~aa11 | proof: cmd true
-- [pending] dependent work ~bb22 | proof: cmd true | needs: ~cc33
+- [in_progress] dependent work ~bb22 | proof: cmd true | needs: ~cc33
 - [pending] groundwork closes ~bb23 (DoD) | proof: read x -> y | needs: ~bb22
 
 ### M2 — release is moving
@@ -339,10 +341,16 @@ class BrowserTests(unittest.TestCase):
             for milestone in milestones
             for checkpoint in milestone["checkpoints"]
         }
-        self.assertEqual(checkpoints["~bb22"]["availability"], "waiting")
+        self.assertEqual(checkpoints["~bb22"]["availability"], "reachable")
         self.assertEqual(checkpoints["~cc33"]["availability"], "claimed")
         self.assertEqual(checkpoints["~cc33"]["owners"], ["seat-a"])
         self.assertEqual(checkpoints["~dd44"]["availability"], "blocked")
+        board = records[0]["board"]
+        self.assertEqual(board["outcome"], "release is moving")
+        self.assertEqual(board["now"], "Work is in progress.")
+        self.assertEqual(board["risk"], "1 item in the active milestone is blocked.")
+        self.assertEqual(board["decision"], "No decision needed right now.")
+        self.assertEqual(board["milestone"]["current"], "live release work")
 
     def test_symlinked_canonical_plan_cannot_import_external_milestones(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

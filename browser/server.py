@@ -243,6 +243,21 @@ def _rotation_text(value: str, fallback: str, limit: int = 220) -> str:
     return clean
 
 
+def _claimed_board(text: str, row_id: str) -> dict[str, Any]:
+    def activate(match: re.Match) -> str:
+        state = "in_progress" if match["id"] == row_id else match["state"].replace("in_progress", "pending")
+        return match.group().replace(f"[{match['state']}]", f"[{state}]", 1)
+    text = re.sub(
+        r"(?ims)^## Brief\b.*?(?=^## |\Z)",
+        lambda match: re.sub(
+            r"(?mi)^[ \t]*[-*][ \t]*(?:Milestone|Outcome|Next|Risk|Decision)[ \t]*:[^\n]*\n?",
+            "", match.group(),
+        ),
+        text,
+    )
+    return project_board_brief(re.sub(shadow_amp.ROW_RE.pattern, activate, text, flags=re.MULTILINE))
+
+
 def _milestone_rotation(
     parsed: dict,
     resume_id: str | None,
@@ -365,20 +380,11 @@ def _board_plan_record(
             ),
             None,
         )
-        record["board"]["state"] = "working"
         record["owner"] = active["owner"]
         if located is not None:
-            milestone, row = located
-            shown = record["board"].get("milestone") or {
-                "title": milestone["title"],
-                "counts": {state: 0 for state in CHECKPOINT_STATES},
-                "current": None,
-                "next": None,
-                "dod": None,
-            }
-            shown["title"] = milestone["title"]
-            shown["current"] = row["text"]
-            record["board"]["milestone"] = shown
+            record["board"] = _claimed_board(text, active["row"])
+            record["board"]["outcome"] = (record["board"]["milestone"] or {})["title"]
+            record["board"]["priority"] = str(priorities[entity["project"]])
     if parsed is not None:
         row_ids = {
             row["id"]
