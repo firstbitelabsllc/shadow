@@ -1779,7 +1779,8 @@ def _registration_lock_state(source: Path, target: Path, worktree_id: str, manif
 
 def _authenticate_restore_registration(
     receipt: dict[str, Any], source: Path, target: Path, worktree_id: str, home: Path,
-) -> None:
+    *, require_lock: bool = True,
+) -> bool:
     """Rebind source and target Git identities at the unlock boundary."""
     authenticated = [
         (created, journal) for created, journal in _valid_records(home)
@@ -1797,8 +1798,10 @@ def _authenticate_restore_registration(
     source_common = Path(_git(source, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()).resolve()
     if source_common != common:
         raise CleanError("restore Git common directory changed")
-    if not _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"]):
+    locked = _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"])
+    if require_lock and not locked:
         raise CleanError("worktree is not locked by this retirement")
+    return locked
 
 
 def _load_restore_journal(path: Path, *, worktree_id: str, receipt: dict[str, Any]) -> dict[str, Any]:
@@ -1874,10 +1877,25 @@ def restore_apply(
             if restore_journal["state"] == "moved":
                 _replace(journal_path, {**restore_journal, "state": "unlocking"})
                 restore_journal = {**restore_journal, "state": "unlocking"}
-            _authenticate_restore_registration(receipt, source, target, worktree_id, private_home)
-            _git(source, "worktree", "unlock", "--", str(target))
-            if restore_journal["state"] != "unlocked":
+            if restore_journal["state"] == "unlocking":
+                # Unlocking is a durable handoff point.  A crash can leave
+                # either side committed, so authenticate the registration
+                # without demanding a lock and unlock only when the exact
+                # transaction-bound lock is still present.
+                locked = _authenticate_restore_registration(
+                    receipt, source, target, worktree_id, private_home, require_lock=False,
+                )
+                if locked:
+                    _git(source, "worktree", "unlock", "--", str(target))
                 _replace(journal_path, {**restore_journal, "state": "unlocked"})
+                restore_journal = {**restore_journal, "state": "unlocked"}
+            else:
+                # An unlocked journal proves that the unlock already crossed
+                # its mutation boundary.  Rebind the restored registration
+                # but never issue a speculative second unlock.
+                _authenticate_restore_registration(
+                    receipt, source, target, worktree_id, private_home, require_lock=False,
+                )
             _crash_point("restore_after_unlock", crash_at)
             restored = {**receipt, "state": "restored", "restored_at": _stamp(datetime.now(timezone.utc))}
             restored["receipt_sha256"] = canonical_sha256({key: item for key, item in restored.items() if key != "receipt_sha256"})
@@ -1920,6 +1938,7 @@ def restore_apply(
         _crash_point("restore_after_rename", crash_at)
         restore_journal = {**restore_journal, "state": "unlocking"}
         _replace(journal_path, restore_journal)
+        _crash_point("restore_after_unlocking", crash_at)
         _authenticate_restore_registration(receipt, source, target, worktree_id, private_home)
         _git(source, "worktree", "unlock", "--", str(target))
         restore_journal = {**restore_journal, "state": "unlocked"}

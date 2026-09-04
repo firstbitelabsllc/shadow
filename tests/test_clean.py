@@ -1034,6 +1034,39 @@ class CleanApplyTests(unittest.TestCase):
         self.assertEqual(restored["action"], "restored")
         self.assertTrue(destination.is_dir())
 
+    def test_restore_retry_from_unlocking_unlocks_once(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        applied = self.clean.apply_manifest(
+            manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a",
+        )
+        preview = self.clean.restore_preview(applied["receipt"], home=self.home, trash_root=trash)
+        with self.assertRaisesRegex(self.clean.CleanError, "simulated crash"):
+            self.clean.restore_apply(
+                applied["receipt"], expected=preview["cas"], home=self.home,
+                trash_root=trash, crash_at="restore_after_unlocking",
+            )
+        unlocks = []
+        original_git = self.clean._git
+
+        def traced_git(repo, *args):
+            if args[:2] == ("worktree", "unlock"):
+                unlocks.append(1)
+            return original_git(repo, *args)
+
+        with mock.patch.object(self.clean, "_git", side_effect=traced_git):
+            restored = self.clean.restore_apply(
+                applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash,
+            )
+            again = self.clean.restore_apply(
+                applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash,
+            )
+        self.assertEqual(restored["action"], "restored")
+        self.assertEqual(again["action"], "already_restored")
+        self.assertEqual(unlocks, [1])
+        self.assertTrue(destination.is_dir())
+
     def test_restore_receipt_crash_retires_unlocked_journal_on_retry(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
         trash = Path(self.tmp.name) / "Trash"
