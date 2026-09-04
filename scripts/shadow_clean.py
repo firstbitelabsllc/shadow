@@ -68,6 +68,8 @@ def _public_reason(value: str) -> str:
         "registration changed", "symlink", "Trash artifact",
         "Trash destination", "worktree lock", "already locked", "registration",
         "restore artifact", "restore journal", "original path", "same device",
+        "source race", "private cleanup", "private restore", "payload changed",
+        "content changed", "recovery required",
     )
     for marker in known:
         if marker in value:
@@ -1202,6 +1204,54 @@ def _atomic_move_noreplace(
             os.close(newfd)
 
 
+def _private_stage_path(parent: Path, worktree_id: str, digest: str) -> Path:
+    return parent / f".shadow-clean-{worktree_id[len('worktree@'):]}-{digest[:12]}" / "payload"
+
+
+def _create_private_stage(parent: Path, worktree_id: str, digest: str) -> Path:
+    """Create an exclusive mode-0700 transaction directory and payload path."""
+    stage_dir = _private_stage_path(parent, worktree_id, digest).parent
+    try:
+        stage_dir.mkdir(mode=0o700)
+        os.chmod(stage_dir, 0o700)
+        metadata = stage_dir.lstat()
+    except FileExistsError as exc:
+        raise CleanError("private cleanup transaction already exists") from exc
+    except OSError as exc:
+        raise CleanError("private cleanup transaction could not be created") from exc
+    if stage_dir.is_symlink() or not stat.S_ISDIR(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise CleanError("private cleanup transaction is unsafe")
+    return stage_dir / "payload"
+
+
+def _remove_empty_private_stage(payload: Path) -> None:
+    """Retire only an empty private transaction directory."""
+    stage_dir = payload.parent
+    try:
+        if payload.exists() or payload.is_symlink():
+            return
+        if stage_dir.is_symlink() or not stage_dir.is_dir():
+            return
+        stage_dir.rmdir()
+    except OSError:
+        # An orphaned empty stage is harmless and remains recoverable; never
+        # recursively remove a transaction directory.
+        return
+
+
+def _validate_private_stage_path(payload: Path, parent: Path, worktree_id: str, digest: str) -> None:
+    """Require the journaled payload to be the deterministic private stage."""
+    if payload != _private_stage_path(parent, worktree_id, digest):
+        raise CleanError("private cleanup transaction lineage changed")
+    stage_dir = payload.parent
+    try:
+        metadata = stage_dir.lstat()
+    except OSError as exc:
+        raise CleanError("private cleanup transaction is unavailable") from exc
+    if stage_dir.is_symlink() or not stat.S_ISDIR(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise CleanError("private cleanup transaction is unsafe")
+
+
 def _read_git_lock(path: Path) -> str:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     descriptor = -1
@@ -1280,6 +1330,7 @@ def _rollback_apply_lock(info: dict[str, Any], worktree_id: str, manifest_digest
             except CleanError:
                 return
             journal_path.unlink(missing_ok=True)
+            _remove_empty_private_stage(Path(journal.get("private_stage", "")))
 
 
 def _final_apply_check(info: dict[str, Any], *, worktree_id: str, manifest_digest: str, journal_path: Path) -> None:
@@ -1313,6 +1364,8 @@ def _final_apply_check(info: dict[str, Any], *, worktree_id: str, manifest_diges
 
 
 def _post_move_check(info: dict[str, Any], destination: Path, *, worktree_id: str, manifest_digest: str) -> None:
+    if info["target"].exists() or info["target"].is_symlink():
+        raise CleanError("source race recreated the original worktree")
     metadata = destination.lstat()
     if (metadata.st_dev, metadata.st_ino) != (info["metadata"].st_dev, info["metadata"].st_ino):
         raise CleanError("Trash artifact changed after move")
@@ -1324,6 +1377,44 @@ def _post_move_check(info: dict[str, Any], destination: Path, *, worktree_id: st
     _process_holds(destination)
     if not _registration_lock_state(info["source"], info["target"], worktree_id, manifest_digest):
         raise CleanError("Trash worktree is not locked by this retirement")
+
+
+def _post_stage_check(info: dict[str, Any], stage: Path) -> os.stat_result:
+    """Validate the first-hop payload before sending it to public Trash."""
+    metadata = stage.lstat()
+    if (metadata.st_dev, metadata.st_ino) != (info["metadata"].st_dev, info["metadata"].st_ino):
+        raise CleanError("private cleanup payload changed")
+    head = _git(stage, "rev-parse", "HEAD").stdout.strip()
+    _status, status_sha = _status_snapshot(stage)
+    tree_sha = _tree_snapshot(stage)
+    if head != info["head"] or status_sha != info["status_sha256"] or tree_sha != info["tree_sha256"]:
+        raise CleanError("private cleanup payload changed")
+    _process_holds(stage)
+    if info["target"].exists() or info["target"].is_symlink():
+        raise CleanError("source race recreated the original worktree")
+    return metadata
+
+
+def _flag_trash_recovery(journal_path: Path, journal: dict[str, Any], reason: str) -> None:
+    """Persist a recoverable source-race marker without issuing a receipt."""
+    marked = {**journal, "source_race": True, "recovery_required": True}
+    try:
+        _replace(journal_path, marked)
+    except CleanError:
+        # The original operation is already refusing; leave its last durable
+        # journal state in place rather than risking a partial replacement.
+        pass
+
+
+def _flag_restore_recovery(journal_path: Path, journal: dict[str, Any], *, state: str | None = None) -> None:
+    """Persist restore source-race state without unlocking or receipt."""
+    marked = {**journal, "source_race": True, "recovery_required": True}
+    if state is not None:
+        marked["state"] = state
+    try:
+        _replace(journal_path, marked)
+    except CleanError:
+        pass
 
 
 def _receipt_path_for_id(worktree_id: str, home: Path) -> Path:
@@ -1383,11 +1474,15 @@ def _load_trash_journal(path: Path, *, digest: str, worktree_id: str) -> dict[st
         value = json.loads(_read(path))
     except (CleanError, OSError, json.JSONDecodeError) as exc:
         raise CleanError("Trash journal is malformed") from exc
-    required = {"schema", "state", "manifest_sha256", "worktree_id", "target", "trash", "device", "inode", "mode", "mtime_ns", "ctime_ns", "cas", "source_repo", "plan", "head", "tree_sha256", "status_sha256", "listing_without_lock_sha256", "creation_receipt", "issuance_journal", "common_dir", "admin_dir", "lock_reason"}
+    required = {"schema", "state", "manifest_sha256", "worktree_id", "target", "trash", "private_stage", "source_race", "recovery_required", "device", "inode", "mode", "mtime_ns", "ctime_ns", "cas", "source_repo", "plan", "head", "tree_sha256", "status_sha256", "listing_without_lock_sha256", "creation_receipt", "issuance_journal", "common_dir", "admin_dir", "lock_reason"}
     if not isinstance(value, dict) or set(value) != required:
         raise CleanError("Trash journal is malformed")
     if value["schema"] != TRASH_JOURNAL_SCHEMA or value["manifest_sha256"] != digest or value["worktree_id"] != worktree_id:
         raise CleanError("Trash journal does not match this manifest")
+    if Path(value["private_stage"]) != _private_stage_path(Path(value["target"]).parent, worktree_id, digest):
+        raise CleanError("Trash journal private stage lineage changed")
+    if not isinstance(value["source_race"], bool) or not isinstance(value["recovery_required"], bool):
+        raise CleanError("Trash journal recovery state is malformed")
     if value["lock_reason"] != _lock_reason(worktree_id, digest) or worktree_id != f"worktree@{value['creation_receipt'][:12]}":
         raise CleanError("Trash journal lock binding changed")
     if value["state"] not in {"prepared", "moved"}:
@@ -1473,6 +1568,7 @@ def apply_manifest(
             existing_journal = _load_trash_journal(journal_path, digest=digest, worktree_id=worktree_id)
         if existing_journal is not None and existing_journal["state"] == "moved":
             destination = Path(existing_journal["trash"])
+            private_stage = Path(existing_journal["private_stage"])
             if not destination.is_dir() or destination.is_symlink():
                 raise CleanError("Trash artifact is missing or unsafe")
             moved_stat = destination.lstat()
@@ -1496,9 +1592,31 @@ def apply_manifest(
             existing_journal is not None
             and existing_journal["state"] == "prepared"
             and not Path(existing_journal["target"]).exists()
+            and Path(existing_journal["private_stage"]).is_dir()
+            and not Path(existing_journal["trash"]).exists()
+        ):
+            private_stage = Path(existing_journal["private_stage"])
+            destination = Path(existing_journal["trash"])
+            staged_stat = private_stage.lstat()
+            if (staged_stat.st_dev, staged_stat.st_ino) != (receipt["worktree"]["device"], receipt["worktree"]["inode"]):
+                raise CleanError("private cleanup payload changed")
+            info = {
+                "target": Path(existing_journal["target"]), "source": Path(existing_journal["source_repo"]),
+                "metadata": staged_stat, "head": existing_journal["head"],
+                "status_sha256": existing_journal["status_sha256"], "listing_sha256": "",
+                "listing_without_lock_sha256": existing_journal["listing_without_lock_sha256"],
+                "tree_sha256": existing_journal["tree_sha256"], "common_dir": Path(receipt["git"]["common_dir"]),
+                "admin_dir": Path(receipt["git"]["admin_dir"]),
+            }
+            _worktree_lock(info, worktree_id, digest)
+        elif (
+            existing_journal is not None
+            and existing_journal["state"] == "prepared"
+            and not Path(existing_journal["target"]).exists()
             and Path(existing_journal["trash"]).is_dir()
         ):
             destination = Path(existing_journal["trash"])
+            private_stage = Path(existing_journal["private_stage"])
             moved_stat = destination.lstat()
             if (moved_stat.st_dev, moved_stat.st_ino) != (receipt["worktree"]["device"], receipt["worktree"]["inode"]):
                 raise CleanError("Trash artifact changed after retirement")
@@ -1533,6 +1651,7 @@ def apply_manifest(
                     "st_ctime_ns": existing_journal["ctime_ns"],
                 },
             }
+            private_stage = Path(existing_journal["private_stage"])
             _worktree_lock(info, worktree_id, digest)
         else:
             info = _target_snapshot(value, receipt, issuance, private_home)
@@ -1552,6 +1671,15 @@ def apply_manifest(
         )
         if (existing_journal is None or existing_journal["state"] == "prepared") and not recovered_move and (destination.exists() or destination.is_symlink()):
             raise CleanError("Trash destination already exists")
+        if existing_journal is None:
+            private_stage = _create_private_stage(info["target"].parent, worktree_id, digest)
+        elif existing_journal["state"] == "prepared":
+            if private_stage.parent.exists():
+                _validate_private_stage_path(private_stage, info["target"].parent, worktree_id, digest)
+            elif not (destination.is_dir() and not info["target"].exists()):
+                raise CleanError("private cleanup transaction is unavailable")
+        elif private_stage.parent.exists():
+            _validate_private_stage_path(private_stage, info["target"].parent, worktree_id, digest)
         journal = {
             "schema": TRASH_JOURNAL_SCHEMA,
             "state": "prepared",
@@ -1559,6 +1687,9 @@ def apply_manifest(
             "worktree_id": worktree_id,
             "target": str(info["target"]),
             "trash": str(destination),
+            "private_stage": str(private_stage),
+            "source_race": False,
+            "recovery_required": False,
             "device": info["metadata"].st_dev,
             "inode": info["metadata"].st_ino,
             "mode": info["metadata"].st_mode,
@@ -1577,6 +1708,8 @@ def apply_manifest(
             "admin_dir": str(info["admin_dir"]),
             "lock_reason": _lock_reason(worktree_id, digest),
         }
+        if existing_journal is not None:
+            journal = {**existing_journal, "private_stage": str(private_stage)}
         if existing_journal is None:
             _exclusive(journal_path, journal)
             _crash_point("after_journal", crash_at)
@@ -1604,62 +1737,64 @@ def apply_manifest(
                 raise CleanError("manifest expired")
         if info["target"].exists():
             _final_apply_check(info, worktree_id=worktree_id, manifest_digest=digest, journal_path=journal_path)
+            if not private_stage.exists():
+                try:
+                    _atomic_move_noreplace(
+                        info["target"], private_stage,
+                        expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
+                    )
+                except CleanError as exc:
+                    _flag_trash_recovery(journal_path, journal, str(exc))
+                    raise
+                _crash_point("after_private_stage", crash_at)
             try:
+                staged = _post_stage_check(info, private_stage)
                 _atomic_move_noreplace(
-                    info["target"], destination,
-                    expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
+                    private_stage, destination,
+                    expected_source=(staged.st_dev, staged.st_ino),
                 )
-            except CleanMoveCommittedError:
-                # The directory rename already committed. Keep the prepared
-                # journal and exact lock so retry can authenticate the Trash
-                # inode and finish, rather than attempting a second move.
-                raise
-            except CleanError:
-                _rollback_apply_lock(info, worktree_id, digest, journal_path)
+            except (CleanError, CleanMoveCommittedError) as exc:
+                _flag_trash_recovery(journal_path, journal, str(exc))
                 raise
             _fsync_directory(info["target"].parent)
             _fsync_directory(trash)
             try:
                 _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
-            except CleanError:
-                try:
-                    _atomic_move_noreplace(
-                        destination, info["target"],
-                        expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
-                    )
-                    _fsync_directory(info["target"].parent)
-                    _git(info["source"], "worktree", "unlock", "--", str(info["target"]))
-                    journal_path.unlink(missing_ok=True)
-                except CleanError:
-                    raise
+            except CleanError as exc:
+                # Apply mismatches retain the locked Trash artifact and the
+                # authenticated journal. Never unlock a potentially raced
+                # source or issue a success receipt.
+                _flag_trash_recovery(journal_path, journal, str(exc))
                 raise
+            _remove_empty_private_stage(private_stage)
             _crash_point("after_rename_before_journal", crash_at)
+        elif private_stage.is_dir() and not destination.exists():
+            # The first hop committed before a crash or collision. Validate
+            # the private payload, then perform only the remaining hop.
+            try:
+                staged = _post_stage_check(info, private_stage)
+                _atomic_move_noreplace(
+                    private_stage, destination,
+                    expected_source=(staged.st_dev, staged.st_ino),
+                )
+                _fsync_directory(info["target"].parent)
+                _fsync_directory(trash)
+                _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
+            except (CleanError, CleanMoveCommittedError) as exc:
+                _flag_trash_recovery(journal_path, journal, str(exc))
+                raise
+            _remove_empty_private_stage(private_stage)
         elif not destination.exists():
             raise CleanError("worktree disappeared before Trash move")
         elif recovered_move:
-            # The rename already happened before the crash. Re-run the full
-            # post-move identity/content/registration boundary before
-            # converting the prepared intent into a moved transaction.
+            # The second hop committed before the journal transition. Re-run
+            # the full post-move boundary before issuing a receipt.
             try:
                 _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
-            except CleanError:
-                # The original path is still absent, so return the exact
-                # inode to it before releasing the transaction. If a path
-                # occupant appeared, or unlock itself fails, retain the
-                # journal/lock/Trash artifact for a later authenticated retry.
-                if not info["target"].exists():
-                    try:
-                        _atomic_move_noreplace(
-                            destination, info["target"],
-                            expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
-                        )
-                        _fsync_directory(info["target"].parent)
-                        _git(info["source"], "worktree", "unlock", "--", str(info["target"]))
-                        journal_path.unlink(missing_ok=True)
-                    except CleanError:
-                        pass
+            except CleanError as exc:
+                _flag_trash_recovery(journal_path, journal, str(exc))
                 raise
-        moved = {**journal, "state": "moved"}
+        moved = {**journal, "state": "moved", "source_race": False, "recovery_required": False}
         _replace(journal_path, moved)
         _crash_point("after_rename", crash_at)
         public_receipt = {
@@ -1725,6 +1860,18 @@ def _validate_restored_target(receipt: dict[str, Any], target: Path, expected: s
     if _restore_cas(receipt, metadata, content) != expected:
         raise CleanError("restored worktree changed before unlock")
     _process_holds(target)
+    return metadata
+
+
+def _validate_restore_stage(receipt: dict[str, Any], stage: Path, expected: str) -> os.stat_result:
+    """Authenticate the private restore payload before its second hop."""
+    metadata = stage.lstat()
+    if (metadata.st_dev, metadata.st_ino) != (receipt["device"], receipt["inode"]):
+        raise CleanError("private restore payload changed")
+    content = _restore_content(receipt, stage)
+    if _restore_cas(receipt, metadata, content) != expected:
+        raise CleanError("private restore payload changed")
+    _process_holds(stage)
     return metadata
 
 
@@ -1804,19 +1951,49 @@ def _authenticate_restore_registration(
     return locked
 
 
+def _relock_restore_registration(
+    receipt: dict[str, Any], source: Path, target: Path, worktree_id: str, home: Path,
+) -> None:
+    """Re-lock only the exact authenticated registration after a mismatch."""
+    locked = _authenticate_restore_registration(
+        receipt, source, target, worktree_id, home, require_lock=False,
+    )
+    if not locked:
+        _git(
+            source, "worktree", "lock", "--reason",
+            _lock_reason(worktree_id, receipt["manifest_sha256"]), "--", str(target),
+        )
+    _authenticate_restore_registration(receipt, source, target, worktree_id, home)
+
+
+def _post_unlock_restore_check(
+    receipt: dict[str, Any], source: Path, target: Path, worktree_id: str,
+    home: Path, expected: str,
+) -> None:
+    """Revalidate content and Git provenance after the unlock mutation."""
+    _validate_restored_target(receipt, target, expected)
+    _authenticate_restore_registration(
+        receipt, source, target, worktree_id, home, require_lock=False,
+    )
+
+
 def _load_restore_journal(path: Path, *, worktree_id: str, receipt: dict[str, Any]) -> dict[str, Any]:
     try:
         value = json.loads(_read(path))
     except (CleanError, OSError, json.JSONDecodeError) as exc:
         raise CleanError("restore journal is malformed") from exc
-    required = {"schema", "state", "worktree_id", "target", "trash", "device", "inode", "cas", "source_repo", "plan", "restore_cas"}
+    required = {"schema", "state", "worktree_id", "target", "trash", "private_stage", "source_race", "recovery_required", "device", "inode", "cas", "source_repo", "plan", "restore_cas"}
     if not isinstance(value, dict) or set(value) != required:
         raise CleanError("restore journal is malformed")
     if value["schema"] != RESTORE_JOURNAL_SCHEMA or value["worktree_id"] != worktree_id:
         raise CleanError("restore journal does not match this receipt")
     if value["target"] != receipt["target"] or value["trash"] != receipt["trash"] or value["device"] != receipt["device"] or value["inode"] != receipt["inode"] or value["source_repo"] != receipt["source_repo"] or value["plan"] != receipt["plan"]:
         raise CleanError("restore journal lineage changed")
-    if value["state"] not in {"prepared", "moved", "unlocking", "unlocked"}:
+    if Path(value["private_stage"]) != _private_stage_path(Path(value["trash"]).parent, worktree_id, receipt["manifest_sha256"]):
+        raise CleanError("restore journal private stage lineage changed")
+    if not isinstance(value["source_race"], bool) or not isinstance(value["recovery_required"], bool):
+        raise CleanError("restore journal recovery state is malformed")
+    if value["state"] not in {"prepared", "moved", "unlocking", "unlocked", "recovery_required"}:
         raise CleanError("restore journal state is unsupported")
     return value
 
@@ -1851,11 +2028,17 @@ def restore_apply(
         restore_journal = None
         if journal_path.exists() or journal_path.is_symlink():
             restore_journal = _load_restore_journal(journal_path, worktree_id=worktree_id, receipt=receipt)
-        recovering = restore_journal is not None and target.is_dir() and not trash.exists()
+        private_stage = Path(restore_journal["private_stage"]) if restore_journal is not None else None
+        recovering = restore_journal is not None and target.is_dir() and not trash.exists() and not private_stage.exists()
+        recovering_stage = restore_journal is not None and not target.exists() and private_stage is not None and private_stage.is_dir() and not trash.exists()
         if recovering:
             metadata = target.lstat()
             if (metadata.st_dev, metadata.st_ino) != (receipt["device"], receipt["inode"]):
                 raise CleanError("restored worktree identity changed")
+        elif recovering_stage:
+            metadata = private_stage.lstat()
+            if (metadata.st_dev, metadata.st_ino) != (receipt["device"], receipt["inode"]):
+                raise CleanError("private restore payload changed")
         elif restore_journal is not None and restore_journal["state"] != "prepared":
             raise CleanError("restore transaction is inconsistent")
         else:
@@ -1864,13 +2047,28 @@ def restore_apply(
             metadata = trash.lstat()
         if (metadata.st_dev, metadata.st_ino) != (receipt["device"], receipt["inode"]):
             raise CleanError("Trash artifact changed after retirement")
-        content = _restore_content(receipt, target if recovering else trash)
+        content = _restore_content(receipt, target if recovering else (private_stage if recovering_stage else trash))
         cas = _restore_cas(receipt, metadata, content)
         if cas != expected:
             raise CleanError("restore artifact changed since preview")
-        _process_holds(target if recovering else trash)
-        if recovering:
+        _process_holds(target if recovering else (private_stage if recovering_stage else trash))
+        if recovering or recovering_stage:
             source = Path(receipt["source_repo"])
+            if recovering_stage:
+                try:
+                    _validate_restore_stage(receipt, private_stage, expected)
+                    _atomic_move_noreplace(
+                        private_stage, target,
+                        expected_source=(receipt["device"], receipt["inode"]),
+                    )
+                    _fsync_directory(private_stage.parent)
+                    _fsync_directory(target.parent)
+                    _validate_restored_target(receipt, target, expected)
+                except (CleanError, CleanMoveCommittedError):
+                    _flag_restore_recovery(journal_path, restore_journal)
+                    raise
+                restore_journal = {**restore_journal, "state": "moved", "source_race": False, "recovery_required": False}
+                _replace(journal_path, restore_journal)
             if restore_journal["state"] == "prepared":
                 _replace(journal_path, {**restore_journal, "state": "moved"})
                 restore_journal = {**restore_journal, "state": "moved"}
@@ -1897,6 +2095,16 @@ def restore_apply(
                     receipt, source, target, worktree_id, private_home, require_lock=False,
                 )
             _crash_point("restore_after_unlock", crash_at)
+            try:
+                _post_unlock_restore_check(receipt, source, target, worktree_id, private_home, expected)
+            except CleanError:
+                try:
+                    _relock_restore_registration(receipt, source, target, worktree_id, private_home)
+                except CleanError:
+                    _flag_restore_recovery(journal_path, restore_journal, state="recovery_required")
+                else:
+                    _flag_restore_recovery(journal_path, restore_journal, state="moved")
+                raise
             restored = {**receipt, "state": "restored", "restored_at": _stamp(datetime.now(timezone.utc))}
             restored["receipt_sha256"] = canonical_sha256({key: item for key, item in restored.items() if key != "receipt_sha256"})
             _replace(receipt_path, restored)
@@ -1906,34 +2114,48 @@ def restore_apply(
         source = Path(receipt["source_repo"])
         if not _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"]):
             raise CleanError("worktree is not locked by this retirement")
+        if restore_journal is None:
+            private_stage = _create_private_stage(trash.parent, worktree_id, receipt["manifest_sha256"])
+        elif private_stage.is_symlink() or (private_stage.exists() and not private_stage.is_dir()):
+            raise CleanError("private restore payload is unsafe")
         restore_journal = restore_journal or {
             "schema": RESTORE_JOURNAL_SCHEMA, "state": "prepared", "worktree_id": worktree_id,
             "target": str(target), "trash": str(trash), "device": receipt["device"],
             "inode": receipt["inode"], "cas": receipt["cas"], "source_repo": str(source),
-            "plan": str(plan), "restore_cas": expected,
+            "plan": str(plan), "restore_cas": expected, "private_stage": str(private_stage),
+            "source_race": False, "recovery_required": False,
         }
         if journal_path.exists() is False:
             _exclusive(journal_path, restore_journal)
         try:
+            if not private_stage.exists():
+                _atomic_move_noreplace(
+                    trash, private_stage,
+                    expected_source=(receipt["device"], receipt["inode"]),
+                )
+                _crash_point("after_private_stage", crash_at)
+            staged = _validate_restore_stage(receipt, private_stage, expected)
             _atomic_move_noreplace(
-                trash, target,
-                expected_source=(receipt["device"], receipt["inode"]),
+                private_stage, target,
+                expected_source=(staged.st_dev, staged.st_ino),
             )
+            _fsync_directory(private_stage.parent)
             _fsync_directory(target.parent)
-            _fsync_directory(trash.parent)
         except CleanMoveCommittedError:
             # The target rename committed; retain the prepared restore intent
             # for recovery to validate and advance to moved.
             raise
         except CleanError:
-            if target.is_dir() and not trash.exists():
+            if target.is_dir() and not trash.exists() and not private_stage.exists():
                 raise CleanMoveCommittedError("worktree restore committed; filesystem sync is incomplete")
             # The retirement remains safely locked in Trash when the restore
             # source or destination changes. Keep the prepared intent for an
             # authenticated retry; never unlock the retired worktree here.
+            _flag_restore_recovery(journal_path, restore_journal)
             raise
         _validate_restored_target(receipt, target, expected)
-        restore_journal = {**restore_journal, "state": "moved"}
+        _remove_empty_private_stage(private_stage)
+        restore_journal = {**restore_journal, "state": "moved", "source_race": False, "recovery_required": False}
         _replace(journal_path, restore_journal)
         _crash_point("restore_after_rename", crash_at)
         restore_journal = {**restore_journal, "state": "unlocking"}
@@ -1944,9 +2166,16 @@ def restore_apply(
         restore_journal = {**restore_journal, "state": "unlocked"}
         _replace(journal_path, restore_journal)
         _crash_point("restore_after_unlock", crash_at)
-        final = target.lstat()
-        if (final.st_dev, final.st_ino) != (receipt["device"], receipt["inode"]):
-            raise CleanError("restored worktree identity changed")
+        try:
+            _post_unlock_restore_check(receipt, source, target, worktree_id, private_home, expected)
+        except CleanError:
+            try:
+                _relock_restore_registration(receipt, source, target, worktree_id, private_home)
+            except CleanError:
+                _flag_restore_recovery(journal_path, restore_journal, state="recovery_required")
+            else:
+                _flag_restore_recovery(journal_path, restore_journal, state="moved")
+            raise
         restored = {**receipt, "state": "restored", "restored_at": _stamp(datetime.now(timezone.utc))}
         restored["receipt_sha256"] = canonical_sha256({key: item for key, item in restored.items() if key != "receipt_sha256"})
         _replace(receipt_path, restored)
