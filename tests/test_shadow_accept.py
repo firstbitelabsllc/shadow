@@ -717,11 +717,6 @@ class ShadowAcceptTests(unittest.TestCase):
                 r"~ij90 has a malformed SOURCE receipt",
             ),
             (
-                "legacy prose without declared Origin",
-                legacy_prose_source.replace(f"- Origin: {source_a}\n", ""),
-                r"~cd90 has a malformed SOURCE receipt",
-            ),
-            (
                 "conflicting",
                 conflicting,
                 r"the machine-local plan has conflicting SOURCE bindings",
@@ -731,6 +726,142 @@ class ShadowAcceptTests(unittest.TestCase):
             with self.subTest(name=name):
                 with self.assertRaisesRegex(accept.AcceptError, message):
                     accept.local_plan_source_identity(plan_text)
+
+        with self.subTest(name="legacy prose stays non-binding without Origin"):
+            self.assertEqual(
+                accept.local_plan_source_identity(
+                    legacy_prose_source.replace(f"- Origin: {source_a}\n", "")
+                ),
+                source_a,
+            )
+
+    def test_legacy_source_prose_and_duplicate_receipts_are_checked_by_exact_argv(
+        self,
+    ) -> None:
+        pending = PLAN.replace(
+            'proof: cmd python3 -c "import pathlib,sys; '
+            "sys.exit(0 if pathlib.Path('x.txt').read_text()=='hello' else 1)\"",
+            "proof: cmd true",
+        )
+        first_stamp = "2026-08-28T04:29:55Z"
+        second_stamp = "2026-08-28T04:29:54Z"
+        first = accept.completed_plan_text(pending, "~ab12", ["true"], first_stamp)
+
+        prose = accept.append_progress_line(
+            first,
+            f"- {second_stamp} ~ab12 SOURCE was mentioned in a historical note\n",
+        )
+        self.assertIsNone(accept.local_plan_source_identity(prose))
+        self.assertTrue(accept.has_unbound_legacy_local_acceptance(prose))
+
+        modern_malformed = accept.append_progress_line(
+            first,
+            "- 2026-08-28T05:00:00Z ~ab12 SOURCE source HEAD malformed\n",
+        )
+        with self.assertRaisesRegex(
+            accept.AcceptError,
+            r"~ab12 has a malformed SOURCE receipt",
+        ):
+            accept.local_plan_source_identity(modern_malformed)
+
+        for separator in ("  ", "\t"):
+            with self.subTest(timestamp_row_separator=repr(separator)):
+                malformed_spacing = accept.append_progress_line(
+                    first,
+                    f"- 2026-08-28T05:00:00Z{separator}~ab12 SOURCE "
+                    "source-a HEAD "
+                    + "a" * 40
+                    + " -> proof and final lint (accept)\n",
+                )
+                with self.assertRaisesRegex(
+                    accept.AcceptError,
+                    r"~ab12 has a malformed SOURCE receipt",
+                ):
+                    accept.local_plan_source_identity(malformed_spacing)
+
+        for separator in ("  ", "\t", "\N{NO-BREAK SPACE}", "\N{THIN SPACE}"):
+            with self.subTest(source_separator=repr(separator)):
+                malformed_spacing = accept.append_progress_line(
+                    first,
+                    f"- 2026-08-28T05:00:00Z ~ab12{separator}SOURCE "
+                    "source-a HEAD "
+                    + "a" * 40
+                    + " -> proof and final lint (accept)\n",
+                )
+                with self.assertRaisesRegex(
+                    accept.AcceptError,
+                    r"~ab12 has a malformed SOURCE receipt",
+                ):
+                    accept.local_plan_source_identity(malformed_spacing)
+
+        for prefix in ("X", "_"):
+            with self.subTest(embedded_row_prefix=prefix):
+                embedded_id = accept.append_progress_line(
+                    first,
+                    f"- 2026-08-28T05:00:00Z {prefix}~ab12 SOURCE "
+                    "historical prose\n",
+                )
+                self.assertIsNone(accept.local_plan_source_identity(embedded_id))
+                self.assertTrue(
+                    accept.has_unbound_legacy_local_acceptance(embedded_id)
+                )
+
+        impossible_time = accept.completed_plan_text(
+            pending,
+            "~ab12",
+            ["true"],
+            "2026-08-27T99:99:99Z",
+        )
+        with self.assertRaisesRegex(
+            accept.AcceptError,
+            r"~ab12 has a malformed accept PROOF timestamp",
+        ):
+            accept.local_plan_source_identity(impossible_time)
+        self.assertFalse(
+            accept.has_unbound_legacy_local_acceptance(impossible_time)
+        )
+
+        duplicate = accept.append_progress_line(
+            first,
+            f"- {second_stamp} ~ab12 PROOF true -> pass (accept)\n",
+        )
+        self.assertIsNone(accept.local_plan_source_identity(duplicate))
+        self.assertTrue(accept.has_unbound_legacy_local_acceptance(duplicate))
+
+        differing = accept.append_progress_line(
+            first,
+            f"- {second_stamp} ~ab12 PROOF false -> pass (accept)\n",
+        )
+        with self.assertRaisesRegex(
+            accept.AcceptError,
+            r"~ab12 task proof no longer matches its canonical accept PROOF",
+        ):
+            accept.local_plan_source_identity(differing)
+        self.assertFalse(accept.has_unbound_legacy_local_acceptance(differing))
+
+        at_cutover = accept.completed_plan_text(
+            pending,
+            "~ab12",
+            ["true"],
+            accept.LOCAL_SOURCE_RECEIPT_CUTOVER,
+        )
+        with self.assertRaisesRegex(
+            accept.AcceptError,
+            r"~ab12 has 0 canonical SOURCE receipts",
+        ):
+            accept.local_plan_source_identity(at_cutover)
+
+    def test_legacy_read_and_gate_acceptance_does_not_bind_a_source(self) -> None:
+        plan = PLAN.replace(
+            "- [pending] shipped ~cd34 (DoD) | proof: gate leo resume: release cut",
+            "- [completed] shipped ~cd34 (DoD) | proof: gate leo resume: release cut",
+        )
+        plan = accept.append_progress_line(
+            plan,
+            "- 2026-08-28T04:29:55Z ~cd34 PROOF gate leo resume: release cut "
+            "-> pass (accept)\n",
+        )
+        self.assertIsNone(accept.local_plan_source_identity(plan))
 
     def test_local_completed_retry_uses_the_recorded_source_head(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

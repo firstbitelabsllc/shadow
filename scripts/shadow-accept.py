@@ -92,6 +92,16 @@ LIFECYCLE_ARCHIVE_RE = re.compile(
     r"successor:(?P<successor>~[0-9a-z]{4}|none) -->$"
 )
 SOURCE_HEAD_RE = re.compile(r"[0-9a-f]{40}")
+PROGRESS_TIMESTAMP_RE = re.compile(
+    r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
+)
+SOURCE_MENTION_RE = re.compile(
+    r"(?<![A-Za-z0-9_~])(?P<id>~[0-9a-z]{4})\s+SOURCE(?:\s|$)"
+)
+SOURCE_ROW_MENTION_RE = re.compile(
+    r"^- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+"
+    r"(?P<id>~[0-9a-z]{4})\s+SOURCE(?:\s|$)"
+)
 PUBLIC_SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}")
 SOURCE_RECEIPT_RE = re.compile(
     r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
@@ -484,13 +494,6 @@ def canonical_source_identity(identity: str) -> str:
         raise AcceptError("SOURCE identity is not one public normalized identity") from exc
 
 
-def source_lines_for_row(plan_text: str, row_id: str) -> list[str]:
-    prefix = re.compile(
-        rf"^- \d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z {re.escape(row_id)} SOURCE "
-    )
-    return [line for line in _board.section_lines(plan_text, "Progress") if prefix.match(line)]
-
-
 def local_source_receipt(
     plan_text: str,
     row_id: str,
@@ -498,9 +501,15 @@ def local_source_receipt(
 ) -> tuple[str, str]:
     """Return the one source identity and commit bound to a local completion."""
     receipts: list[tuple[str, str, str]] = []
-    for line in source_lines_for_row(plan_text, row_id):
+    for line in _board.section_lines(plan_text, "Progress"):
+        if not _line_mentions_source_for_row(line, row_id):
+            continue
         match = SOURCE_RECEIPT_RE.fullmatch(line)
-        if match is None:
+        if (
+            match is None
+            or match.group("id") != row_id
+            or not _valid_progress_timestamp(match.group("ts"))
+        ):
             raise AcceptError(
                 f"{row_id} has a malformed SOURCE receipt; root claim stays open"
             )
@@ -521,8 +530,78 @@ def local_source_receipt(
     return canonical_source_identity(receipts[0][1]), receipts[0][2]
 
 
+def _legacy_accept_receipts(plan_text: str, row_id: str) -> list[tuple[str, str]]:
+    """Return canonical accepted observations for one task row."""
+    receipts: list[tuple[str, str]] = []
+    for line in _board.section_lines(plan_text, "Progress"):
+        receipt = _grammar.progress_proof_receipt(line)
+        match = _grammar.PROOF_RECEIPT_RE.fullmatch(line)
+        if (
+            receipt is not None
+            and match is not None
+            and receipt[0] == row_id
+            and receipt[2] == "pass (accept)"
+        ):
+            receipts.append((match.group("ts"), receipt[1]))
+    return receipts
+
+
+def _valid_progress_timestamp(value: str) -> bool:
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
+
+
+def _line_mentions_source_for_row(line: str, row_id: str) -> bool:
+    return any(
+        match.group("id") == row_id
+        for match in SOURCE_ROW_MENTION_RE.finditer(line)
+    )
+
+
+def _line_contains_source_for_row(line: str, row_id: str) -> bool:
+    return any(
+        match.group("id") == row_id
+        for match in SOURCE_MENTION_RE.finditer(line)
+    )
+
+
+def _source_lines_for_row(lines: list[str], row_id: str) -> list[str]:
+    return [
+        line for line in lines if _line_mentions_source_for_row(line, row_id)
+    ]
+
+
+def _legacy_accept_receipts_are_consistent(
+    plan_text: str,
+    row_id: str,
+) -> bool:
+    """Return whether all accepted observations are pre-cutover history."""
+    receipts = _legacy_accept_receipts(plan_text, row_id)
+    return bool(receipts) and all(
+        _valid_progress_timestamp(accepted_at)
+        and accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER
+        for accepted_at, _ in receipts
+    )
+
+
+def _legacy_source_prose_is_ignorable(source_lines: list[str]) -> bool:
+    """Allow only pre-cutover prose to accompany legacy source-less accepts."""
+    for line in source_lines:
+        timestamp = PROGRESS_TIMESTAMP_RE.match(line)
+        if (
+            timestamp is None
+            or not _valid_progress_timestamp(timestamp.group("ts"))
+            or timestamp.group("ts") >= LOCAL_SOURCE_RECEIPT_CUTOVER
+        ):
+            return False
+    return True
+
+
 def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
-    """Whether a current completed row has one exact pre-cutover acceptance."""
+    """Whether a current completed row has exact pre-cutover acceptance history."""
     progress_lines = _board.section_lines(plan_text, "Progress")
     task_rows = {
         row.group("id")
@@ -536,6 +615,7 @@ def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
             receipt is not None
             and match is not None
             and receipt[2] == "pass (accept)"
+            and _valid_progress_timestamp(match.group("ts"))
             and match.group("ts") < LOCAL_SOURCE_RECEIPT_CUTOVER
             and receipt[0] in task_rows
         ):
@@ -543,16 +623,31 @@ def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
             if state != "completed" or not proof.startswith("cmd "):
                 continue
             argv = proof_argv(proof[4:])
-            source_lines = [
-                candidate
+            source_lines = _source_lines_for_row(progress_lines, receipt[0])
+            has_ambiguous_source_mention = any(
+                _line_contains_source_for_row(candidate, receipt[0])
+                and not _line_mentions_source_for_row(candidate, receipt[0])
                 for candidate in progress_lines
-                if f" {receipt[0]} SOURCE " in candidate
-            ]
+            )
             if (
                 receipt[1] == shlex.join(argv)
-                and not source_lines
-                and _receipt_stamps(plan_text, receipt[0], argv)
-                == [match.group("ts")]
+                and not has_ambiguous_source_mention
+                and not any(
+                    SOURCE_RECEIPT_RE.fullmatch(candidate) is not None
+                    for candidate in source_lines
+                )
+                and _legacy_source_prose_is_ignorable(source_lines)
+                and _legacy_accept_receipts_are_consistent(
+                    plan_text,
+                    receipt[0],
+                )
+                and all(
+                    accepted_proof == shlex.join(argv)
+                    for _, accepted_proof in _legacy_accept_receipts(
+                        plan_text,
+                        receipt[0],
+                    )
+                )
             ):
                 return True
     return False
@@ -592,6 +687,11 @@ def local_plan_source_identity(plan_text: str) -> str | None:
     for accepted_at, row_id, accepted_proof in accepted_receipts:
         if row_id not in task_rows:
             continue
+        if not _valid_progress_timestamp(accepted_at):
+            raise AcceptError(
+                f"{row_id} has a malformed accept PROOF timestamp; "
+                "root claim stays open"
+            )
         _, _, state, proof, _ = find_row(plan_text, row_id)
         if proof.startswith(("read ", "gate ")):
             continue
@@ -604,28 +704,28 @@ def local_plan_source_identity(plan_text: str) -> str | None:
             raise AcceptError(
                 f"{row_id} task proof no longer matches its canonical accept PROOF"
             )
-        source_lines = source_lines_for_row(plan_text, row_id)
-        proof_stamps = _receipt_stamps(plan_text, row_id, argv)
-        if not source_lines and accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER:
-            if proof_stamps != [accepted_at]:
-                raise AcceptError(
-                    f"{row_id} has no single canonical legacy accept PROOF"
-                )
-            continue
-        legacy_note = re.compile(
-            rf"- (?P<ts>\d{{4}}-\d{{2}}-\d{{2}}T\d{{2}}:\d{{2}}:\d{{2}}Z) "
-            rf"{re.escape(row_id)} SOURCE (?!.* HEAD ).+ -> .+"
+        source_lines = _source_lines_for_row(
+            _board.section_lines(plan_text, "Progress"),
+            row_id,
         )
-        legacy_notes = [legacy_note.fullmatch(line) for line in source_lines]
+        canonical_source_lines = [
+            line
+            for line in source_lines
+            if SOURCE_RECEIPT_RE.fullmatch(line) is not None
+        ]
         if (
             accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER
-            and declared is not None
-            and source_lines
-            and all(legacy_notes)
-            and max(note.group("ts") for note in legacy_notes) <= min(proof_stamps)
-            and max(proof_stamps) < LOCAL_SOURCE_RECEIPT_CUTOVER
+            and not canonical_source_lines
+            and _legacy_source_prose_is_ignorable(source_lines)
         ):
-            continue
+            if _legacy_accept_receipts_are_consistent(
+                plan_text,
+                row_id,
+            ):
+                # Historical Progress may mention SOURCE in prose. Before
+                # the cutover it is not a source receipt, so ignore it while
+                # retaining exact argv checks for every accepted observation.
+                continue
         source_identity, _ = local_source_receipt(
             plan_text,
             row_id,
