@@ -11,6 +11,8 @@ force, worktree-remove, or prune path.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -52,13 +54,18 @@ class CleanError(ValueError):
     """A provenance or preview request is unsafe or stale."""
 
 
+class CleanMoveCommittedError(CleanError):
+    """The no-replace rename committed, but a post-rename sync failed."""
+
+
 def _public_reason(value: str) -> str:
     """Return bounded reason text; Git stderr and private paths never cross CLI."""
     known = (
         "manifest expired", "manifest changed", "not Shadow-created", "active claim",
         "checkpoint is not terminal", "worktree is dirty", "untracked files",
         "ignored files", "submodule", "process holds", "process inspection unavailable",
-        "primary worktree", "work is not landed", "symlink", "Trash artifact",
+        "primary worktree", "work is not landed", "changed since preview", "worktree changed after lock",
+        "registration changed", "symlink", "Trash artifact",
         "Trash destination", "worktree lock", "already locked", "registration",
         "restore artifact", "restore journal", "original path", "same device",
     )
@@ -1065,7 +1072,17 @@ def resolve_manifest(manifest_id: str, *, home: Path | None = None) -> tuple[dic
         try:
             manifest, digest = _load_manifest(path, home=home)
         except (CleanError, OSError, json.JSONDecodeError):
-            continue
+            # Resolution by opaque id must still find an authenticated,
+            # expired manifest when an in-flight retirement journal exists;
+            # apply_manifest will permit only that journal-bound recovery.
+            try:
+                manifest = json.loads(_read(path))
+                digest = canonical_sha256(manifest)
+                if path.name != f"{digest}.json":
+                    continue
+                validate_manifest(manifest, expected_sha256=digest, now="1970-01-01T00:00:00Z")
+            except (CleanError, OSError, json.JSONDecodeError, TypeError):
+                continue
         if digest.startswith(match.group(1)):
             matches.append((manifest, digest, path))
     if len(matches) == 1:
@@ -1101,6 +1118,79 @@ def _fsync_directory(path: Path) -> None:
         raise CleanError("filesystem directory could not be synchronized") from exc
 
 
+def _atomic_move_noreplace(source: Path, destination: Path) -> None:
+    """Rename one directory without ever replacing an intervening entry."""
+    flags = (getattr(os, "O_RDONLY", 0) | getattr(os, "O_DIRECTORY", 0)
+             | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0))
+    oldfd = newfd = -1
+    try:
+        oldfd = os.open(source.parent, flags)
+        newfd = os.open(destination.parent, flags)
+        old_stat, new_stat = os.fstat(oldfd), os.fstat(newfd)
+        if not stat.S_ISDIR(old_stat.st_mode) or not stat.S_ISDIR(new_stat.st_mode) or old_stat.st_dev != new_stat.st_dev:
+            raise CleanError("atomic no-replace move requires one filesystem")
+        libc = ctypes.CDLL(None, use_errno=True)
+        encoded_old = os.fsencode(source.name)
+        encoded_new = os.fsencode(destination.name)
+        if sys.platform == "darwin":
+            if not hasattr(libc, "renameatx_np"):
+                raise CleanError("atomic no-replace move is unavailable")
+            libc.renameatx_np.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+            libc.renameatx_np.restype = ctypes.c_int
+            result = libc.renameatx_np(oldfd, encoded_old, newfd, encoded_new, 0x00000004)
+        elif sys.platform == "linux":
+            # renameat2 is syscall 316 on x86_64 and 276 on arm64/aarch64.
+            renameat2 = getattr(libc, "renameat2", None)
+            if renameat2 is not None:
+                renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+                renameat2.restype = ctypes.c_int
+                result = renameat2(oldfd, encoded_old, newfd, encoded_new, 0x1)
+            else:
+                raise CleanError("atomic no-replace move is unavailable")
+        else:
+            raise CleanError("atomic no-replace move is unavailable")
+        if result != 0:
+            error = ctypes.get_errno()
+            if error == errno.EEXIST:
+                raise CleanError("destination appeared during atomic move")
+            if error in {errno.ENOSYS, errno.EINVAL, errno.ENOTSUP}:
+                raise CleanError("atomic no-replace move is unavailable")
+            raise CleanError("atomic worktree move failed")
+        try:
+            os.fsync(oldfd)
+            if newfd != oldfd:
+                os.fsync(newfd)
+        except OSError as exc:
+            raise CleanMoveCommittedError("worktree move committed; filesystem sync is incomplete") from exc
+    except OSError as exc:
+        raise CleanError("atomic no-replace move is unavailable") from exc
+    finally:
+        if oldfd >= 0:
+            os.close(oldfd)
+        if newfd >= 0:
+            os.close(newfd)
+
+
+def _read_git_lock(path: Path) -> str:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(path, flags)
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise CleanError("worktree lock state is unsafe")
+        data = os.read(descriptor, 4096)
+        after = os.fstat(descriptor)
+    except OSError as exc:
+        raise CleanError("worktree lock state is unavailable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+        raise CleanError("worktree lock state changed while being read")
+    return data.decode("utf-8", errors="strict").strip()
+
+
 def _crash_point(stage: str, crash_at: str | None) -> None:
     if crash_at == stage:
         raise CleanError(f"simulated crash at {stage}; retry the same receipt")
@@ -1117,11 +1207,8 @@ def _worktree_lock(info: dict[str, Any], worktree_id: str, manifest_digest: str)
     if locked.is_symlink():
         raise CleanError("worktree lock state is unsafe")
     if locked.exists() or locked.is_symlink():
-        try:
-            reason = locked.read_text(encoding="utf-8", errors="strict")
-        except OSError as exc:
-            raise CleanError("worktree lock state is unavailable") from exc
-        if reason.strip() != _lock_reason(worktree_id, manifest_digest):
+        reason = _read_git_lock(locked)
+        if reason != _lock_reason(worktree_id, manifest_digest):
             raise CleanError("worktree is already locked")
         return
     _git(
@@ -1132,11 +1219,20 @@ def _worktree_lock(info: dict[str, Any], worktree_id: str, manifest_digest: str)
 
 def _rollback_apply_lock(info: dict[str, Any], worktree_id: str, manifest_digest: str, journal_path: Path) -> None:
     """Undo a pre-rename refusal while retaining a durable crash journal."""
+    try:
+        journal = json.loads(_read(journal_path))
+    except (CleanError, OSError, json.JSONDecodeError):
+        return
+    # A moved journal owns the only recoverable Trash copy. Never unlock or
+    # retire that transaction merely because a retry currently sees an
+    # intervening original-path entry; leave it durable for a safe retry.
+    if journal.get("state") != "prepared":
+        return
     locked = info["admin_dir"] / "locked"
     if locked.is_file() and not locked.is_symlink():
         try:
-            reason = locked.read_text(encoding="utf-8", errors="strict").strip()
-        except OSError:
+            reason = _read_git_lock(locked)
+        except CleanError:
             return
         if reason == _lock_reason(worktree_id, manifest_digest):
             try:
@@ -1155,8 +1251,13 @@ def _final_apply_check(info: dict[str, Any], *, worktree_id: str, manifest_diges
         latest_tree_sha = _tree_snapshot(info["target"])
         latest_listing, _paths = _worktree_listing(info["source"])
         _process_holds(info["target"])
+        expected_metadata = info.get("expected_metadata", {
+            "st_dev": info["metadata"].st_dev, "st_ino": info["metadata"].st_ino,
+            "st_mode": info["metadata"].st_mode, "st_mtime_ns": info["metadata"].st_mtime_ns,
+            "st_ctime_ns": info["metadata"].st_ctime_ns,
+        })
         for key in ("st_dev", "st_ino", "st_mode", "st_mtime_ns", "st_ctime_ns"):
-            if getattr(latest_metadata, key) != getattr(info["metadata"], key):
+            if getattr(latest_metadata, key) != expected_metadata[key]:
                 raise CleanError("worktree changed after lock")
         if latest_head != info["head"] or latest_status_sha != info["status_sha256"] or latest_tree_sha != info["tree_sha256"]:
             raise CleanError("worktree changed after lock")
@@ -1242,7 +1343,7 @@ def _load_trash_journal(path: Path, *, digest: str, worktree_id: str) -> dict[st
         value = json.loads(_read(path))
     except (CleanError, OSError, json.JSONDecodeError) as exc:
         raise CleanError("Trash journal is malformed") from exc
-    required = {"schema", "state", "manifest_sha256", "worktree_id", "target", "trash", "device", "inode", "cas", "source_repo", "plan", "head", "tree_sha256", "status_sha256", "listing_without_lock_sha256", "creation_receipt", "issuance_journal", "common_dir", "admin_dir", "lock_reason"}
+    required = {"schema", "state", "manifest_sha256", "worktree_id", "target", "trash", "device", "inode", "mode", "mtime_ns", "ctime_ns", "cas", "source_repo", "plan", "head", "tree_sha256", "status_sha256", "listing_without_lock_sha256", "creation_receipt", "issuance_journal", "common_dir", "admin_dir", "lock_reason"}
     if not isinstance(value, dict) or set(value) != required:
         raise CleanError("Trash journal is malformed")
     if value["schema"] != TRASH_JOURNAL_SCHEMA or value["manifest_sha256"] != digest or value["worktree_id"] != worktree_id:
@@ -1315,8 +1416,14 @@ def apply_manifest(
             if (metadata.st_dev, metadata.st_ino) != (existing["device"], existing["inode"]):
                 raise CleanError("Trash artifact changed after retirement")
             admin = Path(receipt["git"]["admin_dir"]) / "locked"
-            if admin.is_symlink() or not admin.is_file() or admin.read_text(encoding="utf-8").strip() != _lock_reason(worktree_id, digest):
+            if admin.is_symlink() or not admin.is_file() or _read_git_lock(admin) != _lock_reason(worktree_id, digest):
                 raise CleanError("Trash worktree lock state changed")
+            if journal_path.exists() or journal_path.is_symlink():
+                pending = _load_trash_journal(journal_path, digest=digest, worktree_id=worktree_id)
+                if pending["state"] != "moved" or pending["trash"] != str(artifact):
+                    raise CleanError("Trash journal is inconsistent")
+                journal_path.unlink()
+                _fsync_directory(journal_path.parent)
             return {"schema": "shadow.clean-apply.v1", "action": "already_trashed", "changed": False, "receipt": worktree_id}
         raise CleanError("Trash receipt already exists and is inconsistent")
     with _board.project_lock(plan):
@@ -1338,6 +1445,11 @@ def apply_manifest(
                 "listing_without_lock_sha256": existing_journal["listing_without_lock_sha256"],
                 "tree_sha256": existing_journal["tree_sha256"], "common_dir": Path(receipt["git"]["common_dir"]),
                 "admin_dir": Path(receipt["git"]["admin_dir"]),
+                "expected_metadata": {
+                    "st_dev": existing_journal["device"], "st_ino": existing_journal["inode"],
+                    "st_mode": existing_journal["mode"], "st_mtime_ns": existing_journal["mtime_ns"],
+                    "st_ctime_ns": existing_journal["ctime_ns"],
+                },
             }
             _worktree_lock(info, worktree_id, digest)
         elif (
@@ -1357,6 +1469,29 @@ def apply_manifest(
                 "listing_without_lock_sha256": existing_journal["listing_without_lock_sha256"],
                 "tree_sha256": existing_journal["tree_sha256"], "common_dir": Path(receipt["git"]["common_dir"]),
                 "admin_dir": Path(receipt["git"]["admin_dir"]),
+            }
+            _worktree_lock(info, worktree_id, digest)
+        elif existing_journal is not None and existing_journal["state"] == "prepared":
+            # Retry an intent whose target is still present from the journal
+            # snapshot. This lets the final evaluator safely detect a dirty,
+            # changed, or otherwise refused target and remove its exact lock
+            # without re-authenticating a mutable candidate as new work.
+            target_path = Path(existing_journal["target"])
+            if target_path.is_symlink() or not target_path.is_dir():
+                raise CleanError("worktree changed since preview")
+            current = target_path.lstat()
+            info = {
+                "target": target_path, "source": Path(existing_journal["source_repo"]),
+                "metadata": current, "head": existing_journal["head"],
+                "status_sha256": existing_journal["status_sha256"], "listing_sha256": "",
+                "listing_without_lock_sha256": existing_journal["listing_without_lock_sha256"],
+                "tree_sha256": existing_journal["tree_sha256"], "common_dir": Path(existing_journal["common_dir"]),
+                "admin_dir": Path(existing_journal["admin_dir"]),
+                "expected_metadata": {
+                    "st_dev": existing_journal["device"], "st_ino": existing_journal["inode"],
+                    "st_mode": existing_journal["mode"], "st_mtime_ns": existing_journal["mtime_ns"],
+                    "st_ctime_ns": existing_journal["ctime_ns"],
+                },
             }
             _worktree_lock(info, worktree_id, digest)
         else:
@@ -1386,6 +1521,9 @@ def apply_manifest(
             "trash": str(destination),
             "device": info["metadata"].st_dev,
             "inode": info["metadata"].st_ino,
+            "mode": info["metadata"].st_mode,
+            "mtime_ns": info["metadata"].st_mtime_ns,
+            "ctime_ns": info["metadata"].st_ctime_ns,
             "cas": digest,
             "source_repo": str(info["source"]),
             "plan": str(plan),
@@ -1411,29 +1549,67 @@ def apply_manifest(
             # never begin a new retirement after the short manifest TTL.
             if Path(existing_journal["target"]).exists():
                 _rollback_apply_lock(info, worktree_id, digest, journal_path)
-            raise CleanError("manifest expired")
+                raise CleanError("manifest expired")
+            # A crash after the exact rename but before the journal's moved
+            # transition leaves the target absent and the authenticated Trash
+            # inode present.  Finalize that already-performed mutation even
+            # after the short manifest TTL; do not perform a fresh move.
+            if destination.is_dir() and not destination.is_symlink():
+                moved_stat = destination.lstat()
+                if (moved_stat.st_dev, moved_stat.st_ino) != (info["metadata"].st_dev, info["metadata"].st_ino):
+                    raise CleanError("Trash artifact changed after retirement")
+                # Leave the durable state at prepared until the common
+                # recovered-move post-check below has passed.
+            else:
+                raise CleanError("manifest expired")
         if info["target"].exists():
             _final_apply_check(info, worktree_id=worktree_id, manifest_digest=digest, journal_path=journal_path)
             try:
-                os.rename(info["target"], destination)
-            except OSError as exc:
+                _atomic_move_noreplace(info["target"], destination)
+            except CleanMoveCommittedError:
+                # The directory rename already committed. Keep the prepared
+                # journal and exact lock so retry can authenticate the Trash
+                # inode and finish, rather than attempting a second move.
+                raise
+            except CleanError:
                 _rollback_apply_lock(info, worktree_id, digest, journal_path)
-                raise CleanError("worktree could not be moved atomically to Trash") from exc
+                raise
             _fsync_directory(info["target"].parent)
             _fsync_directory(trash)
             try:
                 _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
             except CleanError:
                 try:
-                    os.rename(destination, info["target"])
+                    _atomic_move_noreplace(destination, info["target"])
                     _fsync_directory(info["target"].parent)
                     _git(info["source"], "worktree", "unlock", "--", str(info["target"]))
-                finally:
                     journal_path.unlink(missing_ok=True)
+                except CleanError:
+                    raise
                 raise
             _crash_point("after_rename_before_journal", crash_at)
         elif not destination.exists():
             raise CleanError("worktree disappeared before Trash move")
+        elif recovered_move:
+            # The rename already happened before the crash. Re-run the full
+            # post-move identity/content/registration boundary before
+            # converting the prepared intent into a moved transaction.
+            try:
+                _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
+            except CleanError:
+                # The original path is still absent, so return the exact
+                # inode to it before releasing the transaction. If a path
+                # occupant appeared, or unlock itself fails, retain the
+                # journal/lock/Trash artifact for a later authenticated retry.
+                if not info["target"].exists():
+                    try:
+                        _atomic_move_noreplace(destination, info["target"])
+                        _fsync_directory(info["target"].parent)
+                        _git(info["source"], "worktree", "unlock", "--", str(info["target"]))
+                        journal_path.unlink(missing_ok=True)
+                    except CleanError:
+                        pass
+                raise
         moved = {**journal, "state": "moved"}
         _replace(journal_path, moved)
         _crash_point("after_rename", crash_at)
@@ -1487,7 +1663,20 @@ def _restore_cas(receipt: dict[str, Any], metadata: os.stat_result, content: dic
         "mode": metadata.st_mode,
         "mtime_ns": metadata.st_mtime_ns,
         **content,
+        "lock_reason": _lock_reason(receipt["worktree_id"], receipt["manifest_sha256"]),
     })
+
+
+def _validate_restored_target(receipt: dict[str, Any], target: Path, expected: str) -> os.stat_result:
+    """Authenticate the exact inode and clean Git content before unlock."""
+    metadata = target.lstat()
+    if (metadata.st_dev, metadata.st_ino) != (receipt["device"], receipt["inode"]):
+        raise CleanError("restored worktree identity changed")
+    content = _restore_content(receipt, target)
+    if _restore_cas(receipt, metadata, content) != expected:
+        raise CleanError("restored worktree changed before unlock")
+    _process_holds(target)
+    return metadata
 
 
 def restore_preview(
@@ -1510,6 +1699,9 @@ def restore_preview(
     if (metadata.st_dev, metadata.st_ino) != (receipt["device"], receipt["inode"]):
         raise CleanError("Trash artifact changed after retirement")
     content = _restore_content(receipt, trash)
+    source = Path(receipt["source_repo"])
+    if not _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"]):
+        raise CleanError("worktree is not locked by this retirement")
     _process_holds(trash)
     return {
         "schema": "shadow.clean-restore.v1", "action": "would_restore", "changed": False,
@@ -1548,7 +1740,7 @@ def _load_restore_journal(path: Path, *, worktree_id: str, receipt: dict[str, An
         raise CleanError("restore journal does not match this receipt")
     if value["target"] != receipt["target"] or value["trash"] != receipt["trash"] or value["device"] != receipt["device"] or value["inode"] != receipt["inode"] or value["source_repo"] != receipt["source_repo"] or value["plan"] != receipt["plan"]:
         raise CleanError("restore journal lineage changed")
-    if value["state"] not in {"prepared", "moved", "unlocked"}:
+    if value["state"] not in {"prepared", "moved", "unlocking", "unlocked"}:
         raise CleanError("restore journal state is unsupported")
     return value
 
@@ -1560,6 +1752,14 @@ def restore_apply(
     private_home = (home or Path.home()).resolve()
     receipt, receipt_path = _load_trash_receipt(worktree_id, private_home)
     if receipt.get("state") == "restored":
+        directories = _clean_dirs(private_home, create=False)
+        journal_path = directories["restore-journals"] / f"{receipt['creation_receipt']}.json"
+        if journal_path.exists() or journal_path.is_symlink():
+            pending = _load_restore_journal(journal_path, worktree_id=worktree_id, receipt=receipt)
+            if pending["state"] != "unlocked":
+                raise CleanError("restore journal is inconsistent")
+            journal_path.unlink()
+            _fsync_directory(journal_path.parent)
         return {"schema": "shadow.clean-restore.v1", "action": "already_restored", "changed": False, "receipt": worktree_id}
     target = Path(receipt["target"])
     trash = Path(receipt["trash"])
@@ -1580,7 +1780,7 @@ def restore_apply(
             metadata = target.lstat()
             if (metadata.st_dev, metadata.st_ino) != (receipt["device"], receipt["inode"]):
                 raise CleanError("restored worktree identity changed")
-        elif restore_journal is not None:
+        elif restore_journal is not None and restore_journal["state"] != "prepared":
             raise CleanError("restore transaction is inconsistent")
         else:
             if target.exists() or target.is_symlink() or not trash.is_dir() or trash.is_symlink():
@@ -1598,6 +1798,9 @@ def restore_apply(
             if restore_journal["state"] == "prepared":
                 _replace(journal_path, {**restore_journal, "state": "moved"})
                 restore_journal = {**restore_journal, "state": "moved"}
+            if restore_journal["state"] == "moved":
+                _replace(journal_path, {**restore_journal, "state": "unlocking"})
+                restore_journal = {**restore_journal, "state": "unlocking"}
             if _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"]):
                 _git(source, "worktree", "unlock", "--", str(target))
             if restore_journal["state"] != "unlocked":
@@ -1612,22 +1815,36 @@ def restore_apply(
         source = Path(receipt["source_repo"])
         if not _registration_lock_state(source, target, worktree_id, receipt["manifest_sha256"]):
             raise CleanError("worktree is not locked by this retirement")
-        restore_journal = {
+        restore_journal = restore_journal or {
             "schema": RESTORE_JOURNAL_SCHEMA, "state": "prepared", "worktree_id": worktree_id,
             "target": str(target), "trash": str(trash), "device": receipt["device"],
             "inode": receipt["inode"], "cas": receipt["cas"], "source_repo": str(source),
             "plan": str(plan), "restore_cas": expected,
         }
-        _exclusive(journal_path, restore_journal)
+        if journal_path.exists() is False:
+            _exclusive(journal_path, restore_journal)
         try:
-            os.rename(trash, target)
+            _atomic_move_noreplace(trash, target)
             _fsync_directory(target.parent)
             _fsync_directory(trash.parent)
-        except OSError as exc:
-            raise CleanError("Trash artifact could not be restored atomically") from exc
+        except CleanMoveCommittedError:
+            # The target rename committed; retain the prepared restore intent
+            # for recovery to validate and advance to moved.
+            raise
+        except CleanError:
+            if target.is_dir() and not trash.exists():
+                raise CleanMoveCommittedError("worktree restore committed; filesystem sync is incomplete")
+            # The retirement remains safely locked in Trash when the restore
+            # destination races into existence; discard only this prepared
+            # restore intent and never unlock the retired worktree.
+            journal_path.unlink(missing_ok=True)
+            raise
+        _validate_restored_target(receipt, target, expected)
         restore_journal = {**restore_journal, "state": "moved"}
         _replace(journal_path, restore_journal)
         _crash_point("restore_after_rename", crash_at)
+        restore_journal = {**restore_journal, "state": "unlocking"}
+        _replace(journal_path, restore_journal)
         _git(source, "worktree", "unlock", "--", str(target))
         restore_journal = {**restore_journal, "state": "unlocked"}
         _replace(journal_path, restore_journal)
@@ -1638,6 +1855,7 @@ def restore_apply(
         restored = {**receipt, "state": "restored", "restored_at": _stamp(datetime.now(timezone.utc))}
         restored["receipt_sha256"] = canonical_sha256({key: item for key, item in restored.items() if key != "receipt_sha256"})
         _replace(receipt_path, restored)
+        _crash_point("restore_after_receipt", crash_at)
         journal_path.unlink(missing_ok=True)
         return {"schema": "shadow.clean-restore.v1", "action": "restored", "changed": True, "receipt": worktree_id}
 

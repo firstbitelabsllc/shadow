@@ -502,7 +502,7 @@ class CleanApplyTests(unittest.TestCase):
         self.assertTrue(loaded["restored_at"])
 
     def test_apply_command_surface_never_removes_prunes_forces_or_copies(self):
-        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        destination, prepared, manifest_path, digest = self._terminal_managed()
         trash = Path(self.tmp.name) / "Trash"
         trash.mkdir()
         calls = []
@@ -514,6 +514,52 @@ class CleanApplyTests(unittest.TestCase):
             self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
         flat = " ".join(" ".join(call) for call in calls)
         self.assertNotRegex(flat, r"\b(remove|prune|copy|--force)\b")
+
+    def test_apply_no_replace_race_preserves_intervening_sentinel(self):
+        destination, prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        original_move = self.clean._atomic_move_noreplace
+        def race(source, target):
+            target.mkdir()
+            return original_move(source, target)
+        with mock.patch.object(self.clean, "_atomic_move_noreplace", side_effect=race):
+            with self.assertRaisesRegex(self.clean.CleanError, "destination appeared|atomic"):
+                self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        sentinel = trash / f".shadow-{prepared['worktree_id'][len('worktree@'):]}-{digest[:12]}"
+        self.assertTrue(sentinel.is_dir())
+        self.assertTrue(destination.is_dir())
+        self.assertEqual(self._registration_bytes(destination)[1], None)
+
+    def test_restore_no_replace_race_preserves_intervening_sentinel(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        admin = Path(git(destination, "rev-parse", "--git-dir"))
+        applied = self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        preview = self.clean.restore_preview(applied["receipt"], home=self.home, trash_root=trash)
+        artifact = next(trash.iterdir())
+        inode = artifact.stat().st_ino
+        sentinel = destination
+        original_move = self.clean._atomic_move_noreplace
+        def race(source, target):
+            sentinel.mkdir()
+            return original_move(source, target)
+        with mock.patch.object(self.clean, "_atomic_move_noreplace", side_effect=race):
+            with self.assertRaisesRegex(self.clean.CleanError, "destination appeared|atomic"):
+                self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
+        self.assertTrue(sentinel.is_dir())
+        self.assertTrue((admin / "locked").is_file())
+        self.assertEqual(
+            self.clean._read_git_lock(admin / "locked"),
+            self.clean._lock_reason(applied["receipt"], digest),
+        )
+        self.assertTrue(next(trash.iterdir()).is_dir())
+        sentinel.rmdir()
+        restored = self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
+        self.assertEqual(restored["action"], "restored")
+        self.assertEqual(destination.stat().st_ino, inode)
+        self.assertFalse((admin / "locked").exists())
 
     def test_apply_retries_after_rename_crash_without_removing_or_forcing(self):
         destination, prepared, manifest_path, digest = self._terminal_managed()
@@ -559,6 +605,79 @@ class CleanApplyTests(unittest.TestCase):
             trash_root=trash, by="seat-a",
         )
         self.assertEqual(retry["action"], "trashed")
+
+    def test_apply_finishes_authenticated_move_after_manifest_expiry(self):
+        destination, prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        with self.assertRaisesRegex(self.clean.CleanError, "simulated crash"):
+            self.clean.apply_manifest(
+                manifest_path, expected_sha256=digest, home=self.home,
+                trash_root=trash, by="seat-a", crash_at="after_rename_before_journal",
+            )
+        with mock.patch.object(self.clean, "_load_manifest", side_effect=self.clean.CleanError("manifest expired")):
+            retry = self.clean.apply_manifest(
+                prepared["id"], expected_sha256=digest, home=self.home,
+                trash_root=trash, by="seat-a",
+            )
+        self.assertEqual(retry["action"], "trashed")
+        self.assertFalse(destination.exists())
+
+    def test_apply_recovered_move_content_change_rolls_back_exact_inode(self):
+        destination, prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        inode, registration = destination.stat().st_ino, self._registration_bytes(destination)
+        with self.assertRaisesRegex(self.clean.CleanError, "simulated crash"):
+            self.clean.apply_manifest(
+                manifest_path, expected_sha256=digest, home=self.home,
+                trash_root=trash, by="seat-a", crash_at="after_rename_before_journal",
+            )
+        artifact = next(trash.iterdir())
+        plan_file = artifact / "PLAN.md"
+        plan_file.write_bytes(plan_file.read_bytes() + b"changed-in-trash\n")
+        with self.assertRaisesRegex(self.clean.CleanError, "dirty|content"):
+            self.clean.apply_manifest(prepared["id"], expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        self._assert_preserved(destination, inode, registration)
+        self.assertEqual(list(trash.iterdir()), [])
+
+    def test_apply_committed_move_sync_failure_retries_from_journal(self):
+        destination, prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        original_move = self.clean._atomic_move_noreplace
+
+        def fail_sync_after_move(source, target):
+            def fail(_fd):
+                raise OSError("sync failure")
+            with mock.patch.object(self.clean.os, "fsync", side_effect=fail):
+                return original_move(source, target)
+
+        with mock.patch.object(self.clean, "_atomic_move_noreplace", side_effect=fail_sync_after_move):
+            with self.assertRaisesRegex(self.clean.CleanError, "sync"):
+                self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        self.assertFalse(destination.exists())
+        self.assertEqual(len(list((self.home / ".shadow" / "clean" / "trash-journals").glob("*.json"))), 1)
+        retry = self.clean.apply_manifest(prepared["id"], expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        self.assertEqual(retry["action"], "trashed")
+
+    def test_apply_receipt_crash_retires_moved_journal_on_retry(self):
+        destination, prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        with self.assertRaisesRegex(self.clean.CleanError, "simulated crash"):
+            self.clean.apply_manifest(
+                manifest_path, expected_sha256=digest, home=self.home,
+                trash_root=trash, by="seat-a", crash_at="after_public_receipt",
+            )
+        journals = list((self.home / ".shadow" / "clean" / "trash-journals").glob("*.json"))
+        self.assertEqual(len(journals), 1)
+        retry = self.clean.apply_manifest(
+            prepared["id"], expected_sha256=digest, home=self.home,
+            trash_root=trash, by="seat-a",
+        )
+        self.assertEqual(retry["action"], "already_trashed")
+        self.assertEqual(list((self.home / ".shadow" / "clean" / "trash-journals").glob("*.json")), [])
 
     def test_apply_refuses_changed_target_metadata_after_preview(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
@@ -781,6 +900,46 @@ class CleanApplyTests(unittest.TestCase):
                 self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
         self._assert_preserved(destination, inode, registration)
 
+    def test_apply_retries_owned_unlock_after_post_lock_refusal(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        inode, registration = destination.stat().st_ino, self._registration_bytes(destination)
+        original_git = self.clean._git
+        original_final = self.clean._final_apply_check
+        unlock_attempts = []
+        mutation = []
+
+        def fail_first_unlock(repo, *args):
+            if args[:2] == ("worktree", "unlock") and not unlock_attempts:
+                unlock_attempts.append(1)
+                raise self.clean.CleanError("unlock unavailable")
+            return original_git(repo, *args)
+
+        def mutate_at_final(info, *, worktree_id, manifest_digest, journal_path):
+            if not mutation:
+                mutation.append(1)
+                plan_file = destination / "PLAN.md"
+                plan_file.write_bytes(plan_file.read_bytes() + b"changed-after-lock\n")
+            return original_final(info, worktree_id=worktree_id, manifest_digest=manifest_digest, journal_path=journal_path)
+
+        # A real target mutation after lock makes both the first final check
+        # and the retry fail. The first rollback cannot unlock, so the
+        # authenticated prepared journal must remain for the second attempt
+        # to retry that exact unlock before refusing cleanly.
+        with mock.patch.object(self.clean, "_final_apply_check", side_effect=mutate_at_final), \
+             mock.patch.object(self.clean, "_git", side_effect=fail_first_unlock):
+            with self.assertRaisesRegex(self.clean.CleanError, "changed after lock|dirty"):
+                self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+            journal_dir = self.home / ".shadow" / "clean" / "trash-journals"
+            self.assertEqual(len(list(journal_dir.glob("*.json"))), 1)
+            self.assertTrue((Path(git(destination, "rev-parse", "--git-dir")) / "locked").is_file())
+            with self.assertRaisesRegex(self.clean.CleanError, "changed after lock|dirty"):
+                self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        self._assert_preserved(destination, inode, registration)
+        self.assertEqual(list((self.home / ".shadow" / "clean" / "trash-journals").glob("*.json")), [])
+        self.assertEqual(list(trash.iterdir()), [])
+
     def test_post_move_mismatch_rolls_back_same_inode_and_unlocks(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
         inode, registration = destination.stat().st_ino, self._registration_bytes(destination)
@@ -791,6 +950,33 @@ class CleanApplyTests(unittest.TestCase):
                 self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
         self._assert_preserved(destination, inode, registration)
         self.assertEqual(list(trash.iterdir()), [])
+
+    def test_post_move_rollback_collision_keeps_journal_until_safe_retry(self):
+        destination, prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        original_post = self.clean._post_move_check
+        injected = []
+
+        def collide_after_move(info, target, *, worktree_id, manifest_digest):
+            if not injected:
+                injected.append(1)
+                info["target"].mkdir()
+                raise self.clean.CleanError("post-move mismatch")
+            return original_post(info, target, worktree_id=worktree_id, manifest_digest=manifest_digest)
+
+        with mock.patch.object(self.clean, "_post_move_check", side_effect=collide_after_move):
+            with self.assertRaisesRegex(self.clean.CleanError, "post-move mismatch|destination appeared"):
+                self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+            self.assertTrue(destination.is_dir())
+            self.assertEqual(len(list((self.home / ".shadow" / "clean" / "trash-journals").glob("*.json"))), 1)
+            with self.assertRaisesRegex(self.clean.CleanError, "destination|changed"):
+                self.clean.apply_manifest(prepared["id"], expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+            self.assertTrue(destination.is_dir())
+            destination.rmdir()
+            retry = self.clean.apply_manifest(prepared["id"], expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        self.assertEqual(retry["action"], "trashed")
+        self.assertFalse(destination.exists())
 
     def test_restore_crash_after_unlock_converges(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
@@ -803,6 +989,19 @@ class CleanApplyTests(unittest.TestCase):
         restored = self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
         self.assertEqual(restored["action"], "restored")
         self.assertTrue(destination.is_dir())
+
+    def test_restore_receipt_crash_retires_unlocked_journal_on_retry(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        applied = self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        preview = self.clean.restore_preview(applied["receipt"], home=self.home, trash_root=trash)
+        with self.assertRaisesRegex(self.clean.CleanError, "simulated crash"):
+            self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash, crash_at="restore_after_receipt")
+        self.assertTrue((self.home / ".shadow" / "clean" / "restore-journals").exists())
+        retry = self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
+        self.assertEqual(retry["action"], "already_restored")
+        self.assertEqual(list((self.home / ".shadow" / "clean" / "restore-journals").glob("*.json")), [])
 
     def test_apply_refuses_active_claim_and_preserves_worktree(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
@@ -842,6 +1041,53 @@ class CleanApplyTests(unittest.TestCase):
         restored = self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
         self.assertEqual(restored["action"], "restored")
         self.assertTrue(destination.is_dir())
+
+    def test_restore_retries_after_post_rename_sync_failure(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        applied = self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        preview = self.clean.restore_preview(applied["receipt"], home=self.home, trash_root=trash)
+        original_sync = self.clean._fsync_directory
+        sync_calls = []
+
+        def fail_first_sync(path):
+            if not sync_calls:
+                sync_calls.append(1)
+                raise self.clean.CleanError("sync failure")
+            return original_sync(path)
+
+        with mock.patch.object(self.clean, "_fsync_directory", side_effect=fail_first_sync):
+            with self.assertRaisesRegex(self.clean.CleanError, "sync"):
+                self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
+        self.assertTrue(destination.is_dir())
+        self.assertEqual(list(trash.iterdir()), [])
+        self.assertEqual(len(list((self.home / ".shadow" / "clean" / "restore-journals").glob("*.json"))), 1)
+        restored = self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
+        self.assertEqual(restored["action"], "restored")
+
+    def test_restore_source_substitution_never_unlocks_replacement(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        applied = self.clean.apply_manifest(manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a")
+        preview = self.clean.restore_preview(applied["receipt"], home=self.home, trash_root=trash)
+        aside = Path(self.tmp.name) / "authentic-aside"
+        original_move = self.clean._atomic_move_noreplace
+
+        def substitute(source, target):
+            source.rename(aside)
+            source.mkdir()
+            return original_move(source, target)
+
+        admin = self.repo / ".git" / "worktrees" / destination.name
+        with mock.patch.object(self.clean, "_atomic_move_noreplace", side_effect=substitute):
+            with self.assertRaisesRegex(self.clean.CleanError, "identity|content|changed"):
+                self.clean.restore_apply(applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash)
+        self.assertTrue(destination.is_dir())
+        self.assertFalse((destination / "PLAN.md").exists())
+        self.assertTrue((admin / "locked").is_file())
+        self.assertTrue(aside.is_dir())
 
     def test_restore_refuses_post_trash_content_change(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
