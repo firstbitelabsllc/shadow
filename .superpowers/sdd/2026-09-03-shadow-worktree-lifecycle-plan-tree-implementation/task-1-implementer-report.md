@@ -108,4 +108,46 @@ Result: `Ran 73 tests in 157.566s OK`.
 
 ### Final-head evidence
 
-The code/test/docs fix commit is `ac0bcc95`. Report-only follow-up commit `6d54f020` changed only this tracked report, so `ac0bcc95` remains the tested source revision and the report commit is traceable separately.
+The code/test/docs fix commit is `ac0bcc95`. The report-only follow-up is kept as a direct child that changes only this tracked report; the source revision remains independently traceable.
+
+## Review fix round 2
+
+### RED
+
+Command:
+
+```text
+scripts/shadow-python.sh -m unittest tests.test_clean.CleanPreviewTests.test_creation_lock_lifetime_blocks_concurrent_claim_mutation -v
+```
+
+Result: `FAIL`; the new lifetime falsifier observed the claim mutation completing between pending reservation and issuance under the split `create_managed_worktree()` → `finish_creation()` lock scopes (`claim mutation entered between pending and issuance`).
+
+### Fix
+
+Creation now derives validated inputs once, enters the canonical `project_lock` then root-board `_transaction` scope once, and executes pending reservation/retry, Git add or exact existing-child validation, receipt issuance, and journal transition inside that single scope. Public `prepare_creation()` and `finish_creation()` retain their bounded individual transaction behavior for crash recovery; the ordinary CLI create path uses private locked helpers and does not nest or reacquire either lock. The test pauses pending creation and races a real `board.release()` mutation from a second thread, with only temporary repository/board/HOME state.
+
+### GREEN
+
+Final tested source revision: `379876a9024a94d49dd5d751d6e1ff5fec64e423` (`clean: keep creation under one lifecycle lock`).
+
+Focused preview suite:
+
+```text
+scripts/shadow-python.sh -m unittest tests.test_clean.CleanPreviewTests -v
+```
+
+Result: `Ran 13 tests in 14.807s OK`.
+
+Safe affected documentation/dispatcher checks:
+
+```text
+scripts/shadow-python.sh -m unittest tests.test_readme_contract.AReadmeAStrangerCanFollow.test_the_readme_names_only_real_commands tests.test_readme_contract.ShareReadyDocumentationTests.test_acceptance_docs_describe_the_proof_boundary tests.test_readme_contract.ShareReadyDocumentationTests.test_readme_leads_with_authority_loop_and_install -v
+bin/shadow clean --help
+git diff --check
+```
+
+Result: `Ran 3 tests ... OK`; clean help advertised `--prepare` and `--create`; diff check passed. Lifecycle source was unchanged, so the prior `Ran 73 tests in 157.566s OK` compatibility receipt remains applicable; the new focused claim-lifetime falsifier is the narrow covering check for this source-only lock change.
+
+### Final-head evidence
+
+The report-only follow-up is a direct child of `379876a9024a94d49dd5d751d6e1ff5fec64e423` and changes only this report; source and tests remain at the tested revision.
