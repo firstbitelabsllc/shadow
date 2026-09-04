@@ -68,7 +68,9 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(resolve_route("grok", "lightweight").model, "grok-4.5")
         self.assertEqual(resolve_route("zai", "coding").model, "zai/glm-5.3-flash")
         self.assertEqual(resolve_route("zai", "lightweight").model, "zai/glm-5.3-flash")
-        for work_class in WORK_CLASSES:
+        self.assertEqual(resolve_route("codex-zai", "coding").model, "glm-5.3")
+        self.assertFalse(resolve_route("codex-zai", "coding").matches_observed_model("glm-5.3-flash"))
+        for work_class in ("planning", "review", "lightweight"):
             self.assertEqual(resolve_route("codex-zai", work_class).model, "glm-5.3-flash")
         self.assertEqual(delegation_capability("claude-code", "required"), "Agent")
         self.assertEqual(delegation_capability("codex", "required"), "multi_agent")
