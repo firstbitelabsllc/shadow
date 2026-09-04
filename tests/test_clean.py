@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -263,6 +265,81 @@ class CleanPreviewTests(unittest.TestCase):
                 checkpoint="~aa11", seat="seat-a", landed_ref="refs/heads/master", home=self.home,
             )
         self.assertFalse((self.home / ".shadow" / "clean" / "journals").exists())
+
+    def test_creation_lock_lifetime_blocks_concurrent_claim_mutation(self):
+        destination = self.repo.parent / "managed-lock-lifetime"
+        pending_written = threading.Event()
+        git_started = threading.Event()
+        git_gate = threading.Event()
+        finish_entered = threading.Event()
+        finish_gate = threading.Event()
+        release_started = threading.Event()
+        release_done = threading.Event()
+        errors = []
+        original_exclusive = self.clean._exclusive
+        original_git = self.clean._git
+        original_finish = self.clean.finish_creation
+
+        def exclusive(path, value):
+            original_exclusive(path, value)
+            if path.parent.name == "journals" and value.get("state") == "pending":
+                pending_written.set()
+
+        def paused_git(repo, *args):
+            if args[:2] == ("worktree", "add"):
+                git_started.set()
+                self.assertTrue(git_gate.wait(5))
+            return original_git(repo, *args)
+
+        def paused_finish(*args, **kwargs):
+            finish_entered.set()
+            self.assertTrue(finish_gate.wait(5))
+            return original_finish(*args, **kwargs)
+
+        def release_claim():
+            release_started.set()
+            try:
+                board.release(self.repo / "PLAN.md", "~aa11", owner="seat-a", reason="handback", home=self.home)
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+            finally:
+                release_done.set()
+
+        def create():
+            try:
+                self.clean.create_managed_worktree(
+                    self.repo, destination, entity=self.entity, checkpoint="~aa11", seat="seat-a",
+                    landed_ref="refs/heads/master", home=self.home,
+                )
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        with mock.patch.object(self.clean, "_exclusive", side_effect=exclusive), \
+             mock.patch.object(self.clean, "_git", side_effect=paused_git), \
+             mock.patch.object(self.clean, "finish_creation", side_effect=paused_finish):
+            creator = threading.Thread(target=create)
+            creator.start()
+            self.assertTrue(pending_written.wait(5))
+            # The old split implementation enters finish_creation after it has
+            # released the reservation lock; the fixed implementation never
+            # calls that public helper from create_managed_worktree.
+            split_gap = finish_entered.wait(0.5)
+            mutator = threading.Thread(target=release_claim)
+            mutator.start()
+            if split_gap:
+                self.assertFalse(release_done.wait(0.5), "claim mutation entered between pending and issuance")
+                finish_gate.set()
+            else:
+                self.assertTrue(git_started.wait(5))
+                self.assertFalse(release_done.wait(0.5), "claim mutation entered during Git creation")
+                git_gate.set()
+            creator.join(10)
+            mutator.join(10)
+        self.assertFalse(creator.is_alive())
+        self.assertFalse(mutator.is_alive())
+        self.assertFalse(errors, errors)
+        self.assertTrue(release_started.is_set())
+        self.assertTrue(release_done.is_set())
 
     def test_preview_rejects_receipt_and_journal_with_relaxed_modes(self):
         destination = self.repo.parent / "managed-mode"

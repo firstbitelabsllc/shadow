@@ -302,19 +302,14 @@ def _journal_value(
     }
 
 
-def prepare_creation(
+def _creation_inputs(
     source_repo: Path,
     destination: Path,
     *,
-    entity: str,
-    checkpoint: str,
-    seat: str,
     ref: str = "HEAD",
     landed_ref: str,
-    home: Path | None = None,
     now: str | datetime | None = None,
-) -> dict[str, Any]:
-    """Reserve one managed worktree creation before invoking Git."""
+) -> tuple[Path, Path, str, str]:
     source = _real_absolute(Path(source_repo), "source repository")
     destination = _real_absolute(Path(destination), "worktree destination")
     if not REF_RE.fullmatch(landed_ref):
@@ -328,38 +323,77 @@ def prepare_creation(
     if not OID_RE.fullmatch(source_head):
         raise CleanError("creation ref did not resolve to a full Git object id")
     stamp = _stamp(_utc(now) if now is not None else datetime.now(timezone.utc))
+    return source, destination, source_head, stamp
+
+
+def _prepare_creation_locked(
+    source: Path,
+    destination: Path,
+    *,
+    entity: str,
+    checkpoint: str,
+    seat: str,
+    ref: str,
+    landed_ref: str,
+    source_head: str,
+    stamp: str,
+    home: Path | None = None,
+) -> dict[str, Any]:
+    directories = _clean_dirs(home, create=True)
+    # A matching pending record is the only retry path.  No filesystem or Git
+    # discovery is used to find a child worktree.
+    for journal_path in sorted(directories["journals"].glob("*.json")):
+        try:
+            journal = json.loads(_read(journal_path))
+        except (CleanError, json.JSONDecodeError):
+            continue
+        if not isinstance(journal, dict) or journal.get("state") != "pending":
+            continue
+        if journal.get("destination") == str(destination):
+            expected = _journal_value(
+                source=source, destination=destination, entity=entity,
+                checkpoint=checkpoint, seat=seat, ref=ref,
+                landed_ref=landed_ref, nonce=str(journal.get("nonce")),
+                created_at=str(journal.get("created_at")), source_head=source_head,
+            )
+            if all(journal.get(key) == value for key, value in expected.items()):
+                return {**journal, "journal_path": str(journal_path)}
+            raise CleanError("pending issuance does not match this exact claim")
+    if destination.exists() or destination.is_symlink():
+        raise CleanError("worktree destination must be absent")
+    nonce = secrets.token_hex(32)
+    value = _journal_value(
+        source=source, destination=destination, entity=entity,
+        checkpoint=checkpoint, seat=seat, ref=ref, landed_ref=landed_ref,
+        nonce=nonce, created_at=stamp, source_head=source_head,
+    )
+    journal_path = directories["journals"] / f"{nonce}.json"
+    _exclusive(journal_path, value)
+    return {**value, "journal_path": str(journal_path)}
+
+
+def prepare_creation(
+    source_repo: Path,
+    destination: Path,
+    *,
+    entity: str,
+    checkpoint: str,
+    seat: str,
+    ref: str = "HEAD",
+    landed_ref: str,
+    home: Path | None = None,
+    now: str | datetime | None = None,
+) -> dict[str, Any]:
+    """Reserve one managed worktree creation before invoking Git."""
+    source, destination, source_head, stamp = _creation_inputs(
+        source_repo, destination, ref=ref, landed_ref=landed_ref, now=now,
+    )
     with _locked_claim(_root(home).parent, entity, checkpoint, seat, source=source):
-        directories = _clean_dirs(home, create=True)
-        # A matching pending record is the only retry path.  No filesystem or
-        # Git discovery is used to find a child worktree.
-        for journal_path in sorted(directories["journals"].glob("*.json")):
-            try:
-                journal = json.loads(_read(journal_path))
-            except (CleanError, json.JSONDecodeError):
-                continue
-            if not isinstance(journal, dict) or journal.get("state") != "pending":
-                continue
-            if journal.get("destination") == str(destination):
-                expected = _journal_value(
-                    source=source, destination=destination, entity=entity,
-                    checkpoint=checkpoint, seat=seat, ref=ref,
-                    landed_ref=landed_ref, nonce=str(journal.get("nonce")),
-                    created_at=str(journal.get("created_at")), source_head=source_head,
-                )
-                if all(journal.get(key) == value for key, value in expected.items()):
-                    return {**journal, "journal_path": str(journal_path)}
-                raise CleanError("pending issuance does not match this exact claim")
-        if destination.exists() or destination.is_symlink():
-            raise CleanError("worktree destination must be absent")
-        nonce = secrets.token_hex(32)
-        value = _journal_value(
-            source=source, destination=destination, entity=entity,
-            checkpoint=checkpoint, seat=seat, ref=ref, landed_ref=landed_ref,
-            nonce=nonce, created_at=stamp, source_head=source_head,
+        return _prepare_creation_locked(
+            source, destination, entity=entity, checkpoint=checkpoint, seat=seat,
+            ref=ref, landed_ref=landed_ref, source_head=source_head, stamp=stamp,
+            home=home,
         )
-        journal_path = directories["journals"] / f"{nonce}.json"
-        _exclusive(journal_path, value)
-        return {**value, "journal_path": str(journal_path)}
 
 
 def _receipt_from(journal: dict[str, Any], destination: Path, home: Path) -> dict[str, Any]:
@@ -405,7 +439,9 @@ def _receipt_from(journal: dict[str, Any], destination: Path, home: Path) -> dic
     return receipt
 
 
-def finish_creation(nonce: str, *, home: Path | None = None, destination: Path | None = None) -> dict[str, Any]:
+def _finish_creation_locked(
+    nonce: str, *, home: Path | None = None, destination: Path | None = None,
+) -> dict[str, Any]:
     directories = _clean_dirs(home, create=False)
     journal_path = directories["journals"] / f"{nonce}.json"
     journal = json.loads(_read(journal_path))
@@ -415,27 +451,37 @@ def finish_creation(nonce: str, *, home: Path | None = None, destination: Path |
     if destination is not None and _real_absolute(Path(destination), "worktree destination") != expected_destination:
         raise CleanError("pending issuance destination does not match")
     source = Path(journal["source_repo"])
+    current = json.loads(_read(journal_path))
+    if current != journal:
+        raise CleanError("issuance journal changed while creation was waiting")
+    destination = expected_destination
+    if not destination.exists():
+        command = ["worktree", "add", str(destination), journal["ref"]]
+        _git(source, *command)
+    receipt = _receipt_from(journal, destination, home or Path.home())
+    if receipt["initial"]["head"] != journal.get("source_head"):
+        raise CleanError("created worktree does not match the pending source ref")
+    receipt_path = directories["receipts"] / f"{receipt['receipt_sha256']}.json"
+    if receipt_path.exists() or receipt_path.is_symlink():
+        existing = json.loads(_read(receipt_path))
+        if existing != receipt:
+            raise CleanError("creation receipt already exists and changed")
+    else:
+        _exclusive(receipt_path, receipt)
+    issued = {**journal, "state": "issued", "receipt_sha256": receipt["receipt_sha256"]}
+    _replace(journal_path, issued)
+    return {"state": "issued", "receipt_sha256": receipt["receipt_sha256"], "receipt_path": str(receipt_path), "journal_path": str(journal_path)}
+
+
+def finish_creation(nonce: str, *, home: Path | None = None, destination: Path | None = None) -> dict[str, Any]:
+    directories = _clean_dirs(home, create=False)
+    journal_path = directories["journals"] / f"{nonce}.json"
+    journal = json.loads(_read(journal_path))
+    if not isinstance(journal, dict) or journal.get("schema") != ISSUANCE_SCHEMA or journal.get("state") != "pending":
+        raise CleanError("issuance journal is not a matching pending transaction")
+    source = Path(journal["source_repo"])
     with _locked_claim(_root(home).parent, journal["entity"], journal["checkpoint"], journal["seat"], source=source):
-        current = json.loads(_read(journal_path))
-        if current != journal:
-            raise CleanError("issuance journal changed while creation was waiting")
-        destination = expected_destination
-        if not destination.exists():
-            command = ["worktree", "add", str(destination), journal["ref"]]
-            _git(source, *command)
-        receipt = _receipt_from(journal, destination, home or Path.home())
-        if receipt["initial"]["head"] != journal.get("source_head"):
-            raise CleanError("created worktree does not match the pending source ref")
-        receipt_path = directories["receipts"] / f"{receipt['receipt_sha256']}.json"
-        if receipt_path.exists() or receipt_path.is_symlink():
-            existing = json.loads(_read(receipt_path))
-            if existing != receipt:
-                raise CleanError("creation receipt already exists and changed")
-        else:
-            _exclusive(receipt_path, receipt)
-        issued = {**journal, "state": "issued", "receipt_sha256": receipt["receipt_sha256"]}
-        _replace(journal_path, issued)
-        return {"state": "issued", "receipt_sha256": receipt["receipt_sha256"], "receipt_path": str(receipt_path), "journal_path": str(journal_path)}
+        return _finish_creation_locked(nonce, home=home, destination=destination)
 
 
 def create_managed_worktree(
@@ -449,11 +495,16 @@ def create_managed_worktree(
     landed_ref: str,
     home: Path | None = None,
 ) -> dict[str, Any]:
-    pending = prepare_creation(
-        source_repo, destination, entity=entity, checkpoint=checkpoint,
-        seat=seat, ref=ref, landed_ref=landed_ref, home=home,
+    source, destination, source_head, stamp = _creation_inputs(
+        source_repo, destination, ref=ref, landed_ref=landed_ref, now=None,
     )
-    return finish_creation(pending["nonce"], home=home, destination=destination)
+    with _locked_claim(_root(home).parent, entity, checkpoint, seat, source=source):
+        pending = _prepare_creation_locked(
+            source, destination, entity=entity, checkpoint=checkpoint, seat=seat,
+            ref=ref, landed_ref=landed_ref, source_head=source_head, stamp=stamp,
+            home=home,
+        )
+        return _finish_creation_locked(pending["nonce"], home=home, destination=destination)
 
 
 def _valid_records(home: Path | None = None) -> list[tuple[dict[str, Any], dict[str, Any]]]:
