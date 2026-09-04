@@ -187,6 +187,149 @@ class ThrowRefusesAmbiguousWork(unittest.TestCase):
 
 
 class ThrowUsesTheRootBoard(unittest.TestCase):
+    def test_pending_row_with_unchanged_returned_wake_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8")
+                .replace(
+                    "- [pending] the ready row ~bb22 | proof: cmd true",
+                    "- [pending] the ready row ~bb22 | proof: cmd true "
+                    "| wake: no Leo selection exists",
+                )
+                .replace(
+                    "## Progress",
+                    "## Deferred\n\n"
+                    "- ~bb22 waits on Leo | wake: no Leo selection exists\n\n"
+                    "## Progress\n\n"
+                    "- 2026-09-02T00:00:00Z ~bb22 BLOCKED returned "
+                    "| wake: no Leo selection exists",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "park row"], check=True)
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("~bb22", result.stderr)
+            self.assertIn("unchanged wake", result.stderr)
+            self.assertIn("no Leo selection exists", result.stderr)
+            payload = board.snapshot(home=home)
+            self.assertTrue(payload is None or payload["claims"] == [])
+
+    def test_pending_row_with_changed_returned_wake_is_claimable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8")
+                .replace(
+                    "- [pending] the ready row ~bb22 | proof: cmd true",
+                    "- [pending] the ready row ~bb22 | proof: cmd true "
+                    "| wake: Leo selected the split",
+                )
+                .replace(
+                    "## Progress",
+                    "## Deferred\n\n"
+                    "- ~bb22 waits on Leo | wake: Leo selected the split\n\n"
+                    "## Progress\n\n"
+                    "- 2026-09-02T00:00:00Z ~bb22 BLOCKED returned "
+                    "| wake: no Leo selection exists",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "change wake"], check=True)
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(
+                [(item["row"], item["owner"]) for item in payload["claims"]],
+                [("~bb22", "seat-a")],
+            )
+
+    def test_blocked_row_with_changed_returned_wake_still_refuses(self) -> None:
+        # Regression pin: the wake guard is additive. A [blocked] row stays
+        # unclaimable even when its wake changed since the last BLOCKED return
+        # and everything else about it (proof, needs) would admit a claim.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8")
+                .replace(
+                    "- [pending] the ready row ~bb22 | proof: cmd true",
+                    "- [blocked] the ready row ~bb22 | proof: cmd true "
+                    "| wake: Leo selected the split",
+                )
+                .replace(
+                    "## Progress",
+                    "## Deferred\n\n"
+                    "- ~bb22 waits on Leo | wake: Leo selected the split\n\n"
+                    "## Progress\n\n"
+                    "- 2026-09-02T00:00:00Z ~bb22 BLOCKED returned "
+                    "| wake: no Leo selection exists",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "block row"], check=True)
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("is [blocked], not claimable", result.stderr)
+            board = home / ".shadow" / "board.json"
+            if board.exists():
+                self.assertEqual(json.loads(board.read_text())["claims"], [])
+
+    def test_pending_row_without_wake_is_claimable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((home / ".shadow" / "board.json").read_text())
+            self.assertEqual(
+                [(item["row"], item["owner"]) for item in payload["claims"]],
+                [("~bb22", "seat-a")],
+            )
+
+    def test_in_progress_row_with_unchanged_returned_wake_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            plan = repo / "PLAN.md"
+            plan.write_text(
+                plan.read_text(encoding="utf-8")
+                .replace(
+                    "- [pending] the ready row ~bb22 | proof: cmd true",
+                    "- [in_progress] the ready row ~bb22 | proof: cmd true "
+                    "| wake: no Leo selection exists",
+                )
+                .replace(
+                    "## Progress",
+                    "## Deferred\n\n"
+                    "- ~bb22 waits on Leo | wake: no Leo selection exists\n\n"
+                    "## Progress\n\n"
+                    "- 2026-09-02T00:00:00Z ~bb22 BLOCKED returned "
+                    "| wake: no Leo selection exists",
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(repo), "commit", "-qam", "park row"], check=True)
+
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("~bb22", result.stderr)
+            self.assertIn("unchanged wake", result.stderr)
+            self.assertIn("no Leo selection exists", result.stderr)
+            payload = board.snapshot(home=home)
+            self.assertTrue(payload is None or payload["claims"] == [])
+
     def test_claim_prints_the_pointer_without_changing_the_project_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))
