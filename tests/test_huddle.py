@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sys
@@ -542,6 +542,152 @@ class HuddleGraphTests(HuddleTestCase):
         before = self.authority()
         with self.assertRaisesRegex(board_api.BoardError, "contradict"):
             self.open(a, [b])
+        self.assertEqual(self.authority(), before)
+
+
+class HuddleScopeTransitionTests(HuddleTestCase):
+    def seed(self, scopes, *, unscoped=()):
+        repo = self.home / "source"
+        repo.mkdir()
+        git(repo, "init", "-b", "main")
+        HuddleGraphTests.seed(self, [scope or ["fixture"] for scope in scopes])
+        binding = board_api.repository_binding(repo)
+        with board_api._transaction(self.home) as (root, path, payload):
+            for index, claim in enumerate(payload["claims"]):
+                claim["repository_binding"] = binding
+                if index in unscoped:
+                    claim.update(access="unscoped", write_scope=[])
+            board_api._write_and_commit(root, path, payload, "test: source bindings")
+            claims = copy.deepcopy(payload["claims"])
+        return repo, claims
+
+    def preflight(self, repo, claim, scope, *, access="write", now=NOW, revision=None):
+        current = board_api.snapshot(home=self.home)
+        return board_api.preflight_access(entity=claim["entity"], row=claim["row"], owner=claim["owner"],
+            repo=repo, access=access, write_scope=scope, expected_claim_revision=claim["claim_revision"],
+            expected_board_revision=current["revision"] if revision is None else revision, now=now, home=self.home)
+
+    def open(self, claim, peers, *, reason="write_scope_overlap"):
+        return board_api.open_or_join_huddle(claim=claim, overlap=peers,
+            reason=reason, now=NOW, home=self.home).payload["huddles"][0]
+
+    def test_classification_resolves_disjoint_scope_without_a_bid_round(self):
+        repo, (a, b) = self.seed([[], ["a"]], unscoped=(0,))
+        opened = self.open(b, [a], reason="scope_request")
+        result = self.preflight(repo, a, ["b"], now=NOW + timedelta(seconds=10))
+        h = result.payload["huddles"][0]
+        self.assertEqual(h["id"], opened["id"])
+        self.assertEqual(h["generation"], opened["generation"] + 1)
+        self.assertEqual(h["state"], "resolved")
+        self.assertEqual(h["edges"], [])
+        self.assertEqual(h["holds"], [])
+        self.assertIsNone(h["reply_by"])
+        self.assertEqual(h["resolution"]["rule"], "path_disjoint")
+        self.assertEqual([r["owner"] for r in h["resolution"]["write_owners"]], ["A", "B"])
+        self.assertEqual([r["action"] for r in h["resolution"]["actions"]], ["continue_disjoint"] * 2)
+        self.assertEqual(result.payload["claims"][0]["claim_revision"], a["claim_revision"])
+
+    def test_classification_keeps_overlap_and_starts_fresh_round_one(self):
+        repo, (a, b) = self.seed([[], ["a"]], unscoped=(0,))
+        opened = self.open(b, [a], reason="scope_request")
+        result = self.preflight(repo, a, ["a"], now=NOW + timedelta(seconds=10))
+        h = result.payload["huddles"][0]
+        self.assertEqual((h["state"], h["round"], h["generation"]), ("open_round_1", 1, 2))
+        self.assertEqual(h["reply_by"], "2026-09-04T16:02:10Z")
+        self.assertEqual([r["owner"] for r in h["holds"]], ["B"])
+        self.assertEqual(h["opened_revision"], opened["opened_revision"])
+
+    def test_shrink_keeps_disconnected_disjoint_claim_and_semantic_edges(self):
+        repo, (a, b, c) = self.seed([["a"], ["a", "b"], ["b"]])
+        self.open(b, [a])
+        result = self.preflight(repo, b, ["a"])
+        h = result.payload["huddles"][0]
+        self.assertEqual([r["owner"] for r in h["claims"]], ["A", "B", "C"])
+        self.assertEqual([r["owner"] for r in h["holds"]], ["B"])
+        self.assertEqual(len(h["edges"]), 1)
+        self.assertEqual(h["generation"], 2)
+        self.assertEqual(board_api._validate(result.payload), result.payload)
+
+    def test_semantic_edge_survives_held_scope_shrink(self):
+        repo, (a, b) = self.seed([["a"], ["a", "b"]])
+        self.open(a, [b], reason="semantic_suspicion")
+        result = self.preflight(repo, b, ["b"])
+        h = result.payload["huddles"][0]
+        self.assertEqual(h["edges"][0]["kinds"], ["semantic_suspicion"])
+        self.assertEqual([r["owner"] for r in h["holds"]], ["B"])
+
+    def test_new_overlap_joins_and_scope_bridge_refuses_atomically(self):
+        repo, (a, b, c, d, newcomer) = self.seed([["a"], ["a"], ["b"], ["b"], ["c"]])
+        self.open(a, [b])
+        self.open(c, [d])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "bridge"):
+            self.preflight(repo, newcomer, ["a", "b"])
+        self.assertEqual(self.authority(), before)
+        result = self.preflight(repo, newcomer, ["a"])
+        h = result.payload["huddles"][0]
+        self.assertEqual(h["generation"], 2)
+        self.assertEqual([r["owner"] for r in h["claims"]], ["A", "B", "E"])
+
+    def test_held_expansion_read_only_and_late_classification_refuse(self):
+        repo, (a, b) = self.seed([["a"], ["a"]])
+        self.open(a, [b])
+        before = self.authority()
+        for scope, access in ((["a", "b"], "write"), ([], "read_only")):
+            with self.subTest(access=access), self.assertRaises(board_api.BoardError):
+                self.preflight(repo, b, scope, access=access)
+            self.assertEqual(self.authority(), before)
+        with self.assertRaises(board_api.BoardError):
+            self.preflight(repo, a, ["a"], now=NOW + timedelta(minutes=2))
+        self.assertEqual(self.authority(), before)
+
+    def test_stale_board_preflight_never_changes_scope_or_generation(self):
+        repo, (a, b) = self.seed([["a"], ["a"]])
+        previous_revision = board_api.snapshot(home=self.home)["revision"]
+        self.open(a, [b])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "board revision"):
+            self.preflight(repo, a, ["b"], revision=previous_revision)
+        self.assertEqual(self.authority(), before)
+
+    def test_join_cannot_smuggle_a_new_disjoint_participant(self):
+        repo, (a, b, c) = self.seed([["a"], ["a"], ["c"]])
+        self.open(a, [b])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "direct conflict"):
+            self.open(a, [b, c])
+        self.assertEqual(self.authority(), before)
+
+    def test_read_only_classification_resolves_and_retains_historical_refs(self):
+        repo, (a, b) = self.seed([[], ["a"]], unscoped=(0,))
+        self.open(b, [a], reason="scope_request")
+        result = self.preflight(repo, a, [], access="read_only")
+        h = result.payload["huddles"][0]
+        self.assertEqual(h["state"], "resolved")
+        self.assertEqual([r["owner"] for r in h["claims"]], ["B"])
+        self.assertEqual(h["resolution"]["write_owners"], h["claims"])
+        self.assertEqual(h["retain_until"], "2026-09-05T16:00:00Z")
+        historical = copy.deepcopy(result.payload)
+        historical["claims"] = []
+        board_api._validate(historical)
+        for field in ("settled_revision", "actions", "write_owners"):
+            malformed = copy.deepcopy(historical)
+            resolution = malformed["huddles"][0]["resolution"]
+            if field == "settled_revision":
+                resolution[field] = True
+            elif field == "actions":
+                resolution[field][0]["claim"]["claim_revision"] = True
+            else:
+                resolution[field][0]["claim_revision"] = True
+            with self.subTest(field=field), self.assertRaises(board_api.BoardError):
+                board_api._validate(malformed)
+
+    def test_read_only_classification_cannot_erase_semantic_suspicion(self):
+        repo, (a, b) = self.seed([[], ["a"]], unscoped=(0,))
+        self.open(b, [a], reason="semantic_suspicion")
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "semantic"):
+            self.preflight(repo, a, [], access="read_only")
         self.assertEqual(self.authority(), before)
 
 
