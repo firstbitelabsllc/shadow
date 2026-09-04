@@ -382,10 +382,18 @@ SELECT
   metadata_values[indexOf(metadata_names, 'attributes.model')] AS model,
   toInt64OrNull(metadata_values[indexOf(metadata_names, 'attributes.codex.turn.token_usage.input_tokens')]) AS input_tokens,
   toInt64OrNull(metadata_values[indexOf(metadata_names, 'attributes.codex.turn.token_usage.output_tokens')]) AS output_tokens
-FROM default.events_core
-WHERE name = 'session_task.turn'
-  AND metadata_values[indexOf(metadata_names, 'resourceAttributes.env')] = '{environment}'
-ORDER BY start_time DESC LIMIT 1 FORMAT JSONEachRow
+FROM default.events_core AS turn
+WHERE turn.name = 'session_task.turn'
+  AND turn.project_id = '{self.project_id}'
+  AND turn.metadata_values[indexOf(turn.metadata_names, 'resourceAttributes.env')] = '{environment}'
+  AND turn.parent_span_id IN (
+    SELECT root.span_id
+    FROM default.events_core AS root
+    WHERE root.name = 'op.dispatch.turn_input'
+      AND root.project_id = '{self.project_id}'
+      AND root.metadata_values[indexOf(root.metadata_names, 'resourceAttributes.env')] = '{environment}'
+  )
+ORDER BY turn.start_time ASC LIMIT 1 FORMAT JSONEachRow
 """.strip()
         for _ in range(30):
             try:
