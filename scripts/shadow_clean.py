@@ -9,6 +9,7 @@ pending-to-issued journal can authenticate the immutable receipt.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -36,6 +37,7 @@ MAX_BYTES = 64 * 1024
 REF_RE = re.compile(r"^refs/(?:heads|tags)/[-A-Za-z0-9._/]+$")
 OID_RE = re.compile(r"^[0-9a-f]{40,64}$")
 ROW_RE = re.compile(r"^~[0-9a-z]{4}$")
+MANIFEST_ID_RE = re.compile(r"^manifest@([0-9a-f]{12})$")
 
 
 class CleanError(ValueError):
@@ -102,6 +104,10 @@ def _read(path: Path) -> bytes:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
             raise CleanError("private clean record is not a regular file")
+        if stat.S_IMODE(metadata.st_mode) != 0o600:
+            raise CleanError("private clean record must use mode 0600")
+        if hasattr(os, "getuid") and metadata.st_uid != os.getuid():
+            raise CleanError("private clean record has the wrong owner")
         data = os.read(descriptor, MAX_BYTES + 1)
         after = os.fstat(descriptor)
     except OSError as exc:
@@ -111,8 +117,8 @@ def _read(path: Path) -> bytes:
             os.close(descriptor)
     if len(data) > MAX_BYTES:
         raise CleanError("private clean record exceeds its bounded size")
-    if (metadata.st_ino, metadata.st_dev, metadata.st_size, metadata.st_mtime_ns) != (
-        after.st_ino, after.st_dev, after.st_size, after.st_mtime_ns
+    if (metadata.st_ino, metadata.st_dev, metadata.st_size, metadata.st_mtime_ns, metadata.st_mode, metadata.st_uid) != (
+        after.st_ino, after.st_dev, after.st_size, after.st_mtime_ns, after.st_mode, after.st_uid
     ):
         raise CleanError("private clean record changed while being read")
     return data
@@ -151,6 +157,8 @@ def _replace(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}")
     encoded = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
     try:
+        if path.exists() or path.is_symlink():
+            _read(path)
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(temporary, flags, 0o600)
         with os.fdopen(descriptor, "wb") as stream:
@@ -199,21 +207,21 @@ def _real_absolute(path: Path, label: str) -> Path:
     return raw.resolve(strict=False)
 
 
-def _claim(home: Path, entity: str, checkpoint: str, seat: str, *, source: Path | None = None) -> dict[str, Any]:
+def _claim_payload(
+    payload: dict[str, Any], entity: str, checkpoint: str, seat: str,
+    *, source: Path | None = None, locked_plan: Path | None = None,
+) -> dict[str, Any]:
     if _board.ENTITY_ID.fullmatch(entity) is None:
         raise CleanError("entity must be one exact board identity")
     if ROW_RE.fullmatch(checkpoint) is None:
         raise CleanError("checkpoint must be one canonical row id")
-    try:
-        _board.validate_owner(seat)
-        payload = _board.snapshot(home=home)
-    except _board.BoardError as exc:
-        raise CleanError(str(exc)) from None
     if payload is None:
         raise CleanError("exact live claim is required")
     entity_record = next((item for item in payload["entities"] if item["id"] == entity), None)
     if entity_record is None:
         raise CleanError("entity is not registered on this computer")
+    if locked_plan is not None and Path(entity_record["plan"]).resolve() != locked_plan.resolve():
+        raise CleanError("entity plan changed while creation was locked")
     if source is not None:
         try:
             declared = _board.origin_of(Path(entity_record["plan"]).parent)
@@ -235,6 +243,34 @@ def _claim(home: Path, entity: str, checkpoint: str, seat: str, *, source: Path 
     if _board.claim_is_stale(claim):
         raise CleanError("exact live claim is expired")
     return claim
+
+
+def _claim(home: Path, entity: str, checkpoint: str, seat: str, *, source: Path | None = None) -> dict[str, Any]:
+    try:
+        _board.validate_owner(seat)
+        payload = _board.snapshot(home=home)
+        return _claim_payload(payload, entity, checkpoint, seat, source=source)
+    except _board.BoardError as exc:
+        raise CleanError(str(exc)) from None
+
+
+@contextmanager
+def _locked_claim(
+    home: Path, entity: str, checkpoint: str, seat: str, *, source: Path | None = None,
+):
+    """Hold the canonical project lock, then the canonical root-board CAS lock."""
+    try:
+        _board.validate_owner(seat)
+        initial = _board.snapshot(home=home)
+        _claim_payload(initial, entity, checkpoint, seat, source=source)
+        entity_record = next(item for item in initial["entities"] if item["id"] == entity)
+        plan = Path(entity_record["plan"]).resolve()
+        with _board.project_lock(plan):
+            with _board._transaction(home) as (_, _, payload):
+                _claim_payload(payload, entity, checkpoint, seat, source=source, locked_plan=plan)
+                yield
+    except _board.BoardError as exc:
+        raise CleanError(str(exc)) from None
 
 
 def _source_identity(repo: Path) -> str:
@@ -281,8 +317,6 @@ def prepare_creation(
     """Reserve one managed worktree creation before invoking Git."""
     source = _real_absolute(Path(source_repo), "source repository")
     destination = _real_absolute(Path(destination), "worktree destination")
-    if destination.exists() or destination.is_symlink():
-        raise CleanError("worktree destination must be absent")
     if not REF_RE.fullmatch(landed_ref):
         raise CleanError("landed ref must be a safe full Git ref")
     if ref != "HEAD" and (not REF_RE.fullmatch(ref) and not OID_RE.fullmatch(ref)):
@@ -293,38 +327,39 @@ def prepare_creation(
     source_head = _git(source, "rev-parse", ref).stdout.strip()
     if not OID_RE.fullmatch(source_head):
         raise CleanError("creation ref did not resolve to a full Git object id")
-    _claim(_root(home).parent, entity, checkpoint, seat, source=source)
-    directories = _clean_dirs(home, create=True)
     stamp = _stamp(_utc(now) if now is not None else datetime.now(timezone.utc))
-    # A matching pending record is the only retry path.  No filesystem or Git
-    # discovery is used to find a child worktree.
-    for journal_path in sorted(directories["journals"].glob("*.json")):
-        try:
-            journal = json.loads(_read(journal_path))
-        except (CleanError, json.JSONDecodeError):
-            continue
-        if not isinstance(journal, dict) or journal.get("state") != "pending":
-            continue
-        if journal.get("destination") == str(destination):
-            expected = _journal_value(
-                source=source, destination=destination, entity=entity,
-                checkpoint=checkpoint, seat=seat, ref=ref,
-                landed_ref=landed_ref, nonce=str(journal.get("nonce")),
-                created_at=str(journal.get("created_at")), source_head=source_head,
-            )
-            if all(journal.get(key) == value for key, value in expected.items()):
-                return {**journal, "journal_path": str(journal_path)}
-            raise CleanError("pending issuance does not match this exact claim")
-    nonce = secrets.token_hex(32)
-    value = _journal_value(
-        source=source, destination=destination, entity=entity,
-        checkpoint=checkpoint, seat=seat, ref=ref, landed_ref=landed_ref,
-        nonce=nonce, created_at=stamp,
-        source_head=source_head,
-    )
-    journal_path = directories["journals"] / f"{nonce}.json"
-    _exclusive(journal_path, value)
-    return {**value, "journal_path": str(journal_path)}
+    with _locked_claim(_root(home).parent, entity, checkpoint, seat, source=source):
+        directories = _clean_dirs(home, create=True)
+        # A matching pending record is the only retry path.  No filesystem or
+        # Git discovery is used to find a child worktree.
+        for journal_path in sorted(directories["journals"].glob("*.json")):
+            try:
+                journal = json.loads(_read(journal_path))
+            except (CleanError, json.JSONDecodeError):
+                continue
+            if not isinstance(journal, dict) or journal.get("state") != "pending":
+                continue
+            if journal.get("destination") == str(destination):
+                expected = _journal_value(
+                    source=source, destination=destination, entity=entity,
+                    checkpoint=checkpoint, seat=seat, ref=ref,
+                    landed_ref=landed_ref, nonce=str(journal.get("nonce")),
+                    created_at=str(journal.get("created_at")), source_head=source_head,
+                )
+                if all(journal.get(key) == value for key, value in expected.items()):
+                    return {**journal, "journal_path": str(journal_path)}
+                raise CleanError("pending issuance does not match this exact claim")
+        if destination.exists() or destination.is_symlink():
+            raise CleanError("worktree destination must be absent")
+        nonce = secrets.token_hex(32)
+        value = _journal_value(
+            source=source, destination=destination, entity=entity,
+            checkpoint=checkpoint, seat=seat, ref=ref, landed_ref=landed_ref,
+            nonce=nonce, created_at=stamp, source_head=source_head,
+        )
+        journal_path = directories["journals"] / f"{nonce}.json"
+        _exclusive(journal_path, value)
+        return {**value, "journal_path": str(journal_path)}
 
 
 def _receipt_from(journal: dict[str, Any], destination: Path, home: Path) -> dict[str, Any]:
@@ -379,25 +414,28 @@ def finish_creation(nonce: str, *, home: Path | None = None, destination: Path |
     expected_destination = Path(journal["destination"])
     if destination is not None and _real_absolute(Path(destination), "worktree destination") != expected_destination:
         raise CleanError("pending issuance destination does not match")
-    destination = expected_destination
     source = Path(journal["source_repo"])
-    _claim(_root(home).parent, journal["entity"], journal["checkpoint"], journal["seat"], source=source)
-    if not destination.exists():
-        command = ["worktree", "add", str(destination), journal["ref"]]
-        _git(source, *command)
-    receipt = _receipt_from(journal, destination, home or Path.home())
-    if receipt["initial"]["head"] != journal.get("source_head"):
-        raise CleanError("created worktree does not match the pending source ref")
-    receipt_path = directories["receipts"] / f"{receipt['receipt_sha256']}.json"
-    if receipt_path.exists() or receipt_path.is_symlink():
-        existing = json.loads(_read(receipt_path))
-        if existing != receipt:
-            raise CleanError("creation receipt already exists and changed")
-    else:
-        _exclusive(receipt_path, receipt)
-    issued = {**journal, "state": "issued", "receipt_sha256": receipt["receipt_sha256"]}
-    _replace(journal_path, issued)
-    return {"state": "issued", "receipt_sha256": receipt["receipt_sha256"], "receipt_path": str(receipt_path), "journal_path": str(journal_path)}
+    with _locked_claim(_root(home).parent, journal["entity"], journal["checkpoint"], journal["seat"], source=source):
+        current = json.loads(_read(journal_path))
+        if current != journal:
+            raise CleanError("issuance journal changed while creation was waiting")
+        destination = expected_destination
+        if not destination.exists():
+            command = ["worktree", "add", str(destination), journal["ref"]]
+            _git(source, *command)
+        receipt = _receipt_from(journal, destination, home or Path.home())
+        if receipt["initial"]["head"] != journal.get("source_head"):
+            raise CleanError("created worktree does not match the pending source ref")
+        receipt_path = directories["receipts"] / f"{receipt['receipt_sha256']}.json"
+        if receipt_path.exists() or receipt_path.is_symlink():
+            existing = json.loads(_read(receipt_path))
+            if existing != receipt:
+                raise CleanError("creation receipt already exists and changed")
+        else:
+            _exclusive(receipt_path, receipt)
+        issued = {**journal, "state": "issued", "receipt_sha256": receipt["receipt_sha256"]}
+        _replace(journal_path, issued)
+        return {"state": "issued", "receipt_sha256": receipt["receipt_sha256"], "receipt_path": str(receipt_path), "journal_path": str(journal_path)}
 
 
 def create_managed_worktree(
@@ -516,14 +554,32 @@ def _manifest_payload(candidate: dict[str, Any], *, now: datetime) -> dict[str, 
     }
 
 
-def prepare_manifest(candidate: dict[str, Any], *, home: Path | None = None, now: str | datetime | None = None) -> dict[str, Any]:
+def _prepare_manifest_record(
+    candidate: dict[str, Any], *, home: Path | None = None, now: str | datetime | None = None,
+) -> tuple[Path, dict[str, Any], str]:
     directories = _clean_dirs(home, create=True)
     current = _utc(now) if now is not None else datetime.now(timezone.utc)
     payload = _manifest_payload(candidate, now=current)
     digest = canonical_sha256(payload)
     path = directories["manifests"] / f"{digest}.json"
     _exclusive(path, payload)
-    return {"manifest_path": str(path), "manifest_sha256": digest, "expires_at": payload["expires_at"], "manifest": payload}
+    return path, payload, digest
+
+
+def prepare_manifest(candidate: dict[str, Any], *, home: Path | None = None, now: str | datetime | None = None) -> dict[str, Any]:
+    """Write the canonical private manifest and return only opaque metadata."""
+    _path, payload, digest = _prepare_manifest_record(candidate, home=home, now=now)
+    receipt = candidate.get("creation_receipt") or candidate.get("receipt_sha256")
+    if not isinstance(receipt, str) or not re.fullmatch(r"[0-9a-f]{64}", receipt):
+        raise CleanError("manifest creation receipt digest is invalid")
+    return {
+        "schema": CLEAN_MANIFEST_SCHEMA,
+        "state": "prepared",
+        "id": f"manifest@{digest[:12]}",
+        "worktree_id": f"worktree@{receipt[:12]}",
+        "expires_at": payload["expires_at"],
+        "cas": digest,
+    }
 
 
 def validate_manifest(manifest: dict[str, Any], *, expected_sha256: str | None = None, now: str | datetime | None = None) -> str:
@@ -565,6 +621,27 @@ def _load_manifest(path: Path, *, home: Path | None = None) -> tuple[dict[str, A
     if canonical.name != f"{digest}.json":
         raise CleanError("manifest changed since preview")
     return value, digest
+
+
+def resolve_manifest(manifest_id: str, *, home: Path | None = None) -> tuple[dict[str, Any], str, Path]:
+    """Resolve an opaque prepare identity inside Shadow's private manifest root."""
+    match = MANIFEST_ID_RE.fullmatch(manifest_id)
+    if match is None:
+        raise CleanError("manifest identity is invalid")
+    directories = _clean_dirs(home, create=False)
+    matches: list[tuple[dict[str, Any], str, Path]] = []
+    for path in sorted(directories["manifests"].glob("*.json")):
+        try:
+            manifest, digest = _load_manifest(path, home=home)
+        except (CleanError, OSError, json.JSONDecodeError):
+            continue
+        if digest.startswith(match.group(1)):
+            matches.append((manifest, digest, path))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise CleanError("manifest identity is ambiguous")
+    raise CleanError("manifest identity is unknown or expired")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -621,8 +698,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(result["reason"])
             elif args.create and result.get("id"):
                 print(f"issued: {result['id']}")
-            elif result.get("manifest_path"):
-                print(f"prepared: {result['manifest_path']} cas:{result['manifest_sha256']}")
+            elif result.get("state") == "prepared":
+                print(f"prepared: {result['id']} cas:{result['cas']}")
             else:
                 print(result.get("explanation", "no eligible Shadow-created worktrees"))
         return 0
