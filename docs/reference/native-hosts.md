@@ -36,10 +36,10 @@ unsupported-model failure remains a failed attempt; Shadow does not try a
 different provider or model behind the lead's back.
 
 `codex-zai` is the Codex CLI launched through `codexz`, a launcher on PATH
-that points `CODEX_HOME` at an isolated home whose only provider is Z.AI
-GLM-5.3-Flash. It takes the exact `codex exec` argv, including `multi_agent`
-for `direct|required`, and resolves every work class to `glm-5.3-flash`: a
-volume lane, not a tier roster. Authority proposals stay `codex`-only. It has
+that points `CODEX_HOME` at an isolated home whose only provider is Z.AI.
+It takes the exact `codex exec` argv, including `multi_agent` for
+`direct|required`, and resolves `coding` to `glm-5.3` and every other work
+class to `glm-5.3-flash`: the two tiers Z.AI exposes, not an invented roster. Authority proposals stay `codex`-only. It has
 no activation file; the standing goal is not written into the Z.AI home.
 
 Requested and observed models are separate fields; requested and observed child

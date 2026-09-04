@@ -140,13 +140,14 @@ _ROUTES = {
         "zai", "lightweight", "zai/glm-5.3-flash", r"zai/glm-5\.3-flash|glm-5\.3-flash", "GLM-5.3-Flash volume lane"
     ),
     # codex-zai is the same Codex CLI on an isolated CODEX_HOME whose only
-    # provider is Z.AI GLM-5.3-Flash. One volume model for every class; the
-    # policy says so instead of inventing tiers the provider does not expose.
+    # provider is Z.AI. Z.AI exposes two GLM tiers to Codex: GLM-5.3 owns the
+    # coding class (the owner's 2026-09-03 roster: dev and coding go to GLM
+    # 5.3), and GLM-5.3-Flash stays the volume model for every other class.
     ("codex-zai", "planning"): _route(
         "codex-zai", "planning", "glm-5.3-flash", r"glm-5\.3-flash", "GLM-5.3-Flash via Codex, volume planning"
     ),
     ("codex-zai", "coding"): _route(
-        "codex-zai", "coding", "glm-5.3-flash", r"glm-5\.3-flash", "GLM-5.3-Flash via Codex, volume coding"
+        "codex-zai", "coding", "glm-5.3", r"glm-5\.3", "GLM-5.3 via Codex, dev and coding"
     ),
     ("codex-zai", "review"): _route(
         "codex-zai", "review", "glm-5.3-flash", r"glm-5\.3-flash", "GLM-5.3-Flash via Codex, volume review"

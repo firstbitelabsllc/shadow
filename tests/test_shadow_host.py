@@ -462,16 +462,19 @@ class ShadowHostTests(unittest.TestCase):
                 "max",
             ],
         )
-    def test_codex_zai_routes_every_class_to_glm_flash(self) -> None:
+    def test_codex_zai_routes_coding_to_glm_and_the_rest_to_flash(self) -> None:
         for work_class in shadow_host.WORK_CLASSES:
             route = shadow_host.resolve_route("codex-zai", work_class)
-            self.assertEqual(route.model, "glm-5.3-flash")
-            self.assertTrue(route.matches_observed_model("glm-5.3-flash"))
+            expected = "glm-5.3" if work_class == "coding" else "glm-5.3-flash"
+            self.assertEqual(route.model, expected)
+            self.assertTrue(route.matches_observed_model(expected))
             self.assertFalse(route.matches_observed_model("gpt-5.6-luna"))
             self.assertEqual(
                 shadow_host.native_model_argv("codex-zai", work_class),
-                ["--model", "glm-5.3-flash"],
+                ["--model", expected],
             )
+        coding = shadow_host.resolve_route("codex-zai", "coding")
+        self.assertFalse(coding.matches_observed_model("glm-5.3-flash"))
 
     def test_codex_zai_resolves_the_codexz_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -959,7 +962,7 @@ class ShadowHostTests(unittest.TestCase):
                 argv = json.loads(binary.with_suffix(".argv.json").read_text(encoding="utf-8"))
                 resolved = str(repo.resolve())
                 if host in ("codex", "codex-zai"):
-                    model = "glm-5.3-flash" if host == "codex-zai" else "gpt-5.6-sol"
+                    model = "glm-5.3" if host == "codex-zai" else "gpt-5.6-sol"
                     self.assertEqual(argv[1:12], [
                         "exec", "--disable", "multi_agent", "--model", model,
                         "--json", "--ephemeral", "--sandbox", "workspace-write", "-C", resolved,
