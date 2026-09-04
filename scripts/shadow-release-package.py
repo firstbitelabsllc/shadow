@@ -385,7 +385,7 @@ def commit_disposable_fixture(project: Path) -> None:
     )
 
 
-def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
+def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[str, bool]:
     """Prove a stranger can install from the archive with Git, Bash, Python —
     exactly the path install.sh documents."""
     consumer = root / "consumer"
@@ -643,6 +643,13 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         or "~bb22 PROOF" not in completed
     ):
         raise RuntimeError("installed accept did not persist its completion proof")
+    return {
+        "preview_zero_write": True,
+        "auto_round_trip": True,
+        "creation_receipt": True,
+        "manifest_apply": True,
+        "trash_recovery": True,
+    }
 
 
 def verify(
@@ -691,9 +698,16 @@ def verify(
         if first_sha != second_sha or manifest.get("files") != second_manifest.get("files"):
             errors.append("repeated git archive runs are not reproducible")
         install_ok = False
+        cleanup_proof = {
+            "preview_zero_write": False,
+            "auto_round_trip": False,
+            "creation_receipt": False,
+            "manifest_apply": False,
+            "trash_recovery": False,
+        }
         if not errors:
-            stranger_install(tarball, temp, version)
-            install_ok = True
+            cleanup_proof = stranger_install(tarball, temp, version)
+            install_ok = all(cleanup_proof.values())
     return {
         "schema": "shadow.release.v1",
         "ok": not errors,
@@ -708,6 +722,7 @@ def verify(
         "sha256": first_sha,
         "reproducible": first_sha == second_sha,
         "stranger_install": install_ok,
+        "stranger_cleanup": cleanup_proof,
         "dirty_files": dirty,
         "errors": errors,
     }

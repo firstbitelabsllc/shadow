@@ -240,6 +240,16 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, report)
         self.assertTrue(report["stranger_install"])
         self.assertTrue(report["reproducible"])
+        self.assertEqual(
+            report["stranger_cleanup"],
+            {
+                "preview_zero_write": True,
+                "auto_round_trip": True,
+                "creation_receipt": True,
+                "manifest_apply": True,
+                "trash_recovery": True,
+            },
+        )
         self.assertFalse(report["publishable"])
 
 
