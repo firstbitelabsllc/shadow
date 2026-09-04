@@ -1149,7 +1149,7 @@ class BoardProjectionTests(unittest.TestCase):
             "node script.mjs; npx tool; gh pr view; kubectl get pods; ssh leo@example; "
             "brew install foo; uv run tests; terraform plan C:\\Users\\Leo\\secret ~abcde "
             "| proof: gate Leo\n"
-            "- [blocked] inspect refs/heads/codex/unsafe at /Users/leo/private/PLAN.md "
+            "- [blocked] inspect refs/heads/codex/unsafe at /Users/person/private/PLAN.md "
             "~bb22 | proof: cmd true\n"
         )
         brief = board_projection.project_board_brief(plan)
