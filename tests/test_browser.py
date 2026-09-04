@@ -1436,5 +1436,67 @@ class BrowserTreeProjectionTests(unittest.TestCase):
         )
 
 
+class BrowserTreeRenderingTests(unittest.TestCase):
+    """The Tree is a read-only projection of the canonical /api/plans payload.
+
+    These are source/DOM contracts for the dependency-free shell.  They keep
+    the semantic hierarchy and the user-facing safety copy load-bearing even
+    though the repository intentionally has no JavaScript runtime dependency.
+    """
+
+    HTML = (Path(server.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+    APP = (Path(server.__file__).parent / "static" / "app.js").read_text(encoding="utf-8")
+    CSS = (Path(server.__file__).parent / "static" / "style.css").read_text(encoding="utf-8")
+
+    def test_tree_toggle_and_accessible_container_are_in_shell(self) -> None:
+        self.assertIn('id="view-tree"', self.HTML)
+        self.assertIn('aria-controls="tree"', self.HTML)
+        self.assertIn('id="tree"', self.HTML)
+        self.assertIn('class="tree"', self.HTML)
+        self.assertIn("Tree", self.HTML)
+
+    def test_renderer_uses_native_nested_tree_and_required_fields(self) -> None:
+        for token in (
+            "function renderTree()",
+            "el('details'",
+            "el('summary'",
+            "tree.computer",
+            "tree.projects",
+            "project.entities",
+            "entity.milestones",
+            "milestone.checkpoints",
+            "source_plan",
+            "worktrees",
+            "Worktree lifecycle",
+            "Proof",
+            "Wake",
+            "Ownership",
+        ):
+            self.assertIn(token, self.APP, token)
+
+    def test_renderer_has_loading_unavailable_empty_and_populated_states(self) -> None:
+        for token in (
+            "Reading the plan tree",
+            "Plan tree unavailable",
+            "No projects in the plan tree yet",
+            "renderTree()",
+            "state.tree",
+        ):
+            self.assertIn(token, self.APP, token)
+
+    def test_tree_is_a_projection_without_write_controls_or_unsafe_html(self) -> None:
+        self.assertIn("The Tree is a read-only view", self.APP)
+        self.assertIn("Board and plans remain the authority", self.APP)
+        self.assertNotIn("innerHTML", self.APP)
+        self.assertNotIn("/api/decision", self.APP.split("function renderTree", 1)[1])
+        self.assertIn("textContent", self.APP)
+
+    def test_tree_styles_follow_existing_focus_and_responsive_patterns(self) -> None:
+        for token in (".tree", ".tree details", ".tree summary", ".tree summary:focus-visible"):
+            self.assertIn(token, self.CSS, token)
+        self.assertIn(".tree-field", self.CSS)
+        self.assertIn(".tree-worktrees", self.CSS)
+
+
 if __name__ == "__main__":
     unittest.main()

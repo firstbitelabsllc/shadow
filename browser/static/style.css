@@ -141,3 +141,34 @@ main:focus { outline: none; }
 
 .checkpoint { display: flex; align-items: baseline; gap: 8px; }
 .checkpoint .state-chip { flex: 0 0 auto; padding: 3px 8px; font-size: .65rem; }
+
+.tree { width: min(1100px, 100%); margin: 0 auto; padding: 32px clamp(20px, 4vw, 64px) 64px; }
+.tree-card { max-width: 980px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: 0 20px 60px rgba(22, 36, 29, .07); padding: clamp(20px, 4vw, 38px); }
+.tree-card.empty { max-width: 720px; }
+.tree-card h2 { max-width: 24ch; margin: 0 0 12px; font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.05; letter-spacing: -.045em; }
+.tree-authority { margin: 0 0 24px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.tree details { border-top: 1px solid var(--line); }
+.tree-node:last-child { border-bottom: 1px solid var(--line); }
+.tree summary { cursor: pointer; }
+.tree-summary { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 15px 4px; cursor: pointer; font-weight: 750; list-style-position: outside; }
+.tree-summary::marker { color: var(--accent); }
+.tree summary:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 3px; border-radius: 5px; }
+.tree-summary:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 3px; border-radius: 5px; }
+.tree-label { min-width: 0; overflow-wrap: anywhere; }
+.tree-summary .state-chip { margin-left: auto; padding: 4px 9px; font-size: .68rem; }
+.tree-children { margin-left: clamp(12px, 3vw, 28px); }
+.tree-fields { margin: 0; border-left: 2px solid var(--accent-soft); padding: 0 0 8px 16px; }
+.tree-field, .tree-worktrees { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 18px; padding: 9px 0; }
+.tree-field dt, .tree-worktrees dt { color: var(--muted); font-size: .8rem; font-weight: 700; }
+.tree-field dd, .tree-worktrees dd { margin: 0; overflow-wrap: anywhere; line-height: 1.45; }
+.tree-worktrees { margin: 0 0 8px; border-left: 2px solid var(--accent-soft); padding-left: 16px; }
+.tree-empty { margin: 4px 0 16px; color: var(--muted); font-size: .9rem; }
+
+@media (max-width: 760px) {
+  .tree { padding: 20px 14px 48px; }
+  .tree-card { border-radius: 20px; padding: 18px; }
+  .tree-field, .tree-worktrees { grid-template-columns: 1fr; gap: 4px; }
+  .tree-children { margin-left: 10px; }
+}
+
+.tree[hidden] { display: none; }
