@@ -686,7 +686,49 @@ class CleanApplyTests(unittest.TestCase):
         private_stage = Path(journal["private_stage"])
         self.assertFalse(private_stage.exists())
         self.assertTrue(private_stage.parent.is_dir())
-        self.assertEqual(list(trash.iterdir()), [private_stage.parent])
+        trash_entries = list(trash.iterdir())
+        self.assertEqual(len(trash_entries), 1)
+        self.assertEqual(
+            (trash_entries[0].stat().st_dev, trash_entries[0].stat().st_ino),
+            (private_stage.parent.stat().st_dev, private_stage.parent.stat().st_ino),
+        )
+
+    def test_restore_post_hop_symlink_substitution_requires_recovery(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        aside = Path(self.tmp.name) / "authentic-restore-symlink-aside"
+        applied = self.clean.apply_manifest(
+            manifest_path, expected_sha256=digest, home=self.home, trash_root=trash, by="seat-a",
+        )
+        preview = self.clean.restore_preview(applied["receipt"], home=self.home, trash_root=trash)
+        artifact = next(trash.iterdir())
+        authentic_inode = artifact.stat().st_ino
+        admin = self.repo / ".git" / "worktrees" / destination.name
+        original_move = self.clean._atomic_move_noreplace
+
+        def substitute_with_symlink(source, target, **kwargs):
+            result = original_move(source, target, **kwargs)
+            if target.resolve() == destination.resolve():
+                target.rename(aside)
+                target.symlink_to(aside)
+            return result
+
+        with mock.patch.object(self.clean, "_atomic_move_noreplace", side_effect=substitute_with_symlink):
+            with self.assertRaisesRegex(self.clean.CleanError, "recovery required"):
+                self.clean.restore_apply(
+                    applied["receipt"], expected=preview["cas"], home=self.home, trash_root=trash,
+                )
+        current_receipt, _ = self.clean._load_trash_receipt(applied["receipt"], self.home)
+        self.assertEqual(current_receipt["state"], "trashed")
+        journal_path = next((self.home / ".shadow" / "clean" / "restore-journals").glob("*.json"))
+        journal = json.loads(journal_path.read_text(encoding="utf-8"))
+        self.assertEqual(journal["state"], "recovery_required")
+        self.assertTrue(journal["source_race"])
+        self.assertTrue(journal["recovery_required"])
+        self.assertTrue((admin / "locked").is_file())
+        self.assertTrue(destination.is_symlink())
+        self.assertEqual(aside.stat().st_ino, authentic_inode)
 
     def test_apply_retries_after_rename_crash_without_removing_or_forcing(self):
         destination, prepared, manifest_path, digest = self._terminal_managed()
