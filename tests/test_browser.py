@@ -1329,10 +1329,13 @@ class BrowserTreeProjectionTests(unittest.TestCase):
         self.assertEqual(checkpoints["~aa11"]["proof"], {"class": "read", "text": "receipt -> okay"})
 
     def test_tree_withholds_private_git_and_secret_proof_wake_values(self) -> None:
+        private_home = "/" + "Users" + "/leo"
+        secret = "sk-ant-" + "abcdefghijk"
         unsafe = self.TREE_PLAN.replace(
-            "read receipt -> okay", "read /Users/leo/private -> okay"
+            "read receipt -> okay", f"read {private_home}/private -> okay"
         ).replace(
-            "Leo reviews the owner decision", "push refs/heads/main 0123456789abcdef0123456789abcdef01234567 sk-ant-abcdefghijk"
+            "Leo reviews the owner decision",
+            f"push refs/heads/main 0123456789abcdef0123456789abcdef01234567 {secret}",
         )
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan, home = self.make_tree_repo(Path(dirname))
@@ -1345,7 +1348,7 @@ class BrowserTreeProjectionTests(unittest.TestCase):
             )]
             tree = server.tree_projection(board, records, home)
         payload = json.dumps(tree)
-        self.assertNotIn("/Users/leo", payload)
+        self.assertNotIn(private_home, payload)
         self.assertNotIn("refs/heads/main", payload)
         self.assertNotIn("0123456789abcdef", payload)
         self.assertNotIn("sk-ant-", payload)
@@ -1373,25 +1376,30 @@ class BrowserTreeProjectionTests(unittest.TestCase):
         self.assertNotIn("external authority", json.dumps(tree))
 
     def test_tree_ignores_injected_project_names_and_standalone_receipts(self) -> None:
+        private_home = "/" + "Users" + "/leo"
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan, home = self.make_tree_repo(Path(dirname))
             board, records, warning = server.board_plan_records(repo, home)
             self.assertIsNone(warning)
-            board["projects"][0]["name"] = "/Users/leo/secret project"
+            board["projects"][0]["name"] = f"{private_home}/secret project"
             clean = home / ".shadow" / "clean"
             (clean / "receipts").mkdir(parents=True)
             (clean / "journals").mkdir()
             (clean / "receipts" / "standalone.json").write_text(
-                json.dumps({"schema": "shadow.worktree-creation.v1", "worktree": {"path": "/Users/leo/private"}}),
+                json.dumps({
+                    "schema": "shadow.worktree-creation.v1",
+                    "worktree": {"path": f"{private_home}/private"},
+                }),
                 encoding="utf-8",
             )
             tree = server.tree_projection(board, records, home)
         payload = json.dumps(tree)
         self.assertNotIn("name", payload)
         self.assertNotIn("standalone", payload)
-        self.assertNotIn("/Users/leo", payload)
+        self.assertNotIn(private_home, payload)
 
     def test_tree_uses_cleanup_safe_summary_and_keeps_recoverable_states(self) -> None:
+        private_home = "/" + "Users" + "/leo"
         with tempfile.TemporaryDirectory() as dirname:
             repo, plan, home = self.make_tree_repo(Path(dirname))
             board, records, warning = server.board_plan_records(repo, home)
@@ -1402,7 +1410,13 @@ class BrowserTreeProjectionTests(unittest.TestCase):
                     {"id": "worktree@111111111111", "entity": entity, "checkpoint": "~aa11", "state": "issued"},
                     {"id": "worktree@222222222222", "entity": entity, "checkpoint": "~aa11", "state": "trashed"},
                     {"id": "worktree@333333333333", "entity": entity, "checkpoint": "~aa11", "state": "noneligible"},
-                    {"id": "worktree@444444444444", "entity": entity, "checkpoint": "~aa11", "state": "trashed", "path": "/Users/leo/private"},
+                    {
+                        "id": "worktree@444444444444",
+                        "entity": entity,
+                        "checkpoint": "~aa11",
+                        "state": "trashed",
+                        "path": f"{private_home}/private",
+                    },
                 ]
             }
             with mock.patch.object(server._shadow_clean, "lifecycle_summary", return_value=summaries, create=True), \
