@@ -18,9 +18,9 @@
 - Modify `bin/shadow`
 - Modify `schemas/retirement-manifest.v1.json` only if the shared validator requires it; prefer a separate strict clean-manifest schema.
 
-1. Write failing tests for immutable creation receipts, forged/pre-existing refusal, default zero-write explanation, fresh manifest generation, expiry, and changed-manifest refusal.
-2. Add the managed-worktree creation primitive and `shadow clean --create`, requiring an exact live claim and absent destination.
-3. Build clean preview from creation receipts only; delegate Git/plan checks to existing lifecycle/root-board owners.
+1. Write failing tests for the pending-to-issued creation transaction, interrupted issuance, standalone/pre-existing refusal, default zero-write explanation, explicit canonical manifest preparation, expiry, and changed-manifest refusal.
+2. Add the managed-worktree creation primitive and `shadow clean --create`, requiring an exact live claim and absent destination. A retry may finish only its matching pending issuance; it never adopts or removes a mismatched child.
+3. Build clean preview from creation receipts plus their separate issued journals only; delegate Git/plan checks to existing lifecycle/root-board owners. Add `--prepare` for the exclusive apply-capable manifest write below the private Shadow root.
 4. Add dispatcher/help and docs without changing `shadow lifecycle` compatibility.
 5. Run `scripts/shadow-python.sh -m unittest tests.test_clean.CleanPreviewTests -v`.
 
@@ -34,7 +34,7 @@
 1. Write the full failing refusal matrix: primary, dirty, untracked, ignored, unlanded, active claim, process-held, symlink, submodule, expired/changed manifest, post-preview mutation.
 2. Add bounded cross-platform process inspection that fails closed when unavailable.
 3. Under the existing project lock, revalidate, lock the Git worktree, write the private journal, and same-device rename the exact inode to Trash. Assert no remove/prune/force invocation.
-4. Add exact restore: validate receipt/inode/locked registration, rename back, verify, unlock, and finalize the private receipt.
+4. Add read-only restore preview and its distinct post-Trash CAS; restore apply validates that CAS rather than manifest freshness, renames the same inode back, verifies, unlocks, and finalizes the private receipt.
 5. Prove crash points before lock, after lock, after journal, after rename, and after public receipt are retryable or explicitly recoverable.
 6. Run `scripts/shadow-python.sh -m unittest tests.test_clean.CleanApplyTests -v`.
 
@@ -48,20 +48,24 @@
 
 1. Write failing tests for strict computer preference, disabled default, one enabled call at a successful terminal boundary, and zero calls from status/browse/install/cold start.
 2. Add `shadow clean --auto enable|disable|status` with isolated-home tests; do not enable it on the development computer.
-3. Call the shared clean boundary exactly once after durable success. Preserve success while reporting individual refusals; never retry in a loop.
+3. Call the shared clean boundary exactly once after durable lifecycle success and only after acceptance's associated `_board.release()` returns. Preserve prior success while reporting individual refusals; never retry in a loop.
 4. Run `scripts/shadow-python.sh -m unittest tests.test_lifecycle.LifecycleAutomaticCleanupTests tests.test_shadow_accept -v`.
 
 ## Task 4: Canonical Tree payload
 
 **Files:**
 - Modify `browser/server.py`
+- Modify `scripts/shadow_plan_grammar.py`
+- Modify the inline Deferred-wake consumer in `scripts/shadow_root_board.py`
 - Modify `tests/test_browser.py`
+- Modify the focused root-board/grammar tests for shared wake behavior
 
 1. Write failing payload tests for the complete hierarchy and every required field.
-2. Extend the existing milestone projection with an include-completed mode and safe proof/wake fields.
-3. Build `tree` from the root-board payload and already-projected canonical entities; attach sanitized lifecycle summaries by entity/checkpoint.
-4. Add negative tests for private paths, secrets, raw manifests, Git refs/OIDs, broken/symlink plans, and forged lifecycle receipts.
-5. Run `scripts/shadow-python.sh -m unittest tests.test_browser.BrowserTreeProjectionTests -v`.
+2. Add one strict Deferred-wake projection to the shared grammar owner; route both root-board release validation and Tree through it, with duplicate/missing-wake parity tests.
+3. Extend the existing milestone projection with an include-completed mode and safe proof/wake fields.
+4. Build `tree` from the root-board payload and already-projected canonical entities; project only canonical project id/priority and attach sanitized lifecycle summaries by entity/checkpoint.
+5. Add negative tests for private paths, secrets, raw manifests, Git refs/OIDs, broken/symlink plans, injected board project-name fields, and standalone lifecycle receipts.
+6. Run `scripts/shadow-python.sh -m unittest tests.test_browser.BrowserTreeProjectionTests -v`.
 
 ## Task 5: Accessible Tree UI
 
