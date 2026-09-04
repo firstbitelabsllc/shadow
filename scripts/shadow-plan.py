@@ -12,6 +12,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -160,6 +162,136 @@ def _amend(
         "receipts": len(receipts),
         "root_sha256": publication.root_sha256 if publication else None,
         "generation": publication.generation if publication else None,
+    }
+
+
+def _reconcile_accepted_proof(
+    entity: str,
+    row_id: str,
+    owner: str,
+    expected_root: str,
+    *,
+    apply: bool,
+) -> dict[str, object]:
+    """Repair one drifted completed cmd proof from its canonical accept receipt."""
+    if not apply:
+        raise PlanStoreError("reconcile-accepted-proof requires --apply")
+    if grammar.ROW_ID_RE.fullmatch(row_id) is None:
+        raise PlanStoreError("row must be a ~hash id, four base36 chars")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_root):
+        raise PlanStoreError("--expect-root must be a 64-hex root SHA256")
+    try:
+        owner = board_store.validate_owner(owner)
+    except board_store.BoardError as exc:
+        raise PlanStoreError(f"--by is unsafe: {exc}") from exc
+
+    resolved = board_store.resolve_entity(entity)
+    if resolved is None:
+        raise PlanStoreError("this computer has no Shadow board yet")
+    plan = resolved["plan"]
+    if plan is None:
+        raise PlanStoreError("this entity is not registered on the computer board")
+    if not board_store.is_local_plan(plan):
+        raise PlanStoreError(
+            "reconcile-accepted-proof repairs machine-local plans only"
+        )
+
+    with board_store.project_lock(plan):
+        try:
+            transaction = store.PlanTransaction.begin(
+                plan, expected_root=expected_root
+            )
+            if not transaction.snapshot.is_tree:
+                raise PlanStoreError("reconcile-accepted-proof requires a partitioned plan tree")
+            original = transaction.original_content
+            text = original.decode("utf-8")
+            index, row_line, state, old_proof, _needs = accept.find_row(text, row_id)
+        except (UnicodeDecodeError, accept.AcceptError) as exc:
+            raise PlanStoreError(str(exc)) from exc
+
+        if row_line not in board_store.section_lines(text, "Tasks"):
+            raise PlanStoreError(f"{row_id} is not a task row")
+        if state != "completed":
+            raise PlanStoreError(f"{row_id} must be completed")
+        if not old_proof.startswith("cmd ") or grammar.PROOF_CLASS_RE.match(old_proof) is None:
+            raise PlanStoreError(f"{row_id} must carry one replaceable cmd proof")
+        old_field = f" | proof: {old_proof}"
+        if row_line.count(old_field) != 1:
+            raise PlanStoreError(f"{row_id} proof field is not exactly replaceable")
+
+        receipts: list[re.Match[str]] = []
+        for line in board_store.section_lines(text, "Progress"):
+            shaped = grammar.PROOF_LINE_RE.match(line)
+            if shaped is None or shaped.group("id") != row_id:
+                continue
+            receipt = grammar.PROOF_RECEIPT_RE.fullmatch(line)
+            if receipt is None:
+                raise PlanStoreError(f"{row_id} has a malformed PROOF receipt")
+            receipts.append(receipt)
+        accepted = [receipt for receipt in receipts if receipt.group("result") == "pass (accept)"]
+        if len(accepted) != 1:
+            raise PlanStoreError(
+                f"{row_id} requires exactly one canonical pass (accept) receipt"
+            )
+        receipt = accepted[0]
+        receipt_proof = receipt.group("proof")
+        try:
+            argv = grammar.proof_argv(receipt_proof)
+        except ValueError as exc:
+            raise PlanStoreError(f"{row_id} accept receipt proof has invalid quoting") from exc
+        if not argv or shlex.join(argv) != receipt_proof:
+            raise PlanStoreError(
+                f"{row_id} accept receipt proof is not canonical argv text"
+            )
+
+        new_proof = f"cmd {receipt_proof}"
+        if old_proof == new_proof:
+            raise PlanStoreError(f"{row_id} proof already matches its canonical accept receipt")
+        replacement = row_line.replace(old_field, f" | proof: {new_proof}", 1)
+        lines = text.splitlines(keepends=True)
+        lines[index] = replacement + ("\n" if lines[index].endswith("\n") else "")
+        repaired_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        provenance = {
+            "accepted_at": receipt.group("ts"),
+            "by": owner,
+            "new_proof": new_proof,
+            "old_proof": old_proof,
+            "repaired_at": repaired_at,
+            "type": "RESHAPE accepted-proof",
+        }
+        progress_line = (
+            f"- {repaired_at} {row_id} RESHAPE accepted-proof "
+            f"{json.dumps(provenance, ensure_ascii=True, sort_keys=True, separators=(',', ':'))}\n"
+        )
+        candidate_text = "".join(lines)
+        try:
+            candidate_text = accept.append_progress_line(candidate_text, progress_line)
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
+
+        candidate_lines = candidate_text.splitlines(keepends=True)
+        if candidate_lines.count(progress_line) != 1:
+            raise PlanStoreError("accepted-proof provenance was not appended exactly once")
+        candidate_without_provenance = list(candidate_lines)
+        candidate_without_provenance.remove(progress_line)
+        expected_lines = list(text.splitlines(keepends=True))
+        expected_lines[index] = lines[index]
+        if candidate_without_provenance != expected_lines:
+            raise PlanStoreError("accepted-proof repair changed unrelated plan bytes")
+        try:
+            publication = transaction.replace_content(candidate_text.encode("utf-8")).publish()
+        except store.PlanStoreError as exc:
+            raise PlanStoreError(str(exc)) from exc
+
+    return {
+        "schema": "shadow.plan-reconcile-accepted-proof.v1",
+        "action": "reconciled",
+        "entity": entity,
+        "row": row_id,
+        "accepted_at": receipt.group("ts"),
+        "previous_root": expected_root,
+        "root": publication.root_sha256,
+        "generation": publication.generation,
     }
 
 
@@ -1201,6 +1333,15 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="source checkout where a cmd proof runs; lint checks its script operands",
     )
+    reconcile = commands.add_parser(
+        "reconcile-accepted-proof",
+        help="repair one completed cmd proof from its canonical accept receipt",
+    )
+    reconcile.add_argument("--entity", required=True, help="computer-board entity id")
+    reconcile.add_argument("--row", required=True, help="exact ~hash row id")
+    reconcile.add_argument("--by", required=True, help="validated provenance seat")
+    reconcile.add_argument("--expect-root", required=True, help="expected plan root SHA256")
+    reconcile.add_argument("--apply", action="store_true", required=True)
     return result
 
 
@@ -1215,6 +1356,16 @@ def main(argv: list[str] | None = None) -> int:
                 proof=args.proof,
                 observation=args.observation,
                 proof_root=args.repo.resolve() if args.repo else None,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        if args.command == "reconcile-accepted-proof":
+            payload = _reconcile_accepted_proof(
+                args.entity,
+                args.row,
+                args.by,
+                args.expect_root,
+                apply=args.apply,
             )
             print(json.dumps(payload, indent=2, sort_keys=True))
             return 0
