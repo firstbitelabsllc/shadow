@@ -1074,7 +1074,7 @@ def _validate_v1(payload: object) -> dict:
         "schema", "revision", "projects", "entities", "claims"
     }:
         raise BoardError("board has unknown or missing top-level fields")
-    if payload["schema"] != SCHEMA:
+    if payload["schema"] != V1_SCHEMA:
         raise BoardError("board schema is not supported")
     if isinstance(payload["revision"], bool) or not isinstance(payload["revision"], int):
         raise BoardError("board revision must be an integer")
@@ -1269,36 +1269,57 @@ def repository_binding(repo: Path, *, remote: str | None = None) -> dict:
     return _validate_repository_binding(binding)
 
 
-def normalize_write_scope(repo: Path, values: list[str]) -> list[str]:
-    """Normalize lexical scopes and inspect parents through no-follow descriptors."""
+def _scope_snapshot(repo: Path, values: list[str]) -> tuple[list[str], dict]:
+    """Return lexical scope and transient identity witnesses for its parents."""
     if not isinstance(values, list) or len(values) > 256:
         raise BoardError("claim write scope must be a bounded list")
     for value in values:
         _validate_write_scope([value])
     normalized = sorted(set(values))
+    witnesses: dict[str, tuple[int, int, int] | None] = {}
+    if not normalized:
+        return normalized, witnesses
     flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     try:
         root_fd = os.open(repo, flags)
     except OSError as exc:
         raise BoardError("scope worktree must be a real directory") from exc
     try:
+        root_stat = os.fstat(root_fd)
+        witnesses["."] = (root_stat.st_dev, root_stat.st_ino, root_stat.st_mode)
         for prefix in normalized:
             cursor = os.dup(root_fd)
+            components = []
             try:
                 for component in prefix.split("/")[:-1]:
+                    components.append(component)
+                    relative = "/".join(components)
                     try:
                         child = os.open(component, flags, dir_fd=cursor)
                     except FileNotFoundError:
+                        if relative in witnesses and witnesses[relative] is not None:
+                            raise BoardError("scope component disappeared during normalization")
+                        witnesses[relative] = None
                         break  # A new lexical subtree has no existing links to follow.
                     except OSError as exc:
                         raise BoardError("scope parent is a symlink or not a directory") from exc
                     os.close(cursor)
                     cursor = child
+                    info = os.fstat(cursor)
+                    observed = (info.st_dev, info.st_ino, info.st_mode)
+                    if relative in witnesses and witnesses[relative] != observed:
+                        raise BoardError("scope component changed during normalization")
+                    witnesses[relative] = observed
             finally:
                 os.close(cursor)
     finally:
         os.close(root_fd)
-    return normalized
+    return normalized, witnesses
+
+
+def normalize_write_scope(repo: Path, values: list[str]) -> list[str]:
+    """Normalize lexical scopes and inspect parents through no-follow descriptors."""
+    return _scope_snapshot(repo, values)[0]
 
 
 _HUDDLE_REF_FIELDS = {"entity", "row", "claim_revision", "owner", "claimed_at"}
@@ -1333,15 +1354,21 @@ def _path_overlap(left: str, right: str) -> bool:
     return left == "." or right == "." or left == right or left.startswith(right + "/") or right.startswith(left + "/")
 
 
-def _scope_edge(left: dict, right: dict) -> list[str]:
-    a, b = left["repository_binding"], right["repository_binding"]
-    if left["access"] == "read_only" or right["access"] == "read_only" or a is None or b is None:
-        return []
+def _same_repository(a: dict, b: dict) -> bool:
+    _validate_repository_binding(a)
+    _validate_repository_binding(b)
     same_common = a["common_dir_sha256"] == b["common_dir_sha256"]
     same_remote = a["remote_identity"] is not None and a["remote_identity"] == b["remote_identity"]
     if same_common and a["remote_identity"] != b["remote_identity"]:
         raise BoardError("repository bindings contradict one another")
-    if not same_common and not same_remote:
+    return same_common or same_remote
+
+
+def _scope_edge(left: dict, right: dict) -> list[str]:
+    a, b = left["repository_binding"], right["repository_binding"]
+    if left["access"] == "read_only" or right["access"] == "read_only" or a is None or b is None:
+        return []
+    if not _same_repository(a, b):
         return []
     if "unscoped" in {left["access"], right["access"]}:
         return ["scope_unknown"]
@@ -1467,7 +1494,7 @@ def _validate_v2(payload: object) -> dict:
             raise BoardError("claims have unknown or missing fields")
 
     v1_projection = {
-        "schema": SCHEMA,
+        "schema": V1_SCHEMA,
         "revision": payload["revision"],
         "projects": payload["projects"],
         "entities": payload["entities"],
@@ -1514,7 +1541,7 @@ def _validate(payload: object) -> dict:
     if not isinstance(payload, dict):
         raise BoardError("board has unknown or missing top-level fields")
     schema = payload.get("schema")
-    if schema == SCHEMA:
+    if schema == V1_SCHEMA:
         return _validate_v1(payload)
     if schema == V2_SCHEMA:
         return _validate_v2(payload)
@@ -2121,9 +2148,13 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
             # require the lifecycle transition implemented in the next slice.
             raise BoardError("existing Huddle scope transition requires lifecycle integration")
         before = copy.deepcopy(claim)
-        binding = None if access == "read_only" else repository_binding(repo)
-        if claim["repository_binding"] is not None and binding != claim["repository_binding"]:
-            raise BoardError("preflight repository binding changed")
+        observed_binding = None if access == "read_only" else repository_binding(repo)
+        binding = observed_binding
+        if observed_binding is not None and claim["repository_binding"] is not None:
+            if not _same_repository(observed_binding, claim["repository_binding"]):
+                raise BoardError("preflight repository binding changed")
+            binding = claim["repository_binding"]
+        scope, component_witnesses = _scope_snapshot(repo, write_scope)
         claim.update(access=access, write_scope=scope, repository_binding=binding)
         if access == "write" and any(c["access"] == "unscoped" and c["repository_binding"] is None for c in payload["claims"]):
             raise BoardError("legacy_binding_unknown: classify or return every unbound legacy claim")
@@ -2137,10 +2168,10 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
         payload["revision"] += 1
         _validate(payload)
         def guard() -> None:
-            if binding is not None and repository_binding(repo) != binding:
+            if observed_binding is not None and repository_binding(repo) != observed_binding:
                 raise BoardError("preflight repository changed during publication")
-            if normalize_write_scope(repo, write_scope) != scope:
-                raise BoardError("preflight scope changed during publication")
+            if _scope_snapshot(repo, write_scope) != (scope, component_witnesses):
+                raise BoardError("preflight scope component changed during publication")
         _write_and_commit(root, path, payload, "shadow board: preflight claim access", guard=guard)
         event = None if huddle is None else {"schema": "shadow.huddle-delivery-event.v1", "event": "huddle_changed",
             "huddle_id": huddle["id"], "generation": huddle["generation"]}
@@ -2169,7 +2200,7 @@ def _rollback_v2_to_v1(
             raise BoardError("cannot downgrade a board with Huddles")
 
         projection = {
-            "schema": SCHEMA,
+            "schema": V1_SCHEMA,
             "revision": payload["revision"] + 1,
             "projects": copy.deepcopy(payload["projects"]),
             "entities": copy.deepcopy(payload["entities"]),

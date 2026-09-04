@@ -358,6 +358,80 @@ class HuddleAccessTests(HuddleTestCase):
         with self.assertRaises(board_api.BoardError):
             board_api.normalize_write_scope(repo, ["x" * 1025])
 
+    def seed_source(self, repo, *, scope=None):
+        value = self.v2_board()
+        value["claims"][0].update(claim_revision=1, access="write",
+            repository_binding=board_api.repository_binding(repo), write_scope=scope or ["src"])
+        self.seed_v2(value)
+        return value["claims"][0]
+
+    def preflight(self, repo, *, access="write", scope=None):
+        value = board_api.snapshot(home=self.home)
+        claim = value["claims"][0]
+        return board_api.preflight_access(entity=claim["entity"], row=claim["row"], owner=claim["owner"],
+            repo=repo, access=access, write_scope=(scope or ["src"]) if access == "write" else [],
+            expected_claim_revision=claim["claim_revision"], expected_board_revision=value["revision"],
+            now=NOW, home=self.home)
+
+    def test_bound_claim_can_become_read_only_without_changing_instance(self):
+        repo = self.repo()
+        before = self.seed_source(repo)
+        result = self.preflight(repo, access="read_only")
+        claim = result.payload["claims"][0]
+        self.assertEqual(claim["access"], "read_only")
+        self.assertEqual(claim["write_scope"], [])
+        self.assertIsNone(claim["repository_binding"])
+        self.assertEqual(claim["claim_revision"], before["claim_revision"])
+
+    def test_equivalent_checkout_preserves_binding_but_different_repository_refuses(self):
+        repo = self.repo()
+        other = self.repo("other")
+        for path in (repo, other):
+            git(path, "remote", "add", "origin", "https://github.com/org/repo.git")
+        original = self.seed_source(repo)["repository_binding"]
+        result = self.preflight(other, scope=["src", "tests"])
+        self.assertEqual(result.payload["claims"][0]["repository_binding"], original)
+        git(other, "remote", "set-url", "origin", "https://github.com/org/other.git")
+        before = self.authority()
+        with self.assertRaises(board_api.BoardError):
+            self.preflight(other, scope=["src"])
+        self.assertEqual(self.authority(), before)
+
+    def test_parent_replacement_during_publication_restores_authority(self):
+        repo = self.repo()
+        parent = repo / "src"
+        parent.mkdir()
+        self.seed_source(repo, scope=["src/old.py"])
+        before = self.authority()
+        original = board_api._write_and_commit
+        def replace_parent(*args, **kwargs):
+            parent.rename(repo / "previous-src")
+            parent.mkdir()
+            return original(*args, **kwargs)
+        with mock.patch.object(board_api, "_write_and_commit", side_effect=replace_parent):
+            with self.assertRaisesRegex(board_api.BoardError, "component"):
+                self.preflight(repo, scope=["src/new.py"])
+        self.assertEqual(self.authority(), before)
+
+    def test_local_binding_cannot_silently_gain_a_remote(self):
+        repo = self.repo()
+        self.seed_source(repo)
+        git(repo, "remote", "add", "origin", "https://github.com/org/repo.git")
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "contradict"):
+            self.preflight(repo, scope=["src", "tests"])
+        self.assertEqual(self.authority(), before)
+
+    def test_v1_projection_is_independent_of_eventual_default_schema(self):
+        legacy = self.v1_board(with_claim=False)
+        migrated = board_api.migrate_v1_to_v2(legacy)
+        self.seed_v2(migrated)
+        with mock.patch.object(board_api, "SCHEMA", board_api.V2_SCHEMA):
+            self.assertEqual(board_api._validate(legacy), legacy)
+            self.assertEqual(board_api.migrate_v1_to_v2(legacy), migrated)
+            result = board_api._rollback_v2_to_v1(self.home, migrated["revision"], remote_parity=lambda _: True)
+            self.assertEqual(result["schema"], board_api.V1_SCHEMA)
+
 
 class HuddleGraphTests(HuddleTestCase):
     def seed(self, scopes):
