@@ -32,6 +32,12 @@ def pressure(**overrides: str) -> dict[str, str]:
 
 
 class ReleaseTrainTriggersAreDeterministic(unittest.TestCase):
+    def test_a_deleted_test_path_keeps_the_surviving_baseline(self) -> None:
+        selected = ci.select_paths(["tests/test_all_boats_law.py"])
+        self.assertFalse(selected.run_all)
+        self.assertNotIn("tests.test_all_boats_law", selected.modules)
+        self.assertIn("tests.test_release_train", selected.modules)
+
     def test_no_accepted_change_never_launches_an_empty_train(self) -> None:
         run, reason = ci.pressure_decision(
             pressure(ACCEPTED_CHANGE_COUNT="0", SEVERITY="critical")
@@ -273,6 +279,34 @@ class PublishedNotesMatchTheTaggedChangelog(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 module.release_notes(root, "3.0.0")
+
+
+class NoTestFileHidesTestsBehindAMidFileGuard(unittest.TestCase):
+    def test_unittest_main_guards_sit_at_end_of_file(self) -> None:
+        # Six files shipped a mid-module unittest.main() that silently skipped
+        # every class below it on direct -m runs (#594, #600, #603, and the
+        # final sweep — 154 tests across the day): the guard fires during
+        # module execution, before the classes below it are defined.
+        offenders = []
+        for path in sorted((ROOT / "tests").glob("test_*.py")):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            guard = next(
+                (
+                    index
+                    for index, line in enumerate(lines)
+                    if line.strip() == 'if __name__ == "__main__":'
+                ),
+                None,
+            )
+            if guard is None:
+                continue
+            last_class = max(
+                (index for index, line in enumerate(lines) if line.startswith("class ")),
+                default=-1,
+            )
+            if last_class > guard:
+                offenders.append(f"{path.name}: guard at {guard + 1}, class at {last_class + 1}")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":
