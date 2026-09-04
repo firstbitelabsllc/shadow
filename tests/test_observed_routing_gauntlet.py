@@ -416,6 +416,8 @@ class NativeStreamParserTests(unittest.TestCase):
             item for item in gauntlet.SCENARIOS if item.scenario_id == "delegation-lineage"
         )
         self.assertIn("spawn_agent", gauntlet.prompt_for_host("codex", scenario))
+        self.assertIn('model="gpt-5.6-luna"', gauntlet.prompt_for_host("codex", scenario))
+        self.assertIn('fork_turns="none"', gauntlet.prompt_for_host("codex", scenario))
         self.assertIn("shadow-evidence", gauntlet.prompt_for_host("claude-code", scenario))
         self.assertIn("spawn_subagent", gauntlet.prompt_for_host("grok", scenario))
 
