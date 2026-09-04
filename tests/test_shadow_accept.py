@@ -421,7 +421,7 @@ class ShadowAcceptTests(unittest.TestCase):
                         "-> pass (manual)\n",
                     ),
                     f"- 2026-08-27T12:01:00Z ~a101 SOURCE {source_head} "
-                    "committed as accepted change\n",
+                    "on codex/a101-history -> committed as accepted change\n",
                 ),
                 encoding="utf-8",
             )
@@ -537,7 +537,7 @@ class ShadowAcceptTests(unittest.TestCase):
         legacy_prose = accept.append_progress_line(
             legacy_only,
             f"- {legacy_stamp} ~cd90 SOURCE PROOF -> historical prose, "
- "not a source receipt\n",
+            "not a source receipt\n",
         )
         legacy = accept.completed_plan_text(
             valid,
@@ -600,7 +600,8 @@ class ShadowAcceptTests(unittest.TestCase):
             self.assertIsNone(
                 accept.local_plan_source_identity(legacy_only),
             )
-            self.assertIsNone(accept.local_plan_source_identity(legacy_prose))
+            with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
+                accept.local_plan_source_identity(legacy_prose)
             with mock.patch.object(
                 accept,
                 "public_source_identity",
@@ -708,10 +709,26 @@ class ShadowAcceptTests(unittest.TestCase):
 
         current_shape = accept.append_progress_line(
             accepted,
-            f"- {pre_cutover} {row} SOURCE PROOF -> historical prose, "
-            "not a source receipt\n",
+            f"- {pre_cutover} {row} SOURCE eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
+            "on codex/rgrc-remote-recovery-20260822 -> local red-green proof: "
+            "historical prose\n",
         )
         self.assertIsNone(accept.local_plan_source_identity(current_shape))
+
+        duplicate_accept = accept.append_progress_line(
+            accepted,
+            f"- 2026-08-22T19:57:53Z {row} PROOF true -> pass (accept)\n",
+        )
+        duplicate_current_shape = accept.append_progress_line(
+            duplicate_accept,
+            f"- 2026-08-22T17:30:32Z {row} SOURCE "
+            "eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
+            "on codex/rgrc-remote-recovery-20260822 -> local red-green proof: "
+            "historical prose\n",
+        )
+        self.assertIsNone(
+            accept.local_plan_source_identity(duplicate_current_shape)
+        )
 
         post_cutover_prose = accept.append_progress_line(
             accepted,
@@ -751,7 +768,8 @@ class ShadowAcceptTests(unittest.TestCase):
         )
         mixed = accept.append_progress_line(
             canonical,
-            f"- {pre_cutover} {row} SOURCE PROOF -> extra historical prose\n",
+            f"- {pre_cutover} {row} SOURCE eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
+            "on codex/rgrc-remote-recovery-20260822 -> extra historical prose\n",
         )
         with self.assertRaisesRegex(accept.AcceptError, "SOURCE"):
             accept.local_plan_source_identity(mixed)

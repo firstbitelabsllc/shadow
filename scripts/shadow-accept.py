@@ -102,7 +102,8 @@ SOURCE_RECEIPT_RE = re.compile(
 )
 LEGACY_SOURCE_PROSE_RE = re.compile(
     r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
-    r"(?P<id>~[0-9a-z]{4}) SOURCE PROOF(?:\s|$)"
+    r"(?P<id>~[0-9a-z]{4}) SOURCE [0-9a-f]{40} on "
+    r"[A-Za-z0-9][A-Za-z0-9._/-]* -> (?P<prose>\S.*)$"
 )
 LEGACY_LOCAL_SOURCE_ID_RE = re.compile(r"local-git@(?P<digest>[0-9a-f]{12})")
 OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
@@ -520,6 +521,26 @@ def local_source_receipt(
     return canonical_source_identity(receipts[0][1]), receipts[0][2]
 
 
+def _legacy_accept_stamps_are_safe(
+    plan_text: str,
+    row_id: str,
+    argv: list[str],
+    accepted_at: str,
+) -> bool:
+    """Permit idempotent duplicate pre-cutover accepts of the same cmd."""
+    stamps = _receipt_stamps(plan_text, row_id, argv)
+    if not stamps or accepted_at not in stamps:
+        return False
+    for timestamp in stamps:
+        try:
+            datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return False
+        if timestamp >= LOCAL_SOURCE_RECEIPT_CUTOVER:
+            return False
+    return True
+
+
 def _require_legacy_source_prose(
     plan_text: str,
     source_lines: list[str],
@@ -546,12 +567,9 @@ def _require_legacy_source_prose(
                 f"{row_id} has a malformed SOURCE receipt (post-cutover "
                 "noncanonical); root claim stays open"
             )
-    if accepted_at >= LOCAL_SOURCE_RECEIPT_CUTOVER:
-        raise AcceptError(
-            f"{row_id} has a malformed SOURCE receipt (post-cutover "
-            "noncanonical); root claim stays open"
-        )
-    if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
+    if not _legacy_accept_stamps_are_safe(
+        plan_text, row_id, argv, accepted_at
+    ):
         raise AcceptError(
             f"{row_id} has no single canonical legacy accept PROOF"
         )
@@ -607,8 +625,12 @@ def has_unbound_legacy_local_acceptance(plan_text: str) -> bool:
             if (
                 receipt[1] == shlex.join(argv)
                 and not source_lines
-                and _receipt_stamps(plan_text, receipt[0], argv)
-                == [match.group("ts")]
+                and _legacy_accept_stamps_are_safe(
+                    plan_text,
+                    receipt[0],
+                    argv,
+                    match.group("ts"),
+                )
             ):
                 return True
     return False
@@ -684,7 +706,9 @@ def local_plan_source_identity(plan_text: str) -> str | None:
                 f"{row_id} has a malformed SOURCE receipt; root claim stays open"
             )
         if not source_lines and accepted_at < LOCAL_SOURCE_RECEIPT_CUTOVER:
-            if _receipt_stamps(plan_text, row_id, argv) != [accepted_at]:
+            if not _legacy_accept_stamps_are_safe(
+                plan_text, row_id, argv, accepted_at
+            ):
                 raise AcceptError(
                     f"{row_id} has no single canonical legacy accept PROOF"
                 )
