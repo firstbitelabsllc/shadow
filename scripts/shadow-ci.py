@@ -31,7 +31,7 @@ LEVELS = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 SAFE_MODULE = re.compile(r"tests\.test_[a-z0-9_]+(?:\.[A-Za-z0-9_]+)*\Z")
 
 BASELINE = {
-    "tests.test_all_boats_law",
+    "tests.test_release_train",
     "tests.test_style_guard",
 }
 BROWSER_BASELINE = {
@@ -123,7 +123,6 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
 )
 
 DOC_MODULES = {
-    "tests.test_all_boats_law",
     "tests.test_documented_targets",
     "tests.test_grammar_contract",
     "tests.test_public_ready_grep_gate",
