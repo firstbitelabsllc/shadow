@@ -3548,7 +3548,7 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
         git(self.repo, "config", "user.email", "test@example.invalid")
         git(self.repo, "config", "user.name", "Lifecycle Tests")
         (self.repo / "x.txt").write_text("hello\n", encoding="utf-8")
-        plan.write_text(plan_text, encoding="utf-8")
+        install_plan_tree(self.repo, plan_text.encode("utf-8"))
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-qm", "seed")
         entity = clean._board.entity_id(plan)
@@ -3593,6 +3593,7 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
         )
         self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
         self.assertIn("automatic cleanup:", accepted.stdout)
+        self.assertTrue(clean._board.open_plan(plan).is_tree)
         self.assertFalse(destination.exists())
         self.assertEqual(len(list((self.home / ".Trash").iterdir())), 1)
         self.assertEqual(
