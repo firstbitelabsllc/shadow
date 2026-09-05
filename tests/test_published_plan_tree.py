@@ -90,7 +90,10 @@ class PublishedPlanTree(unittest.TestCase):
         token = self.publish_tree()
         path = shard_path(self.repo, self.build.root["catalog_root"])
         valid = path.read_bytes()
-        path.write_bytes(b"corrupt published index")
+        # Remain valid JSON with the same logical contents. Only its binding
+        # to the digest is wrong, so a parser failure cannot hide a missing
+        # integrity check.
+        path.write_bytes(valid + b"\n")
         self.commit_push()
         path.write_bytes(valid)
         with self.assertRaises(remote_claim.RemoteClaimError):

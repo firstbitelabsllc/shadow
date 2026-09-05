@@ -438,7 +438,10 @@ def published_file_bytes(
         or SECRET_SHAPE_RE.search(relative)
     ):
         return None
-    located = _git(repo, "ls-tree", "-z", "--full-tree", default_tip, "--", f":(literal){relative}")
+    located = _git(
+        repo, "ls-tree", "-z", "--full-tree", default_tip, "--",
+        f":(literal){relative}",
+    )
     if located.returncode:
         raise RemoteClaimError("published completion file could not be located")
     if not located.stdout:
@@ -450,7 +453,11 @@ def published_file_bytes(
         raise RemoteClaimError("published completion file listing is malformed")
     mode, kind, encoded_id = fields
     object_id = encoded_id.decode("ascii", errors="ignore")
-    if mode not in {b"100644", b"100755"} or kind != b"blob" or HEX_OBJECT.fullmatch(object_id) is None:
+    if (
+        mode not in {b"100644", b"100755"}
+        or kind != b"blob"
+        or HEX_OBJECT.fullmatch(object_id) is None
+    ):
         raise RemoteClaimError("published completion file is not a regular Git blob")
     measured = _git(repo, "cat-file", "-s", object_id)
     try:
