@@ -798,11 +798,14 @@ class PlanSnapshot:
         plan: Path,
         root_bytes: bytes,
         root: dict[str, Any] | None,
+        *,
+        object_reader: Callable[[str, int], bytes] | None = None,
     ) -> None:
         self.plan = plan
         self.root_bytes = root_bytes
         self.root = root
         self.root_sha256 = digest_bytes(root_bytes)
+        self._object_reader = object_reader
         self._legacy_build: PlanTreeBuild | None = None
 
     @classmethod
@@ -838,6 +841,17 @@ class PlanSnapshot:
         limit: int,
         counters: list[int],
     ) -> bytes:
+        if self._object_reader is not None:
+            if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                raise PlanStoreError("object digest is malformed")
+            content = self._object_reader(digest, limit)
+            if len(content) > limit:
+                raise PlanStoreError("plan-tree object exceeds the byte limit")
+            if digest_bytes(content) != digest:
+                raise PlanStoreError("object digest mismatch")
+            counters[0] += 1
+            counters[1] += len(content)
+            return content
         path = self.object_path(digest)
         try:
             content = _safe_read(path, limit)
@@ -1104,16 +1118,25 @@ class PlanSnapshot:
         return self._tag(tag, sequence)
 
 
-def snapshot_of_root(plan: Path, root_bytes: bytes) -> PlanSnapshot:
+def snapshot_of_root(
+    plan: Path,
+    root_bytes: bytes,
+    *,
+    object_reader: Callable[[str, int], bytes] | None = None,
+) -> PlanSnapshot:
     """Open one exact root generation against a plan's own object store.
 
     Callers that hold root bytes from somewhere other than the worktree (a Git
     blob, a rollback lineage) still need the logical plan those bytes name.
+    A supplied reader owns object location and aggregate resource limits;
+    the snapshot still verifies each object's size, digest and tree structure.
     """
     root = _parse_root(root_bytes)
     if root is not None and len(root_bytes) > ROOT_MAX_BYTES:
         raise PlanStoreError("plan-tree root exceeds the byte limit")
-    return PlanSnapshot(Path(os.path.abspath(plan)), root_bytes, root)
+    return PlanSnapshot(
+        Path(os.path.abspath(plan)), root_bytes, root, object_reader=object_reader
+    )
 
 
 def _atomic_replace(path: Path, content: bytes, mode: int) -> None:
