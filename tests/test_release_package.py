@@ -138,6 +138,21 @@ class ReleasePackageTests(unittest.TestCase):
         for clause in ("--live", "--goal-file", "--timeout-seconds", "--json"):
             self.assertIn(clause, output.stdout)
 
+    def test_huddle_core_ships_with_schema_and_inert_delivery_seam(self) -> None:
+        for path in (
+            "scripts/shadow-huddle.py",
+            "scripts/shadow_huddle_event.py",
+            "scripts/shadow_git_fixture.py",
+            "scripts/shadow_board_schema.py",
+        ):
+            self.assertIn(path, mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "huddle", "--help"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        self.assertIn("contact-register", output.stdout)
+
     def test_cmd_proof_validator_ships_with_lint_and_accept(self) -> None:
         self.assertIn("scripts/shadow_cmd_proof.py", mod.REQUIRED_FILES)
 

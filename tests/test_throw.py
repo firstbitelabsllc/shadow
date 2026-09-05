@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from contextlib import redirect_stderr, redirect_stdout
+import fcntl
 import importlib.util
 import io
 import json
@@ -15,6 +16,8 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+
+from tests.proc_fixture import configure_public_fixture_ssh_remote
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,15 +79,136 @@ def run(script: Path, repo: Path, env: dict[str, str], *args: str) -> subprocess
 
 
 class StagedV2Throw(unittest.TestCase):
+    def test_wide_valid_revision_that_fits_is_preserved_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            with mock.patch.dict(os.environ, env):
+                board.reconcile([{"plan": str(repo / "PLAN.md"), "project": "demo",
+                                  "priority": 2, "candidates": ["~bb22"]}], [])
+                with board._transaction(home) as (root, path, payload):
+                    payload["revision"] = 10 ** 25
+                    board._write_and_commit(root, path, payload, "test: wide valid revision")
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            expected = 10 ** 25 + 1
+            self.assertLessEqual(len(result.stdout.strip()), 4000)
+            self.assertIn(f'"claim_revision":{expected}', result.stdout)
+            self.assertIn(f'"board_revision":{expected}', result.stdout)
+            payload = board.snapshot(home=home)
+            self.assertEqual(payload["revision"], expected)
+            self.assertEqual(payload["claims"][0]["claim_revision"], expected)
+
+    def test_oversized_valid_revision_refuses_packet_before_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            with mock.patch.dict(os.environ, env):
+                board.reconcile([{"plan": str(repo / "PLAN.md"), "project": "demo",
+                                  "priority": 2, "candidates": ["~bb22"]}], [])
+                with board._transaction(home) as (root, path, payload):
+                    payload["revision"] = 10 ** 2000
+                    board._write_and_commit(root, path, payload, "test: large valid revision")
+            before = ((home / ".shadow" / "board.json").read_bytes(),
+                      board._journal_head(home / ".shadow"))
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(board.snapshot(home=home)["claims"], [])
+            self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(),
+                                      board._journal_head(home / ".shadow")))
+
+    def test_board_advance_after_packet_preview_refuses_before_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            spec = importlib.util.spec_from_file_location("throw_preclaim_race_test", THROW)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            original = board.claim
+            observed = []
+
+            def race(*args, **kwargs):
+                with board._transaction(home) as (root, path, payload):
+                    payload["revision"] += 1
+                    board._write_and_commit(root, path, payload, "test: pre-claim board race")
+                observed.append(((home / ".shadow" / "board.json").read_bytes(),
+                                 board._journal_head(home / ".shadow")))
+                return original(*args, **kwargs)
+
+            args = [str(THROW), "--repo", str(repo), "--task", "~bb22", "--by", "seat-a"]
+            with mock.patch.dict(os.environ, env), mock.patch.object(sys, "argv", args), \
+                 mock.patch.object(module._board, "claim", side_effect=race), \
+                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(module.main(), 1)
+            self.assertEqual(out.getvalue(), "")
+            self.assertIn("board revision changed", err.getvalue())
+            self.assertEqual(board.snapshot(home=home)["claims"], [])
+            self.assertEqual(observed[-1], ((home / ".shadow" / "board.json").read_bytes(),
+                                          board._journal_head(home / ".shadow")))
+
+    def test_post_commit_board_race_retains_claim_without_a_packet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            spec = importlib.util.spec_from_file_location("throw_postcommit_race_test", THROW)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            def advance(*_args, **_kwargs):
+                with board._transaction(home) as (root, path, payload):
+                    payload["revision"] += 1
+                    board._write_and_commit(root, path, payload, "test: post-claim board race")
+                return None
+
+            args = [str(THROW), "--repo", str(repo), "--task", "~bb22", "--by", "seat-a"]
+            with mock.patch.dict(os.environ, env), mock.patch.object(sys, "argv", args), \
+                 mock.patch.object(module._remote, "acquire", side_effect=advance), \
+                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(module.main(), 1)
+            self.assertEqual(out.getvalue(), "")
+            self.assertIn("claim retained; packet refused", err.getvalue())
+            self.assertEqual(board.snapshot(home=home)["claims"][0]["owner"], "seat-a")
+
+    def test_overlap_event_runs_after_board_unlock_and_failure_does_not_undo_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            first = run(THROW, repo, env, "--task", "~bb22", "--by", "A")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            spec = importlib.util.spec_from_file_location("throw_huddle_event_test", THROW)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            events = []
+            def observe(event, *, repo_root):
+                with (home / ".shadow" / ".board.lock").open("rb") as lock:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    try:
+                        payload = board.snapshot(home=home)
+                        self.assertEqual(payload["huddles"][0]["id"], event["huddle_id"])
+                        events.append(event)
+                    finally:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                raise module._huddle_event.RunnerRefused("injected optional delivery failure")
+            args = [str(THROW), "--repo", str(repo), "--task", "~dd44", "--by", "B"]
+            with mock.patch.dict(os.environ, env), mock.patch.object(sys, "argv", args), \
+                 mock.patch.object(module._huddle_event, "emit_post_commit", side_effect=observe), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(module.main(), 0)
+                self.assertEqual(len(events), 1)
+                before = ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow"))
+                self.assertEqual(module.main(), 1)
+                self.assertEqual(len(events), 1)
+                self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow")))
+
     def test_public_throw_binds_source_and_holds_only_the_later_claim(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))
             board.ensure(home=home)
-            with board._transaction(home) as (root, path, payload):
-                board._write_and_commit(root, path, board.migrate_v1_to_v2(payload), "test: stage v2")
-            for row, owner in (("~bb22", "seat-a"), ("~dd44", "seat-b")):
-                result = run(THROW, repo, env, "--task", row, "--by", owner)
-                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(board.snapshot(home=home)["schema"], board.V1_SCHEMA)
+            first_result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
+            self.assertEqual(first_result.returncode, 0, first_result.stderr)
+            self.assertIn("HOST --claim-context", first_result.stdout)
+            self.assertIn("unscoped requires declared preflight", first_result.stdout)
+            later_result = run(THROW, repo, env, "--task", "~dd44", "--by", "seat-b")
+            self.assertEqual(later_result.returncode, 0, later_result.stderr)
+            self.assertNotIn("/goal ", later_result.stdout)
+            self.assertIn("claimed-but-held", later_result.stderr)
             payload = board.snapshot(home=home)
             first, later = sorted(payload["claims"], key=lambda claim: claim["claim_revision"])
             self.assertEqual(first["repository_binding"], board.repository_binding(repo))
@@ -92,6 +216,10 @@ class StagedV2Throw(unittest.TestCase):
             self.assertEqual((first["access"], later["access"]), ("unscoped", "unscoped"))
             self.assertEqual(payload["huddles"][0]["state"], "awaiting_scope")
             self.assertEqual(payload["huddles"][0]["holds"], [board._claim_ref(later)])
+            self.assertIn(
+                f"shadow huddle show --id {payload['huddles'][0]['id']}",
+                later_result.stderr,
+            )
             before = ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow"))
             duplicate = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-c")
             self.assertNotEqual(duplicate.returncode, 0)
@@ -109,21 +237,22 @@ class StagedV2Throw(unittest.TestCase):
                 board.reconcile([{"plan": str(local), "project": "demo", "priority": 2,
                                   "candidates": ["~bb22", "~dd44"]}], [], home=home)
                 entity = board.entity_id(local)
-            with board._transaction(home) as (root, path, payload):
-                board._write_and_commit(root, path, board.migrate_v1_to_v2(payload), "test: stage v2")
-            before = ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow"))
             missing = subprocess.run(
                 [sys.executable, str(THROW), "--entity", entity, "--task", "~bb22", "--by", "seat-a"],
                 env=env, capture_output=True, text=True, check=False,
             )
-            self.assertEqual(missing.returncode, 1, missing.stderr)
-            self.assertIn("explicit repository", missing.stderr)
-            self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow")))
-            result = run(THROW, repo, env, "--entity", entity, "--task", "~bb22", "--by", "seat-a")
+            self.assertEqual(missing.returncode, 0, missing.stderr)
+            read_only = board.snapshot(home=home)["claims"][0]
+            self.assertEqual(read_only["access"], "read_only")
+            self.assertIsNone(read_only["repository_binding"])
+            self.assertEqual(read_only["write_scope"], [])
+            self.assertIn("read_only grants no source changes", missing.stdout)
+            result = run(THROW, repo, env, "--entity", entity, "--task", "~dd44", "--by", "seat-a")
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = board.snapshot(home=home)
             self.assertEqual(payload["claims"][0]["entity"], entity)
-            self.assertEqual(payload["claims"][0]["repository_binding"], board.repository_binding(repo))
+            bound = next(claim for claim in payload["claims"] if claim["row"] == "~dd44")
+            self.assertEqual(bound["repository_binding"], board.repository_binding(repo))
             self.assertEqual(local.read_text(encoding="utf-8"), PLAN)
 
 
@@ -528,8 +657,11 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             claimed = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a")
             preview = run(AMP, repo, env, "--by", "seat-a")
 
-            self.assertEqual(preview.returncode, 0, preview.stderr)
-            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            self.assertEqual(preview.returncode, 1, preview.stderr)
+            self.assertIn("no row on this entity is claimed", preview.stderr)
+            self.assertEqual(claimed.returncode, 1, claimed.stderr)
+            self.assertIn("repository remote URL is unsafe", claimed.stderr)
+            self.assertEqual(board.snapshot(home=Path(env["HOME"]))["claims"], [])
             for stream in (preview.stdout, preview.stderr, claimed.stdout, claimed.stderr):
                 self.assertNotIn(secret, stream)
                 self.assertNotIn("token=", stream)
@@ -576,6 +708,7 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
                 priority=2,
                 now=datetime(2000, 1, 1, tzinfo=timezone.utc),
                 home=home,
+                repo=repo,
             )
 
             ordinary = run(THROW, repo, env, "--task", "~bb22", "--by", "new-seat")
@@ -668,6 +801,7 @@ class ALegacyIdRowIsClaimedByThrowWithoutAHandWrittenLine(unittest.TestCase):
                 ["git", "-C", str(repo), "push", "-qu", "origin", "HEAD:main"],
                 check=True,
             )
+            configure_public_fixture_ssh_remote(repo, remote)
             plan = repo / "PLAN.md"
             plan.write_text(
                 plan.read_text(encoding="utf-8").replace(
@@ -764,6 +898,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         for clone in (first, second):
             self.git(clone, "config", "user.email", "protected@example.invalid")
             self.git(clone, "config", "user.name", "Protected Fixture")
+            configure_public_fixture_ssh_remote(clone, bare)
         return bare, first, second, seed, main
 
     def throw_process(
@@ -807,7 +942,8 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         self.assertEqual(set(matches[0]), self.RECEIPT_FIELDS)
         self.assertEqual(set(matches[0]["plan"]), {"head", "blob", "relative"})
         self.assertEqual(
-            set(matches[0]["claim"]), {"claimed_at", "return_by", "recovery"}
+            set(matches[0]["claim"]),
+            {"claimed_at", "return_by", "recovery", "claim_revision"},
         )
         return matches[0]
 
@@ -1137,7 +1273,13 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             root = Path(dirname).resolve()
             bare, repo, _, _, _ = self.protected_fixture(root)
             self.git(repo, "remote", "rename", "origin", "fork")
-            self.git(repo, "remote", "add", "upstream", str(bare))
+            self.git(
+                repo,
+                "remote",
+                "add",
+                "upstream",
+                self.git(repo, "remote", "get-url", "fork"),
+            )
             self.git(repo, "config", "branch.main.remote", "upstream")
             self.git(repo, "checkout", "-qb", "feature")
             self.git(repo, "config", "branch.feature.remote", "fork")
@@ -1213,6 +1355,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
             origin, first, _, _, _ = self.protected_fixture(root)
+            origin_endpoint = self.git(first, "remote", "get-url", "origin")
             upstream = root / "upstream.git"
             subprocess.run(["git", "init", "-q", "--bare", str(upstream)], check=True)
             self.git(first, "remote", "add", "upstream", str(upstream))
@@ -1227,7 +1370,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
                 result = actual_git(repo, *args, **kwargs)
                 if (
                     not switched
-                    and args[:3] == ("ls-remote", "--refs", str(origin))
+                    and args[:3] == ("ls-remote", "--refs", origin_endpoint)
                 ):
                     self.git(first, "config", f"branch.{branch}.remote", "upstream")
                     switched = True
@@ -1342,6 +1485,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
                     "claimed_at": local_claim["claimed_at"],
                     "return_by": local_claim["return_by"],
                     "recovery": local_claim["recovery"],
+                    "claim_revision": local_claim["claim_revision"],
                 },
             )
 

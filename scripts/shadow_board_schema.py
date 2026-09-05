@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import unicodedata
 
 import shadow_git as _shadow_git
 import shadow_plan_grammar as _grammar
@@ -261,6 +262,11 @@ def _claim_rank(claim: dict) -> tuple:
 
 
 def _path_overlap(left: str, right: str) -> bool:
+    # Coordination errs toward holding aliases even on case-sensitive hosts.
+    # Keep stored spellings and _scope_subset exact: overlap must not expand
+    # the paths that an owner has permission to write.
+    left, right = (unicodedata.normalize("NFC", unicodedata.normalize("NFC", p).casefold())
+                   for p in (left, right))
     return left == "." or right == "." or left == right or left.startswith(right + "/") or right.startswith(left + "/")
 
 

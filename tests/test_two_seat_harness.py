@@ -179,6 +179,35 @@ class Fixture:
         test.assertEqual(list(self.operator_portfolio.iterdir()), [])
 
 
+class PublicFixtureTransport(unittest.TestCase):
+    def test_minted_repositories_keep_distinct_public_identities_and_real_bares(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            portfolio = root / "portfolio"
+            portfolio.mkdir()
+            original_seats, original_rows = harness.SEATS, harness.ROW_BY_PROJECT
+            self.addCleanup(lambda: setattr(harness, "SEATS", original_seats))
+            self.addCleanup(lambda: setattr(harness, "ROW_BY_PROJECT", original_rows))
+            harness.configure_seats(2)
+            alpha = harness.mint_repo(root, portfolio, "alpha", 1)
+            beta = harness.mint_repo(root, portfolio, "beta", 2)
+            alpha_url = harness.git(alpha, "remote", "get-url", "origin")
+            beta_url = harness.git(beta, "remote", "get-url", "origin")
+            self.assertEqual(alpha_url, "ssh://fixture@fixture.invalid/alpha.git")
+            self.assertEqual(beta_url, "ssh://fixture@fixture.invalid/beta.git")
+            self.assertNotEqual(
+                harness.git(alpha, "config", "--get", "core.sshCommand"),
+                harness.git(beta, "config", "--get", "core.sshCommand"),
+            )
+            heads = []
+            for repo, name in ((alpha, "alpha"), (beta, "beta")):
+                observed = harness.git(repo, "ls-remote", "origin", "HEAD").split()[0]
+                expected = harness.git(root / "forge" / f"{name}.git", "rev-parse", "HEAD")
+                self.assertEqual(observed, expected)
+                heads.append(observed)
+            self.assertNotEqual(*heads)
+
+
 HOST_BODY = r'''#!/usr/bin/env python3
 import json
 import os

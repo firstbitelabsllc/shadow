@@ -19,7 +19,7 @@ import unittest
 from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
-from tests.proc_fixture import git
+from tests.proc_fixture import configure_public_fixture_ssh_remote, git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +92,7 @@ def run_accept(repo: Path, row: str) -> subprocess.CompletedProcess[str]:
             project="demo",
             priority=3,
             home=home,
+            repo=repo,
         )
     return subprocess.run(
         [
@@ -198,6 +199,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="detached",
                 priority=1,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -315,6 +317,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -444,6 +447,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -771,6 +775,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -941,6 +946,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -1756,6 +1762,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 priority=3,
                 now=datetime.now(timezone.utc) - timedelta(hours=9),
                 home=home,
+                repo=repo,
             )
             before_plan = plan.read_bytes()
             before_head = git(repo, "rev-parse", "HEAD")
@@ -1769,6 +1776,7 @@ class ShadowAcceptTests(unittest.TestCase):
                     priority=3,
                     adopt_expired=True,
                     home=home,
+                    repo=repo,
                 )
                 return True
 
@@ -2336,6 +2344,7 @@ class ShadowAcceptTests(unittest.TestCase):
             remote = root / "remote.git"
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
+            configure_public_fixture_ssh_remote(repo, remote)
             git(repo, "push", "-qu", "origin", "HEAD:main")
             git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
             home = root / "home"
@@ -2386,6 +2395,33 @@ class ShadowAcceptTests(unittest.TestCase):
             self.assertIn("~ab12 PROOF", git(remote, "show", "main:PLAN.md"))
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"], [])
+
+    def test_source_claim_refuses_a_raw_localpath_remote(self) -> None:
+        """A fixture transport must not accidentally become source identity."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            remote = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            git(repo, "remote", "add", "origin", str(remote))
+            home = root / "home"
+            home.mkdir()
+
+            claimed = run_shadow(
+                repo,
+                home,
+                "throw",
+                "--repo",
+                str(repo),
+                "--task",
+                "~ab12",
+                "--by",
+                "seat-a",
+            )
+
+            self.assertNotEqual(claimed.returncode, 0, claimed.stderr)
+            self.assertIn("remote identity is not a normalized Git identity", claimed.stderr)
+            self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
 
     def test_unmanaged_retry_keeps_the_claim_when_publication_fails(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -2568,6 +2604,7 @@ class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
             remote = root / "remote.git"
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
+            configure_public_fixture_ssh_remote(repo, remote)
             git(repo, "push", "-qu", "origin", "HEAD:main")
             home = root / "home"
             home.mkdir()
@@ -2604,6 +2641,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
         remote = root / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
         git(repo, "remote", "add", "origin", str(remote))
+        configure_public_fixture_ssh_remote(repo, remote)
         git(repo, "push", "-qu", "origin", "HEAD:main")
         git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
         home = root / "home"
@@ -2696,6 +2734,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
 
             advanced = root / "advanced"
             subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
             git(advanced, "config", "user.email", "t@example.invalid")
             git(advanced, "config", "user.name", "T")
             (advanced / "AFTER.txt").write_text("after completion\n", encoding="utf-8")
@@ -2849,6 +2888,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
 
             advanced = root / "advanced"
             subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
             git(advanced, "config", "user.email", "t@example.invalid")
             git(advanced, "config", "user.name", "T")
             (advanced / "PLAN.md").write_text(compacted, encoding="utf-8")
@@ -3147,6 +3187,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
                 ["git", "clone", "-q", str(remote), str(second)],
                 check=True,
             )
+            configure_public_fixture_ssh_remote(second, remote)
             git(second, "config", "user.email", "t@example.invalid")
             git(second, "config", "user.name", "T")
             home_b = root / "home-b"
@@ -3246,6 +3287,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
                 ["git", "clone", "-q", str(remote), str(second)],
                 check=True,
             )
+            configure_public_fixture_ssh_remote(second, remote)
             git(second, "config", "user.email", "t@example.invalid")
             git(second, "config", "user.name", "T")
             home = root / "home-b"
@@ -3917,7 +3959,9 @@ class AcceptNeverCommitsAPlanLintBlocks(unittest.TestCase):
                 [],
                 home=home,
             )
-            accept._board.claim(plan, "~ab12", "seat-a", project="demo", priority=3, home=home)
+            accept._board.claim(
+                plan, "~ab12", "seat-a", project="demo", priority=3, home=home, repo=repo
+            )
             board_path = home / ".shadow" / "board.json"
             board_before = board_path.read_bytes()
             head = git(repo, "rev-parse", "HEAD")
@@ -4088,10 +4132,12 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
         origin_entity = by_plan[origin_plan.resolve()]
         sidecar_entity = by_plan[sidecar_plan.resolve()]
         accept._board.claim(
-            sidecar_plan, "~ab12", "seat-a", project="sidecar", priority=3, home=home
+            sidecar_plan, "~ab12", "seat-a", project="sidecar", priority=3, home=home,
+            access="read_only",
         )
         accept._board.claim(
-            origin_plan, "~cd34", "seat-a", project="widget", priority=2, home=home
+            origin_plan, "~cd34", "seat-a", project="widget", priority=2, home=home,
+            access="read_only",
         )
         guessed = accept._board.local_plan_for_repo(repo, home=home)
         return {
@@ -4164,7 +4210,8 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
                     board = accept._board
                     now = datetime.now(timezone.utc)
                     with board._transaction(home) as (root, path, payload):
-                        payload = board.migrate_v1_to_v2(payload)
+                        if payload["schema"] == board.V1_SCHEMA:
+                            payload = board.migrate_v1_to_v2(payload)
                         for claim in payload["claims"]:
                             claim.update(access="write", write_scope=["README.md"],
                                 repository_binding=board.repository_binding(world["repo"]),
@@ -4324,7 +4371,8 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
                 plan, home = world["sidecar_plan"], world["home"]
                 board = accept._board
                 with board._transaction(home) as (root, path, payload):
-                    payload = board.migrate_v1_to_v2(payload)
+                    if payload["schema"] == board.V1_SCHEMA:
+                        payload = board.migrate_v1_to_v2(payload)
                     claim = next(c for c in payload["claims"] if c["row"] == "~ab12")
                     claim.update(claim_revision=1, access="write", write_scope=["README.md"],
                                  repository_binding=board.repository_binding(world["repo"]))
@@ -4770,7 +4818,9 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             [],
             home=home,
         )
-        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home, repo=repo
+        )
 
         result = subprocess.run(
             [
@@ -4829,6 +4879,7 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
         remote = root / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
         git(repo, "remote", "add", "origin", str(remote))
+        configure_public_fixture_ssh_remote(repo, remote)
         git(repo, "push", "-qu", "origin", "HEAD:main")
         git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
         home = root / "home"
@@ -4905,7 +4956,10 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             [],
             home=home,
         )
-        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home,
+            access="read_only",
+        )
         entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
         output = io.StringIO()
 
@@ -4964,7 +5018,10 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             [],
             home=home,
         )
-        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home,
+            access="read_only",
+        )
         entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
         output = io.StringIO()
 
@@ -5041,7 +5098,8 @@ class AProvenReadRowFlipsOnAPlanTree(unittest.TestCase):
             home=home,
         )
         accept._board.claim(
-            plan, "~jr01", "seat-a", project="demo", priority=3, home=home
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home,
+            access="read_only",
         )
         entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
         self.assertTrue(accept._board.open_plan(plan).is_tree)

@@ -1232,6 +1232,7 @@ def acquire(
     return_by: str,
     recovery: str,
     adopt_expired: bool = False,
+    claim_revision: int | None = None,
 ) -> dict[str, Any] | None:
     """Return None for local-only repos, else one closed public outcome."""
     binding = upstream_binding(repo)
@@ -1250,6 +1251,7 @@ def acquire(
         or STAMP.fullmatch(return_by) is None
         or return_by <= claimed_at
         or recovery != RECOVERY
+        or claim_revision is not None and (type(claim_revision) is not int or claim_revision <= 0)
     ):
         return _receipt(
             status="error", ref=ref, entity=entity, row=row, owner=owner,
@@ -1272,6 +1274,7 @@ def acquire(
         reason="acquire",
         winner=owner,
         failure=None,
+        claim_revision=claim_revision,
     )
     if binding.eligibility is RemoteEligibility.UNKNOWN:
         return _result(acquired, "error", winner=None, failure="ambiguous_remote")
@@ -1332,6 +1335,7 @@ def acquire(
             reason=acquired["reason"],
             winner=winner["owner"],
             failure="claim_exists",
+            claim_revision=claim_revision,
         )
     if previous is None and observed == ("", None):
         return _result(acquired, "lost", winner=None, failure="transport_failed")
@@ -1350,6 +1354,7 @@ def acquire(
         reason=acquired["reason"],
         winner=None,
         failure="transport_failed",
+        claim_revision=claim_revision,
     )
 
 
@@ -1367,6 +1372,9 @@ def transition(
     recover_detached: bool = False,
 ) -> dict[str, Any] | None:
     """CAS one acquired journal tip to released/completed."""
+    revision = claim.get("claim_revision")
+    if revision is not None and (type(revision) is not int or revision < 0):
+        raise RemoteClaimError("remote transition claim revision is invalid")
     binding = upstream_binding(
         repo,
         recover_detached=recover_detached,
@@ -1384,6 +1392,10 @@ def transition(
         project=project, plan_token=plan_token, claimed_at=claim["claimed_at"],
         return_by=claim["return_by"], recovery=claim["recovery"], state=state,
         reason=reason, winner=owner, failure=None,
+        # Revision zero denotes a migrated v1 claim whose original remote
+        # journal has the historical three-field lease. Never downgrade a
+        # positive revision: it must match the remote identity exactly.
+        claim_revision=revision or None,
     )
     if binding.eligibility is RemoteEligibility.UNKNOWN:
         return _result(desired, "error", winner=None, failure="ambiguous_remote")

@@ -49,17 +49,25 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     )),
     ((
         "scripts/shadow_root_board.py",
+        "scripts/shadow_board_schema.py",
         "scripts/shadow_board_import.py",
         "scripts/shadow_git.py",
     ), (
         "tests.test_root_board", "tests.test_status_focus", "tests.test_throw",
-        "tests.test_return", "tests.test_amp", "tests.test_shadow_accept",
+        "tests.test_return", "tests.test_amp", "tests.test_shadow_accept", "tests.test_huddle",
+        "tests.test_board_schema", "tests.test_huddle_event", "tests.test_huddle_cli",
+        "tests.test_huddle_amp", "tests.test_huddle_status", "tests.test_shadow_host",
+        "tests.test_local_plan_store", "tests.test_authority_proposal", "tests.test_browser",
     )),
-    (("scripts/shadow-status.py", "scripts/shadow-priority.py"), (
+    (("scripts/shadow-status.py", "scripts/shadow-priority.py", "scripts/shadow-doctor.py"), (
         "tests.test_status_focus", "tests.test_status_fast_path",
-        "tests.test_root_board", "tests.test_browser", "tests.test_throw",
+        "tests.test_root_board", "tests.test_browser", "tests.test_throw", "tests.test_huddle", "tests.test_huddle_status",
     )),
-    (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_throw", "tests.test_status_focus")),
+    (("scripts/shadow-huddle.py", "scripts/shadow_huddle_event.py"), (
+        "tests.test_huddle", "tests.test_huddle_cli", "tests.test_huddle_event", "tests.test_huddle_status",
+        "tests.test_throw", "tests.test_shadow_host", "tests.test_shadow_accept", "tests.test_return",
+    )),
+    (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_huddle_amp", "tests.test_throw", "tests.test_status_focus")),
     ((
         "scripts/shadow-throw.py",
         "scripts/shadow_remote_claim.py",
@@ -67,10 +75,11 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ), (
         "tests.test_throw", "tests.test_root_board", "tests.test_gauntlet",
         "tests.test_telemetry", "tests.test_return", "tests.test_shadow_accept",
+        "tests.test_huddle", "tests.test_huddle_cli", "tests.test_huddle_amp",
     )),
     (("scripts/shadow-return.py",), ("tests.test_return", "tests.test_root_board", "tests.test_amp")),
     (("scripts/shadow-plan.py",), (
-        "tests.test_local_plan_store", "tests.test_plan_store", "tests.test_shadow_accept",
+        "tests.test_local_plan_store", "tests.test_plan_store", "tests.test_shadow_accept", "tests.test_root_board",
     )),
     (("scripts/shadow-accept.py",), ("tests.test_shadow_accept", "tests.test_gauntlet", "tests.test_root_board")),
     (("scripts/shadow-lifecycle.py", "schemas/retirement-manifest.v1.json"), (
@@ -91,8 +100,8 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_install_doctor", "tests.test_host_directives", "tests.test_verify_host",
         "tests.test_standing_goal", "tests.test_release_package",
     )),
-    (("scripts/shadow-verify-two-seat.py", "scripts/shadow_process_lib.py"), (
-        "tests.test_two_seat_harness", "tests.test_gauntlet", "tests.test_release_package",
+    (("scripts/shadow-verify-two-seat.py", "scripts/shadow_process_lib.py", "scripts/shadow_git_fixture.py"), (
+        "tests.test_two_seat_harness", "tests.test_gauntlet", "tests.test_release_package", "tests.test_huddle_process",
         "tests.test_readme_contract", "tests.test_public_ready_grep_gate",
     )),
     ((
@@ -128,11 +137,13 @@ DOC_MODULES = {
     "tests.test_public_ready_grep_gate",
     "tests.test_readme_contract",
     "tests.test_standing_goal",
+    "tests.test_huddle",
 }
 DOC_ROOTS = ("docs/", "README.md", "AGENT.md", "SKILL.md", "skills/", "CONTRIBUTING.md", "PLAN.md")
 RELEASE_PATHS = (
     "scripts/shadow-ci.py",
     "scripts/shadow-verify-two-seat.py",
+    "scripts/shadow_git_fixture.py",
     "scripts/shadow_process_lib.py",
     "scripts/shadow_telemetry.py",
     "scripts/shadow_git.py",
@@ -145,6 +156,9 @@ RELEASE_PATHS = (
     "VERSION",
     ".claude-plugin/",
     "install.sh",
+    "scripts/shadow-huddle.py",
+    "scripts/shadow_huddle_event.py",
+    "scripts/shadow_board_schema.py",
 )
 
 

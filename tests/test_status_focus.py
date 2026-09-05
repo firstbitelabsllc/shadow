@@ -114,7 +114,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             set(payload["root_board"]),
-            {"schema", "revision", "claims"},
+            {"schema", "revision", "claims", "huddles"},
             payload["root_board"],
         )
         self.assertEqual(payload["root_board"]["claims"], [])

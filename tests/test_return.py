@@ -21,7 +21,7 @@ CLI = ROOT / "bin" / "shadow"
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_remote_claim as remote_claim  # noqa: E402
 import shadow_root_board as board  # noqa: E402
-from tests.proc_fixture import git
+from tests.proc_fixture import configure_public_fixture_ssh_remote, git
 RETURN_SPEC = importlib.util.spec_from_file_location("shadow_return_test", ROOT / "scripts" / "shadow-return.py")
 return_mod = importlib.util.module_from_spec(RETURN_SPEC)
 assert RETURN_SPEC and RETURN_SPEC.loader
@@ -108,6 +108,7 @@ def remote_fixture(
     git(repo, "remote", "add", "origin", str(remote))
     git(repo, "push", "-qu", "origin", "HEAD:main")
     git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+    configure_public_fixture_ssh_remote(repo, remote)
     claimed = run(
         env,
         "throw",
@@ -187,6 +188,7 @@ class RemoteOnlyManualCompletionRecovery(unittest.TestCase):
                 )
                 git(second, "config", "user.email", "shadow-test@example.invalid")
                 git(second, "config", "user.name", "Shadow Test")
+                configure_public_fixture_ssh_remote(second, remote)
                 home_b = root / "home-b"
                 home_b.mkdir()
                 env_b = {
@@ -392,6 +394,7 @@ class RemoteOnlyManualCompletionRecovery(unittest.TestCase):
             )
             git(second, "config", "user.email", "shadow-test@example.invalid")
             git(second, "config", "user.name", "Shadow Test")
+            configure_public_fixture_ssh_remote(second, remote)
             home_b = root / "home-b"
             home_b.mkdir()
             env_b = {
@@ -407,6 +410,7 @@ class RemoteOnlyManualCompletionRecovery(unittest.TestCase):
                 project="return-fixture",
                 priority=2,
                 home=home_b,
+                repo=second,
             )
             acquired_tip = subprocess.run(
                 ["git", "-C", str(remote), "rev-parse", receipt["ref"]],
@@ -450,10 +454,12 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
             git(repo, "push", "-qu", "origin", "HEAD:main")
+            configure_public_fixture_ssh_remote(repo, remote)
             self.assertEqual(run(env, "status", "--json", cwd=repo).returncode, 0)
             board.claim(
                 repo / "PLAN.md", "~aa11", "seat-a",
                 project="return-fixture", priority=2, home=home,
+                repo=repo,
             )
             entity = payload(home)["entities"][0]["id"]
             ref = remote_claim.claim_ref(entity, "~aa11")
@@ -479,6 +485,7 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
             git(repo, "push", "-qu", "origin", "HEAD:main")
+            configure_public_fixture_ssh_remote(repo, remote)
             claimed = run(
                 env, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
             )
@@ -518,6 +525,7 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
             git(repo, "push", "-qu", "origin", "HEAD:main")
+            configure_public_fixture_ssh_remote(repo, remote)
             self.assertEqual(run(env, "status", "--json", cwd=repo).returncode, 0)
             entity = payload(home)["entities"][0]["id"]
             plan_token, _ = board.committed_plan_snapshot(repo / "PLAN.md")
@@ -562,6 +570,7 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
                 project="return-fixture",
                 priority=2,
                 home=home,
+                repo=repo,
             )
 
             returned = run(

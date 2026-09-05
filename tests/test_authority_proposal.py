@@ -391,6 +391,7 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
         project="proposal-acceptance",
         priority=1,
         home=home,
+        repo=source_repo,
     )
     state = board.entity_state(plan_path, home=home)
     assert state is not None and state["entity"] is not None
@@ -1144,6 +1145,7 @@ class ProposalAcceptance(unittest.TestCase):
                 project="proposal-git",
                 priority=1,
                 home=home,
+                repo=repo,
             )
             state = board.entity_state(plan_path, home=home)
             assert state is not None and state["entity"] is not None

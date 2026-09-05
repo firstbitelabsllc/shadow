@@ -58,6 +58,13 @@ class HuddleEventTests(unittest.TestCase):
         self.assertEqual(tuple(self.home.iterdir()), before)
         event_api.emit_post_commit(None, repo_root=self.home)
 
+    def test_explicit_board_home_is_preserved_through_notification(self):
+        mutation = SimpleNamespace(payload={}, changed=True, event=EVENT)
+        source = Path(__file__).resolve().parent.parent
+        with mock.patch.object(event_api, "run_confined_event_runner") as runner:
+            event_api.post_commit_mutation(mutation, repo_root=source, home=self.home)
+            runner.assert_called_once_with(EVENT, repo_root=source, home=self.home)
+
     def test_committed_mutation_notification_observes_an_unlocked_board(self):
         import fcntl
         from tests.test_huddle import HuddleBidTests, board_api

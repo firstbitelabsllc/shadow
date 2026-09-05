@@ -739,17 +739,18 @@ def run_confined_contact_register(*, seat: str, stdin: bytes, repo_root: Path,
         invocation.close()
 
 
-def emit_post_commit(event: dict | None, *, repo_root: Path) -> None:
+def emit_post_commit(event: dict | None, *, repo_root: Path, home: Path | None = None) -> None:
     if event is not None:
-        run_confined_event_runner(validate_event(event), repo_root=repo_root)
+        run_confined_event_runner(validate_event(event), repo_root=repo_root, home=home)
 
 
-def post_commit_mutation(mutation: object, *, repo_root: Path) -> object:
+def post_commit_mutation(mutation: object, *, repo_root: Path, home: Path | None = None) -> object:
     """Post-lock best effort only; no transport failure changes core outcome."""
     if not getattr(mutation, "changed", False) or getattr(mutation, "event", None) is None:
         return mutation
     try:
-        emit_post_commit(getattr(mutation, "event"), repo_root=repo_root)
+        options = {} if home is None else {"home": home}
+        emit_post_commit(getattr(mutation, "event"), repo_root=repo_root, **options)
     except (OSError, RunnerRefused, ValueError):
         pass
     return mutation

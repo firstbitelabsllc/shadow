@@ -37,7 +37,9 @@ class BoardSchemaTests(unittest.TestCase):
         self.assertIs(board.BoardError, schema.BoardError)
         self.assertIs(board._validate_huddles, schema._validate_huddles)
         tree = ast.parse((ROOT / "scripts" / "shadow_root_board.py").read_text())
-        functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+        declarations = [node.name for node in tree.body if isinstance(node, ast.FunctionDef)]
+        functions = set(declarations)
+        self.assertEqual(len(declarations), len(functions), "duplicate runtime function definition")
         schema_owned = {
             "well_formed_proof_origin", "normalized_origin", "validate_owner",
             "_validate_v1", "_validate_write_scope", "_validate_repository_binding",
@@ -51,6 +53,14 @@ class BoardSchemaTests(unittest.TestCase):
         }
         self.assertFalse(functions & schema_owned, functions & schema_owned)
         self.assertFalse({name for name in functions if name.startswith("_legacy_")})
+
+    def test_alias_overlap_does_not_expand_scope_authority(self):
+        for left, right in (("Assets/work", "assets/work"), ("Caf\u00e9/work", "Cafe\u0301/work"),
+                            ("Stra\u00dfe/work", "STRASSE/work")):
+            with self.subTest(left=left, right=right):
+                self.assertTrue(schema._path_overlap(left, right))
+                self.assertFalse(schema._scope_subset([right], [left]))
+        self.assertFalse(schema._path_overlap("assets", "assets-other"))
 
     def test_remote_ref_uses_same_single_formatter(self):
         import shadow_remote_claim as remote

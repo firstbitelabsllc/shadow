@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import copy
 from datetime import datetime, timedelta, timezone
+import fcntl
 import hashlib
 import importlib.util
 import io
@@ -21,6 +22,7 @@ from unittest import mock
 from tests.proc_fixture import git
 from tests import test_huddle
 from tests.test_huddle import HuddleTestCase, board_api
+import shadow_huddle_event as event_api
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -319,6 +321,42 @@ class HuddleHostTests(HuddleTestCase):
             with self.subTest(path=unsafe):
                 self.assert_not_launched(self.invoke(self.context(), paths=(unsafe,)))
                 self.assertEqual(self.authority(), before)
+
+    def test_committed_preflight_emits_after_unlock_even_when_launch_is_held(self):
+        earlier = copy.deepcopy(self.claim)
+        earlier.update(owner="Earlier", row="~bb22", claim_revision=0,
+                       access="write", write_scope=["result.txt"])
+        with board_api._transaction(self.home) as (root, path, payload):
+            payload["claims"].append(earlier)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: earlier scope owner")
+        events = []
+        def observe(event, *, repo_root, home):
+            self.assertEqual(home, self.home)
+            with (self.home / ".shadow" / ".board.lock").open("rb") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    huddle = board_api.snapshot(home=self.home)["huddles"][0]
+                    self.assertEqual(event["huddle_id"], huddle["id"])
+                    self.assertEqual(event["generation"], huddle["generation"])
+                    events.append(event)
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+            raise event_api.RunnerRefused("optional delivery unavailable")
+        with mock.patch.object(event_api, "emit_post_commit", side_effect=observe):
+            with self.assertRaisesRegex(board_api.BoardError, "held"):
+                board_api.authorize_host_attempt(
+                    context=self.context(), repo=self.repo, write_scope=["result.txt"],
+                    authority_proposal=False, now=datetime.now(timezone.utc), home=self.home,
+                )
+            self.assertEqual(len(events), 1)
+            # An identical declaration leaves the hold intact and emits no event.
+            with self.assertRaisesRegex(board_api.BoardError, "held"):
+                board_api.authorize_host_attempt(
+                    context=self.context(), repo=self.repo, write_scope=["result.txt"],
+                    authority_proposal=False, now=datetime.now(timezone.utc), home=self.home,
+                )
+            self.assertEqual(len(events), 1)
 
     def test_binding_mismatch_refuses_and_no_change_proposal_preserves_access(self):
         before = self.authority()

@@ -19,6 +19,23 @@ computer board → project → entity → milestone → checkpoint
 The board membership is the project map. Chats, dashboards, worktree copies, provider plans, native host plans, and archives are projections or evidence; they are never another authority. Store each fact once and point to it.
 Remote coordination may use `refs/heads/shadow/claims/v1/`; it carries no task or proof authority, and a repository without an upstream remains local-only.
 
+## Overlapping work
+
+Exact duplicate claims refuse immediately. Other source overlap opens one
+board-owned Huddle: the existing valid owner continues, and later overlapping
+claims stay held. Read the exact Huddle before acting; a chat response or missed
+notification never grants ownership. Declare source access and scope with
+`shadow huddle preflight`; use structured `own`, `disjoint`, `review`, `prove`,
+`yield`, `stand_down`, or `unavailable` bids, not a parallel conversation ledger.
+
+Each round has a two-minute reply window. Only explicit settlement advances a
+deadline; reads do not. Transfer requires the owner's yield and the target's
+matching acceptance, with stable remote CAS/readback when remotely coordinated.
+An ambiguous transfer keeps both sides held. Required returns remain held until
+the owner updates the canonical plan and returns the exact claim. Huddle itself
+never writes a plan contradiction. Optional delivery is confined best-effort
+notice; pull-only coordination must work with every adapter absent.
+
 ## Plan and proof
 
 Each plan file uses the grammar in `docs/reference/grammar.md`, enforced by `shadow lint`, and declares `Mode: explore` or `Mode: ship`. Its anchors are `## Brief`, `## Tasks`, `###`, `- [state] text ~id | proof:`, `(DoD)`, `## Progress`, `LESSON none`, and `wake:`.

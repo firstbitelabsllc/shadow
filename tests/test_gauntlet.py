@@ -44,6 +44,7 @@ SHADOW = ROOT / "bin" / "shadow"
 
 sys.path.insert(0, str(ROOT))
 from browser import server  # noqa: E402
+from scripts.shadow_git_fixture import configure_public_ssh_fixture  # noqa: E402
 
 
 PLAN_TEMPLATE = """# {title}
@@ -133,6 +134,10 @@ class TheGauntlet(unittest.TestCase):
         # The forge's HEAD must name the branch we pushed, or a cold clone
         # checks out an unborn default branch and sees an empty tree.
         git(bare, "symbolic-ref", "HEAD", "refs/heads/main")
+        configure_public_ssh_fixture(
+            clone, bare, public_url=f"ssh://fixture@fixture.invalid/{name}.git",
+            bridge_name=f"fixture-{name}-ssh.py",
+        )
         return clone, bare
 
     def test_one_full_pass(self) -> None:
@@ -156,6 +161,10 @@ class TheGauntlet(unittest.TestCase):
             # deduplication regressed entirely.
             ghost = dev / "alpha-stale-lane"
             git(root, "clone", "-q", str(alpha_bare), str(ghost))
+            configure_public_ssh_fixture(
+                ghost, alpha_bare, public_url="ssh://fixture@fixture.invalid/alpha.git",
+                bridge_name="fixture-alpha-ssh.py",
+            )
             legacy = dev / "old-notes"
             legacy.mkdir(parents=True)
             (legacy / "PLAN.md").write_text(PRE_GRAMMAR, encoding="utf-8")
@@ -232,6 +241,10 @@ class TheGauntlet(unittest.TestCase):
             seat_b = root / "seat-b" / "alpha"
             seat_b.parent.mkdir(parents=True)
             git(root, "clone", "-q", str(alpha_bare), str(seat_b))
+            configure_public_ssh_fixture(
+                seat_b, alpha_bare, public_url="ssh://fixture@fixture.invalid/alpha.git",
+                bridge_name="fixture-alpha-ssh.py",
+            )
             b_plan = (seat_b / "PLAN.md").read_text(encoding="utf-8")
             self.assertNotIn("THROWN", b_plan)
             self.assertNotIn("seat-a", b_plan)

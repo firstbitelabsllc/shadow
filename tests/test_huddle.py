@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 from datetime import datetime, timedelta, timezone
+import fcntl
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as board_api
+import shadow_huddle_event as event_api
 
 
 E1 = "a" * 64
@@ -329,7 +331,7 @@ class HuddleRemoteTests(HuddleSettlementTests):
         with mock.patch.object(board_api, "committed_plan_snapshot", return_value=(self.remote_token, b"# Plan\n")):
             return board_api.finalize_huddle_handoff(**kwargs)
 
-    def _begin(self):
+    def _begin(self, *, now=NOW, **checks):
         self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
         self.submit(self.b, reason="owner_authorized_handoff")
         huddle = board_api.snapshot(home=self.home)["huddles"][0]
@@ -339,7 +341,51 @@ class HuddleRemoteTests(HuddleSettlementTests):
             huddle_id=huddle["id"], generation=huddle["generation"], source_claim=source,
             successor_claim=successor, target_prior_claim=board_api._claim_ref(self.b),
             remote_ref=board_api._remote_claim.claim_ref(source["entity"], source["row"]),
-            expected_remote_version="d" * 40, now=NOW, home=self.home), source, successor
+            expected_remote_version="d" * 40, now=now, home=self.home, **checks), source, successor
+
+    def test_remote_begin_and_finalize_bind_the_callers_board_revision(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        payload = board_api.snapshot(home=self.home)
+        before = self.authority()
+        for checks in ({"expected_board_revision": payload["revision"] - 1},
+                       {"expected_board_revision": True},
+                       {"actor_claim": {**board_api._claim_ref(self.a), "owner": "Other"}}):
+            with self.subTest(checks=checks), self.assertRaises(board_api.BoardError):
+                self._begin(**checks)
+            self.assertEqual(self.authority(), before)
+        pending, source, successor = self._begin(expected_board_revision=payload["revision"],
+                                                 actor_claim=board_api._claim_ref(self.a))
+        huddle = pending.payload["huddles"][0]
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "board revision changed"):
+            self._finalize(huddle_id=huddle["id"], generation=huddle["generation"],
+                remote_receipt=self._readback(source, successor, "successor"), now=NOW,
+                home=self.home, expected_board_revision=pending.payload["revision"] - 1)
+        self.assertEqual(self.authority(), before)
+        finalized = self._finalize(huddle_id=huddle["id"], generation=huddle["generation"],
+            remote_receipt=self._readback(source, successor, "successor"), now=NOW,
+            home=self.home, expected_board_revision=pending.payload["revision"])
+        self.assertEqual(finalized.payload["huddles"][0]["state"], "awaiting_compliance")
+
+    def test_remote_handoff_waits_for_every_bid_or_records_deadline_silence(self):
+        self.a, self.b, c = HuddleGraphTests.seed(self, [["a"], ["a", "b"], ["b"]])
+        self.huddle = HuddleGraphTests.open(self, self.b, [self.a]).payload["huddles"][0]
+        self.assertEqual(len(self.huddle["claims"]), 3)
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "awaits bids or deadline"):
+            self._begin()
+        self.assertEqual(self.authority(), before)
+        pending, _, _ = self._begin(now=NOW + timedelta(minutes=2))
+        huddle = pending.payload["huddles"][0]
+        silent = [bid for bid in huddle["bids"] if bid["claim"] == board_api._claim_ref(c)]
+        self.assertEqual(len(silent), 1)
+        self.assertEqual(silent[0]["role"], "unavailable")
+        self.assertEqual(silent[0]["reason"], "transport_unavailable")
+        self.assertEqual(silent[0]["expected_huddle_generation"], self.huddle["generation"])
+        self.assertEqual(huddle["state"], "remote_pending")
 
     def _readback(self, source, successor, outcome):
         remote = board_api._remote_claim
@@ -675,6 +721,7 @@ class HuddleRemoteTests(HuddleSettlementTests):
             evidence={"kind": "claim", "value": "self"}, round=1,
             expected_huddle_generation=h["generation"], now=NOW, home=self.home)
         self.huddle = board_api.snapshot(home=self.home)["huddles"][0]
+        self.submit(c)
         pending, source, successor = self._begin()
         h = pending.payload["huddles"][0]
         result = self._finalize(huddle_id=h["id"], generation=h["generation"],
@@ -762,6 +809,51 @@ class HuddleLifecycleTests(HuddleTestCase):
         self.assertFalse(board_api.release(self.plans["A"], self.a["row"], owner="A",
             reason="handback", now=NOW, home=self.home)[1])
         self.assertEqual(self.authority(), before)
+
+    def test_departure_event_follows_commit_and_unlock_and_failure_is_optional(self):
+        events = []
+        def observe(event, *, repo_root, home):
+            self.assertEqual(repo_root, ROOT)
+            self.assertEqual(home, self.home)
+            with (self.home / ".shadow" / ".board.lock").open("rb") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    huddle = board_api.snapshot(home=self.home)["huddles"][0]
+                    self.assertEqual(huddle["state"], "resolved")
+                    self.assertEqual(event, {"schema": "shadow.huddle-delivery-event.v1",
+                        "event": "huddle_changed", "huddle_id": huddle["id"],
+                        "generation": huddle["generation"]})
+                    events.append(event)
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+            raise event_api.RunnerRefused("injected optional transport failure")
+        with mock.patch.object(event_api, "emit_post_commit", side_effect=observe):
+            result, changed = self.release(self.b)
+            self.assertTrue(changed)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(result, board_api.snapshot(home=self.home))
+            self.assertFalse(board_api.release(self.plans["B"], self.b["row"], owner="B",
+                reason="handback", now=NOW, home=self.home)[1])
+            self.assertEqual(len(events), 1)
+
+    def test_failed_departure_commit_emits_nothing(self):
+        before = self.authority()
+        with mock.patch.object(event_api, "emit_post_commit") as emit, \
+             mock.patch.object(board_api, "_commit", side_effect=board_api.BoardError("injected journal failure")):
+            with self.assertRaisesRegex(board_api.BoardError, "injected journal failure"):
+                self.release(self.b)
+            emit.assert_not_called()
+        self.assertEqual(self.authority(), before)
+
+    def test_stale_completion_emits_exact_committed_departure(self):
+        self.complete_plan("A")
+        self.age_claim(self.a)
+        with mock.patch.object(event_api, "emit_post_commit") as emit:
+            self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 1)
+            huddle = board_api.snapshot(home=self.home)["huddles"][0]
+            emit.assert_called_once_with({"schema": "shadow.huddle-delivery-event.v1",
+                "event": "huddle_changed", "huddle_id": huddle["id"],
+                "generation": huddle["generation"]}, repo_root=ROOT, home=self.home)
 
     def test_required_return_needs_changed_canonical_plan_and_clears_compliance(self):
         self.submit()
@@ -1040,6 +1132,71 @@ class HuddleLifecycleTests(HuddleTestCase):
         with self.assertRaisesRegex(board_api.BoardError, "claim changed"):
             board_api.release(plan, self.a["row"], owner="A", reason="handback",
                 expected_claim={**self.a, "claim_revision": 0}, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+
+class HuddleDefaultActivationTests(HuddleTestCase):
+    def seed(self, *, legacy=False):
+        repo, plan = HuddleClaimCreationTests.seed(self)
+        with board_api._transaction(self.home) as (root, path, payload):
+            v1 = self.v1_board(with_claim=legacy)
+            board_api._write_and_commit(root, path, v1, "test: legacy authority", now=NOW)
+        return repo, plan
+
+    def test_claim_migrates_and_creates_one_revision_without_inventing_legacy_scope(self):
+        repo, plan = self.seed(legacy=True)
+        before = board_api.snapshot(home=self.home)
+        history = board_api._git(self.home / ".shadow", "rev-list", "--count", "HEAD").stdout
+        result = board_api.claim(plan, "~aa11", "A", project="shadow", priority=1,
+                                 repo=repo, now=NOW, home=self.home)
+        payload = result["payload"]
+        self.assertEqual(payload["schema"], board_api.V2_SCHEMA)
+        self.assertEqual(payload["revision"], before["revision"] + 1)
+        self.assertEqual(result["claim"]["claim_revision"], payload["revision"])
+        self.assertEqual(result["claim"]["repository_binding"], board_api.repository_binding(repo))
+        old = next(claim for claim in payload["claims"] if claim["owner"] == "Codex")
+        self.assertEqual(old, before["claims"][0] | {"claim_revision": 0, "access": "unscoped",
+                                                     "repository_binding": None, "write_scope": []})
+        self.assertEqual(int(board_api._git(self.home / ".shadow", "rev-list", "--count", "HEAD").stdout),
+                         int(history) + 1)
+        unchanged = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "legacy_binding_unknown"):
+            board_api.preflight_access(entity=result["entity"]["id"], row="~aa11", owner="A",
+                repo=repo, access="write", write_scope=["a"],
+                expected_claim_revision=result["claim"]["claim_revision"],
+                expected_board_revision=payload["revision"], now=NOW, home=self.home)
+        self.assertEqual(self.authority(), unchanged)
+
+    def test_read_and_failed_claim_leave_v1_bytes_and_journal_unchanged(self):
+        repo, plan = self.seed()
+        before = self.authority()
+        self.assertEqual(board_api.ensure(home=self.home)["schema"], board_api.V1_SCHEMA)
+        self.assertEqual(board_api.snapshot(home=self.home)["schema"], board_api.V1_SCHEMA)
+        with self.assertRaisesRegex(board_api.BoardError, "explicit repository"):
+            board_api.claim(plan, "~aa11", "A", project="shadow", priority=1, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+        original_commit = board_api._commit
+        def fail_after_commit(root, message):
+            original_commit(root, message)
+            if message == "shadow board: claim ~aa11":
+                raise board_api.BoardError("injected migration journal failure")
+        with mock.patch.object(board_api, "_commit", side_effect=fail_after_commit):
+            with self.assertRaisesRegex(board_api.BoardError, "injected migration"):
+                board_api.claim(plan, "~aa11", "A", project="shadow", priority=1,
+                                 repo=repo, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_host_cannot_implicitly_promote_an_unbound_read_only_claim(self):
+        repo, plan = self.seed()
+        result = board_api.claim(plan, "~aa11", "A", project="shadow", priority=1,
+                                 access="read_only", now=NOW, home=self.home)
+        claim = result["claim"]
+        context = {key: claim[key] for key in ("entity", "row", "owner", "claim_revision")}
+        context["board_revision"] = result["payload"]["revision"]
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "source-bound"):
+            board_api.authorize_host_attempt(context=context, repo=repo, write_scope=["a"],
+                                             now=NOW, home=self.home, authority_proposal=False)
         self.assertEqual(self.authority(), before)
 
 
@@ -1747,6 +1904,20 @@ class HuddleClaimCreationTests(HuddleTestCase):
                 self.take(repo, plan, "~bb22", "B")
         self.assertEqual(self.authority(), before)
 
+    def test_native_path_alias_claims_are_held_without_rewriting_scope(self):
+        repo, plan = self.seed()
+        (repo / "Assets").mkdir()
+        (repo / "Caf\u00e9").mkdir()
+        original = ["Assets/work", "Caf\u00e9/work"]
+        aliases = ["Cafe\u0301/work", "assets/work"]
+        first = self.take(repo, plan, "~aa11", "A", scope=original)
+        second = self.take(repo, plan, "~bb22", "B", scope=aliases)
+        self.assertEqual(first["claim"]["write_scope"], original)
+        self.assertEqual(second["claim"]["write_scope"], aliases)
+        huddle = second["payload"]["huddles"][0]
+        self.assertEqual(huddle["holds"], [board_api._claim_ref(second["claim"])])
+        self.assertFalse(board_api._scope_subset(aliases, original))
+
     def test_staged_reconcile_imports_historical_claim_as_unknown_revision_zero(self):
         repo, plan = self.seed()
         payload = board_api.reconcile([{"plan": str(plan), "project": "shadow", "priority": 3,
@@ -1766,6 +1937,71 @@ class HuddleClaimCreationTests(HuddleTestCase):
 class HuddleRecoveryTests(HuddleTestCase):
     request = HuddleBidTests.request
     submit = HuddleBidTests.submit
+
+    def test_migrated_revision_zero_can_return_its_original_remote_lease(self):
+        repo, plan = HuddleClaimCreationTests.seed(self)
+        bare = self.home / "legacy-upstream.git"
+        git(repo, "init", "--bare", str(bare))
+        git(repo, "remote", "add", "origin", "https://github.com/example/legacy-fixture.git")
+        git(repo, "push", str(bare), "HEAD:main")
+        token, _ = board_api.committed_plan_snapshot(plan)
+        remote = board_api._remote_claim
+        binding = remote.UpstreamBinding(
+            remote.RemoteEligibility.REMOTE, endpoint=str(bare),
+            public_identity="github.com/example/legacy-fixture",
+            merge_refs=frozenset({"refs/heads/main"}),
+        )
+        entity = board_api.entity_id(plan)
+        lease = {"claimed_at": "2026-09-05T00:00:00Z", "return_by": "2026-09-06T00:00:00Z", "recovery": board_api.RECOVERY_ACTION}
+        with mock.patch.object(remote, "upstream_binding", return_value=binding):
+            acquired = remote.acquire(
+                repo, entity=entity, row="~aa11", owner="legacy-seat",
+                project="shadow", plan_token=token, **lease,
+            )
+            self.assertEqual(acquired["status"], "acquired")
+            self.assertNotIn("claim_revision", acquired["claim"])
+            released = remote.transition(
+                repo, entity=entity, row="~aa11", owner="legacy-seat",
+                project="shadow", plan_token=token, claim=lease | {"claim_revision": 0},
+                state="released", reason="handback",
+            )
+            self.assertEqual(released["status"], "acquired")
+            self.assertEqual(released["claim"], acquired["claim"])
+            tip = remote._remote_tip(repo, endpoint=str(bare), ref=acquired["ref"],
+                entity=entity, row="~aa11", project="shadow", plan_token=token)
+            self.assertEqual(tip[1]["state"], "released")
+            self.assertNotIn("claim_revision", tip[1]["claim"])
+
+    def test_native_acquire_and_transition_preserve_exact_claim_revision(self):
+        repo, plan = HuddleClaimCreationTests.seed(self)
+        bare = self.home / "upstream.git"
+        git(repo, "init", "--bare", str(bare))
+        git(repo, "remote", "add", "origin", "https://github.com/example/huddle-fixture.git")
+        git(repo, "push", str(bare), "HEAD:main")
+        claim = HuddleClaimCreationTests.take(self, repo, plan, "~aa11", "A")["claim"]
+        token, _ = board_api.committed_plan_snapshot(plan)
+        remote = board_api._remote_claim
+        binding = remote.UpstreamBinding(remote.RemoteEligibility.REMOTE, endpoint=str(bare),
+            public_identity="github.com/example/huddle-fixture", merge_refs=frozenset({"refs/heads/main"}))
+        # Only the locator is substituted; native Git publication and readback run.
+        with mock.patch.object(remote, "upstream_binding", return_value=binding):
+            acquired = remote.acquire(repo, entity=claim["entity"], row=claim["row"], owner="A",
+                project="shadow", plan_token=token, claimed_at=claim["claimed_at"],
+                return_by=claim["return_by"], recovery=claim["recovery"],
+                claim_revision=claim["claim_revision"])
+            self.assertEqual(acquired["status"], "acquired")
+            self.assertEqual(acquired["claim"]["claim_revision"], claim["claim_revision"])
+            args = dict(repo=repo, entity=claim["entity"], row=claim["row"], owner="A",
+                        project="shadow", plan_token=token, state="released", reason="handback")
+            wrong = remote.transition(**args, claim=claim | {"claim_revision": claim["claim_revision"] + 1})
+            self.assertEqual(wrong["status"], "lost")
+            released = remote.transition(**args, claim=claim)
+            self.assertEqual(released["status"], "acquired")
+            self.assertEqual(released["claim"], acquired["claim"])
+            tip = remote._remote_tip(repo, endpoint=str(bare), ref=acquired["ref"],
+                entity=claim["entity"], row=claim["row"], project="shadow", plan_token=token)
+            self.assertEqual(tip[1]["state"], "released")
+            self.assertEqual(tip[1]["claim"], acquired["claim"])
 
     def test_remote_handoff_checks_every_row_in_a_shared_plan(self):
         repo, plan = HuddleClaimCreationTests.seed(self)

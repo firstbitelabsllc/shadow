@@ -69,6 +69,29 @@ write itself. Proposal proofs must be deterministic and cannot depend on
 credentials stored in the operator's home directory. Git-backed plans, other
 hosts, and `read` or `gate` proofs do not support proposals.
 
+## When work overlaps
+
+Huddle keeps overlapping agents from making you referee their chats. Exact
+duplicate claims are rejected immediately. Other overlap holds later claims
+while the current valid owner continues. Agents declare scope, then bid to own,
+split disjoint work, review, prove, yield, stand down, or report unavailable.
+Each structured round has a two-minute reply window; only an explicit settle
+operation advances it. Ownership changes require an owner-authorized atomic
+handoff, not a message or a timeout.
+
+`shadow status --by your-seat` shows the current disposition and next read.
+`shadow huddle --help` lists the six routes; the [command reference](docs/reference/commands.md#huddle-coordination)
+describes their exact input boundaries. The board remains authority even when
+every optional delivery adapter is absent. Huddle adds no daemon, transcript
+store, router, or second task database.
+
+The first successful new claim upgrades the local board transactionally to v2;
+status and doctor do not migrate it. Existing claims retain their identities
+without invented source bindings. Classify legacy or source-free claims
+explicitly before source work. Test installation and empty-board rollback on
+an isolated home before upgrading a working computer; source tests alone do
+not prove a live installation or provider delivery.
+
 ## Customize
 
 All configuration is deliberately small, and stress-tested that way:
