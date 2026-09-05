@@ -4533,6 +4533,39 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
                     self.assertEqual(accept.plan_object_digests(plan), objects)
                     self.assertTrue(board.entity_state(plan, home=home)["claims"])
 
+    def test_local_completion_restores_before_propagating_interruption(self):
+        for interruption in (KeyboardInterrupt, SystemExit):
+            for tree in (False, True):
+                with self.subTest(interruption=interruption.__name__, tree=tree):
+                    text = SIDECAR_LOCAL_PLAN.replace("proof: cmd true", "proof: read source receipt", 1)
+                    text += "- 2026-09-05T00:00:00Z ~ab12 PROOF source inspected -> pass (manual)\n"
+                    world = self._world(sidecar_plan_text=text)
+                    plan, home = world["sidecar_plan"], world["home"]
+                    if tree:
+                        install_plan_tree(plan.parent, text.encode())
+                    before, objects = plan.read_bytes(), accept.plan_object_digests(plan)
+                    board = accept._board
+                    reserved = {}
+
+                    def interrupt_release(*args, **kwargs):
+                        self.assertIn("[completed] sidecar-only", board.read_plan_text(plan))
+                        reserved["board"] = (home / ".shadow/board.json").read_bytes()
+                        reserved["head"] = board._journal_head(home / ".shadow")
+                        raise interruption("test: completion interrupted")
+
+                    output = io.StringIO()
+                    with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                         mock.patch.object(board, "release", side_effect=interrupt_release), \
+                         redirect_stdout(output), redirect_stderr(output), \
+                         self.assertRaises(interruption):
+                        accept.main(["--entity", world["sidecar_entity"],
+                            "--repo", str(world["repo"]), "--row", "~ab12", "--by", "seat-a"])
+                    self.assertEqual(plan.read_bytes(), before)
+                    self.assertEqual(accept.plan_object_digests(plan), objects)
+                    self.assertEqual((home / ".shadow/board.json").read_bytes(), reserved["board"])
+                    self.assertEqual(board._journal_head(home / ".shadow"), reserved["head"])
+                    self.assertTrue(board.entity_state(plan, home=home)["claims"])
+
     def test_local_accept_refuses_a_replacement_claim_after_readiness(self):
         for kind in ("cmd", "read"):
             with self.subTest(kind=kind):

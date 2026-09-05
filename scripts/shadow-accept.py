@@ -956,7 +956,8 @@ def publish_local_completion(
         )
         if result is None or not result[1]:
             raise AcceptError("the exact local completion claim did not close")
-    except (_board.BoardError, _plan_store.PlanStoreError, AcceptError, OSError) as exc:
+    except (_board.BoardError, _plan_store.PlanStoreError, AcceptError, OSError,
+            KeyboardInterrupt, SystemExit) as exc:
         try:
             # Keep the claim stable while restoring. If release actually
             # committed, or another owner took over, do not undo its proof.
@@ -971,9 +972,13 @@ def publish_local_completion(
                     )
                 _plan_store.discard_unreachable(plan_path, new_objects)
         except (_board.BoardError, _plan_store.PlanStoreError, AcceptError, OSError) as rollback:
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise exc from rollback
             raise AcceptError(
                 f"local completion refused: {exc}; exact prior authority could not be restored: {rollback}"
             ) from rollback
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
         raise AcceptError(f"local completion refused: {exc}; prior plan restored") from exc
 
 
