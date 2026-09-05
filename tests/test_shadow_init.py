@@ -991,27 +991,43 @@ class InitTests(unittest.TestCase):
             home = root / "home"
             trace = root / "git-trace.json"
 
-            with mock.patch.dict(os.environ, {"GIT_TRACE2_EVENT": str(trace)}):
+            with mock.patch.dict(os.environ, {
+                "GIT_TRACE2_EVENT": str(trace),
+                "GIT_TRACE2_CONFIG_PARAMS": "maintenance.autodetach,gc.autodetach",
+            }):
                 result, _, stderr = self.call_main(repo, home)
 
             self.assertEqual(result, 0, stderr)
             events = [json.loads(line) for line in trace.read_text().splitlines()]
-            maintenance_argv = [
-                event["argv"]
+            maintenance_events = [
+                event
                 for event in events
                 if event.get("event") == "start"
                 and "maintenance" in event.get("argv", [])
                 and "run" in event.get("argv", [])
             ]
-            self.assertTrue(maintenance_argv)
-            self.assertTrue(
-                all(
-                    "--auto" in argv
-                    and "--quiet" in argv
-                    and "--no-detach" in argv
-                    for argv in maintenance_argv
-                )
-            )
+            self.assertTrue(maintenance_events)
+            for event in maintenance_events:
+                self.assertIn("--auto", event["argv"])
+                self.assertIn("--quiet", event["argv"])
+                self.assertNotIn("--detach", event["argv"])
+                # Older Git honors the inherited config without spelling
+                # --no-detach in its internally launched maintenance argv.
+                params = {
+                    item["param"].lower(): item["value"]
+                    for item in events
+                    if item.get("event") == "def_param"
+                    and item.get("sid") == event["sid"]
+                    and item.get("scope") == "command"
+                }
+                self.assertEqual(params.get("maintenance.autodetach"), "false")
+                self.assertEqual(params.get("gc.autodetach"), "false")
+                self.assertTrue(any(
+                    item.get("event") == "exit"
+                    and item.get("sid") == event["sid"]
+                    and item.get("code") == 0
+                    for item in events
+                ))
 
     def test_requires_git_root(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

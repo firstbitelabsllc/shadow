@@ -116,9 +116,9 @@ jobs:
         env:
           EXPECTED_PYTHON: ${{ matrix.python-version }}
         run: |
-          # Checkout's temporary HOME trust does not survive later isolated HOME steps.
-          # Trust only this job's mounted source, never every repository.
-          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+          # Match the mounted checkout to this container's user; isolated Git
+          # intentionally ignores system/global safe.directory exceptions.
+          chown -R -- "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
           git rev-parse HEAD
           python -c 'import os,sys; actual="%d.%d" % sys.version_info[:2]; print(sys.version); assert actual == os.environ["EXPECTED_PYTHON"]'
       - name: Isolate Shadow runtime state
