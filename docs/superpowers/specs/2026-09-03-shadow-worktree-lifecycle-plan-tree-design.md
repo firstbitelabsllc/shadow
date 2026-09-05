@@ -69,6 +69,17 @@ Immediately before mutation it checks again that:
 
 Process inspection uses `/proc/<pid>/cwd` and file descriptors where available, and the operating system's bounded `lsof` interface on macOS. If Shadow cannot prove the process boundary, cleanup refuses.
 
+Linux inspection includes foreign-user processes. An unreadable live cwd or
+descriptor is not evidence of absence; only a demonstrably vanished PID or
+closed descriptor may be skipped. Restricted `/proc` visibility therefore
+makes cleanup refuse on that host, not silently degrade to same-user scanning
+or an optional second witness. Successful Linux retirement proof requires a
+fully inspectable process namespace. On macOS the `lsof` walk includes mounted
+descendants, retains diagnostics, and accepts absence only after a clean
+no-match completion with empty output. Partial output, warnings, unavailable
+inspection, and timeouts refuse. Tests of these error paths are OS-boundary
+fixtures; they do not prove successful retirement on a restricted live host.
+
 The worktree is first locked with a digest-bound Shadow Trash reason. Shadow creates an exclusive mode-`0700` transaction directory under the source parent, atomically moves the authenticated source into its private `payload`, validates the pinned inode/content/registration again, then atomically moves that payload into the real per-user OS Trash on the same device. Both hops use native no-replace renames with pinned parent directories; cross-device copy-and-delete is forbidden. A source or payload identity mismatch marks the private journal `source_race` and `recovery_required`, leaves the exact bytes and Git lock recoverable, and issues no success receipt. Shadow does **not** run `git worktree remove`, `git worktree prune`, or any force flag. The locked Git registration and a private crash-safe Trash receipt preserve the exact original and Trash locations, device/inode, creation receipt, and CAS. The existing public retirement receipt remains path-free.
 
 ### Restore proves recovery

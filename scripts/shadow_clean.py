@@ -1105,30 +1105,38 @@ def _process_holds(path: Path) -> None:
                 for fd in (entry / "fd").iterdir():
                     try:
                         opened = Path(os.readlink(fd))
-                    except OSError:
+                    except FileNotFoundError:
+                        # The descriptor closed after enumeration. Other
+                        # read errors leave a live holder uninspected.
                         continue
                     if opened == target or target in opened.parents:
                         raise CleanError("process holds worktree")
             except CleanError:
                 raise
-            except (OSError, PermissionError):
-                # An unreadable process is exactly the boundary we cannot
-                # prove. Kernel pseudo-links that disappear are harmless.
-                if entry.exists():
-                    raise CleanError("process inspection unavailable")
+            except OSError as exc:
+                # Only a demonstrably exited process is harmless. exists()
+                # can collapse permission/I/O errors into false on some
+                # Python versions, which is not proof of absence.
+                try:
+                    entry.stat()
+                except FileNotFoundError:
+                    continue
+                except OSError as stat_exc:
+                    raise CleanError("process inspection unavailable") from stat_exc
+                raise CleanError("process inspection unavailable") from exc
         return
     lsof = shutil.which("lsof")
     if not lsof:
         raise CleanError("process inspection unavailable")
     try:
         result = subprocess.run(
-            [lsof, "-n", "-w", "-F", "p", "+D", str(target)],
+            [lsof, "-n", "-F", "p", "+D", str(target), "-x", "f"],
             capture_output=True, text=True, check=False, timeout=15,
             env=_shadow_git.sanitized_git_env(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise CleanError("process inspection unavailable") from exc
-    if result.returncode not in (0, 1):
+    if result.returncode not in (0, 1) or result.stderr.strip():
         raise CleanError("process inspection unavailable")
     pids = {
         line[1:]
@@ -1139,6 +1147,11 @@ def _process_holds(path: Path) -> None:
         raise CleanError("process inspection unavailable")
     if pids:
         raise CleanError("process holds worktree")
+    # lsof emits file fields even when only PID fields are requested. A PID
+    # already proves a holder; absence requires a clean no-match completion,
+    # never unrecognized or partial nonempty output.
+    if result.stdout:
+        raise CleanError("process inspection unavailable")
 
 
 def _terminal_checkpoint(home: Path, entity: str, checkpoint: str) -> tuple[Path, str]:

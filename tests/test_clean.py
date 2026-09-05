@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1401,6 +1403,227 @@ class CleanApplyTests(unittest.TestCase):
         tracked.write_text(tracked.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
         with self.assertRaisesRegex(self.clean.CleanError, "content|dirty|changed"):
             self.clean.restore_preview(applied["receipt"], home=self.home, trash_root=trash)
+
+
+class ProcessHoldsTests(unittest.TestCase):
+    """Exercise the Linux and lsof proof boundaries with a real temporary tree.
+
+    The topology itself is real temporary filesystem state: process entries,
+    CWD/FD directories, and target symlinks.  We route the hard-coded /proc
+    lookup there.  Permission/race results, ownership, and lsof process output
+    are deliberately injected at their kernel/subprocess seams because a test
+    process cannot portably create those states.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.clean = load_module()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.target = self.root / "managed"
+        self.target.mkdir()
+        (self.target / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        self.other = self.root / "other"
+        self.other.mkdir()
+        self.proc = self.root / "proc"
+        self.proc.mkdir()
+
+    def _proc_route(self):
+        real_path = Path
+
+        def routed_path(*parts, **kwargs):
+            if parts == ("/proc",):
+                return self.proc
+            return real_path(*parts, **kwargs)
+
+        return routed_path
+
+    def _holder(self, pid="4242", *, cwd=None, with_fd=False):
+        entry = self.proc / pid
+        entry.mkdir()
+        (entry / "cwd").symlink_to((cwd or self.other).resolve(), target_is_directory=True)
+        fd_dir = entry / "fd"
+        fd_dir.mkdir()
+        fd_link = None
+        if with_fd:
+            fd_link = fd_dir / "9"
+            fd_link.symlink_to((self.target / "tracked.txt").resolve())
+        return entry, fd_dir, fd_link
+
+    def _inspect(self):
+        with mock.patch.object(self.clean, "Path", side_effect=self._proc_route()):
+            self.clean._process_holds(self.target)
+
+    def test_foreign_uid_process_is_still_checked_for_target_cwd(self):
+        self._holder(cwd=self.target)
+        foreign_uid = os.getuid() + 1
+        with mock.patch.object(self.clean.os, "getuid", return_value=foreign_uid), \
+             mock.patch.object(self.clean.os, "geteuid", return_value=foreign_uid), \
+             self.assertRaisesRegex(self.clean.CleanError, "process holds"):
+            self._inspect()
+
+    def test_live_unreadable_cwd_refuses(self):
+        entry, _fd_dir, _fd_link = self._holder()
+        original_readlink = os.readlink
+
+        def unreadable_cwd(value, *args, **kwargs):
+            if Path(value) == entry / "cwd":
+                raise PermissionError(errno.EACCES, "denied", str(value))
+            return original_readlink(value, *args, **kwargs)
+
+        with mock.patch.object(self.clean.os, "readlink", side_effect=unreadable_cwd), \
+             self.assertRaises(self.clean.CleanError):
+            self._inspect()
+
+    def test_live_process_stat_eacces_after_unreadable_cwd_refuses(self):
+        entry, _fd_dir, _fd_link = self._holder()
+        original_readlink = os.readlink
+        original_stat = Path.stat
+
+        def unreadable_cwd(value, *args, **kwargs):
+            if Path(value) == entry / "cwd":
+                raise PermissionError(errno.EACCES, "denied", str(value))
+            return original_readlink(value, *args, **kwargs)
+
+        def unreadable_process_stat(path, *args, **kwargs):
+            if path == entry:
+                raise PermissionError(errno.EACCES, "denied", str(path))
+            return original_stat(path, *args, **kwargs)
+
+        with mock.patch.object(self.clean.os, "readlink", side_effect=unreadable_cwd), \
+             mock.patch.object(Path, "stat", new=unreadable_process_stat), \
+             self.assertRaises(self.clean.CleanError):
+            self._inspect()
+
+    def test_live_unreadable_fd_directory_refuses(self):
+        entry, fd_dir, _fd_link = self._holder(with_fd=True)
+        original_iterdir = Path.iterdir
+
+        def unreadable_fd_dir(path):
+            if path == fd_dir:
+                raise PermissionError(errno.EACCES, "denied", str(path))
+            return original_iterdir(path)
+
+        with mock.patch.object(Path, "iterdir", new=unreadable_fd_dir), \
+             self.assertRaises(self.clean.CleanError):
+            self._inspect()
+
+    def test_live_unreadable_fd_refuses(self):
+        _entry, _fd_dir, fd_link = self._holder(with_fd=True)
+        assert fd_link is not None
+        original_readlink = os.readlink
+
+        def unreadable_fd(value, *args, **kwargs):
+            if Path(value) == fd_link:
+                raise PermissionError(errno.EACCES, "denied", str(value))
+            return original_readlink(value, *args, **kwargs)
+
+        with mock.patch.object(self.clean.os, "readlink", side_effect=unreadable_fd), \
+             self.assertRaises(self.clean.CleanError):
+            self._inspect()
+
+    def test_confirmed_vanished_process_after_listing_may_pass(self):
+        entry, _fd_dir, _fd_link = self._holder()
+        original_readlink = os.readlink
+
+        def vanished_cwd(value, *args, **kwargs):
+            if Path(value) == entry / "cwd":
+                shutil.rmtree(entry)
+                raise FileNotFoundError(errno.ENOENT, "process exited", str(value))
+            return original_readlink(value, *args, **kwargs)
+
+        with mock.patch.object(self.clean.os, "readlink", side_effect=vanished_cwd):
+            self._inspect()
+
+    def test_closed_fd_after_listing_may_pass(self):
+        _entry, _fd_dir, fd_link = self._holder(with_fd=True)
+        assert fd_link is not None
+        original_readlink = os.readlink
+
+        def closed_fd(value, *args, **kwargs):
+            if Path(value) == fd_link:
+                fd_link.unlink()
+                raise FileNotFoundError(errno.ENOENT, "fd closed", str(value))
+            return original_readlink(value, *args, **kwargs)
+
+        with mock.patch.object(self.clean.os, "readlink", side_effect=closed_fd):
+            self._inspect()
+
+    def test_no_lsof_refuses_when_proc_is_absent(self):
+        self.proc.rmdir()
+        with mock.patch.object(self.clean, "Path", side_effect=self._proc_route()), \
+             mock.patch.object(self.clean.shutil, "which", return_value=None), \
+             self.assertRaises(self.clean.CleanError):
+            self.clean._process_holds(self.target)
+
+    def test_failing_lsof_refuses_when_proc_is_absent(self):
+        self.proc.rmdir()
+        failed = subprocess.CompletedProcess(["lsof"], 2, stdout="", stderr="failure")
+        with mock.patch.object(self.clean, "Path", side_effect=self._proc_route()), \
+             mock.patch.object(self.clean.shutil, "which", return_value="/usr/sbin/lsof"), \
+             mock.patch.object(self.clean.subprocess, "run", return_value=failed), \
+             self.assertRaises(self.clean.CleanError):
+            self.clean._process_holds(self.target)
+
+    def test_clean_empty_lsof_exit_zero_or_one_means_no_holder(self):
+        self.proc.rmdir()
+        for returncode in (0, 1):
+            with self.subTest(returncode=returncode), \
+                 mock.patch.object(self.clean, "Path", side_effect=self._proc_route()), \
+                 mock.patch.object(self.clean.shutil, "which", return_value="/usr/sbin/lsof"), \
+                 mock.patch.object(
+                     self.clean.subprocess,
+                     "run",
+                     return_value=subprocess.CompletedProcess(["lsof"], returncode, stdout="", stderr=""),
+                 ):
+                self.clean._process_holds(self.target)
+
+    def test_native_shaped_lsof_pid_record_refuses(self):
+        self.proc.rmdir()
+        holder = subprocess.CompletedProcess(["lsof"], 0, stdout="p123\nfcwd\n", stderr="")
+        with mock.patch.object(self.clean, "Path", side_effect=self._proc_route()), \
+             mock.patch.object(self.clean.shutil, "which", return_value="/usr/sbin/lsof"), \
+             mock.patch.object(self.clean.subprocess, "run", return_value=holder), \
+             self.assertRaisesRegex(self.clean.CleanError, "process holds"):
+            self.clean._process_holds(self.target)
+
+    def test_lsof_exit_one_stderr_refuses_when_proc_is_absent(self):
+        self.proc.rmdir()
+        noisy = subprocess.CompletedProcess(["lsof"], 1, stdout="", stderr="warning")
+        with mock.patch.object(self.clean, "Path", side_effect=self._proc_route()), \
+             mock.patch.object(self.clean.shutil, "which", return_value="/usr/sbin/lsof"), \
+             mock.patch.object(self.clean.subprocess, "run", return_value=noisy), \
+             self.assertRaises(self.clean.CleanError):
+            self.clean._process_holds(self.target)
+
+    def test_lsof_timeout_refuses_when_proc_is_absent(self):
+        self.proc.rmdir()
+        with mock.patch.object(self.clean, "Path", side_effect=self._proc_route()), \
+             mock.patch.object(self.clean.shutil, "which", return_value="/usr/sbin/lsof"), \
+             mock.patch.object(
+                 self.clean.subprocess,
+                 "run",
+                 side_effect=subprocess.TimeoutExpired(["lsof"], 15),
+             ), \
+             self.assertRaises(self.clean.CleanError):
+            self.clean._process_holds(self.target)
+
+    def test_incomplete_or_stderr_lsof_output_refuses_when_proc_is_absent(self):
+        self.proc.rmdir()
+        for stdout, stderr in (("n/path\n", ""), ("", "warning")):
+            with self.subTest(stdout=stdout, stderr=stderr), \
+                 mock.patch.object(self.clean, "Path", side_effect=self._proc_route()), \
+                 mock.patch.object(self.clean.shutil, "which", return_value="/usr/sbin/lsof"), \
+                 mock.patch.object(
+                     self.clean.subprocess,
+                     "run",
+                     return_value=subprocess.CompletedProcess(["lsof"], 0, stdout=stdout, stderr=stderr),
+                 ), \
+                 self.assertRaises(self.clean.CleanError):
+                self.clean._process_holds(self.target)
 
 
 if __name__ == "__main__":
