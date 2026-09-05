@@ -43,10 +43,12 @@ def _unique(pairs):
 
 
 def evaluate(files, writable, test, proposal):
-    """Return candidate bytes and actual fixed-test exit; never apply to source.
+    """Return candidate bytes and test-process exit; never apply to source.
 
     files/writable/test are trusted seat inputs, not parsed from model output.
-    A passing test still requires independent ordinary-seat review.
+    Candidate code shares the interpreter and can exit before assertions run.
+    Exit zero and diagnostic text are untrusted observations, never acceptance.
+    Independent ordinary-seat diff review is required before testing source.
     """
     if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
         raise Refused("the characterized macOS sandbox is required")
@@ -56,6 +58,9 @@ def evaluate(files, writable, test, proposal):
     normalized = [unicodedata.normalize("NFD", name).casefold() for name in names]
     if len(set(normalized)) != len(names):
         raise Refused("ambiguous source names")
+    if any(str(parent) in normalized for name in normalized
+           for parent in PurePosixPath(name).parents if str(parent) != "."):
+        raise Refused("source file and directory names collide")
     if any(not isinstance(value, str) for value in files.values()) or sum(
             len(value.encode()) for value in files.values()) > 1024 * 1024:
         raise Refused("source exceeds text-only budget")
@@ -87,9 +92,8 @@ def evaluate(files, writable, test, proposal):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(value)
         profile = root / "candidate.sb"
-        profile.write_text('(version 1)\n(allow default)\n'
+        profile.write_text('(version 1)\n(deny default)\n'
                            '(deny network*)\n(deny file-read* file-write*)\n'
-                           '(allow file-read-metadata)\n'
                            '(allow file-read* (literal "/") (literal "/private") '
                            '(literal "/private/tmp") (literal ' + json.dumps(str(root)) + '))\n'
                            '(allow file-read* (subpath "/System/Library") (subpath "/usr/lib") '
@@ -123,6 +127,7 @@ def evaluate(files, writable, test, proposal):
                 except ProcessLookupError:
                     pass
                 process.wait()
-        return {"scope": "offline-candidate-only", "candidate": edits, "test_exit_code": code,
+        return {"scope": "offline-candidate-only", "candidate": edits, "test_process_exit_code": code,
+                "accepted": False, "requires": "independent ordinary-seat diff review",
                 "source_sha256": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
                 "diagnostic": (scratch / "test-output").read_text(errors="replace")[-2000:] if code != 0 else ""}

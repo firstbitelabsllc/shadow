@@ -167,8 +167,10 @@ def main():
                 spec.loader.exec_module(candidate)
                 checked = candidate.evaluate({"answer.py": "VALUE = 0\n", "check.py": "from answer import VALUE\nassert VALUE == 42\n"},
                                              {"answer.py"}, "check.py", returned_text)
-                assert checked["test_exit_code"] == 0, checked
-                results[-1]["candidate_test_exit_code"] = checked["test_exit_code"]
+                assert checked["test_process_exit_code"] == 0, checked
+                assert checked["accepted"] is False
+                results[-1]["candidate_test_process_exit_code"] = checked["test_process_exit_code"]
+                results[-1]["candidate_accepted"] = False
         try:
             run_native(launch + ["--version"], env={**env, "OPENCODE_EXPERIMENTAL_NATIVE_LLM": "true"}, cwd=temp, timeout=10)
         except ValueError as error:
