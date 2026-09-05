@@ -16,6 +16,7 @@ import subprocess
 from typing import Any, Final, Iterator
 
 import shadow_git as _shadow_git
+import shadow_plan_store as _plan_store
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 
 
@@ -42,6 +43,9 @@ MAX_RECEIPT_BYTES: Final = 8 * 1024
 MAX_RELATIVE_BYTES: Final = 240
 MAX_DISCOVERY_ROWS: Final = 128
 MAX_PLAN_BYTES: Final = 1_000_000
+# A logical plan's declared size alone cannot bound a hostile index tree.
+MAX_PUBLISHED_PLAN_READS: Final = 2048
+MAX_PUBLISHED_PLAN_SOURCE_BYTES: Final = 4 * MAX_PLAN_BYTES
 
 
 class RemoteClaimError(RuntimeError):
@@ -414,7 +418,9 @@ def _remote_default(repo: Path, endpoint: str) -> tuple[str, str]:
     return default_ref, default_tip
 
 
-def published_file_bytes(repo: Path, default_tip: str, relative: str) -> bytes | None:
+def published_file_bytes(
+    repo: Path, default_tip: str, relative: str, *, max_bytes: int = MAX_PLAN_BYTES
+) -> bytes | None:
     """Read one bounded public file from an already-authenticated default tip."""
     try:
         relative_bytes = relative.encode("utf-8")
@@ -432,19 +438,26 @@ def published_file_bytes(repo: Path, default_tip: str, relative: str) -> bytes |
         or SECRET_SHAPE_RE.search(relative)
     ):
         return None
-    located = _git(repo, "rev-parse", f"{default_tip}:{relative}")
-    object_id = located.stdout.decode("ascii", errors="ignore").strip()
-    if located.returncode or HEX_OBJECT.fullmatch(object_id) is None:
+    located = _git(repo, "ls-tree", "-z", "--full-tree", default_tip, "--", f":(literal){relative}")
+    if located.returncode:
+        raise RemoteClaimError("published completion file could not be located")
+    if not located.stdout:
         return None
-    kind = _git(repo, "cat-file", "-t", object_id)
-    if kind.returncode or kind.stdout.strip() != b"blob":
+    entry = located.stdout.removesuffix(b"\0")
+    header, separator, name = entry.partition(b"\t")
+    fields = header.split()
+    if not separator or name != relative_bytes or len(fields) != 3:
+        raise RemoteClaimError("published completion file listing is malformed")
+    mode, kind, encoded_id = fields
+    object_id = encoded_id.decode("ascii", errors="ignore")
+    if mode not in {b"100644", b"100755"} or kind != b"blob" or HEX_OBJECT.fullmatch(object_id) is None:
         raise RemoteClaimError("published completion file is not a regular Git blob")
     measured = _git(repo, "cat-file", "-s", object_id)
     try:
         size = int(measured.stdout.decode("ascii").strip())
     except (UnicodeError, ValueError) as exc:
         raise RemoteClaimError("published completion file size is invalid") from exc
-    if measured.returncode or size < 0 or size > MAX_PLAN_BYTES:
+    if measured.returncode or size < 0 or size > min(MAX_PLAN_BYTES, max_bytes):
         raise RemoteClaimError("published completion file exceeds its bounded size")
     content = _git(repo, "cat-file", "blob", object_id)
     if content.returncode or len(content.stdout) != size:
@@ -489,7 +502,37 @@ def published_plan_snapshot(
     if _git(repo, "merge-base", "--is-ancestor", head, default_tip).returncode:
         return None
     content = published_file_bytes(repo, default_tip, plan_token["relative"])
-    return (content, default_tip) if content is not None else None
+    if content is None:
+        return None
+    reads, source_bytes = 1, len(content)
+    parent = plan_token["relative"].rpartition("/")[0]
+    prefix = f"{parent}/" if parent else ""
+
+    def read_object(digest: str, limit: int) -> bytes:
+        nonlocal reads, source_bytes
+        if reads >= MAX_PUBLISHED_PLAN_READS:
+            raise RemoteClaimError("published plan-tree exceeds the read budget")
+        reads += 1
+        relative = f"{prefix}PLAN.d/objects/sha256/{digest[:2]}/{digest}"
+        body = published_file_bytes(
+            repo, default_tip, relative,
+            max_bytes=min(limit, MAX_PUBLISHED_PLAN_SOURCE_BYTES - source_bytes),
+        )
+        if body is None:
+            raise RemoteClaimError("published plan-tree object is missing")
+        source_bytes += len(body)
+        return body
+
+    try:
+        snapshot = _plan_store.snapshot_of_root(
+            repo / plan_token["relative"], content, object_reader=read_object
+        )
+        if snapshot.root is not None and snapshot.root["logical_bytes"] > MAX_PLAN_BYTES:
+            raise RemoteClaimError("published plan-tree exceeds the logical byte budget")
+        logical = snapshot.materialize()
+    except _plan_store.PlanStoreError as exc:
+        raise RemoteClaimError("published plan-tree could not be authenticated") from exc
+    return logical, default_tip
 
 
 def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None:
