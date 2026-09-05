@@ -21,7 +21,7 @@ writing anything.
 | "jordan mode", "take over", "don't ask" | Decide and execute in the same turn. No option menus. Exhaust the reachable queue before reporting idle. Only hard rails pause. |
 | "focus on details", "be precise" | Every claim carries `file:line` or quoted command output. No "looks fine". Absence needs positive proof. |
 | "fan out", "team agents" | Parallel work over **disjoint** surfaces, each with its own proof; never two writers on one row. |
-| "use the cheaper models", "delegate out", "grok/cursor/sol it" | Route by cost, not habit: bulk build/proof/research/drafts go to GLM, Luna (exact spec), Terra, Grok, or Cursor through the delegate harness; Sol specs; Fable only for the hardest planning and challenge. The lead orchestrates and verifies; it does not type the bulk itself. Every delegated slice returns a receipt the lead re-proves. |
+| "use the cheaper models", "delegate out" | Check the installed harness and current roster; atomically claim bounded work before dispatch. Choose the cheapest seat capable of the specific job without weakening outcome or proof. Escalate when capability is uncertain or a refusal fails. The lead integrates and independently checks critical receipts. Record direct native execution when no suitable surface exists or handoff costs more than a tiny task. Provider/model choices belong in the PLAN and harness. |
 | "make it 3x shorter" | Delete duplication first, then hedges, then adjectives. Never delete a fact to hit a number — say so if the number forces one. |
 | "ship it", "just do it" | Land it: commit, push, open the PR. "Done" means proven, not written. |
 | "idk", "u decide" | The call is yours. State it in one line and proceed revertable. |
@@ -109,7 +109,7 @@ captured.
 
 ```text
 Outcome: every finding in <scope> is either proven with file:line or dead.
-Resume: shadow status --by <seat> + ~/.shadow/plans/<entity>/PLAN.md at committed ref; continue owned claims, then the highest-value reachable checkpoint; delegate refuters to the cheaper roster when a harness is installed, else native.
+Resume: shadow status --by <seat>; follow the canonical PLAN and verified source. Delegate through Shadow to the cheapest capable seat; preserve proof, escalate when needed, and record native fallback.
 Proof: each finding gets correctness, security, and reproduction refuters; two refutations kill it. Survivors require file:line or command evidence, <focused command> green, and <real surface> re-observed from fresh state.
 Skills: thermo, ponytail.
 ```
