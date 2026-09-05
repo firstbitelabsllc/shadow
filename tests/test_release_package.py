@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -251,13 +252,22 @@ class ReleasePackageTests(unittest.TestCase):
             )
 
     def test_current_checkout_packs_and_installs(self) -> None:
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--root", str(ROOT), "--allow-dirty", "--json"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # Exercise canonical installed receipts even when the host temp root
+        # has an alias (as /var does on macOS).
+        with tempfile.TemporaryDirectory() as dirname:
+            temp = Path(dirname)
+            real = temp / "real"
+            real.mkdir()
+            alias = temp / "alias"
+            alias.symlink_to(real, target_is_directory=True)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", str(ROOT), "--allow-dirty", "--json"],
+                cwd=ROOT,
+                env={**os.environ, "TMPDIR": str(alias)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
         report = json.loads(result.stdout)
         self.assertEqual(result.returncode, 0, report)
         self.assertTrue(report["stranger_install"])

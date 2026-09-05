@@ -401,6 +401,7 @@ def commit_disposable_fixture(project: Path) -> None:
 def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[str, bool]:
     """Prove a stranger can install from the archive with Git, Bash, Python —
     exactly the path install.sh documents."""
+    root = root.resolve()
     consumer = root / "consumer"
     consumer.mkdir()
     command(["tar", "-xf", str(tarball), "-C", str(consumer)], root)
