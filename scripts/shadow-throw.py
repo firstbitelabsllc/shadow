@@ -187,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="shadow throw",
         description="Claim a checkpoint row from one entity plan before work leaves the chat.",
     )
-    parser.add_argument("--repo", default=None, help="repository root (default: cwd)")
+    parser.add_argument("--repo", default=None, help="source repository root; may accompany a machine-local --entity")
     parser.add_argument("--entity", default=None, help="computer-board entity id")
     parser.add_argument(
         "--task",
@@ -206,9 +206,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.entity and args.repo:
-        print("shadow throw: use either --entity or --repo, not both", file=sys.stderr)
-        return 2
+    # Keep source identity separate from the repository holding PLAN.md: a
+    # machine-local authority lives in the private board journal, not the source.
+    source_repo = Path(args.repo).expanduser().resolve() if args.repo else None
     state = None
     if args.entity:
         if _board.ENTITY_ID.fullmatch(args.entity) is None:
@@ -224,6 +224,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         state = resolved["state"]
         plan_path = resolved["plan"]
+        if args.repo and not _board.is_local_plan(plan_path):
+            print("shadow throw: --entity with --repo requires a machine-local entity", file=sys.stderr)
+            return 2
         repo = _repo_for(plan_path)
     else:
         unresolved_repo = Path(args.repo or ".")
@@ -272,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
         with _board.project_lock(plan_path):
             repo, plan, plan_token, args.task = _validated_target(
                 plan_path, args.task
+            )
+            claim_repo = source_repo if source_repo is not None else (
+                None if plan["local_authority"] else repo
             )
             observed_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
             if observed_token != plan_token:
@@ -323,6 +329,7 @@ def main(argv: list[str] | None = None) -> int:
                 priority=_priority(plan),
                 adopt_expired=args.adopt_expired,
                 expected_plan=plan_token,
+                repo=claim_repo,
             )
             payload = receipt["payload"]
             claimed = receipt["claim"]

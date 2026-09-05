@@ -1328,6 +1328,12 @@ _HUDDLE_FIELDS = {"id", "state", "reason", "opened_revision", "generation", "ope
                   "compliance", "remote_transition", "resolved_at", "retain_until"}
 _HUDDLE_REASONS = {"write_scope_overlap", "scope_request", "semantic_suspicion"}
 _EDGE_KINDS = {"path_overlap", "scope_unknown", "semantic_suspicion"}
+_HUDDLE_STATES = {"awaiting_scope", "open_round_1", "open_round_2", "remote_pending", "awaiting_compliance", "resolved"}
+_BID_ROLES = {"own", "disjoint", "review", "prove", "yield", "stand_down", "unavailable"}
+_BID_REASONS = {"existing_claim", "path_disjoint", "distinct_outcome", "duplicate_intent", "best_proof_access",
+                "blocked", "preserve_existing_diff", "owner_authorized_handoff", "transport_unavailable"}
+_BID_REQUEST_FIELDS = {"seat", "claim", "role", "scope", "reason", "target", "support_claim", "evidence",
+                       "round", "expected_huddle_generation"}
 
 
 def _claim_ref(claim: dict) -> dict:
@@ -1396,39 +1402,261 @@ def _validate_huddle_reference(ref: object, revision: int) -> None:
     _timestamp(ref["claimed_at"], "Huddle claim time")
 
 
-def _validate_disjoint_resolution(h: dict, revision: int) -> None:
+def _closed(value: object, fields: set[str], label: str) -> None:
+    if not isinstance(value, dict) or set(value) != fields:
+        raise BoardError(f"{label} has unknown or missing fields")
+
+
+def _enum(value: object, allowed: set[str], label: str) -> None:
+    if not isinstance(value, str) or value not in allowed:
+        raise BoardError(f"{label} is unsupported")
+
+
+def _digest(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _reference_list(value: object, revision: int, label: str, *, limit: int = 64) -> dict:
+    if not isinstance(value, list) or len(value) > limit:
+        raise BoardError(f"{label} exceeds its bound")
+    for ref in value:
+        _validate_huddle_reference(ref, revision)
+    keys = {_claim_key(ref): ref for ref in value}
+    if len(keys) != len(value) or value != sorted(value, key=_claim_rank):
+        raise BoardError(f"{label} is duplicated or unordered")
+    return keys
+
+
+def _bid_digest(huddle_id: str, bid: dict) -> str:
+    request = {"huddle_id": huddle_id, **{key: bid[key] for key in _BID_REQUEST_FIELDS}}
+    return hashlib.sha256(json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _scope_subset(scope: list[str], authority: list[str]) -> bool:
+    return all(any(old == "." or path == old or path.startswith(old + "/") for old in authority) for path in scope)
+
+
+def _validate_bids(h: dict, payload: dict) -> None:
+    bids = h["bids"]
+    if not isinstance(bids, list) or len(bids) > 128:
+        raise BoardError("Huddle bid cap exceeded")
+    current = {_claim_key(c): c for c in payload["claims"]}
+    keys = set()
+    held = {_claim_key(c) for c in claim_holds(h)}
+    for bid in bids:
+        _closed(bid, _BID_REQUEST_FIELDS | {"bid_digest", "submitted_at"}, "Huddle bid")
+        _validate_huddle_reference(bid["claim"], payload["revision"])
+        if bid["claim"] not in h["claims"] or bid["seat"] != bid["claim"]["owner"]:
+            raise BoardError("Huddle bid does not name its exact participant owner")
+        _enum(bid["role"], _BID_ROLES, "Huddle bid role")
+        _enum(bid["reason"], _BID_REASONS, "Huddle bid reason")
+        if (type(bid["round"]) is not int or bid["round"] not in (1, 2) or bid["round"] > h["round"]
+            or type(bid["expected_huddle_generation"]) is not int
+            or not 1 <= bid["expected_huddle_generation"] <= h["generation"]):
+            raise BoardError("Huddle bid round or generation is invalid")
+        key = (_claim_key(bid["claim"]), bid["round"])
+        if key in keys:
+            raise BoardError("Huddle contains a duplicate bid key")
+        keys.add(key)
+        submitted = _timestamp(bid["submitted_at"], "Huddle bid time")
+        if submitted < _timestamp(h["opened_at"], "Huddle opening time"):
+            raise BoardError("Huddle bid predates opening")
+        _validate_write_scope(bid["scope"])
+        _closed(bid["evidence"], {"kind", "value"}, "Huddle evidence")
+        _enum(bid["evidence"]["kind"], {"claim", "plan_row", "progress_receipt", "source_commit", "none"}, "Huddle evidence kind")
+        evidence = bid["evidence"]["value"]
+        if not isinstance(evidence, str) or not (evidence == "self" or _digest(evidence)
+            or (bid["evidence"]["kind"] == "source_commit" and GIT_OBJECT_ID.fullmatch(evidence))
+            or (bid["evidence"]["kind"] == "plan_row" and ROW_ID.fullmatch(evidence))):
+            raise BoardError("Huddle evidence must be a path-free identifier")
+        if bid["role"] == "yield":
+            _validate_huddle_reference(bid["target"], payload["revision"])
+            if (bid["target"] not in h["claims"] or bid["target"] == bid["claim"]
+                or bid["target"]["owner"] == bid["seat"] or bid["reason"] != "owner_authorized_handoff"):
+                raise BoardError("Huddle yield target is incompatible")
+        elif bid["target"] is not None:
+            raise BoardError("only yield may name a target")
+        if bid["role"] in {"review", "prove"}:
+            _validate_huddle_reference(bid["support_claim"], payload["revision"])
+            if bid["support_claim"]["owner"] != bid["seat"] or bid["support_claim"] in h["claims"]:
+                raise BoardError("Huddle support must be a distinct same-owner claim")
+        elif bid["support_claim"] is not None:
+            raise BoardError("only support roles may name a support claim")
+        if bid["role"] in {"own", "disjoint"} and not bid["scope"]:
+            raise BoardError("continuing bid requires nonempty write scope")
+        active = h["state"] in {"open_round_1", "open_round_2"} and bid["expected_huddle_generation"] == h["generation"]
+        if active:
+            claim = current.get(key[0])
+            if claim is None or _claim_ref(claim) != bid["claim"]:
+                raise BoardError("active bid participant is not current")
+            selected = key[0] not in held
+            if (selected and bid["role"] not in {"own", "disjoint", "yield", "unavailable"}
+                or not selected and bid["role"] == "yield"):
+                raise BoardError("Huddle bid role disagrees with graph authority")
+            if h["reply_by"] is not None and submitted >= _timestamp(h["reply_by"], "Huddle deadline"):
+                raise BoardError("active bid is at or beyond its deadline")
+            if bid["role"] in {"review", "prove"}:
+                support = current.get(_claim_key(bid["support_claim"]))
+                if (support is None or _claim_ref(support) != bid["support_claim"]
+                    or bid["scope"] != support["write_scope"]
+                    or bid["role"] == "review" and support["access"] != "read_only"):
+                    raise BoardError("Huddle support access or scope is invalid")
+            elif bid["role"] == "disjoint":
+                if not _scope_subset(bid["scope"], claim["write_scope"]):
+                    raise BoardError("Huddle disjoint bid expands scope")
+            elif bid["scope"] != claim["write_scope"]:
+                raise BoardError("Huddle bid must repeat current scope")
+        if not _digest(bid["bid_digest"]) or bid["bid_digest"] != _bid_digest(h["id"], bid):
+            raise BoardError("Huddle bid digest disagrees with its request")
+
+
+def _validate_transfer(value: dict, h: dict, revision: int) -> None:
+    for field in ("source_claim", "successor_claim", "target_prior_claim"):
+        _validate_huddle_reference(value[field], revision)
+    source, successor, target = (value[k] for k in ("source_claim", "successor_claim", "target_prior_claim"))
+    if (source not in h["claims"] or target not in h["claims"] or source == target
+        or source["owner"] == target["owner"] or successor != {**source, "owner": target["owner"]}
+        or value["target_prior_action"] != "return_required"):
+        raise BoardError("Huddle handoff identities or disposition are inconsistent")
+    paired = any(a["claim"] == source and a["role"] == "yield" and a["target"] == target and a["round"] == h["round"]
+        and a["reason"] == "owner_authorized_handoff" and any(b["claim"] == target and b["role"] == "own"
+            and b["reason"] == "owner_authorized_handoff" and b["round"] == a["round"] for b in h["bids"])
+        for a in h["bids"])
+    if not paired or source in claim_holds(h) or target not in claim_holds(h):
+        raise BoardError("Huddle handoff lacks a selected-owner and target bid pair")
+
+
+def _validate_remote_transition(h: dict, revision: int) -> None:
+    remote = h["remote_transition"]
+    if remote is None:
+        return
+    _closed(remote, {"source_claim", "successor_claim", "target_prior_claim", "target_prior_action",
+        "remote_ref", "expected_remote_version", "readback", "attempt_receipt"}, "Huddle remote transition")
+    _validate_transfer(remote, h, revision)
+    source = remote["source_claim"]
+    if (remote["remote_ref"] != _remote_claim.claim_ref(source["entity"], source["row"])
+        or not isinstance(remote["expected_remote_version"], str)
+        or _remote_claim.HEX_OBJECT.fullmatch(remote["expected_remote_version"]) is None):
+        raise BoardError("Huddle remote claim reference or version is invalid")
+    _enum(remote["readback"], {"not_attempted", "ambiguous", "predecessor", "successor"}, "Huddle remote readback")
+    if ((remote["readback"] == "not_attempted" and remote["attempt_receipt"] is not None)
+        or remote["readback"] != "not_attempted" and not _digest(remote["attempt_receipt"])):
+        raise BoardError("Huddle remote attempt receipt is inconsistent")
+
+
+def _validate_resolution(h: dict, payload: dict) -> set:
+    revision = payload["revision"]
     resolution = h["resolution"]
     fields = {"settled_revision", "settled_at", "rule", "handoff", "write_owners", "actions", "support_actions"}
-    if not isinstance(resolution, dict) or set(resolution) != fields:
-        raise BoardError("Huddle resolution has unknown or missing fields")
+    _closed(resolution, fields, "Huddle resolution")
     if (type(resolution["settled_revision"]) is not int
-        or not h["opened_revision"] <= resolution["settled_revision"] <= revision
-        or resolution["rule"] != "path_disjoint" or resolution["handoff"] is not None
-        or resolution["support_actions"] != []):
-        raise BoardError("Huddle resolution is unsupported or inconsistent")
+        or not h["opened_revision"] <= resolution["settled_revision"] <= revision):
+        raise BoardError("Huddle settlement revision is inconsistent")
+    _enum(resolution["rule"], {"exact_claim_owner", "path_disjoint", "earliest_valid_claim",
+        "owner_authorized_handoff", "proof_first_stale_recovery"}, "Huddle resolution rule")
     settled = _timestamp(resolution["settled_at"], "Huddle settlement time")
-    resolved = _timestamp(h["resolved_at"], "Huddle resolution time")
-    if (settled != resolved or settled < _timestamp(h["opened_at"], "Huddle opening time")
-        or _timestamp(h["retain_until"], "Huddle retention") != resolved + timedelta(hours=24)):
-        raise BoardError("Huddle resolution or retention time is inconsistent")
-    actions = [{"claim": ref, "action": "continue_disjoint"} for ref in h["claims"]]
-    if resolution["actions"] != actions:
-        raise BoardError("Huddle disjoint resolution must dispose every participant exactly once")
+    if settled < _timestamp(h["opened_at"], "Huddle opening time"):
+        raise BoardError("Huddle settlement predates opening")
+    if h["state"] == "resolved":
+        resolved = _timestamp(h["resolved_at"], "Huddle resolution time")
+        if resolved < settled or _timestamp(h["retain_until"], "Huddle retention") != resolved + timedelta(hours=24):
+            raise BoardError("Huddle resolution or retention time is inconsistent")
+    if not isinstance(resolution["actions"], list) or len(resolution["actions"]) != len(h["claims"]):
+        raise BoardError("Huddle resolution must dispose every participant exactly once")
+    actions = {}
     for action in resolution["actions"]:
+        _closed(action, {"claim", "action"}, "Huddle participant action")
         _validate_huddle_reference(action["claim"], revision)
-    owners = resolution["write_owners"]
-    if not isinstance(owners, list) or len(owners) > 64:
-        raise BoardError("Huddle write owners exceed the bound")
-    for ref in owners:
-        _validate_huddle_reference(ref, revision)
-        if ref not in h["claims"]:
-            raise BoardError("Huddle writer was not a participant")
-    if len({_claim_key(ref) for ref in owners}) != len(owners) or owners != sorted(owners, key=_claim_rank):
-        raise BoardError("Huddle write owners are duplicated or unordered")
+        _enum(action["action"], {"continue", "continue_disjoint", "handoff_complete", "return_required"}, "Huddle participant action")
+        key = _claim_key(action["claim"])
+        if action["claim"] not in h["claims"] or key in actions:
+            raise BoardError("Huddle action names an absent or duplicated participant")
+        actions[key] = action["action"]
+    owners = _reference_list(resolution["write_owners"], revision, "Huddle write owners")
+    handoff = resolution["handoff"]
+    if resolution["rule"] == "owner_authorized_handoff":
+        _closed(handoff, {"source_claim", "successor_claim", "target_prior_claim", "target_prior_action", "mode", "remote_readback"}, "Huddle handoff")
+        _validate_transfer(handoff, h, revision)
+        _enum(handoff["mode"], {"local", "remote"}, "Huddle handoff mode")
+        if ((handoff["mode"] == "local" and (handoff["remote_readback"] is not None or h["remote_transition"] is not None))
+            or handoff["mode"] == "remote" and (handoff["remote_readback"] != "successor"
+                or h["remote_transition"] is None or h["remote_transition"]["readback"] != "successor"
+                or any(handoff[k] != h["remote_transition"][k] for k in
+                    ("source_claim", "successor_claim", "target_prior_claim", "target_prior_action")))):
+            raise BoardError("Huddle handoff mode and remote readback disagree")
+        if (actions[_claim_key(handoff["source_claim"])] != "handoff_complete"
+            or actions[_claim_key(handoff["target_prior_claim"])] != "return_required"):
+            raise BoardError("Huddle handoff dispositions disagree")
+    elif handoff is not None or "handoff_complete" in actions.values():
+        raise BoardError("non-handoff resolution cannot transfer authority")
+    selected = {_claim_key(c) for c in h["claims"]} - {_claim_key(c) for c in claim_holds(h)}
+    continuing = {key for key, action in actions.items() if action != "return_required"}
+    if continuing != selected:
+        raise BoardError("Huddle dispositions disagree with graph selection")
+    if resolution["rule"] == "path_disjoint" and (h["edges"] or set(actions.values()) != {"continue_disjoint"}):
+        raise BoardError("path-disjoint resolution retains conflicts or wrong dispositions")
+    if resolution["rule"] == "exact_claim_owner" and len(h["claims"]) != 1:
+        raise BoardError("exact-owner resolution requires one surviving participant")
+    allowed = {key: ref for ref in h["claims"] if (key := _claim_key(ref)) in continuing}
+    if handoff:
+        allowed.pop(_claim_key(handoff["source_claim"]))
+        allowed[_claim_key(handoff["successor_claim"])] = handoff["successor_claim"]
+    if any(allowed.get(key) != ref for key, ref in owners.items()):
+        raise BoardError("Huddle writer lacks a continuing disposition")
+    current = {_claim_key(c): c for c in payload["claims"]}
+    for key, ref in allowed.items():
+        if h["state"] != "resolved" and key in current and ((_claim_ref(current[key]) != ref) or (current[key]["access"] == "write") != (key in owners)):
+            raise BoardError("Huddle write owners disagree with current access")
+    support = resolution["support_actions"]
+    if not isinstance(support, list) or len(support) > 64:
+        raise BoardError("Huddle support action cap exceeded")
+    support_keys = set()
+    for action in support:
+        _closed(action, {"participant_claim", "support_claim", "action"}, "Huddle support action")
+        for field in ("participant_claim", "support_claim"):
+            _validate_huddle_reference(action[field], revision)
+        _enum(action["action"], {"review_claim", "prove_claim"}, "Huddle support action")
+        key = _claim_key(action["participant_claim"])
+        if (key in support_keys or action["participant_claim"] not in h["claims"]
+            or action["support_claim"] in h["claims"]
+            or action["participant_claim"]["owner"] != action["support_claim"]["owner"]
+            or not any(b["claim"] == action["participant_claim"] and b["support_claim"] == action["support_claim"]
+                and b["role"] + "_claim" == action["action"] and b["round"] == h["round"] for b in h["bids"])):
+            raise BoardError("Huddle support action lacks its exact matching bid")
+        support_keys.add(key)
+    compliance = h["compliance"]
+    if not isinstance(compliance, list) or len(compliance) > 64:
+        raise BoardError("Huddle compliance cap exceeded")
+    required = {key for key, action in actions.items() if action == "return_required"}
+    entries, pending = set(), set()
+    for entry in compliance:
+        _closed(entry, {"claim", "required", "plan_root_at_settlement", "status", "completion"}, "Huddle compliance")
+        _validate_huddle_reference(entry["claim"], revision)
+        key = _claim_key(entry["claim"])
+        if (entry["claim"] not in h["claims"] or key in entries or key not in required
+            or entry["required"] != "canonical_disposition_then_return" or not _digest(entry["plan_root_at_settlement"])):
+            raise BoardError("Huddle compliance identity or plan root is inconsistent")
+        entries.add(key)
+        _enum(entry["status"], {"pending", "satisfied"}, "Huddle compliance status")
+        if entry["status"] == "pending":
+            if entry["completion"] is not None or key not in current or _claim_ref(current[key]) != entry["claim"]:
+                raise BoardError("pending compliance lacks its exact current claim")
+            pending.add(key)
+        else:
+            completion = entry["completion"]
+            _closed(completion, {"kind", "board_revision", "receipt"}, "Huddle compliance completion")
+            _enum(completion["kind"], {"return", "proof_first_stale_recovery"}, "Huddle completion kind")
+            if (key in current or type(completion["board_revision"]) is not int
+                or not resolution["settled_revision"] < completion["board_revision"] <= revision
+                or not (completion["receipt"] == "self" or _digest(completion["receipt"]))):
+                raise BoardError("Huddle compliance completion is inconsistent")
+    if entries != required:
+        raise BoardError("every required return needs exactly one compliance entry")
+    return pending
 
 
-def _validate_huddles(payload: dict) -> None:
-    """Validate open graphs and disjoint resolutions; other lifecycle states refuse."""
+def _validate_huddles(payload: dict, *, pending_retention: bool = False) -> None:
+    """Decode all lifecycle states without advancing deadlines or pruning history."""
     records = payload["huddles"]
     if not isinstance(records, list) or len(records) > 80:
         raise BoardError("Huddle record cap exceeded")
@@ -1441,10 +1669,13 @@ def _validate_huddles(payload: dict) -> None:
         if not isinstance(h["id"], str) or re.fullmatch(r"hdl_[0-9a-f]{8}", h["id"]) is None or h["id"] in ids:
             raise BoardError("Huddle id is invalid or duplicated")
         ids.add(h["id"])
+        _enum(h["state"], _HUDDLE_STATES, "Huddle state")
         resolved = h["state"] == "resolved"
+        settled = h["state"] in {"awaiting_compliance", "resolved"}
+        open_state = h["state"] in {"awaiting_scope", "open_round_1", "open_round_2"}
         retained_count += int(resolved)
         live_count += int(not resolved)
-        if live_count > 16 or retained_count > 64:
+        if live_count > 16 or retained_count > (65 if pending_retention else 64):
             raise BoardError("live or retained Huddle cap exceeded")
         if not isinstance(h["reason"], str) or h["reason"] not in _HUDDLE_REASONS:
             raise BoardError("Huddle reason is invalid")
@@ -1452,17 +1683,18 @@ def _validate_huddles(payload: dict) -> None:
             if type(h[field]) is not int or not 1 <= h[field] <= payload["revision"]:
                 raise BoardError("Huddle revision or generation is invalid")
         opened = _timestamp(h["opened_at"], "Huddle open time")
-        if not resolved and _timestamp(h["reply_by"], "Huddle deadline") <= opened:
-            raise BoardError("Huddle deadline must follow opening")
-        if not isinstance(h["claims"], list) or not (1 if resolved else 2) <= len(h["claims"]) <= 64:
+        if open_state:
+            if _timestamp(h["reply_by"], "Huddle deadline") <= opened:
+                raise BoardError("Huddle deadline must follow opening")
+        elif h["reply_by"] is not None:
+            raise BoardError("Huddle terminal or pending state cannot have a deadline")
+        if type(h["round"]) is not int or h["round"] not in (0, 1, 2):
+            raise BoardError("Huddle round is invalid")
+        if not isinstance(h["claims"], list) or not (1 if settled else 2) <= len(h["claims"]) <= 64:
             raise BoardError("Huddle participant cap or minimum violated")
         refs = {}
         for ref in h["claims"]:
             _validate_huddle_reference(ref, payload["revision"])
-            # Compare the exact closed projection before hashing untrusted fields.
-            matches = [c for c in payload["claims"] if _claim_ref(c) == ref]
-            if not resolved and (len(matches) != 1 or matches[0]["access"] == "read_only"):
-                raise BoardError("Huddle reference is not a current source claim")
             key = _claim_key(ref)
             if key in refs or (not resolved and key in members):
                 raise BoardError("claim belongs to more than one live Huddle")
@@ -1471,17 +1703,8 @@ def _validate_huddles(payload: dict) -> None:
             members.update(refs)
         if h["claims"] != sorted(h["claims"], key=_claim_rank):
             raise BoardError("Huddle claims are not canonically ordered")
-        if not isinstance(h["edges"], list) or not (0 if resolved else 1) <= len(h["edges"]) <= 2016:
+        if not isinstance(h["edges"], list) or not (0 if settled else 1) <= len(h["edges"]) <= 2016:
             raise BoardError("Huddle edge cap or minimum violated")
-        if resolved:
-            if (h["edges"] != [] or h["holds"] != [] or h["bids"] != [] or h["compliance"] != []
-                or h["remote_transition"] is not None or h["reply_by"] is not None
-                or type(h["round"]) is not int or h["round"] not in (0, 1, 2)):
-                raise BoardError("Huddle disjoint resolution fields are inconsistent")
-            _validate_disjoint_resolution(h, payload["revision"])
-            if len(json.dumps(h, sort_keys=True, separators=(",", ":")).encode("utf-8")) > 4 * 1024 * 1024:
-                raise BoardError("Huddle encoded size cap exceeded")
-            continue
         pairs = set()
         for edge in h["edges"]:
             if not isinstance(edge, dict) or set(edge) != {"left", "right", "kinds"}:
@@ -1496,30 +1719,84 @@ def _validate_huddles(payload: dict) -> None:
                 or kinds != sorted(set(kinds)) or pair in pairs):
                 raise BoardError("Huddle edge kinds or uniqueness are invalid")
             pairs.add(pair)
-            actual = _scope_edge(current[pair[0]], current[pair[1]])
-            if sorted(k for k in kinds if k != "semantic_suspicion") != actual:
-                raise BoardError("Huddle path edges disagree with current declarations")
+            if not resolved and all(key in current for key in pair):
+                actual = _scope_edge(current[pair[0]], current[pair[1]])
+                if sorted(k for k in kinds if k != "semantic_suspicion") != actual:
+                    raise BoardError("Huddle path edges disagree with current declarations")
         ordered_refs = h["claims"]
         for index, left in enumerate(ordered_refs):
             for right in ordered_refs[index + 1:]:
                 pair = (_claim_key(left), _claim_key(right))
-                if _scope_edge(current[pair[0]], current[pair[1]]) and pair not in pairs:
+                if (not resolved and all(key in current for key in pair)
+                    and _scope_edge(current[pair[0]], current[pair[1]]) and pair not in pairs):
                     raise BoardError("Huddle is missing a current scope edge")
         ordered = sorted(h["edges"], key=lambda e: (_claim_rank(e["left"]), _claim_rank(e["right"])))
-        if (not isinstance(h["holds"], list) or any(not _valid_claim_ref(ref) for ref in h["holds"])
-            or h["edges"] != ordered or h["holds"] != claim_holds(h)):
-            raise BoardError("Huddle edge order or holds disagree with graph selection")
+        if h["edges"] != ordered:
+            raise BoardError("Huddle edges are not canonically ordered")
+        _reference_list(h["holds"], payload["revision"], "Huddle holds", limit=65 if h["state"] == "remote_pending" else 64)
         unknown = any("scope_unknown" in e["kinds"] for e in h["edges"])
-        if h["state"] != ("awaiting_scope" if unknown else "open_round_1") or type(h["round"]) is not int or h["round"] != (0 if unknown else 1):
-            raise BoardError("Huddle state is unsupported or disagrees with edges")
-        if (h["bids"] != [] or h["compliance"] != [] or any(h[k] is not None for k in
-            ("resolution", "remote_transition", "resolved_at", "retain_until"))):
-            raise BoardError("Huddle lifecycle fields are not supported in this graph increment")
+        if (h["state"] == "awaiting_scope" and (not unknown or h["round"] != 0 or h["bids"] != [])
+            or h["state"] in {"open_round_1", "open_round_2"} and (unknown or h["round"] != int(h["state"][-1]))
+            or h["state"] == "remote_pending" and h["round"] not in (1, 2)):
+            raise BoardError("Huddle state disagrees with round or scope edges")
+        _validate_bids(h, payload)
+        _validate_remote_transition(h, payload["revision"])
+        if not resolved and (h["resolved_at"] is not None or h["retain_until"] is not None):
+            raise BoardError("live Huddle cannot have resolution timestamps")
+        if not settled:
+            if h["resolution"] is not None or h["compliance"] != []:
+                raise BoardError("unsettled Huddle has resolution or compliance")
+            expected_holds = claim_holds(h)
+            if h["state"] == "remote_pending":
+                remote = h["remote_transition"]
+                if remote is None or remote["readback"] not in {"not_attempted", "ambiguous"}:
+                    raise BoardError("pending remote Huddle needs unresolved readback")
+                # The successor is not installed locally yet. Its exact transfer
+                # reference is nevertheless held alongside the predecessor.
+                held = {_claim_key(c): c for c in expected_holds}
+                for field in ("source_claim", "successor_claim"):
+                    held[_claim_key(remote[field])] = remote[field]
+                expected_holds = sorted(held.values(), key=_claim_rank)
+            elif h["remote_transition"] is not None:
+                raise BoardError("open Huddle cannot have a remote transition")
+        else:
+            if h["remote_transition"] is not None and h["remote_transition"]["readback"] not in {"successor", "predecessor"}:
+                raise BoardError("settled Huddle cannot have unresolved remote ownership")
+            pending = _validate_resolution(h, payload)
+            if bool(pending) != (h["state"] == "awaiting_compliance"):
+                raise BoardError("Huddle state disagrees with pending compliance")
+            expected_holds = sorted((refs[key] for key in pending), key=_claim_rank)
+        if h["holds"] != expected_holds:
+            raise BoardError("Huddle holds disagree with state authority")
+        if not resolved:
+            historical = set()
+            if settled:
+                historical.update(_claim_key(e["claim"]) for e in h["compliance"] if e["status"] == "satisfied")
+                handoff = h["resolution"]["handoff"]
+                if handoff:
+                    historical.add(_claim_key(handoff["source_claim"]))
+                    successor = handoff["successor_claim"]
+                    key = _claim_key(successor)
+                    if key not in current or _claim_ref(current[key]) != successor or key in members:
+                        raise BoardError("Huddle successor is not its unique current source claim")
+                    members.add(key)
+            for key, ref in refs.items():
+                if key not in historical and (key not in current or _claim_ref(current[key]) != ref or current[key]["access"] == "read_only"):
+                    raise BoardError("Huddle reference is not a current source claim")
         if len(json.dumps(h, sort_keys=True, separators=(",", ":")).encode("utf-8")) > 4 * 1024 * 1024:
             raise BoardError("Huddle encoded size cap exceeded")
+    for h in records:
+        if h["state"] == "resolved":
+            continue
+        for bid in h["bids"]:
+            support = bid["support_claim"]
+            if support is not None and bid["round"] == h["round"]:
+                key = _claim_key(support)
+                if key in members or key not in current or _claim_ref(current[key]) != support:
+                    raise BoardError("Huddle support must remain current outside every live Huddle")
 
 
-def _validate_v2(payload: object) -> dict:
+def _validate_v2(payload: object, *, pending_retention: bool = False) -> dict:
     if not isinstance(payload, dict) or set(payload) != {
         "schema", "revision", "projects", "entities", "claims", "huddles"
     }:
@@ -1579,7 +1856,7 @@ def _validate_v2(payload: object) -> dict:
             if not scope:
                 raise BoardError("write claims must have nonempty scope")
 
-    _validate_huddles(payload)
+    _validate_huddles(payload, pending_retention=pending_retention)
     return payload
 
 
@@ -1835,8 +2112,23 @@ def _write_and_commit(
     *,
     consume_ref: tuple[str, str] | None = None,
     guard: Callable[[], None] | None = None,
+    now: datetime | None = None,
 ) -> None:
     """Publish one board value and its journal commit or restore both exactly."""
+    if payload.get("schema") == V2_SCHEMA:
+        # Validate even records about to expire: retention must never hide a
+        # malformed transition. Only the transient 65th resolution is allowed.
+        _validate_v2(payload, pending_retention=True)
+        instant = now if now is not None else datetime.now(timezone.utc)
+        retained = sorted(
+            (h for h in payload["huddles"] if h["state"] == "resolved"
+             and _timestamp(h["retain_until"], "Huddle retention") > instant),
+            key=lambda h: (h["resolution"]["settled_revision"], h["id"]),
+        )[-64:]
+        keep = {h["id"] for h in retained}
+        payload["huddles"] = [h for h in payload["huddles"]
+                              if h["state"] != "resolved" or h["id"] in keep]
+    _validate(payload)
     try:
         previous = path.read_bytes()
     except OSError as exc:
@@ -2176,8 +2468,7 @@ def open_or_join_huddle(*, claim: dict, overlap: list[dict], reason: str,
         if huddle is None:
             return BoardMutation(copy.deepcopy(payload), False, None)
         payload["revision"] += 1
-        _validate(payload)
-        _write_and_commit(root, path, payload, "shadow board: update Huddle graph")
+        _write_and_commit(root, path, payload, "shadow board: update Huddle graph", now=now)
         event = {"schema": "shadow.huddle-delivery-event.v1", "event": "huddle_changed",
                  "huddle_id": huddle["id"], "generation": huddle["generation"]}
         return BoardMutation(copy.deepcopy(payload), True, event)
@@ -2253,13 +2544,12 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
         if claim == before and huddle is None:
             return BoardMutation(copy.deepcopy(payload), False, None)
         payload["revision"] += 1
-        _validate(payload)
         def guard() -> None:
             if observed_binding is not None and repository_binding(repo) != observed_binding:
                 raise BoardError("preflight repository changed during publication")
             if _scope_snapshot(repo, write_scope) != (scope, component_witnesses):
                 raise BoardError("preflight scope component changed during publication")
-        _write_and_commit(root, path, payload, "shadow board: preflight claim access", guard=guard)
+        _write_and_commit(root, path, payload, "shadow board: preflight claim access", guard=guard, now=now)
         event = None if huddle is None else {"schema": "shadow.huddle-delivery-event.v1", "event": "huddle_changed",
             "huddle_id": huddle["id"], "generation": huddle["generation"]}
         return BoardMutation(copy.deepcopy(payload), True, event)
@@ -2637,6 +2927,9 @@ def claim(
     adopt_expired: bool = False,
     expected_plan: dict[str, str] | None = None,
     home: Path | None = None,
+    repo: Path | None = None,
+    access: str = "unscoped",
+    write_scope: list[str] | None = None,
 ) -> dict:
     if not regular_plan(plan):
         raise BoardError("claim target must be a regular, non-symlink PLAN.md")
@@ -2679,9 +2972,33 @@ def claim(
         if winner is not None:
             if not adopt_expired or not claim_is_stale(winner, now=claimed):
                 raise AlreadyClaimed(winner["owner"])
+            if payload["schema"] == V2_SCHEMA and any(
+                h["state"] != "resolved" and _claim_ref(winner) in h["claims"]
+                for h in payload["huddles"]
+            ):
+                raise BoardError("Huddle participant adoption requires lifecycle recovery")
             # Adoption is an explicit compare-and-swap under the same lock as
             # the fresh read.  It never silently reassigns a live claim.
             payload["claims"].remove(winner)
+        binding = None
+        scope = [] if write_scope is None else write_scope
+        component_witnesses = None
+        if payload["schema"] == V2_SCHEMA:
+            _enum(access, {"unscoped", "read_only", "write"}, "claim access")
+            if not isinstance(scope, list):
+                raise BoardError("claim write scope must be a bounded list")
+            if (access == "write") != bool(scope):
+                raise BoardError("only write access requires a nonempty scope")
+            if access != "read_only":
+                if repo is None:
+                    raise BoardError("source claim requires an explicit repository")
+                binding = repository_binding(repo)
+                scope, component_witnesses = _scope_snapshot(repo, scope)
+            if access == "write" and any(c["access"] == "unscoped" and c["repository_binding"] is None
+                                         for c in payload["claims"]):
+                raise BoardError("legacy_binding_unknown: classify or return every unbound legacy claim")
+        elif access != "unscoped" or scope:
+            raise BoardError("access declarations require an explicitly staged v2 board")
         grouping = next((item for item in payload["projects"] if item["id"] == project), None)
         if grouping is None:
             grouping = {
@@ -2711,15 +3028,27 @@ def claim(
             "return_by": _stamp(returned),
             "recovery": RECOVERY_ACTION,
         }
+        if payload["schema"] == V2_SCHEMA:
+            claim_record.update(claim_revision=payload["revision"] + 1, access=access,
+                                repository_binding=binding, write_scope=scope)
         payload["claims"].append(claim_record)
+        huddle = None
+        if payload["schema"] == V2_SCHEMA and access != "read_only":
+            peers = [c for c in payload["claims"] if c is not claim_record and _scope_edge(claim_record, c)]
+            if peers:
+                reason = "scope_request" if any(c["access"] == "unscoped" for c in [claim_record, *peers]) else "write_scope_overlap"
+                huddle = _open_huddle(payload, claim_record, peers, reason, claimed)
         payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
         payload["entities"].sort(key=lambda item: (item["project"], item["id"]))
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
         payload["revision"] += 1
-        _validate(payload)
-        _write_and_commit(root, path, payload, f"shadow board: claim {row}")
+        def guard() -> None:
+            if binding is not None and (repository_binding(repo) != binding
+                or _scope_snapshot(repo, scope) != (scope, component_witnesses)):
+                raise BoardError("claim repository or scope changed during publication")
+        _write_and_commit(root, path, payload, f"shadow board: claim {row}", guard=guard, now=claimed)
         snapshot = json.loads(json.dumps(payload))
-        return {
+        result = {
             "payload": snapshot,
             "entity": next(item for item in snapshot["entities"] if item["id"] == identity),
             "claim": next(
@@ -2729,6 +3058,12 @@ def claim(
                 == (identity, row, owner)
             ),
         }
+        if payload["schema"] == V2_SCHEMA:
+            result["event"] = None if huddle is None else {
+                "schema": "shadow.huddle-delivery-event.v1", "event": "huddle_changed",
+                "huddle_id": huddle["id"], "generation": huddle["generation"],
+            }
+        return result
 
 
 def complete_init_registration(
@@ -3527,18 +3862,20 @@ def reconcile(
                     for claim in payload["claims"]
                 ):
                     continue
-                payload["claims"].append(
-                    {
-                        "entity": identity,
-                        "row": row,
-                        "owner": owner,
-                        "claimed_at": _stamp(claimed_at),
-                        "return_by": _stamp(
-                            claimed_at + timedelta(hours=DEFAULT_CLAIM_HOURS)
-                        ),
-                        "recovery": RECOVERY_ACTION,
-                    }
-                )
+                imported_claim = {
+                    "entity": identity,
+                    "row": row,
+                    "owner": owner,
+                    "claimed_at": _stamp(claimed_at),
+                    "return_by": _stamp(
+                        claimed_at + timedelta(hours=DEFAULT_CLAIM_HOURS)
+                    ),
+                    "recovery": RECOVERY_ACTION,
+                }
+                if payload["schema"] == V2_SCHEMA:
+                    imported_claim.update(claim_revision=0, access="unscoped",
+                                          repository_binding=None, write_scope=[])
+                payload["claims"].append(imported_claim)
         claims_by_entity: dict[str, set[str]] = {}
         for item in payload["claims"]:
             claims_by_entity.setdefault(item["entity"], set()).add(item["row"])

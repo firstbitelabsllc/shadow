@@ -75,6 +75,58 @@ def run(script: Path, repo: Path, env: dict[str, str], *args: str) -> subprocess
     )
 
 
+class StagedV2Throw(unittest.TestCase):
+    def test_public_throw_binds_source_and_holds_only_the_later_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            board.ensure(home=home)
+            with board._transaction(home) as (root, path, payload):
+                board._write_and_commit(root, path, board.migrate_v1_to_v2(payload), "test: stage v2")
+            for row, owner in (("~bb22", "seat-a"), ("~dd44", "seat-b")):
+                result = run(THROW, repo, env, "--task", row, "--by", owner)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            payload = board.snapshot(home=home)
+            first, later = sorted(payload["claims"], key=lambda claim: claim["claim_revision"])
+            self.assertEqual(first["repository_binding"], board.repository_binding(repo))
+            self.assertEqual(later["repository_binding"], first["repository_binding"])
+            self.assertEqual((first["access"], later["access"]), ("unscoped", "unscoped"))
+            self.assertEqual(payload["huddles"][0]["state"], "awaiting_scope")
+            self.assertEqual(payload["huddles"][0]["holds"], [board._claim_ref(later)])
+            before = ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow"))
+            duplicate = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-c")
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn("seat-a", duplicate.stderr)
+            self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow")))
+
+    def test_machine_local_entity_binds_explicit_source_not_private_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            board.ensure(home=home)
+            local = home / ".shadow" / "plans" / "demo" / "PLAN.md"
+            local.parent.mkdir(parents=True)
+            local.write_text(PLAN, encoding="utf-8")
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                board.reconcile([{"plan": str(local), "project": "demo", "priority": 2,
+                                  "candidates": ["~bb22", "~dd44"]}], [], home=home)
+                entity = board.entity_id(local)
+            with board._transaction(home) as (root, path, payload):
+                board._write_and_commit(root, path, board.migrate_v1_to_v2(payload), "test: stage v2")
+            before = ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow"))
+            missing = subprocess.run(
+                [sys.executable, str(THROW), "--entity", entity, "--task", "~bb22", "--by", "seat-a"],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(missing.returncode, 1, missing.stderr)
+            self.assertIn("explicit repository", missing.stderr)
+            self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow")))
+            result = run(THROW, repo, env, "--entity", entity, "--task", "~bb22", "--by", "seat-a")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = board.snapshot(home=home)
+            self.assertEqual(payload["claims"][0]["entity"], entity)
+            self.assertEqual(payload["claims"][0]["repository_binding"], board.repository_binding(repo))
+            self.assertEqual(local.read_text(encoding="utf-8"), PLAN)
+
+
 class ThrowRefusesAmbiguousWork(unittest.TestCase):
     def test_unknown_needs_blocked_and_proofless_rows_refuse(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
