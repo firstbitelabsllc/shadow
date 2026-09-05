@@ -173,6 +173,138 @@ class HuddleBidTests(HuddleTestCase):
         self.assertEqual(self.authority(), before)
 
 
+class HuddleSettlementTests(HuddleTestCase):
+    request = HuddleBidTests.request
+    submit = HuddleBidTests.submit
+
+    def setUp(self):
+        super().setUp()
+        self.a, self.b = HuddleGraphTests.seed(self, [["a", "b"], ["a"]])
+        self.huddle = HuddleGraphTests.open(self, self.a, [self.b]).payload["huddles"][0]
+        for entity in board_api.snapshot(home=self.home)["entities"]:
+            plan = Path(entity["plan"])
+            plan.parent.mkdir(parents=True, exist_ok=True)
+            plan.write_text("# Work\n\n## Tasks\n\n- [pending] Work ~aa11 | proof: cmd true\n")
+
+    def settle(self, *, now=NOW, **changes):
+        snapshot = board_api.snapshot(home=self.home)
+        request = dict(huddle_id=self.huddle["id"], actor_claim=board_api._claim_ref(self.a),
+                       expected_generation=snapshot["huddles"][0]["generation"],
+                       expected_board_revision=snapshot["revision"])
+        return board_api.settle_huddle(**(request | changes), now=now, home=self.home)
+
+    def test_conflict_gets_one_counter_round_then_existing_owner_wins(self):
+        self.submit()
+        self.submit(self.b)
+        initial = board_api.snapshot(home=self.home)
+        first = self.settle().payload
+        h = first["huddles"][0]
+        self.assertEqual((h["state"], h["round"], h["generation"]), ("open_round_2", 2, 2))
+        self.assertEqual(h["reply_by"], "2026-09-04T16:02:00Z")
+        self.assertEqual(first["claims"], initial["claims"])
+        self.assertEqual(h["bids"], initial["huddles"][0]["bids"])
+        self.assertFalse(self.submit().changed)
+        result = self.settle(now=NOW + timedelta(minutes=2)).payload
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual(h["resolution"]["write_owners"], [board_api._claim_ref(self.a)])
+        self.assertEqual(h["holds"], [board_api._claim_ref(self.b)])
+        self.assertEqual([b["role"] for b in h["bids"] if b["round"] == 2], ["unavailable", "unavailable"])
+        self.assertEqual(result["claims"], initial["claims"])
+        before = self.authority()
+        with self.assertRaises(board_api.BoardError):
+            self.settle(now=NOW + timedelta(minutes=4))
+        self.assertEqual(self.authority(), before)
+
+    def test_disjoint_scopes_commit_with_resolution_not_at_bid(self):
+        self.submit(role="disjoint", scope=["a/one"], reason="path_disjoint")
+        self.submit(self.b, role="disjoint", scope=["a/two"], reason="path_disjoint")
+        result = self.settle().payload
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "resolved")
+        self.assertEqual(h["resolution"]["rule"], "path_disjoint")
+        self.assertEqual(h["holds"], [])
+        self.assertEqual(h["edges"], [])
+        self.assertEqual(h["resolution"]["write_owners"], h["claims"])
+        self.assertEqual([c["write_scope"] for c in result["claims"]], [["a/one"], ["a/two"]])
+
+    def test_early_missing_bid_and_stale_identity_refuse_without_writes(self):
+        self.submit()
+        before = self.authority()
+        for changes in ({}, {"expected_generation": 99}, {"expected_board_revision": 0},
+                        {"actor_claim": {**board_api._claim_ref(self.a), "owner": "Other"}}):
+            with self.subTest(changes=changes), self.assertRaises(board_api.BoardError):
+                self.settle(**changes)
+            self.assertEqual(self.authority(), before)
+        h = self.settle(now=NOW + timedelta(minutes=2)).payload["huddles"][0]
+        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual(h["round"], 1)
+
+    def test_missing_or_changed_canonical_plan_refuses_without_writes(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        entity = board_api.snapshot(home=self.home)["entities"][1]
+        plan = Path(entity["plan"])
+        for text in ("# Empty\n", "# Work\n\n## Tasks\n- [completed] Work ~aa11 | proof: cmd true\n",
+                     "# Work\n\n## Tasks\n- [pending] Work ~aa11\n"):
+            plan.write_text(text)
+            before = self.authority()
+            with self.assertRaises(board_api.BoardError):
+                self.settle()
+            self.assertEqual(self.authority(), before)
+
+    def test_local_handoff_requires_matching_pair_and_preserves_claim_instance(self):
+        repo = HuddleAccessTests.repo(self)
+        binding = board_api.repository_binding(repo)
+        self.a["repository_binding"] = binding
+        self.b["repository_binding"] = binding
+        with board_api._transaction(self.home) as (root, path, payload):
+            for claim in payload["claims"]:
+                claim["repository_binding"] = binding
+            for entity in payload["entities"]:
+                plan = self.home / ".shadow" / "plans" / entity["id"] / "PLAN.md"
+                plan.parent.mkdir(parents=True)
+                plan.write_text(Path(entity["plan"]).read_text())
+                entity["plan"] = str(plan)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: local plans", now=NOW)
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        before = self.authority()
+        with self.assertRaises(board_api.BoardError):
+            self.settle(now=NOW + timedelta(minutes=2))
+        self.assertEqual(self.authority(), before)
+        self.submit(self.b, reason="owner_authorized_handoff")
+        result = self.settle().payload
+        successor = {**self.a, "owner": self.b["owner"]}
+        self.assertEqual(result["claims"], [successor, self.b])
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual(h["resolution"]["write_owners"], [board_api._claim_ref(successor)])
+        self.assertEqual(h["resolution"]["rule"], "owner_authorized_handoff")
+        self.assertEqual(h["holds"], [board_api._claim_ref(self.b)])
+        before = self.authority()
+        for claim in (successor, self.b):
+            context = {key: claim[key] for key in ("entity", "row", "owner", "claim_revision")}
+            context["board_revision"] = result["revision"]
+            if claim == successor:
+                self.assertFalse(board_api.authorize_host_attempt(context=context, repo=repo,
+                    write_scope=claim["write_scope"], authority_proposal=False, now=NOW, home=self.home).changed)
+            else:
+                with self.assertRaisesRegex(board_api.BoardError, "held"):
+                    board_api.authorize_host_attempt(context=context, repo=repo,
+                        write_scope=claim["write_scope"], authority_proposal=False, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_scope_shrink_does_not_promote_an_explicit_stand_down(self):
+        self.submit(role="disjoint", scope=["b"], reason="path_disjoint")
+        self.submit(self.b, role="stand_down", reason="duplicate_intent")
+        result = self.settle().payload["huddles"][0]
+        self.assertEqual(result["state"], "awaiting_compliance")
+        self.assertEqual(result["resolution"]["write_owners"], [board_api._claim_ref(self.a)])
+        self.assertEqual(result["resolution"]["actions"][1]["action"], "return_required")
+        self.assertEqual(result["holds"], [board_api._claim_ref(self.b)])
+
+
 class HuddleMigrationTests(HuddleTestCase):
     def test_v1_migration_is_lossless_and_does_not_mutate_input(self) -> None:
         payload = self.v1_board()

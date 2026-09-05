@@ -1590,6 +1590,8 @@ def _validate_resolution(h: dict, payload: dict) -> set:
     elif handoff is not None or "handoff_complete" in actions.values():
         raise BoardError("non-handoff resolution cannot transfer authority")
     selected = {_claim_key(c) for c in h["claims"]} - {_claim_key(c) for c in claim_holds(h)}
+    selected -= {_claim_key(b["claim"]) for b in h["bids"] if b["round"] == h["round"]
+                 and b["role"] in {"stand_down", "review", "prove"}}
     continuing = {key for key, action in actions.items() if action != "return_required"}
     if continuing != selected:
         raise BoardError("Huddle dispositions disagree with graph selection")
@@ -2485,6 +2487,15 @@ def huddle_show(huddle_id: str, *, home: Path | None = None) -> dict:
     raise BoardError("Huddle was not found")
 
 
+def _huddle_checkpoint(text: str, row: str) -> None:
+    rows = [match for line in section_lines(text, "Tasks")
+            if (match := _grammar.ROW_RE.fullmatch(line)) is not None and match.group("id") == row]
+    if (len(rows) != 1 or row not in _grammar.candidate_row_ids(text)
+        or not any(field.group("key") == "proof" and field.group("value").strip()
+                   for field in _grammar.FIELD_RE.finditer(rows[0].group("tail")))):
+        raise BoardError("Huddle checkpoint is not reachable in its canonical plan")
+
+
 def submit_huddle_bid(*, huddle_id: str, seat: str, claim: dict, role: str,
                       scope: list[str], reason: str, target: dict | None,
                       support_claim: dict | None, evidence: dict, round: int,
@@ -2539,13 +2550,7 @@ def submit_huddle_bid(*, huddle_id: str, seat: str, claim: dict, role: str,
                 text = support_bytes.decode("utf-8")
             except UnicodeError:
                 raise BoardError("Huddle support plan is not UTF-8") from None
-            rows = [match for line in section_lines(text, "Tasks")
-                    if (match := _grammar.ROW_RE.fullmatch(line)) is not None
-                    and match.group("id") == support_claim["row"]]
-            if (len(rows) != 1 or support_claim["row"] not in _grammar.candidate_row_ids(text)
-                or not any(field.group("key") == "proof" and field.group("value").strip()
-                           for field in _grammar.FIELD_RE.finditer(rows[0].group("tail")))):
-                raise BoardError("Huddle support checkpoint is not reachable in its canonical plan")
+            _huddle_checkpoint(text, support_claim["row"])
         payload["revision"] += 1
         def guard():
             if support_plan is not None and read_plan_bytes(support_plan) != support_bytes:
@@ -2565,6 +2570,151 @@ def bid_receipt(huddle_id: str, claim: dict, round: int, *, home: Path | None = 
         if bid["claim"] == claim and bid["round"] == round:
             return copy.deepcopy(bid)
     raise BoardError("Huddle bid was not found")
+
+
+def settle_huddle(*, huddle_id: str, actor_claim: dict, expected_generation: int,
+                  expected_board_revision: int, now: datetime,
+                  home: Path | None = None) -> BoardMutation:
+    """Commit a round decision without treating silence as a transfer."""
+    with _transaction(home) as (root, path, payload):
+        if (payload["schema"] != V2_SCHEMA or type(expected_board_revision) is not int
+            or payload["revision"] != expected_board_revision):
+            raise BoardError("Huddle settlement board revision changed")
+        h = next((item for item in payload["huddles"] if item["id"] == huddle_id), None)
+        if h is None or type(expected_generation) is not int or h["generation"] != expected_generation:
+            raise BoardError("Huddle settlement generation changed")
+        _validate_huddle_reference(actor_claim, payload["revision"])
+        current = {_claim_key(c): c for c in payload["claims"]}
+        if (actor_claim not in h["claims"] or _claim_key(actor_claim) not in current
+            or _claim_ref(current[_claim_key(actor_claim)]) != actor_claim):
+            raise BoardError("Huddle settlement requires a current participant")
+        if h["state"] not in {"awaiting_scope", "open_round_1", "open_round_2"}:
+            raise BoardError("Huddle requires lifecycle recovery before settlement")
+        bids = {_claim_key(b["claim"]): b for b in h["bids"] if b["round"] == h["round"]}
+        if now < _timestamp(h["reply_by"], "Huddle deadline") and len(bids) != len(h["claims"]):
+            raise BoardError("Huddle settlement awaits bids or deadline")
+        plans = {}
+        plan_roots = {}
+        for ref in h["claims"] + [b["support_claim"] for b in bids.values() if b["support_claim"]]:
+            claim = current.get(_claim_key(ref))
+            if claim is None or _claim_ref(claim) != ref or claim_is_stale(claim, now=now):
+                raise BoardError("Huddle requires proof-first stale recovery before settlement")
+            entity = next(e for e in payload["entities"] if e["id"] == ref["entity"])
+            plan = Path(entity["plan"])
+            if plan not in plans:
+                plans[plan] = read_plan_bytes(plan)
+                plan_roots[plan] = plan_state_token(plan)
+            try:
+                text = plans[plan].decode("utf-8")
+            except UnicodeError:
+                raise BoardError("Huddle settlement plan is not UTF-8") from None
+            _huddle_checkpoint(text, ref["row"])
+        yields = [b for b in bids.values() if b["role"] == "yield"]
+        handoff = None
+        if yields:
+            if len(yields) != 1:
+                raise BoardError("Huddle settlement requires exactly one handoff pair")
+            offer = yields[0]
+            target = bids.get(_claim_key(offer["target"]))
+            if target is None or target["role"] != "own" or target["reason"] != "owner_authorized_handoff":
+                raise BoardError("Huddle settlement requires a matching owner handoff pair")
+            entity = next(e for e in payload["entities"] if e["id"] == offer["claim"]["entity"])
+            if not is_local_plan(Path(entity["plan"]), home=home):
+                raise BoardError("Huddle remote handoff requires authenticated two-phase recovery")
+            handoff = dict(source_claim=offer["claim"], target_prior_claim=target["claim"],
+                successor_claim={**offer["claim"], "owner": target["seat"]},
+                target_prior_action="return_required", mode="local", remote_readback=None)
+        _validate_bids(h, payload)
+        old_generation = h["generation"]
+        h["generation"] += 1
+        payload["revision"] += 1
+        if h["round"]:
+            for ref in h["claims"]:
+                key = _claim_key(ref)
+                if key not in bids:
+                    bid = dict(seat=ref["owner"], claim=copy.deepcopy(ref), role="unavailable",
+                        scope=copy.deepcopy(current[key]["write_scope"]), reason="transport_unavailable",
+                        target=None, support_claim=None, evidence={"kind": "none", "value": "self"},
+                        round=h["round"], expected_huddle_generation=old_generation)
+                    bid.update(bid_digest=_bid_digest(h["id"], bid), submitted_at=_stamp(now))
+                    h["bids"].append(bid)
+                    bids[key] = bid
+        for key, bid in bids.items():
+            if bid["role"] == "disjoint":
+                current[key]["write_scope"] = copy.deepcopy(bid["scope"])
+        semantic = {frozenset((_claim_key(e["left"]), _claim_key(e["right"])))
+                    for e in h["edges"] if "semantic_suspicion" in e["kinds"]}
+        edges = []
+        for index, left in enumerate(h["claims"]):
+            for right in h["claims"][index + 1:]:
+                pair = (_claim_key(left), _claim_key(right))
+                kinds = _scope_edge(current[pair[0]], current[pair[1]])
+                if frozenset(pair) in semantic and not all(
+                    key in bids and bids[key]["role"] == "disjoint"
+                    and bids[key]["reason"] == "distinct_outcome" for key in pair):
+                    kinds.append("semantic_suspicion")
+                if kinds:
+                    edges.append(dict(left=left, right=right, kinds=sorted(kinds)))
+        h["edges"] = edges
+        h["holds"] = claim_holds(h)
+        held = {_claim_key(ref) for ref in h["holds"]}
+        selected = [ref for ref in h["claims"] if _claim_key(ref) not in held]
+        if handoff and (_claim_key(handoff["source_claim"]) in held
+                        or _claim_key(handoff["target_prior_claim"]) not in held):
+            raise BoardError("Huddle handoff must preserve selected-source and held-target authority")
+        for bid in bids.values():
+            if bid["support_claim"] is not None and any(
+                _scope_edge(current[_claim_key(bid["support_claim"])], current[_claim_key(ref)])
+                for ref in selected):
+                raise BoardError("Huddle support scope conflicts with a selected writer")
+        target_key = _claim_key(handoff["target_prior_claim"]) if handoff else None
+        conflict = any(bids[key]["role"] in {"own", "disjoint"}
+                       for key in held if key in bids and key != target_key)
+        conflict = conflict or any("semantic_suspicion" in edge["kinds"]
+            and not (handoff and { _claim_key(edge["left"]), _claim_key(edge["right"]) }
+                     == {_claim_key(handoff["source_claim"]), target_key}) for edge in edges)
+        if h["round"] == 1 and conflict:
+            h.update(state="open_round_2", round=2, reply_by=_stamp(now + timedelta(minutes=2)))
+            event = "round_opened"
+        else:
+            # Removing an edge cannot turn an explicit non-continuing bid
+            # into permission to write. Its canonical return is still owed.
+            held.update(key for key, bid in bids.items() if bid["role"] in {"stand_down", "review", "prove"})
+            h["holds"] = [ref for ref in h["claims"] if _claim_key(ref) in held]
+            selected = [ref for ref in h["claims"] if _claim_key(ref) not in held]
+            rule = "owner_authorized_handoff" if handoff else "earliest_valid_claim" if edges or held else "path_disjoint"
+            h["resolution"] = dict(settled_revision=payload["revision"], settled_at=_stamp(now),
+                rule=rule, handoff=handoff,
+                write_owners=[ref for ref in selected if current[_claim_key(ref)]["access"] == "write"],
+                actions=[dict(claim=ref, action="return_required" if _claim_key(ref) in held
+                              else "continue" if edges else "continue_disjoint") for ref in h["claims"]],
+                support_actions=[dict(participant_claim=b["claim"], support_claim=b["support_claim"],
+                                      action=b["role"] + "_claim") for b in bids.values() if b["support_claim"]])
+            if handoff:
+                source = handoff["source_claim"]
+                h["resolution"]["write_owners"] = sorted(
+                    [handoff["successor_claim"] if ref == source else ref
+                     for ref in h["resolution"]["write_owners"]], key=_claim_rank)
+                for action in h["resolution"]["actions"]:
+                    if action["claim"] == source:
+                        action["action"] = "handoff_complete"
+                current[_claim_key(source)]["owner"] = handoff["successor_claim"]["owner"]
+            entities = {e["id"]: e for e in payload["entities"]}
+            h["compliance"] = [dict(claim=ref, required="canonical_disposition_then_return",
+                plan_root_at_settlement=plan_roots[Path(entities[ref["entity"]]["plan"])],
+                status="pending", completion=None) for ref in h["holds"]]
+            h.update(state="awaiting_compliance" if held else "resolved", reply_by=None)
+            if not held:
+                h.update(resolved_at=_stamp(now), retain_until=_stamp(now + timedelta(hours=24)))
+            event = "resolution_available"
+        def guard():
+            for plan, content in plans.items():
+                if read_plan_bytes(plan) != content or plan_state_token(plan) != plan_roots[plan]:
+                    raise BoardError("Huddle plan changed during settlement")
+        _write_and_commit(root, path, payload, "shadow board: settle Huddle round", guard=guard, now=now)
+        return BoardMutation(copy.deepcopy(payload), True, {
+            "schema": "shadow.huddle-delivery-event.v1", "event": event,
+            "huddle_id": h["id"], "generation": h["generation"]})
 
 
 def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
@@ -2599,7 +2749,9 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
         scope, component_witnesses = _scope_snapshot(repo, write_scope)
         if access == "write" and any(c is not claim and c["access"] == "unscoped" and c["repository_binding"] is None for c in payload["claims"]):
             raise BoardError("legacy_binding_unknown: classify or return every unbound legacy claim")
-        involved = [h for h in payload["huddles"] if h["state"] != "resolved" and _claim_ref(claim) in h["claims"]]
+        involved = [h for h in payload["huddles"] if h["state"] != "resolved"
+                    and (_claim_ref(claim) in h["claims"]
+                         or h["resolution"] is not None and _claim_ref(claim) in h["resolution"]["write_owners"])]
         if involved and access == claim["access"] == "write" and scope == claim["write_scope"]:
             # Repeating an authorized scope does not advance a round or revoke
             # a selected writer. Each execution door still checks live holds.
