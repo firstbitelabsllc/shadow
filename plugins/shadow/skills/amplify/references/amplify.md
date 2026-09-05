@@ -61,8 +61,10 @@ constraint arrives before the elaboration.
   "track the work".
 - **Quote the person verbatim** where their words are the authority — a steer
   paraphrased is a steer weakened, and the quote is what settles later disputes.
-- **State the ref.** Every authority is `repo + path @ ref`; a goal that says
-  "the plan" without a ref invites a stale read.
+- **State the locator.** Name `entity + plan path @ root` for a board-owned
+  plan, or `repo + path @ committed ref` for a declared repository plan.
+  Reconcile the live board before execution; never let a pin displace the
+  current owner. "The canonical plan" alone does not identify either.
 - **Say what is already true.** Context the executor would otherwise re-derive
   (what was tried, what was refuted) is the cheapest thing in the prompt and
   the most expensive thing to rediscover.
@@ -109,7 +111,7 @@ captured.
 
 ```text
 Outcome: every finding in <scope> is either proven with file:line or dead.
-Resume: shadow status --by <seat>; follow the canonical PLAN and verified source. Delegate through Shadow to the cheapest capable seat; preserve proof, escalate when needed, and record native fallback.
+Resume: shadow status --by <seat>; open <entity/repo>:<PLAN-path>@<root/ref>; drain owned, then reachable checkpoints. Delegate through Shadow to the cheapest capable seat; preserve proof, escalate when needed, and record native fallback.
 Proof: each finding gets correctness, security, and reproduction refuters; two refutations kill it. Survivors require file:line or command evidence, <focused command> green, and <real surface> re-observed from fresh state.
 Skills: thermo, ponytail.
 ```

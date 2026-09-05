@@ -23,7 +23,7 @@ outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 
 ```text
 Outcome: <finite end state and what the person stops supervising>.
-Resume: shadow status --by <seat>; follow the canonical PLAN and verified source. Delegate through Shadow to the cheapest capable seat; preserve proof, escalate when needed, and record native fallback.
+Resume: shadow status --by <seat>; open <entity/repo>:<PLAN-path>@<root/ref>; drain owned, then reachable checkpoints. Delegate through Shadow to the cheapest capable seat; preserve proof, escalate when needed, and record native fallback.
 Proof: <mechanical finish line>; keep source, merge, install/deploy, and live distinct.
 Skills: <one to four canonical invocation names from the current session's available skill catalog>.
 ```
@@ -31,6 +31,10 @@ Skills: <one to four canonical invocation names from the current session's avail
 `Resume` always names Shadow by its command and ends with this common clause:
 **Delegate through Shadow to the cheapest capable seat; preserve proof,
 escalate when needed, and record native fallback.**
+
+Bind the plan locator to the board-owned entity and current plan root, or the
+declared repository plan and committed ref. Reconcile the live board before
+execution; a pinned locator never overrides a newer canonical owner.
 
 At every checkpoint, assess delegation using the current installed harness
 and roster. Claim before dispatch. Give each bounded worker the verified
