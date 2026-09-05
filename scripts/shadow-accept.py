@@ -1093,6 +1093,14 @@ def lead_review_passes(
     )
 
 
+def require_huddle_accept(plan_path: Path, claim: dict | None) -> None:
+    if claim is not None:
+        try:
+            _board.check_huddle_release(plan_path, claim, reason="completed")
+        except _board.BoardError as exc:
+            raise AcceptError(str(exc)) from exc
+
+
 def require_claimable_ready_row(
     plan_path: Path,
     plan_text: str,
@@ -1109,6 +1117,7 @@ def require_claimable_ready_row(
     claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
     if claim is None:
         raise AcceptError(f"{row_id} is not claimed; run shadow throw before accepting it")
+    require_huddle_accept(plan_path, claim)
     blocked_by = unmet_needs(plan_text, needs)
     if blocked_by:
         raise AcceptError(
@@ -1574,6 +1583,7 @@ def accept_local_plan(
             f"{row_id} declares proposal-only proof authority; rerun with --proposal"
         )
     claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+    require_huddle_accept(plan_path, claim)
     if state == "completed":
         if proof.startswith(("read ", "gate ")):
             # A completed judgment row needs no rerun: authenticate the
@@ -2805,6 +2815,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Git-backed acceptance does not support"
             )
         claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+        require_huddle_accept(plan_path, claim)
         if state == "completed":
             if git_completed(
                 repo, "status", "--porcelain", "--", str(plan_relative)

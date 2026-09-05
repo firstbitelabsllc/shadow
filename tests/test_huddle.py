@@ -4,7 +4,9 @@ import copy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -303,6 +305,169 @@ class HuddleSettlementTests(HuddleTestCase):
         self.assertEqual(result["resolution"]["write_owners"], [board_api._claim_ref(self.a)])
         self.assertEqual(result["resolution"]["actions"][1]["action"], "return_required")
         self.assertEqual(result["holds"], [board_api._claim_ref(self.b)])
+
+
+class HuddleLifecycleTests(HuddleTestCase):
+    request = HuddleBidTests.request
+    submit = HuddleBidTests.submit
+    settle = HuddleSettlementTests.settle
+
+    def setUp(self):
+        super().setUp()
+        environment = mock.patch.dict(os.environ, {"HOME": str(self.home)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        payload = self.v2_board(with_claim=False)
+        payload["entities"] = []
+        self.plans = {}
+        for index, owner in enumerate(("A", "B"), 1):
+            plan = self.home / ".shadow" / "plans" / owner.lower() / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Work\n\n## Brief\n- Project: shadow\n- Mode: ship\n\n"
+                "## Tasks\n### Outcome\n- [pending] Work ~aa11 | proof: cmd true\n"
+                "- [pending] Done ~dd11 (DoD) | proof: read receipt -> reviewed | needs: ~aa11\n\n## Progress\n")
+            entity = board_api.entity_id(plan)
+            self.plans[owner] = plan
+            payload["entities"].append(dict(id=entity, project="shadow", plan=str(plan), resume="~aa11"))
+            claim = self.v2_board()["claims"][0]
+            claim.update(entity=entity, owner=owner, claim_revision=index, access="write",
+                repository_binding={"common_dir_sha256": "c" * 64, "remote_identity": None}, write_scope=["a"])
+            payload["claims"].append(claim)
+        self.a, self.b = payload["claims"]
+        self.seed_v2(payload)
+        self.huddle = HuddleGraphTests.open(self, self.a, [self.b]).payload["huddles"][0]
+
+    def release(self, claim, *, reason="handback"):
+        return board_api.release(self.plans[claim["owner"]], claim["row"], owner=claim["owner"],
+                                 reason=reason, expected_claim=claim, now=NOW, home=self.home)
+
+    def test_return_removes_membership_and_resolves_surviving_owner(self):
+        result, changed = self.release(self.a)
+        self.assertTrue(changed)
+        self.assertEqual(result["claims"], [self.b])
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "resolved")
+        self.assertEqual(h["claims"], [board_api._claim_ref(self.b)])
+        self.assertEqual(h["resolution"]["rule"], "exact_claim_owner")
+        self.assertEqual(h["holds"], [])
+        self.assertEqual(h["edges"], [])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "claim changed"):
+            self.release(self.a)
+        self.assertFalse(board_api.release(self.plans["A"], self.a["row"], owner="A",
+            reason="handback", now=NOW, home=self.home)[1])
+        self.assertEqual(self.authority(), before)
+
+    def test_required_return_needs_changed_canonical_plan_and_clears_compliance(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "canonical"):
+            self.release(self.b)
+        self.assertEqual(self.authority(), before)
+        plan = self.plans["B"]
+        plan.write_text(plan.read_text().replace("[pending] Work", "[blocked] Work")
+                        + "\n## Deferred\n- ~aa11 | overlap owned by A | wake: A completes the shared change\n")
+        result, changed = self.release(self.b, reason="blocked")
+        self.assertTrue(changed)
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "resolved")
+        self.assertEqual(h["holds"], [])
+        self.assertEqual(h["compliance"][0]["status"], "satisfied")
+        self.assertEqual(h["compliance"][0]["completion"]["kind"], "return")
+        self.assertEqual(result["claims"], [self.a])
+
+    def test_completion_reservation_refuses_held_and_pending_compliance(self):
+        for claim in (self.b, self.a):
+            if claim == self.a:
+                self.submit()
+                self.submit(self.b, role="stand_down")
+                self.settle()
+            plan = self.plans[claim["owner"]]
+            token, _ = board_api.frozen_plan_snapshot(plan, home=self.home)
+            before = self.authority()
+            with self.assertRaises(board_api.BoardError):
+                board_api.reserve_completion(plan, claim["row"], claim["owner"],
+                    expected_plan=token, now=NOW, home=self.home)
+            self.assertEqual(self.authority(), before)
+
+    def test_selected_completion_releases_node_but_held_completion_refuses(self):
+        for claim in (self.b, self.a):
+            plan = self.plans[claim["owner"]]
+            plan.write_text(plan.read_text().replace("[pending] Work", "[completed] Work")
+                            + "\n- 2026-09-04T16:00:00Z ~aa11 PROOF true -> pass (accept)\n")
+            before = self.authority()
+            if claim == self.b:
+                with self.assertRaisesRegex(board_api.BoardError, "Huddle held"):
+                    self.release(claim, reason="completed")
+                self.assertEqual(self.authority(), before)
+            else:
+                result, changed = self.release(claim, reason="completed")
+                self.assertTrue(changed)
+                self.assertEqual(result["huddles"][0]["claims"], [board_api._claim_ref(self.b)])
+                self.assertEqual(result["huddles"][0]["state"], "resolved")
+
+    def test_held_public_accept_refuses_before_proof_or_plan_write(self):
+        source = self.home / "source"
+        source.mkdir()
+        marker = self.home / "proof-was-launched"
+        (source / "proof.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        git(source, "init", "-q")
+        git(source, "config", "user.email", "test@example.invalid")
+        git(source, "config", "user.name", "Test")
+        git(source, "remote", "add", "origin", "https://github.com/example/huddle-fixture.git")
+        git(source, "add", "proof.py")
+        git(source, "commit", "-qm", "fixture")
+        plan = self.plans["B"]
+        plan.write_text(plan.read_text().replace("- Mode: ship", "- Mode: ship\n- Origin: github.com/example/huddle-fixture")
+                        .replace("proof: cmd true", "proof: cmd python3 proof.py"))
+        plan_before = plan.read_bytes()
+        before = self.authority()
+        result = subprocess.run([str(ROOT / "bin" / "shadow"), "accept", "--repo", str(source),
+            "--entity", self.b["entity"], "--row", self.b["row"], "--by", "B"],
+            text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Huddle held", result.stdout + result.stderr)
+        self.assertFalse(marker.exists())
+        self.assertEqual(plan.read_bytes(), plan_before)
+        self.assertEqual(self.authority(), before)
+
+    def test_cosmetic_plan_change_cannot_satisfy_required_return(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        plan = self.plans["B"]
+        plan.write_text(plan.read_text() + "\n- 2026-09-04T16:00:00Z NOTE formatting only\n")
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "canonical"):
+            self.release(self.b)
+        self.assertEqual(self.authority(), before)
+
+    def test_new_canonical_contradiction_allows_pending_required_handback(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        plan = self.plans["B"]
+        plan.write_text(plan.read_text() + "\n## Contradictions\n- ~aa11 duplicates A's current shared change; return until A completes.\n")
+        result, _ = self.release(self.b)
+        self.assertEqual(result["huddles"][0]["state"], "resolved")
+
+    def test_commit_race_restores_board_and_claim_revision_cas_rejects_replacement(self):
+        before = self.authority()
+        plan = self.plans["A"]
+        original_write = board_api._write_and_commit
+        def race(*args, **kwargs):
+            plan.write_text(plan.read_text() + "\n- concurrent canonical edit\n")
+            return original_write(*args, **kwargs)
+        with mock.patch.object(board_api, "_write_and_commit", side_effect=race):
+            with self.assertRaisesRegex(board_api.BoardError, "canonical plan changed"):
+                self.release(self.a)
+        self.assertEqual(self.authority(), before)
+        with self.assertRaisesRegex(board_api.BoardError, "claim changed"):
+            board_api.release(plan, self.a["row"], owner="A", reason="handback",
+                expected_claim={**self.a, "claim_revision": 0}, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
 
 
 class HuddleMigrationTests(HuddleTestCase):

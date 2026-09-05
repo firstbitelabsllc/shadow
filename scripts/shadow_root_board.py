@@ -4318,6 +4318,91 @@ def has_accept_proof_receipt(text: str, row: str, argv: list[str]) -> bool:
     return expected in progress_proof_receipts(text, row)
 
 
+def _claim_huddles(payload: dict, claim: dict) -> list[dict]:
+    ref = _claim_ref(claim) if payload["schema"] == V2_SCHEMA else None
+    return [h for h in payload.get("huddles", []) if h["state"] != "resolved"
+            and (ref in h["claims"] or h["resolution"] is not None
+                 and ref in h["resolution"]["write_owners"])]
+
+
+def _check_huddle_release(payload: dict, claim: dict, *, reason: str,
+                          text: str = "", plan_root: str | None = None) -> None:
+    """Refuse before side effects; the committing transaction repeats this gate."""
+    if payload["schema"] != V2_SCHEMA:
+        return
+    ref = _claim_ref(claim)
+    for h in _claim_huddles(payload, claim):
+        if h["state"] == "remote_pending":
+            raise BoardError("Huddle remote ownership requires stable readback before return or accept")
+        if reason == "completed":
+            if ref in h["holds"] or h["state"] == "awaiting_compliance":
+                raise BoardError("Huddle held or pending-compliance claim cannot accept")
+        elif h["state"] == "awaiting_compliance":
+            entry = next((e for e in h["compliance"] if e["claim"] == ref and e["status"] == "pending"), None)
+            if entry is None:
+                raise BoardError("Huddle selected owner must wait for pending canonical returns")
+            contradiction = any(_grammar.contradiction_is_open(line)
+                and claim["row"] in _grammar.NEEDS_REF_RE.findall(line)
+                for line in section_lines(text, "Contradictions"))
+            if (plan_root is None or plan_root == entry["plan_root_at_settlement"]
+                or not (reason == "blocked" or reason == "handback" and contradiction)):
+                raise BoardError("Huddle required return needs a newer canonical blocker or contradiction")
+    # A support bid binds this exact independent claim until the participant
+    # returns. Closing it first would strand the live resolution's evidence.
+    if any(b["support_claim"] == ref and b["round"] == h["round"]
+           for h in payload.get("huddles", []) if h["state"] != "resolved" for b in h["bids"]):
+        raise BoardError("Huddle support claim must remain current until its participant returns")
+
+
+def check_huddle_release(plan: Path, claim: dict, *, reason: str,
+                          home: Path | None = None) -> None:
+    """Read-only preflight for accept workers and remote return side effects."""
+    with _transaction(home) as (_, _, payload):
+        current = next((c for c in payload["claims"]
+                        if (c["entity"], c["row"]) == (claim["entity"], claim["row"])), None)
+        if current is None or any(current.get(k) != v for k, v in claim.items() if k != "revision"):
+            raise BoardError("claim changed before Huddle lifecycle preflight")
+        text = read_plan_text(plan) if reason != "completed" else ""
+        _check_huddle_release(payload, current, reason=reason, text=text,
+                              plan_root=plan_state_token(plan) if text else None)
+
+
+def _depart_huddles(payload: dict, claim: dict, *, now: datetime) -> None:
+    """Update membership and claim release in their one existing board commit."""
+    if payload["schema"] != V2_SCHEMA:
+        return
+    ref = _claim_ref(claim)
+    current = {_claim_key(c): c for c in payload["claims"]}
+    for h in _claim_huddles(payload, claim):
+        h["generation"] += 1
+        if h["state"] == "awaiting_compliance":
+            entry = next(e for e in h["compliance"] if e["claim"] == ref and e["status"] == "pending")
+            entry.update(status="satisfied", completion={"kind": "return",
+                         "board_revision": payload["revision"] + 1, "receipt": "self"})
+            h["holds"] = [e["claim"] for e in h["compliance"] if e["status"] == "pending"]
+            if not h["holds"]:
+                h.update(state="resolved", resolved_at=_stamp(now),
+                         retain_until=_stamp(now + timedelta(hours=24)))
+            continue
+        h["claims"] = [c for c in h["claims"] if c != ref]
+        h["edges"] = [e for e in h["edges"] if ref not in (e["left"], e["right"])]
+        h["bids"] = []
+        h["holds"] = claim_holds(h)
+        if len(h["claims"]) == 1 or not h["edges"]:
+            single = len(h["claims"]) == 1
+            h.update(state="resolved", reply_by=None, resolved_at=_stamp(now),
+                     retain_until=_stamp(now + timedelta(hours=24)))
+            h["resolution"] = dict(settled_revision=payload["revision"] + 1, settled_at=_stamp(now),
+                rule="exact_claim_owner" if single else "path_disjoint", handoff=None,
+                write_owners=[r for r in h["claims"] if current[_claim_key(r)]["access"] == "write"],
+                actions=[dict(claim=r, action="continue" if single else "continue_disjoint") for r in h["claims"]],
+                support_actions=[])
+        else:
+            unknown = any("scope_unknown" in e["kinds"] for e in h["edges"])
+            h.update(state="awaiting_scope" if unknown else "open_round_1", round=0 if unknown else 1,
+                     reply_by=_stamp(now + timedelta(minutes=2)))
+
+
 def _reserve_claim_receipt(
     plan: Path,
     row: str,
@@ -4353,6 +4438,7 @@ def _reserve_claim_receipt(
             raise BoardError(f"{row} is not claimed; run shadow throw first")
         if claim["owner"] != owner:
             raise BoardError(f"claim is owned by {claim['owner']}")
+        _check_huddle_release(payload, claim, reason="completed")
         if protect_until is not None:
             protected = protect_until.astimezone(timezone.utc)
             if _timestamp(claim["return_by"], "claim return-by") < protected:
@@ -4398,6 +4484,7 @@ def release(
     expected_plan: dict[str, str] | None = None,
     expected_text: str | None = None,
     expected_claim: dict | None = None,
+    now: datetime | None = None,
     home: Path | None = None,
 ) -> tuple[dict, bool] | None:
     if not regular_plan(plan):
@@ -4428,16 +4515,22 @@ def release(
             None,
         )
         if expected_claim is not None:
+            fields = ("entity", "row", "owner", "claimed_at", "return_by", "recovery")
+            if payload["schema"] == V2_SCHEMA:
+                fields += ("claim_revision", "access", "repository_binding", "write_scope")
             claim_fields = {
                 key: expected_claim.get(key)
-                for key in ("entity", "row", "owner", "claimed_at", "return_by", "recovery")
+                for key in fields
             }
             if claim is None or any(claim.get(key) != value for key, value in claim_fields.items()):
                 raise BoardError("claim changed before completion could close it; reconcile the proven row")
         if claim is not None and owner != claim["owner"]:
             raise BoardError(f"claim is owned by {claim['owner']}")
+        content = read_plan_text(plan) if claim is not None else ""
+        plan_root = plan_state_token(plan) if claim is not None else None
         if claim is not None:
-            _release_state(plan, row, reason, text=expected_text)
+            _release_state(plan, row, reason, text=expected_text if expected_text is not None else content)
+            _check_huddle_release(payload, claim, reason=reason, text=content, plan_root=plan_root)
         kept = [item for item in payload["claims"] if item is not claim]
         had_claim = len(kept) != len(payload["claims"])
         if claim is None:
@@ -4447,6 +4540,8 @@ def release(
             return json.loads(json.dumps(payload)), False
         if entity["plan"] != str(plan) and not regular_plan(Path(entity["plan"])):
             entity["plan"] = str(plan)
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        _depart_huddles(payload, claim, now=current)
         payload["claims"] = kept
         candidates = resumes or []
         if any(ROW_ID.fullmatch(candidate) is None for candidate in candidates):
@@ -4461,7 +4556,10 @@ def release(
             return json.loads(json.dumps(payload)), False
         payload["revision"] += 1
         _validate(payload)
-        _write_and_commit(root, path, payload, f"shadow board: release {row}")
+        def guard():
+            if read_plan_text(plan) != content or plan_state_token(plan) != plan_root:
+                raise BoardError("canonical plan changed before claim return committed")
+        _write_and_commit(root, path, payload, f"shadow board: release {row}", guard=guard, now=current)
         return json.loads(json.dumps(payload)), True
 
 

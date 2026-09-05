@@ -218,6 +218,9 @@ def main(argv: list[str] | None = None) -> int:
                     current,
                 )
             transition_claim = claim or remote_only_claim
+            if claim is not None:
+                board._release_state(plan_path, args.row, reason, text=plan_text)
+                board.check_huddle_release(plan_path, claim, reason=reason)
             if transition_claim is not None and not board.is_local_plan(plan_path):
                 repo = Path(plan_token["repo"])
                 remote = remote_claim.transition(
