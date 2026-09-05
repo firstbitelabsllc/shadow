@@ -1091,8 +1091,23 @@ def _process_holds(path: Path) -> None:
     target = path.resolve()
     proc = Path("/proc")
     if proc.is_dir():
+        # Only this user's processes can be inspected at all, and only they
+        # can hold a worktree this user created. A root-owned or foreign
+        # process is unreadable by design (PID 1 on every CI runner), and
+        # treating that as "inspection unavailable" made the gate impossible
+        # to pass on any shared host — every clean, lifecycle, and release
+        # test failed on the GitHub runner for exactly this reason. Fail
+        # closed stays exact for the set we can and must inspect.
+        uid = os.getuid()
         try:
-            entries = sorted((entry for entry in proc.iterdir() if entry.name.isdigit()), key=lambda item: int(item.name))
+            entries = sorted(
+                (
+                    entry
+                    for entry in proc.iterdir()
+                    if entry.name.isdigit() and entry.stat().st_uid == uid
+                ),
+                key=lambda item: int(item.name),
+            )
         except OSError as exc:
             raise CleanError("process inspection unavailable") from exc
         if len(entries) > 4096:
@@ -1111,11 +1126,25 @@ def _process_holds(path: Path) -> None:
                         raise CleanError("process holds worktree")
             except CleanError:
                 raise
-            except (OSError, PermissionError):
-                # An unreadable process is exactly the boundary we cannot
-                # prove. Kernel pseudo-links that disappear are harmless.
-                if entry.exists():
-                    raise CleanError("process inspection unavailable")
+            except (OSError, PermissionError) as exc:
+                # A process that exited between listing and readlink is
+                # harmless, and on Linux it can linger as a zombie whose
+                # /proc entry still exists while its cwd and fd links are
+                # gone. Only a process that is still alive AND whose links
+                # we truly cannot read is the boundary we cannot prove.
+                # Keying on `entry.exists()` alone read every exiting
+                # test-harness child as "unavailable" and failed the whole
+                # gate on the CI runner.
+                if isinstance(exc, FileNotFoundError):
+                    continue
+                if not entry.exists():
+                    continue
+                try:
+                    if "zombie" in (entry / "status").read_text().lower().split("state:", 1)[1].splitlines()[0]:
+                        continue
+                except (OSError, IndexError):
+                    pass
+                raise CleanError("process inspection unavailable")
         return
     lsof = shutil.which("lsof")
     if not lsof:
