@@ -3228,6 +3228,32 @@ def canonical_plan(
     return stored_pointer.resolve()
 
 
+def _adopt_open_huddle_participant(payload: dict, old: dict, new: dict,
+                                   now: datetime) -> dict | None:
+    """Replace one expired identity without replaying its bids as new consent."""
+    old_ref, new_ref = _claim_ref(old), _claim_ref(new)
+    h = next((h for h in payload["huddles"]
+              if h["state"] != "resolved" and old_ref in h["claims"]), None)
+    if h is None:
+        return None
+    if h["state"] not in {"awaiting_scope", "open_round_1", "open_round_2"}:
+        raise BoardError("Huddle adoption requires settled lifecycle recovery")
+    h["claims"] = sorted((new_ref if ref == old_ref else ref for ref in h["claims"]), key=_claim_rank)
+    for edge in h["edges"]:
+        endpoints = sorted((new_ref if edge[end] == old_ref else edge[end]
+                            for end in ("left", "right")), key=_claim_rank)
+        edge["left"], edge["right"] = endpoints
+    h["edges"].sort(key=lambda edge: (_claim_rank(edge["left"]), _claim_rank(edge["right"])))
+    h["holds"] = claim_holds(h)
+    h["bids"] = [bid for bid in h["bids"]
+        if old_ref not in (bid["claim"], bid["target"], bid["support_claim"])
+        and not (bid["round"] == h["round"] and bid["role"] == "yield"
+                 and bid["claim"] in h["holds"])]
+    h["generation"] += 1
+    h["reply_by"] = _stamp(now + timedelta(minutes=2))
+    return h
+
+
 def claim(
     plan: Path,
     row: str,
@@ -3281,18 +3307,34 @@ def claim(
             ),
             None,
         )
+        adoption_plan = None
         if winner is not None:
             if not adopt_expired or not claim_is_stale(winner, now=claimed):
                 raise AlreadyClaimed(winner["owner"])
-            if payload["schema"] == V2_SCHEMA and any(
-                h["state"] != "resolved" and _claim_ref(winner) in h["claims"]
-                for h in payload["huddles"]
-            ):
-                raise BoardError("Huddle participant adoption requires lifecycle recovery")
+            if payload["schema"] == V2_SCHEMA:
+                for h in _claim_huddles(payload, winner):
+                    if h["state"] not in {"awaiting_scope", "open_round_1", "open_round_2"}:
+                        raise BoardError("Huddle participant adoption requires settled lifecycle recovery")
+                    adoption_plan = Path(entity["plan"])
+                if any(b["support_claim"] == _claim_ref(winner)
+                       for h in payload["huddles"] if h["state"] != "resolved" for b in h["bids"]):
+                    raise BoardError("Huddle support claim must remain current until its participant returns")
+                if ((access != "unscoped" and access != winner["access"])
+                    or write_scope is not None and write_scope != winner["write_scope"]):
+                    raise BoardError("stale adoption must preserve access and write scope")
+                access, write_scope = winner["access"], copy.deepcopy(winner["write_scope"])
+                if adoption_plan is not None:
+                    adoption_bytes = read_plan_bytes(adoption_plan)
+                    adoption_root = plan_state_token(adoption_plan)
+                    try:
+                        _huddle_checkpoint(adoption_bytes.decode("utf-8"), row)
+                    except UnicodeError:
+                        raise BoardError("Huddle adoption plan is not UTF-8") from None
             # Adoption is an explicit compare-and-swap under the same lock as
             # the fresh read.  It never silently reassigns a live claim.
             payload["claims"].remove(winner)
         binding = None
+        observed_binding = None
         scope = [] if write_scope is None else write_scope
         component_witnesses = None
         if payload["schema"] == V2_SCHEMA:
@@ -3304,8 +3346,14 @@ def claim(
             if access != "read_only":
                 if repo is None:
                     raise BoardError("source claim requires an explicit repository")
-                binding = repository_binding(repo)
+                binding = observed_binding = repository_binding(repo)
                 scope, component_witnesses = _scope_snapshot(repo, scope)
+            if winner is not None:
+                previous_binding = winner["repository_binding"]
+                if ((binding is None) != (previous_binding is None)
+                    or binding is not None and not _same_repository(binding, previous_binding)):
+                    raise BoardError("stale adoption must preserve repository binding")
+                binding = copy.deepcopy(previous_binding)
             if access == "write" and any(c["access"] == "unscoped" and c["repository_binding"] is None
                                          for c in payload["claims"]):
                 raise BoardError("legacy_binding_unknown: classify or return every unbound legacy claim")
@@ -3345,7 +3393,9 @@ def claim(
                                 repository_binding=binding, write_scope=scope)
         payload["claims"].append(claim_record)
         huddle = None
-        if payload["schema"] == V2_SCHEMA and access != "read_only":
+        if payload["schema"] == V2_SCHEMA and winner is not None:
+            huddle = _adopt_open_huddle_participant(payload, winner, claim_record, claimed)
+        if payload["schema"] == V2_SCHEMA and access != "read_only" and huddle is None:
             peers = [c for c in payload["claims"] if c is not claim_record and _scope_edge(claim_record, c)]
             if peers:
                 reason = "scope_request" if any(c["access"] == "unscoped" for c in [claim_record, *peers]) else "write_scope_overlap"
@@ -3355,7 +3405,10 @@ def claim(
         payload["claims"].sort(key=lambda item: (item["entity"], item["row"]))
         payload["revision"] += 1
         def guard() -> None:
-            if binding is not None and (repository_binding(repo) != binding
+            if adoption_plan is not None and (read_plan_bytes(adoption_plan) != adoption_bytes
+                or plan_state_token(adoption_plan) != adoption_root):
+                raise BoardError("canonical plan changed during stale adoption")
+            if binding is not None and (repository_binding(repo) != observed_binding
                 or _scope_snapshot(repo, scope) != (scope, component_witnesses)):
                 raise BoardError("claim repository or scope changed during publication")
         _write_and_commit(root, path, payload, f"shadow board: claim {row}", guard=guard, now=claimed)

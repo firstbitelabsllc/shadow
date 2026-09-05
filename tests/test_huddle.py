@@ -1380,6 +1380,180 @@ class HuddleClaimCreationTests(HuddleTestCase):
         self.assertEqual(self.authority(), before)
 
 
+class HuddleAdoptionTests(HuddleTestCase):
+    take = HuddleClaimCreationTests.take
+    request = HuddleBidTests.request
+    submit = HuddleBidTests.submit
+    settle = HuddleSettlementTests.settle
+
+    def setUp(self):
+        super().setUp()
+        self.repo, self.plan = HuddleClaimCreationTests.seed(self)
+        self.a = self.take(self.repo, self.plan, "~aa11", "A")["claim"]
+        self.b = self.take(self.repo, self.plan, "~bb22", "B")["claim"]
+        self.huddle = board_api.snapshot(home=self.home)["huddles"][0]
+
+    def adopt(self, claim=None, *, now=NOW + timedelta(hours=9), owner="Successor", **changes):
+        claim = claim or self.a
+        args = dict(project="shadow", priority=3, repo=self.repo,
+                    now=now, home=self.home, adopt_expired=True)
+        return board_api.claim(self.plan, claim["row"], owner, **(args | changes))
+
+    def test_open_adoption_installs_new_rank_and_preserves_unaffected_bid(self):
+        self.submit()
+        peer_bid = self.submit(self.b).payload["huddles"][0]["bids"][-1]
+        before = board_api.snapshot(home=self.home)
+        result = self.adopt()
+        replacement, h = result["claim"], result["payload"]["huddles"][0]
+        ref = board_api._claim_ref(replacement)
+        self.assertEqual(replacement["claim_revision"], before["revision"] + 1)
+        for field in ("access", "repository_binding", "write_scope"):
+            self.assertEqual(replacement[field], self.a[field])
+        self.assertEqual(h["claims"], [board_api._claim_ref(self.b), ref])
+        self.assertEqual(h["holds"], [ref])
+        self.assertEqual(h["edges"], [dict(left=board_api._claim_ref(self.b), right=ref, kinds=["path_overlap"])])
+        self.assertEqual(h["bids"], [peer_bid])
+        self.assertEqual((h["state"], h["round"], h["generation"]), ("open_round_1", 1, 2))
+        self.assertEqual(h["reply_by"], "2026-09-05T01:02:00Z")
+        self.assertEqual(result["event"]["generation"], h["generation"])
+        frozen = self.authority()
+        with self.assertRaises(board_api.BoardError):
+            self.submit()
+        self.assertEqual(self.authority(), frozen)
+
+    def test_round_two_adoption_keeps_round_and_other_original_receipts(self):
+        self.submit()
+        self.submit(self.b)
+        second = self.settle().payload["huddles"][0]
+        self.huddle = second
+        self.submit(round=2)
+        self.submit(self.b, round=2)
+        before = board_api.snapshot(home=self.home)["huddles"][0]
+        h = self.adopt()["payload"]["huddles"][0]
+        self.assertEqual((h["state"], h["round"]), ("open_round_2", 2))
+        self.assertEqual(h["generation"], before["generation"] + 1)
+        self.assertEqual(h["bids"], [b for b in before["bids"] if b["claim"] == board_api._claim_ref(self.b)])
+
+    def test_adoption_invalidates_yield_target_without_forging_its_digest(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        h = self.adopt(self.b)["payload"]["huddles"][0]
+        self.assertEqual(h["bids"], [])
+        self.assertEqual(h["holds"], [h["claims"][-1]])
+
+    def test_unaffected_stand_down_remains_exact_after_peer_becomes_selected(self):
+        self.submit(self.b, role="stand_down")
+        before = board_api.snapshot(home=self.home)["huddles"][0]["bids"]
+        after = self.adopt()["payload"]["huddles"][0]
+        self.assertEqual(after["bids"], before)
+        self.assertNotIn(board_api._claim_ref(self.b), after["holds"])
+
+    def test_adoption_rechecks_canonical_bytes_and_repository_before_commit(self):
+        for race in ("plan", "repo"):
+            with self.subTest(race=race):
+                before = self.authority()
+                original = board_api._write_and_commit
+                plan_bytes = self.plan.read_bytes()
+                def change(*args, **kwargs):
+                    if race == "plan":
+                        self.plan.write_bytes(plan_bytes + b"\nConcurrent change\n")
+                    else:
+                        git(self.repo, "remote", "add", "origin", "https://github.com/other/source.git")
+                    return original(*args, **kwargs)
+                with mock.patch.object(board_api, "_write_and_commit", side_effect=change):
+                    with self.assertRaisesRegex(board_api.BoardError, "changed"):
+                        self.adopt()
+                self.assertEqual(self.authority(), before)
+                if race == "plan":
+                    self.assertTrue(self.plan.read_bytes().endswith(b"Concurrent change\n"))
+                    self.plan.write_bytes(plan_bytes)
+                else:
+                    git(self.repo, "remote", "remove", "origin")
+
+    def test_adoption_rejects_foreign_repository_without_mutation(self):
+        other = HuddleAccessTests.repo(self, "other")
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "binding"):
+            self.adopt(repo=other)
+        self.assertEqual(self.authority(), before)
+
+    def test_replacement_and_old_identity_cannot_launch_but_current_selected_peer_can(self):
+        with board_api._transaction(self.home) as (root, path, payload):
+            peer = next(c for c in payload["claims"] if c["owner"] == "B")
+            peer["return_by"] = board_api._stamp(NOW + timedelta(hours=10))
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: preserve valid peer", now=NOW)
+        result = self.adopt()
+        before = self.authority()
+        for claim, allowed in ((self.a, False), (result["claim"], False), (self.b, True)):
+            context = {key: claim[key] for key in ("entity", "row", "owner", "claim_revision")}
+            context["board_revision"] = result["payload"]["revision"]
+            request = dict(context=context, repo=self.repo, write_scope=claim["write_scope"],
+                           authority_proposal=False, now=NOW + timedelta(hours=9), home=self.home)
+            with self.subTest(owner=claim["owner"]):
+                if allowed:
+                    self.assertFalse(board_api.authorize_host_attempt(**request).changed)
+                else:
+                    with self.assertRaises(board_api.BoardError):
+                        board_api.authorize_host_attempt(**request)
+                self.assertEqual(self.authority(), before)
+
+    def test_same_seat_adoption_still_invalidates_old_key(self):
+        replacement = self.adopt(owner="A")["claim"]
+        self.assertEqual(replacement["owner"], self.a["owner"])
+        self.assertNotEqual(replacement["claim_revision"], self.a["claim_revision"])
+        before = self.authority()
+        with self.assertRaises(board_api.BoardError):
+            self.submit()
+        self.assertEqual(self.authority(), before)
+
+    def test_direct_edge_reselection_invalidates_only_newly_held_yield(self):
+        a, b = board_api._claim_ref(self.a), board_api._claim_ref(self.b)
+        c = dict(a, row="~cc33", owner="C", claim_revision=b["claim_revision"] + 1)
+        h = copy.deepcopy(self.huddle)
+        h.update(claims=[a, b, c], edges=[dict(left=a, right=b, kinds=["path_overlap"]),
+                                       dict(left=b, right=c, kinds=["path_overlap"])])
+        h["holds"] = board_api.claim_holds(h)
+        stable = dict(claim=b, target=None, support_claim=None, role="stand_down", round=1)
+        h["bids"] = [stable, dict(claim=c, target=b, support_claim=None, role="yield", round=1)]
+        replacement = dict(self.a, owner="Successor", claim_revision=c["claim_revision"] + 1)
+        board_api._adopt_open_huddle_participant({"huddles": [h]}, self.a, replacement, NOW)
+        self.assertEqual(h["bids"], [stable])
+        self.assertEqual(h["holds"], [c, board_api._claim_ref(replacement)])
+
+    def test_awaiting_scope_adoption_keeps_unknown_scope_and_round_zero(self):
+        # Change only this fixture through the real owner classification path.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.home = Path(tmp)
+            self.repo, self.plan = HuddleClaimCreationTests.seed(self)
+            self.a = self.take(self.repo, self.plan, "~aa11", "A", access="unscoped", scope=[])["claim"]
+            self.b = self.take(self.repo, self.plan, "~bb22", "B")["claim"]
+            result = self.adopt()
+            h = result["payload"]["huddles"][0]
+            self.assertEqual((h["state"], h["round"]), ("awaiting_scope", 0))
+            self.assertEqual(h["edges"][0]["kinds"], ["scope_unknown"])
+            self.assertEqual(result["claim"]["access"], "unscoped")
+            self.assertEqual(result["claim"]["write_scope"], [])
+            self.assertEqual(h["holds"], [board_api._claim_ref(result["claim"])])
+
+    def test_adoption_refuses_live_claim_and_declaration_changes_without_mutation(self):
+        for changes in ({"now": NOW}, {"access": "read_only"},
+                        {"access": "write", "write_scope": ["b"]},
+                        {"access": "write", "write_scope": ["a", "b"]}):
+            with self.subTest(changes=changes):
+                before = self.authority()
+                with self.assertRaises(board_api.BoardError):
+                    self.adopt(**changes)
+                self.assertEqual(self.authority(), before)
+
+    def test_adoption_rolls_back_on_journal_failure(self):
+        before = self.authority()
+        with mock.patch.object(board_api, "_commit", side_effect=board_api.BoardError("injected")):
+            with self.assertRaisesRegex(board_api.BoardError, "injected"):
+                self.adopt()
+        self.assertEqual(self.authority(), before)
+
+
 class HuddleSchemaTests(HuddleTestCase):
     def fixture(self, state):
         payload = self.v2_board(with_claim=False)
