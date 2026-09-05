@@ -2951,13 +2951,21 @@ def claim(
         observed_binding = None
         scope = [] if write_scope is None else write_scope
         component_witnesses = None
+        inherited_unknown = (winner is not None and winner["access"] == "unscoped"
+                             and winner["repository_binding"] is None)
+        if inherited_unknown and adoption_plan is None:
+            adoption_plan = plan
+            adoption_bytes = observed_content
+            adoption_root = plan_state_token(plan)
         if payload["schema"] == V2_SCHEMA:
             _enum(access, {"unscoped", "read_only", "write"}, "claim access")
             if not isinstance(scope, list):
                 raise BoardError("claim write scope must be a bounded list")
             if (access == "write") != bool(scope):
                 raise BoardError("only write access requires a nonempty scope")
-            if access != "read_only":
+            # Recovery transfers the unknown declaration, not source authority.
+            # Only the successor's explicit preflight may bind its repository.
+            if access != "read_only" and not inherited_unknown:
                 if repo is None:
                     raise BoardError("source claim requires an explicit repository")
                 binding = observed_binding = repository_binding(repo)

@@ -14,6 +14,30 @@ import shadow_board_schema as schema
 
 
 class BoardSchemaTests(unittest.TestCase):
+    def _v2_with_claim(self, **changes):
+        claim = {
+            "entity": "a" * 64,
+            "row": "~aa11",
+            "owner": "Legacy",
+            "claimed_at": "2026-09-04T15:00:00Z",
+            "return_by": "2026-09-04T17:00:00Z",
+            "recovery": schema.RECOVERY_ACTION,
+            "claim_revision": 1,
+            "access": "unscoped",
+            "repository_binding": None,
+            "write_scope": [],
+        }
+        claim.update(changes)
+        return {
+            "schema": schema.V2_SCHEMA,
+            "revision": 5,
+            "projects": [{"id": "shadow", "priority": 1}],
+            "entities": [{"id": claim["entity"], "project": "shadow",
+                          "plan": "/tmp/legacy/PLAN.md", "resume": claim["row"]}],
+            "claims": [claim],
+            "huddles": [],
+        }
+
     def test_decoder_refuses_duplicate_keys_unknown_fields_and_invalid_utf8(self):
         value = {"schema": "shadow.root-board.v2", "revision": 0,
                  "projects": [], "entities": [], "claims": [], "huddles": []}
@@ -69,3 +93,16 @@ class BoardSchemaTests(unittest.TestCase):
                          "refs/heads/shadow/claims/v1/" + "a" * 64 + "/ab12")
         with self.assertRaises(ValueError):
             schema.claim_ref("a" * 64, "~AB12")
+
+    def test_decoder_accepts_positive_revision_unknown_claim_only_unscoped_empty_null(self):
+        accepted = self._v2_with_claim()
+        self.assertEqual(schema.decode_board_bytes(json.dumps(accepted).encode()), accepted)
+        for changes in (
+            {"write_scope": ["scripts"]},
+            {"claim_revision": True},
+            {"repository_binding": {"common_dir_sha256": "C" * 64,
+                                      "remote_identity": None}},
+        ):
+            malformed = self._v2_with_claim(**changes)
+            with self.subTest(changes=changes), self.assertRaises(schema.BoardError):
+                schema.decode_board_bytes(json.dumps(malformed).encode())

@@ -566,6 +566,27 @@ def seat_huddle_view(huddle: dict, seat: str) -> dict:
     }
 
 
+def render_seat_legacy_claims(payload: dict, seat: str) -> str | None:
+    """Private recovery for unknown bindings, including adopted successors."""
+    _board.validate_owner(seat)
+    claims = [claim for claim in payload.get("claims", [])
+              if claim.get("owner") == seat and claim.get("access") == "unscoped"
+              and claim.get("repository_binding") is None]
+    if not claims:
+        return None
+    lines = ["Unbound legacy claims — classify or return before source writes"]
+    for claim in claims:
+        target = f"--entity {claim['entity']} --row {shlex.quote(claim['row'])}"
+        owner = f"--by {shlex.quote(seat)}"
+        lines.append(
+            f"  Classify: shadow huddle preflight {target} "
+            f"--claim-revision {claim['claim_revision']} {owner} "
+            f"--repo <verified-checkout> --access unscoped --expect-board {payload['revision']}"
+        )
+        lines.append(f"  Or return: shadow return {target} {owner}")
+    return "\n".join(lines)
+
+
 def render_seat_huddle(huddle: dict, seat: str) -> str | None:
     """Agent-only resume block; caller chooses this only for ``status --by``."""
     if huddle.get("state") == "resolved":
@@ -1153,6 +1174,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"Seat: {args.by} | Focused: {len(focused)} | "
                     f"Owned: {owned} | Unhealthy: {unhealthy}",
                 ]
+                legacy = render_seat_legacy_claims(board_snapshot, args.by)
+                if legacy is not None:
+                    blocks.append(legacy)
                 blocks.extend(
                     rendered for rendered in
                     (render_seat_huddle(huddle, args.by) for huddle in board_snapshot.get("huddles", [])
@@ -1250,6 +1274,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"Portfolio: {len(v4_records)} entities | Seat: {args.by} | "
                 f"Focused: {len(focused)} | Owned: {owned} | Unhealthy: {unhealthy}"
             )
+            legacy = render_seat_legacy_claims(root_board, args.by)
+            if legacy is not None:
+                blocks.append(legacy)
             blocks.extend(render_seat_v4(record, args.by) for record in focused)
         else:
             blocks.extend(render_v4(record) for record in v4_records)

@@ -1289,14 +1289,14 @@ class HuddleMigrationTests(HuddleTestCase):
             "write_scope": ["scripts"],
         })
         cases.append(read_only)
-        legacy = copy.deepcopy(valid)
-        legacy["claims"][0].update({
+        legacy_scope = copy.deepcopy(valid)
+        legacy_scope["claims"][0].update({
             "claim_revision": 1,
             "access": "unscoped",
             "repository_binding": None,
-            "write_scope": [],
+            "write_scope": ["scripts"],
         })
-        cases.append(legacy)
+        cases.append(legacy_scope)
 
         for payload in cases:
             with self.subTest(claim=payload["claims"][0]):
@@ -1322,7 +1322,13 @@ class HuddleMigrationTests(HuddleTestCase):
 
         classified_legacy = copy.deepcopy(write)
         classified_legacy["claims"][0]["claim_revision"] = 0
-        for payload in (unscoped, read_only, write, classified_legacy):
+        migrated_unknown = copy.deepcopy(unscoped)
+        migrated_unknown["claims"][0].update({
+            "access": "unscoped",
+            "repository_binding": None,
+            "write_scope": [],
+        })
+        for payload in (unscoped, read_only, write, classified_legacy, migrated_unknown):
             self.assertIs(board_api._validate(payload), payload)
 
     def test_read_paths_validate_without_migrating_board_bytes(self) -> None:
@@ -1892,6 +1898,16 @@ class HuddleClaimCreationTests(HuddleTestCase):
                 self.take(repo, plan, "~aa11", "C")
         self.assertEqual(self.authority(), before)
 
+    def test_fresh_source_claim_without_repository_still_refuses(self):
+        _, plan = self.seed()
+        for access, scope in (("unscoped", []), ("write", ["a"])):
+            with self.subTest(access=access):
+                before = self.authority()
+                with self.assertRaisesRegex(board_api.BoardError, "explicit repository"):
+                    board_api.claim(plan, "~aa11", "A", project="shadow", priority=3,
+                                     access=access, write_scope=scope, now=NOW, home=self.home)
+                self.assertEqual(self.authority(), before)
+
     def test_known_unscoped_claim_opens_scope_request_but_read_only_does_not(self):
         for access in ("unscoped", "read_only"):
             with self.subTest(access=access), tempfile.TemporaryDirectory() as tmp:
@@ -2128,11 +2144,191 @@ class HuddleAdoptionTests(HuddleTestCase):
         self.b = self.take(self.repo, self.plan, "~bb22", "B")["claim"]
         self.huddle = board_api.snapshot(home=self.home)["huddles"][0]
 
+    def seed_unknown(self, *, migrated=True):
+        repo, plan = HuddleClaimCreationTests.seed(self)
+        legacy = self.v1_board()
+        identity = board_api.entity_id(plan)
+        legacy["entities"][0].update(id=identity, plan=str(plan))
+        legacy["claims"][0]["entity"] = identity
+        payload = board_api.migrate_v1_to_v2(legacy) if migrated else legacy
+        self.seed_v2(payload)
+        return repo, plan, payload["claims"][0]
+
     def adopt(self, claim=None, *, now=NOW + timedelta(hours=9), owner="Successor", **changes):
         claim = claim or self.a
         args = dict(project="shadow", priority=3, repo=self.repo,
                     now=now, home=self.home, adopt_expired=True)
         return board_api.claim(self.plan, claim["row"], owner, **(args | changes))
+
+    def adopt_unknown(self, plan, claim, *, now, owner, **changes):
+        options = dict(access="unscoped", write_scope=[])
+        options.update(changes)
+        return board_api.claim(
+            plan, claim["row"], owner, project="shadow", priority=3,
+            now=now, home=self.home, adopt_expired=True,
+            **options)
+
+    def test_initial_migrated_unknown_adoption_preserves_unscoped_declaration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.home = Path(tmp)
+            _, plan, legacy = self.seed_unknown()
+            result = board_api.claim(
+                plan, legacy["row"], "Successor", project="shadow", priority=3,
+                now=NOW + timedelta(hours=3), home=self.home, adopt_expired=True,
+                access="unscoped", write_scope=[])
+            successor = result["claim"]
+            self.assertGreater(successor["claim_revision"], legacy["claim_revision"])
+            self.assertEqual(successor["access"], "unscoped")
+            self.assertEqual(successor["write_scope"], [])
+            self.assertIsNone(successor["repository_binding"])
+
+    def test_repeated_proof_first_stale_unknown_adoption_preserves_declaration(self):
+        for migrated in (False, True):
+            with self.subTest(migrated=migrated), tempfile.TemporaryDirectory() as tmp:
+                self.home = Path(tmp)
+                _, plan, legacy = self.seed_unknown(migrated=migrated)
+                first_result = self.adopt_unknown(
+                    plan, legacy, now=NOW + timedelta(hours=3), owner="Successor")
+                first = first_result["claim"]
+                second_result = self.adopt_unknown(
+                    plan, first, now=NOW + timedelta(hours=12), owner="NewOwner")
+                second = second_result["claim"]
+                self.assertGreater(first["claim_revision"], 0)
+                self.assertGreater(second["claim_revision"], first["claim_revision"])
+                for claim in (first, second):
+                    self.assertEqual(claim["access"], "unscoped")
+                    self.assertEqual(claim["write_scope"], [])
+                    self.assertIsNone(claim["repository_binding"])
+                self.assertEqual(second_result["payload"]["claims"], [second])
+                self.assertIs(board_api._validate(second_result["payload"]), second_result["payload"])
+
+    def test_unknown_adoption_keeps_global_other_writer_fence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.home = Path(tmp)
+            repo, plan, legacy = self.seed_unknown()
+            with board_api._transaction(self.home) as (root, path, payload):
+                other = copy.deepcopy(payload["claims"][0])
+                other.update(row="~bb22", owner="Other")
+                payload["claims"].append(other)
+                payload["revision"] += 1
+                board_api._write_and_commit(root, path, payload, "test: second unknown claim", now=NOW)
+
+            first = self.adopt_unknown(
+                plan, legacy, now=NOW + timedelta(hours=3), owner="Successor")["claim"]
+
+            def assert_other_writer_blocked(now):
+                current = board_api.snapshot(home=self.home)
+                before = self.authority()
+                with self.assertRaisesRegex(board_api.BoardError, "legacy_binding_unknown"):
+                    board_api.preflight_access(
+                        entity=other["entity"], row=other["row"], owner=other["owner"],
+                        repo=repo, access="write", write_scope=["a"],
+                        expected_claim_revision=other["claim_revision"],
+                        expected_board_revision=current["revision"], now=now, home=self.home)
+                self.assertEqual(self.authority(), before)
+
+            assert_other_writer_blocked(NOW + timedelta(hours=3))
+            self.adopt_unknown(
+                plan, first, now=NOW + timedelta(hours=12), owner="NewOwner")
+            assert_other_writer_blocked(NOW + timedelta(hours=12))
+
+    def test_unknown_adoption_requires_owner_preflight_before_source_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.home = Path(tmp)
+            repo, plan, legacy = self.seed_unknown()
+            result = self.adopt_unknown(
+                plan, legacy, now=NOW + timedelta(hours=3), owner="Successor")
+            successor = result["claim"]
+            context = {key: successor[key] for key in ("entity", "row", "owner", "claim_revision")}
+            context["board_revision"] = result["payload"]["revision"]
+            before = self.authority()
+            with self.assertRaisesRegex(board_api.BoardError, "source-bound"):
+                board_api.authorize_host_attempt(
+                    context=context, repo=repo, write_scope=["a"],
+                    authority_proposal=False, now=NOW + timedelta(hours=3), home=self.home)
+            self.assertEqual(self.authority(), before)
+            with self.assertRaises(board_api.AlreadyClaimed):
+                board_api.preflight_access(
+                    entity=successor["entity"], row=successor["row"], owner="Other",
+                    repo=repo, access="write", write_scope=["a"],
+                    expected_claim_revision=successor["claim_revision"],
+                    expected_board_revision=context["board_revision"],
+                    now=NOW + timedelta(hours=3), home=self.home)
+            self.assertEqual(self.authority(), before)
+            with self.assertRaisesRegex(board_api.BoardError, "preflight claim instance changed"):
+                board_api.preflight_access(
+                    entity=successor["entity"], row=successor["row"], owner=successor["owner"],
+                    repo=repo, access="write", write_scope=["a"],
+                    expected_claim_revision=successor["claim_revision"] - 1,
+                    expected_board_revision=context["board_revision"],
+                    now=NOW + timedelta(hours=3), home=self.home)
+            self.assertEqual(self.authority(), before)
+            with self.assertRaisesRegex(board_api.BoardError, "preflight board revision changed"):
+                board_api.preflight_access(
+                    entity=successor["entity"], row=successor["row"], owner=successor["owner"],
+                    repo=repo, access="write", write_scope=["a"],
+                    expected_claim_revision=successor["claim_revision"],
+                    expected_board_revision=context["board_revision"] - 1,
+                    now=NOW + timedelta(hours=3), home=self.home)
+            self.assertEqual(self.authority(), before)
+            classified = board_api.preflight_access(
+                entity=successor["entity"], row=successor["row"], owner=successor["owner"],
+                repo=repo, access="write", write_scope=["a"],
+                expected_claim_revision=successor["claim_revision"],
+                expected_board_revision=context["board_revision"], now=NOW + timedelta(hours=3),
+                home=self.home)
+            current = classified.payload["claims"][0]
+            self.assertEqual(current["access"], "write")
+            self.assertEqual(current["repository_binding"], board_api.repository_binding(repo))
+
+    def test_unknown_adoption_plan_cas_restores_exact_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.home = Path(tmp)
+            _, plan, legacy = self.seed_unknown()
+            before = self.authority()
+            plan_before = plan.read_bytes()
+            original = board_api._write_and_commit
+
+            def race(*args, **kwargs):
+                plan.write_bytes(plan_before + b"\nConcurrent canonical edit\n")
+                return original(*args, **kwargs)
+
+            with mock.patch.object(board_api, "_write_and_commit", side_effect=race):
+                with self.assertRaisesRegex(board_api.BoardError, "canonical plan changed"):
+                    self.adopt_unknown(plan, legacy, now=NOW + timedelta(hours=3), owner="Successor")
+            self.assertEqual(self.authority(), before)
+            self.assertEqual(board_api._journal_head(self.home / ".shadow"), before[1])
+            self.assertEqual(plan.read_bytes(), plan_before + b"\nConcurrent canonical edit\n")
+
+    def test_unknown_adoption_rolls_back_on_journal_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.home = Path(tmp)
+            _, plan, legacy = self.seed_unknown()
+            before = self.authority()
+            plan_before = plan.read_bytes()
+            with mock.patch.object(board_api, "_commit", side_effect=board_api.BoardError("injected")):
+                with self.assertRaisesRegex(board_api.BoardError, "injected"):
+                    self.adopt_unknown(plan, legacy, now=NOW + timedelta(hours=3), owner="Successor")
+            self.assertEqual(self.authority(), before)
+            self.assertEqual(plan.read_bytes(), plan_before)
+
+    def test_unknown_adoption_preserves_live_lease_revision_and_scope_guards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.home = Path(tmp)
+            _, plan, legacy = self.seed_unknown()
+            current = board_api.snapshot(home=self.home)
+            cases = (
+                (dict(now=NOW + timedelta(minutes=30)), "claimed by Codex"),
+                (dict(now=NOW + timedelta(hours=3), write_scope=["a"]), "preserve access"),
+                (dict(now=NOW + timedelta(hours=3), expected_board_revision=current["revision"] - 1),
+                 "board revision changed"),
+            )
+            for changes, message in cases:
+                with self.subTest(changes=changes):
+                    before = self.authority()
+                    with self.assertRaisesRegex(board_api.BoardError, message):
+                        self.adopt_unknown(plan, legacy, owner="Successor", **changes)
+                    self.assertEqual(self.authority(), before)
 
     def test_open_adoption_installs_new_rank_and_preserves_unaffected_bid(self):
         self.submit()

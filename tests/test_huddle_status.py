@@ -27,6 +27,60 @@ doctor = load("shadow-doctor")
 
 
 class HuddleStatusTests(unittest.TestCase):
+    def test_private_legacy_recovery_is_actionable_without_a_huddle(self):
+        from tests.test_throw import fixture
+
+        with tempfile.TemporaryDirectory() as dirname:
+            repo, home, env = fixture(Path(dirname))
+            with mock.patch.dict(os.environ, env):
+                board = status._board
+                board.reconcile([{"plan": str(repo / "PLAN.md"), "project": "demo",
+                                  "priority": 2, "candidates": ["~bb22"]}], [])
+                with board._transaction(home) as (root, path, payload):
+                    if payload["schema"] == board.V1_SCHEMA:
+                        payload = board.migrate_v1_to_v2(payload)
+                    payload["claims"] = [{
+                        "entity": payload["entities"][0]["id"], "row": "~bb22",
+                        "owner": "legacy-seat", "claimed_at": "2000-01-01T00:00:00Z",
+                        "return_by": "2000-01-01T08:00:00Z", "recovery": board.RECOVERY_ACTION,
+                        "access": "unscoped", "repository_binding": None,
+                        "write_scope": [], "claim_revision": 0,
+                    }]
+                    board._write_and_commit(root, path, payload, "test: legacy recovery guidance")
+                before = ((home / ".shadow" / "board.json").read_bytes(),
+                          board._journal_head(home / ".shadow"))
+            for flags in (("--by", "legacy-seat"),
+                          ("--root", str(repo), "--by", "legacy-seat")):
+                result = subprocess.run([sys.executable, str(ROOT / "scripts" / "shadow-status.py"),
+                                         *flags], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("Unbound legacy claims", result.stdout)
+                self.assertIn("classify or return before source writes", result.stdout)
+                self.assertIn("--claim-revision 0", result.stdout)
+                self.assertIn("--expect-board", result.stdout)
+                self.assertIn("--repo <verified-checkout>", result.stdout)
+                self.assertIn("shadow return --entity", result.stdout)
+                self.assertIn("--row '~bb22' --by legacy-seat", result.stdout)
+                self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(),
+                                          board._journal_head(home / ".shadow")))
+            for flags in ((), ("--by", "other-seat"), ("--json",), ("--in-flight", "--json")):
+                result = subprocess.run([sys.executable, str(ROOT / "scripts" / "shadow-status.py"),
+                                         *flags], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("Unbound legacy claims", result.stdout)
+                self.assertNotIn("<verified-checkout>", result.stdout)
+
+    def test_private_legacy_recovery_excludes_read_only_and_known_bindings(self):
+        claim = {"entity": "a" * 64, "row": "~aa11", "owner": "A",
+                 "claim_revision": 7, "access": "unscoped", "repository_binding": None}
+        payload = {"revision": 9, "claims": [claim]}
+        self.assertIn("--claim-revision 7", status.render_seat_legacy_claims(payload, "A"))
+        self.assertIsNone(status.render_seat_legacy_claims(payload, "B"))
+        claim["access"] = "read_only"
+        self.assertIsNone(status.render_seat_legacy_claims(payload, "A"))
+        claim.update(access="unscoped", repository_binding={"remote_identity": "example/repo"})
+        self.assertIsNone(status.render_seat_legacy_claims(payload, "A"))
+
     def huddle(self):
         a = {"entity": "a" * 64, "row": "~aa11", "claim_revision": 4, "owner": "A", "claimed_at": "2026-09-05T01:00:00Z"}
         b = {"entity": "a" * 64, "row": "~bb22", "claim_revision": 5, "owner": "B", "claimed_at": "2026-09-05T01:00:01Z"}
