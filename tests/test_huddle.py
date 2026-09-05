@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -81,7 +82,19 @@ class HuddleBidTests(HuddleTestCase):
             reason="existing_claim", target=None, support_claim=None,
             evidence={"kind": "claim", "value": "self"}, round=1,
             expected_huddle_generation=self.huddle["generation"])
-        return value | changes
+        value |= changes
+        if value["role"] == "own" and value["reason"] == "owner_authorized_handoff":
+            live = board_api.huddle_show(self.huddle["id"], home=self.home)
+            held = {board_api._claim_key(ref) for ref in live["holds"]}
+            offered = [bid["claim"] for bid in live["bids"] if bid["role"] == "yield"
+                       and bid["target"] == value["claim"]]
+            sources = offered or [ref for ref in live["claims"]
+                                  if ref != value["claim"] and board_api._claim_key(ref) not in held]
+            if len(sources) != 1:
+                raise AssertionError("fixture requires one selected handoff source")
+            value["evidence"] = {"kind": "claim", "value": board_api.huddle_handoff_acceptance(
+                sources[0], value["claim"], home=self.home)}
+        return value
 
     def submit(self, participant=None, *, now=NOW, **changes):
         return board_api.submit_huddle_bid(**self.request(participant, **changes), now=now, home=self.home)
@@ -305,6 +318,373 @@ class HuddleSettlementTests(HuddleTestCase):
         self.assertEqual(result["resolution"]["write_owners"], [board_api._claim_ref(self.a)])
         self.assertEqual(result["resolution"]["actions"][1]["action"], "return_required")
         self.assertEqual(result["holds"], [board_api._claim_ref(self.b)])
+
+
+class HuddleRemoteTests(HuddleSettlementTests):
+    """Board half of the two-phase path; Git authentication has its own fixture below."""
+
+    remote_token = {"head": "a" * 40, "blob": "b" * 40, "relative": "PLAN.md"}
+
+    def _finalize(self, **kwargs):
+        with mock.patch.object(board_api, "committed_plan_snapshot", return_value=(self.remote_token, b"# Plan\n")):
+            return board_api.finalize_huddle_handoff(**kwargs)
+
+    def _begin(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        huddle = board_api.snapshot(home=self.home)["huddles"][0]
+        source = board_api._claim_ref(self.a)
+        successor = {**source, "owner": self.b["owner"]}
+        return board_api.begin_huddle_handoff(
+            huddle_id=huddle["id"], generation=huddle["generation"], source_claim=source,
+            successor_claim=successor, target_prior_claim=board_api._claim_ref(self.b),
+            remote_ref=board_api._remote_claim.claim_ref(source["entity"], source["row"]),
+            expected_remote_version="d" * 40, now=NOW, home=self.home), source, successor
+
+    def _readback(self, source, successor, outcome):
+        remote = board_api._remote_claim
+        source_full = next(claim for claim in board_api.snapshot(home=self.home)["claims"]
+                           if board_api._claim_ref(claim) == source)
+        successor_full = {**source_full, "owner": successor["owner"]}
+        return remote._authenticated_huddle_readback(
+            ref=remote.claim_ref(source["entity"], source["row"]), expected_remote_version="d" * 40,
+            outcome=outcome, attempt_receipt=hashlib.sha256(outcome.encode()).hexdigest(),
+            source_binding=remote._huddle_binding(source_full), successor_binding=remote._huddle_binding(successor_full),
+            plan_binding=json.dumps(self.remote_token, sort_keys=True, separators=(",", ":")), project="shadow")
+
+    def test_remote_handoff_holds_both_identities_and_successor_needs_real_readback(self):
+        pending, source, successor = self._begin()
+        h = pending.payload["huddles"][0]
+        self.assertEqual(h["state"], "remote_pending")
+        self.assertEqual(h["remote_transition"]["readback"], "not_attempted")
+        self.assertEqual({board_api._claim_key(ref) for ref in h["holds"]}, {
+            board_api._claim_key(source), board_api._claim_key(successor), board_api._claim_key(self.b)})
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "authenticated stable"):
+            self._finalize(huddle_id=h["id"], generation=h["generation"],
+                                               remote_receipt={"outcome": "successor"}, now=NOW, home=self.home)
+        remote = board_api._remote_claim
+        source_full = next(claim for claim in board_api.snapshot(home=self.home)["claims"]
+                           if board_api._claim_ref(claim) == source)
+        forged_successor = {**source_full, "owner": "C"}
+        forged = remote.HuddleReadback(remote.claim_ref(source["entity"], source["row"]), "d" * 40,
+            "successor", "e" * 64, remote._huddle_binding(source_full),
+            remote._huddle_binding(forged_successor), "{}", "shadow", remote._HUDDLE_READBACK_SEAL)
+        with self.assertRaisesRegex(board_api.BoardError, "authenticated stable"):
+            self._finalize(huddle_id=h["id"], generation=h["generation"],
+                                               remote_receipt=forged, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+        result = self._finalize(
+            huddle_id=h["id"], generation=h["generation"],
+            remote_receipt=self._readback(source, successor, "successor"), now=NOW, home=self.home)
+        final = result.payload["huddles"][0]
+        self.assertEqual(final["state"], "awaiting_compliance")
+        self.assertEqual(final["remote_transition"]["readback"], "successor")
+        self.assertEqual(final["resolution"]["write_owners"], [successor])
+        self.assertEqual(final["holds"], [board_api._claim_ref(self.b)])
+
+    def test_replaced_or_mutated_readback_cannot_authorize_handoff(self):
+        pending, source, successor = self._begin()
+        h = pending.payload["huddles"][0]
+        valid = self._readback(source, successor, "successor")
+        before = self.authority()
+        variants = [
+            dataclasses.replace(valid, outcome="predecessor"),
+            dataclasses.replace(valid, ref="refs/heads/shadow/claims/v1/" + "b" * 64 + "/bb22"),
+            dataclasses.replace(valid, expected_remote_version="e" * 40),
+            dataclasses.replace(valid, source_binding="{}"),
+            dataclasses.replace(valid, successor_binding="{}"),
+            dataclasses.replace(valid, plan_binding="{}"),
+            dataclasses.replace(valid, attempt_receipt="f" * 64),
+        ]
+        for value in variants:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(board_api.BoardError, "authenticated stable"):
+                    self._finalize(huddle_id=h["id"], generation=h["generation"],
+                                   remote_receipt=value, now=NOW, home=self.home)
+                self.assertEqual(self.authority(), before)
+        object.__setattr__(valid, "outcome", "predecessor")
+        with self.assertRaisesRegex(board_api.BoardError, "authenticated stable"):
+            self._finalize(huddle_id=h["id"], generation=h["generation"],
+                           remote_receipt=valid, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_target_self_evidence_is_refused_and_immutable_acceptance_replays(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "acceptance"):
+            board_api.submit_huddle_bid(**dict(huddle_id=self.huddle["id"], seat=self.b["owner"],
+                claim=board_api._claim_ref(self.b), role="own", scope=self.b["write_scope"],
+                reason="owner_authorized_handoff", target=None, support_claim=None,
+                evidence={"kind": "claim", "value": "self"}, round=1,
+                expected_huddle_generation=self.huddle["generation"]), now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+        accepted = self.submit(self.b, reason="owner_authorized_handoff")
+        replay = self.submit(self.b, reason="owner_authorized_handoff")
+        self.assertFalse(replay.changed)
+        self.assertEqual(replay.payload, accepted.payload)
+
+    def test_acceptance_root_and_claim_mutants_fail_before_remote_begin(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        h = board_api.snapshot(home=self.home)["huddles"][0]
+        source = board_api._claim_ref(self.a)
+        target = board_api._claim_ref(self.b)
+        accepted = board_api.bid_receipt(h["id"], target, 1, home=self.home)["evidence"]["value"]
+        # A changed canonical source plan invalidates the existing acceptance.
+        entity = next(e for e in board_api.snapshot(home=self.home)["entities"] if e["id"] == source["entity"])
+        plan = Path(entity["plan"])
+        plan.write_text(plan.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        self.assertNotEqual(accepted, board_api.huddle_handoff_acceptance(source, target, home=self.home))
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "acceptance"):
+            board_api.begin_huddle_handoff(huddle_id=h["id"], generation=h["generation"], source_claim=source,
+                successor_claim={**source, "owner": target["owner"]}, target_prior_claim=target,
+                remote_ref=board_api._remote_claim.claim_ref(source["entity"], source["row"]),
+                expected_remote_version="d" * 40, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_changed_acceptance_after_remote_begin_keeps_holds_pending(self):
+        pending, source, successor = self._begin()
+        h = pending.payload["huddles"][0]
+        target = board_api._claim_ref(self.b)
+        entity = next(e for e in board_api.snapshot(home=self.home)["entities"] if e["id"] == target["entity"])
+        plan = Path(entity["plan"])
+        accepted_bytes = plan.read_bytes()
+        accepted_bid = board_api.bid_receipt(h["id"], target, 1, home=self.home)
+        accepted_value = accepted_bid["evidence"]["value"]
+        prior_state = board_api.plan_state_token(plan)
+        os.utime(plan, None)
+        self.assertNotEqual(prior_state, board_api.plan_state_token(plan))
+        self.assertEqual(accepted_value, board_api.huddle_handoff_acceptance(source, target, home=self.home))
+        plan.write_text(accepted_bytes.decode("utf-8") + "\n", encoding="utf-8")
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "acceptance"):
+            self._finalize(huddle_id=h["id"], generation=h["generation"],
+                           remote_receipt=self._readback(source, successor, "successor"), now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+        still = board_api.snapshot(home=self.home)["huddles"][0]
+        self.assertEqual(still["state"], "remote_pending")
+        self.assertEqual({board_api._claim_key(ref) for ref in still["holds"]},
+                         {board_api._claim_key(source), board_api._claim_key(successor), board_api._claim_key(target)})
+        plan.write_bytes(accepted_bytes)
+        self.assertNotEqual(prior_state, board_api.plan_state_token(plan))
+        self.assertEqual(accepted_value, board_api.huddle_handoff_acceptance(source, target, home=self.home))
+        finished = self._finalize(huddle_id=still["id"], generation=still["generation"],
+                                  remote_receipt=self._readback(source, successor, "successor"), now=NOW, home=self.home)
+        self.assertEqual(finished.payload["huddles"][0]["resolution"]["write_owners"], [successor])
+        self.assertEqual(board_api.bid_receipt(h["id"], target, 1, home=self.home), accepted_bid)
+
+    def test_stable_predecessor_cancels_despite_target_root_change(self):
+        pending, source, successor = self._begin()
+        h = pending.payload["huddles"][0]
+        target = board_api._claim_ref(self.b)
+        entity = next(e for e in board_api.snapshot(home=self.home)["entities"] if e["id"] == target["entity"])
+        plan = Path(entity["plan"])
+        plan.write_text(plan.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        result = self._finalize(huddle_id=h["id"], generation=h["generation"],
+                                remote_receipt=self._readback(source, successor, "predecessor"), now=NOW, home=self.home)
+        final = result.payload["huddles"][0]
+        self.assertEqual(final["remote_transition"]["readback"], "predecessor")
+        self.assertEqual(final["resolution"]["write_owners"], [source])
+
+    def test_source_lease_change_invalidates_accepted_handoff_without_publication(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        h = board_api.snapshot(home=self.home)["huddles"][0]
+        source, target = board_api._claim_ref(self.a), board_api._claim_ref(self.b)
+        with board_api._transaction(self.home) as (root, path, payload):
+            claim = next(c for c in payload["claims"] if board_api._claim_ref(c) == source)
+            claim["return_by"] = "2026-09-04T18:00:00Z"
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: changed source lease", now=NOW)
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "acceptance"):
+            board_api.begin_huddle_handoff(huddle_id=h["id"], generation=h["generation"], source_claim=source,
+                successor_claim={**source, "owner": target["owner"]}, target_prior_claim=target,
+                remote_ref=board_api._remote_claim.claim_ref(source["entity"], source["row"]),
+                expected_remote_version="d" * 40, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_binding_and_source_only_target_claim_are_in_acceptance_guards(self):
+        payload = board_api.snapshot(home=self.home)
+        source, target = payload["claims"]
+        root = "a" * 64
+        baseline = board_api._handoff_acceptance_digest(source, target, root, root)
+        changed_target = copy.deepcopy(target)
+        changed_target["repository_binding"] = {"common_dir_sha256": "d" * 64, "remote_identity": None}
+        self.assertNotEqual(baseline, board_api._handoff_acceptance_digest(source, changed_target, root, root))
+        source_only = copy.deepcopy(target)
+        source_only.update(row="~cc33", claim_revision=99, write_scope=["a"])
+        source_scope = copy.deepcopy(source)
+        source_scope["write_scope"] = ["a"]
+        target_scope = copy.deepcopy(target)
+        target_scope["write_scope"] = ["b"]
+        self.assertTrue(board_api._successor_scope_conflict({"claims": [source_scope, target_scope, source_only]},
+                                                            source_scope, target_scope))
+
+    def test_stale_acceptance_recovery_requires_fresh_return_and_reclaim(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        h = board_api.snapshot(home=self.home)["huddles"][0]
+        source, target = board_api._claim_ref(self.a), board_api._claim_ref(self.b)
+        with board_api._transaction(self.home) as (root, path, payload):
+            claim = next(c for c in payload["claims"] if board_api._claim_ref(c) == source)
+            claim["return_by"] = "2026-09-04T18:00:00Z"
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: stale acceptance", now=NOW)
+        with self.assertRaises(board_api.BoardError):
+            board_api.begin_huddle_handoff(huddle_id=h["id"], generation=h["generation"], source_claim=source,
+                successor_claim={**source, "owner": target["owner"]}, target_prior_claim=target,
+                remote_ref=board_api._remote_claim.claim_ref(source["entity"], source["row"]),
+                expected_remote_version="d" * 40, now=NOW, home=self.home)
+        # Existing protocol deliberately retains this live Huddle: the old bid cannot be rewritten.
+        self.assertEqual(board_api.snapshot(home=self.home)["huddles"][0]["state"], "open_round_1")
+        target_entity = next(e for e in board_api.snapshot(home=self.home)["entities"] if e["id"] == target["entity"])
+        returned, changed = board_api.release(Path(target_entity["plan"]), target["row"], owner=target["owner"],
+                                              reason="handback", expected_claim=self.b, now=NOW, home=self.home)
+        self.assertTrue(changed)
+        self.assertEqual(returned["huddles"][0]["state"], "resolved")
+
+    def test_remote_predecessor_cancels_transfer_and_ambiguous_retains_holds(self):
+        for outcome, expected_state in (("predecessor", "awaiting_compliance"), ("ambiguous", "remote_pending")):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                pending, source, successor = self._begin()
+                h = pending.payload["huddles"][0]
+                result = self._finalize(
+                    huddle_id=h["id"], generation=h["generation"],
+                    remote_receipt=self._readback(source, successor, outcome), now=NOW, home=self.home)
+                final = result.payload["huddles"][0]
+                self.assertEqual(final["state"], expected_state)
+                if outcome == "predecessor":
+                    self.assertEqual(final["resolution"]["write_owners"], [source])
+                else:
+                    self.assertEqual({board_api._claim_key(ref) for ref in final["holds"]}, {
+                        board_api._claim_key(source), board_api._claim_key(successor), board_api._claim_key(self.b)})
+
+    def test_real_bare_git_handoff_requires_full_identity_and_stable_readback(self):
+        remote = board_api._remote_claim
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bare, repo = root / "remote.git", root / "checkout"
+            subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+            repo.mkdir()
+            for args in (("init", "-q"), ("config", "user.email", "fixture@example.invalid"),
+                         ("config", "user.name", "Fixture")):
+                subprocess.run(["git", "-C", str(repo), *args], check=True)
+            (repo / "PLAN.md").write_text("# Plan\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "PLAN.md"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "seed"], check=True)
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(bare)], check=True)
+            subprocess.run(["git", "-C", str(repo), "push", "-qu", "origin", "HEAD:main"], check=True)
+            subprocess.run(["git", "-C", str(bare), "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+            token, _ = board_api.committed_plan_snapshot(repo / "PLAN.md")
+            source = {"entity": "a" * 64, "row": "~aa11", "claim_revision": 9,
+                      "owner": "A", "claimed_at": "2026-09-04T15:00:00Z",
+                      "return_by": "2026-09-04T17:00:00Z", "recovery": board_api.RECOVERY_ACTION}
+            successor = {**source, "owner": "B"}
+            ref = remote.claim_ref(source["entity"], source["row"])
+            initial = remote._receipt(status="acquired", ref=ref, entity=source["entity"], row=source["row"],
+                owner="A", project="shadow", plan_token=token, claimed_at=source["claimed_at"],
+                return_by=source["return_by"], recovery=source["recovery"], state="acquired",
+                reason="acquire", winner="A", failure=None, claim_revision=source["claim_revision"])
+            version = remote._commit_receipt(repo, initial, source["claimed_at"])
+            self.assertIsNotNone(version)
+            self.assertTrue(remote._push(repo, str(bare), ref, version, None))
+            result = remote.handoff_huddle_claim(repo, expected_remote_version=version,
+                source_claim=source, successor_claim=successor, project="shadow", plan_token=token)
+            self.assertEqual(result.outcome, "successor")
+            self.assertIs(remote.trusted_huddle_readback(result), result)
+            # Same owner/row but a changed lease cannot replay as predecessor.
+            stale = {**source, "return_by": "2026-09-04T18:00:00Z"}
+            checked = remote.read_remote_claim_stably(repo, expected_remote_version=version,
+                source_claim=stale, successor_claim={**stale, "owner": "C"}, project="shadow", plan_token=token)
+            self.assertEqual(checked.outcome, "ambiguous")
+
+    def test_alternating_authenticated_readbacks_are_not_a_remote_authorization(self):
+        remote = board_api._remote_claim
+        token = {"head": "a" * 40, "blob": "b" * 40, "relative": "PLAN.md"}
+        source = {"entity": "a" * 64, "row": "~aa11", "claim_revision": 9,
+                  "owner": "A", "claimed_at": "2026-09-04T15:00:00Z",
+                  "return_by": "2026-09-04T17:00:00Z", "recovery": board_api.RECOVERY_ACTION}
+        successor = {**source, "owner": "B"}
+        ref = remote.claim_ref(source["entity"], source["row"])
+        source_receipt = remote._receipt(status="acquired", ref=ref, entity=source["entity"], row=source["row"],
+            owner="A", project="shadow", plan_token=token, claimed_at=source["claimed_at"],
+            return_by=source["return_by"], recovery=source["recovery"], state="acquired",
+            reason="acquire", winner="A", failure=None, claim_revision=9)
+        successor_receipt = {**source_receipt, "owner": "B", "winner": "B", "reason": "handoff"}
+        alternating = [("c" * 40, source_receipt), ("d" * 40, successor_receipt)] * 2
+        binding = remote.UpstreamBinding(remote.RemoteEligibility.REMOTE, endpoint="fixture")
+        with mock.patch.object(remote, "upstream_binding", return_value=binding), \
+             mock.patch.object(remote, "_remote_tip", side_effect=alternating):
+            result = remote.read_remote_claim_stably(Path("."), expected_remote_version="c" * 40,
+                source_claim=source, successor_claim=successor, project="shadow", plan_token=token)
+        self.assertEqual(result.outcome, "ambiguous")
+
+    def test_remote_handoff_preserves_another_selected_writer_and_all_holds(self):
+        with board_api._transaction(self.home) as (root, path, payload):
+            h = payload["huddles"][0]
+            current_a = next(claim for claim in payload["claims"] if board_api._claim_ref(claim) == board_api._claim_ref(self.a))
+            current_b = next(claim for claim in payload["claims"] if board_api._claim_ref(claim) == board_api._claim_ref(self.b))
+            current_a["write_scope"], current_b["write_scope"] = ["a"], ["a", "b"]
+            self.a["write_scope"], self.b["write_scope"] = ["a"], ["a", "b"]
+            c = copy.deepcopy(self.b)
+            c.update(entity="c" * 64, owner="C", claim_revision=payload["revision"],
+                     write_scope=["b", "c"])
+            plan = self.home / "c" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Work\n\n## Tasks\n\n- [pending] Work ~aa11 | proof: cmd true\n")
+            payload["entities"].append({"id": c["entity"], "project": "shadow", "plan": str(plan), "resume": "~aa11"})
+            payload["claims"].append(c)
+            c_ref = board_api._claim_ref(c)
+            d = copy.deepcopy(c)
+            d.update(entity="d" * 64, owner="D", claim_revision=payload["revision"] + 1,
+                     write_scope=["c"])
+            d_plan = self.home / "d" / "PLAN.md"
+            d_plan.parent.mkdir(parents=True)
+            d_plan.write_text("# Work\n\n## Tasks\n\n- [pending] Work ~aa11 | proof: cmd true\n")
+            payload["entities"].append({"id": d["entity"], "project": "shadow", "plan": str(d_plan), "resume": "~aa11"})
+            payload["claims"].append(d)
+            d_ref = board_api._claim_ref(d)
+            h["claims"] = sorted(h["claims"] + [c_ref], key=board_api._claim_rank)
+            h["claims"] = sorted(h["claims"] + [d_ref], key=board_api._claim_rank)
+            h["edges"] = sorted(h["edges"] + [
+                dict(left=board_api._claim_ref(self.b), right=c_ref, kinds=["path_overlap"]),
+                dict(left=c_ref, right=d_ref, kinds=["path_overlap"])],
+                key=lambda edge: (board_api._claim_rank(edge["left"]), board_api._claim_rank(edge["right"])))
+            h["holds"] = board_api.claim_holds(h)
+            h["generation"] += 1
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: three owner remote graph", now=NOW)
+        with board_api._transaction(self.home) as (root, path, payload):
+            support = copy.deepcopy(d)
+            support.update(entity="e" * 64, row="~ss11", owner="D", claim_revision=payload["revision"] + 1,
+                           access="read_only", repository_binding=None, write_scope=[])
+            support_plan = self.home / "support" / "PLAN.md"
+            support_plan.parent.mkdir(parents=True)
+            support_plan.write_text("# Support\n\n## Tasks\n\n- [pending] Support ~ss11 | proof: cmd true\n")
+            payload["entities"].append({"id": support["entity"], "project": "shadow", "plan": str(support_plan), "resume": "~ss11"})
+            payload["claims"].append(support)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: remote support", now=NOW)
+        h = board_api.snapshot(home=self.home)["huddles"][0]
+        board_api.submit_huddle_bid(huddle_id=h["id"], seat="D", claim=d_ref, role="review", scope=[],
+            reason="best_proof_access", target=None, support_claim=board_api._claim_ref(support),
+            evidence={"kind": "claim", "value": "self"}, round=1,
+            expected_huddle_generation=h["generation"], now=NOW, home=self.home)
+        self.huddle = board_api.snapshot(home=self.home)["huddles"][0]
+        pending, source, successor = self._begin()
+        h = pending.payload["huddles"][0]
+        result = self._finalize(huddle_id=h["id"], generation=h["generation"],
+            remote_receipt=self._readback(source, successor, "successor"), now=NOW, home=self.home)
+        final = result.payload["huddles"][0]
+        self.assertEqual(final["state"], "awaiting_compliance")
+        self.assertEqual({ref["owner"] for ref in final["resolution"]["write_owners"]}, {"B", "C"})
+        self.assertEqual(final["holds"], [board_api._claim_ref(self.b), d_ref])
+        self.assertEqual(final["resolution"]["support_actions"], [{"participant_claim": d_ref,
+            "support_claim": board_api._claim_ref(support), "action": "review_claim"}])
 
 
 class HuddleLifecycleTests(HuddleTestCase):
@@ -1038,8 +1418,11 @@ class HuddleGraphTests(HuddleTestCase):
         payload["revision"] = len(scopes) + 1
         for index, scope in enumerate(scopes, 1):
             entity = f"{index:064x}"
+            plan = self.home / str(index) / "PLAN.md"
+            plan.parent.mkdir(parents=True, exist_ok=True)
+            plan.write_text("# Plan\n\n## Tasks\n\n- [pending] Task ~aa11 | proof: cmd true\n", encoding="utf-8")
             payload["entities"].append({"id": entity, "project": "shadow",
-                "plan": str(self.home / str(index) / "PLAN.md"), "resume": "~aa11"})
+                "plan": str(plan), "resume": "~aa11"})
             claim = self.v1_board()["claims"][0]
             claim.update(entity=entity, owner=chr(64 + index), claim_revision=index,
                          access="write", repository_binding={"common_dir_sha256": "c" * 64,
@@ -1378,6 +1761,109 @@ class HuddleClaimCreationTests(HuddleTestCase):
         with self.assertRaisesRegex(board_api.BoardError, "legacy_binding_unknown"):
             self.take(repo, plan, "~bb22", "B")
         self.assertEqual(self.authority(), before)
+
+
+class HuddleRecoveryTests(HuddleTestCase):
+    request = HuddleBidTests.request
+    submit = HuddleBidTests.submit
+
+    def test_remote_handoff_checks_every_row_in_a_shared_plan(self):
+        repo, plan = HuddleClaimCreationTests.seed(self)
+        first = HuddleClaimCreationTests.take(self, repo, plan, "~aa11", "A")["claim"]
+        second = HuddleClaimCreationTests.take(self, repo, plan, "~bb22", "B")["claim"]
+        payload = board_api.snapshot(home=self.home)
+        refs = [board_api._claim_ref(first), board_api._claim_ref(second)]
+        content = plan.read_text()
+        for invalid in (content.replace("[pending] second", "[completed] second"),
+                        "\n".join(line for line in content.splitlines() if "~bb22" not in line)):
+            with self.subTest(content=invalid):
+                plan.write_text(invalid)
+                before = self.authority()
+                with self.assertRaises(board_api.BoardError):
+                    board_api._remote_handoff_plans(payload, refs, NOW)
+                self.assertEqual(self.authority(), before)
+
+    def test_real_git_handback_reclaim_fresh_acceptance_and_remote_handoff(self):
+        repo, plan = HuddleClaimCreationTests.seed(self)
+        bare = self.home / "upstream.git"
+        git(repo, "init", "--bare", str(bare))
+        canonical = "https://github.com/example/huddle-fixture.git"
+        git(repo, "remote", "add", "origin", canonical)
+        git(repo, "push", str(bare), "HEAD:main")
+        git(bare, "symbolic-ref", "HEAD", "refs/heads/main")
+        self.a = HuddleClaimCreationTests.take(self, repo, plan, "~aa11", "A")["claim"]
+        self.b = HuddleClaimCreationTests.take(self, repo, plan, "~bb22", "B")["claim"]
+        self.huddle = board_api.snapshot(home=self.home)["huddles"][0]
+        source = board_api._claim_ref(self.a)
+        target = board_api._claim_ref(self.b)
+        remote = board_api._remote_claim
+        token, _ = board_api.committed_plan_snapshot(plan)
+        reference = remote.claim_ref(source["entity"], source["row"])
+        initial = remote._receipt(status="acquired", ref=reference, entity=source["entity"], row=source["row"],
+            owner="A", project="shadow", plan_token=token, claimed_at=self.a["claimed_at"],
+            return_by=self.a["return_by"], recovery=self.a["recovery"], state="acquired",
+            reason="acquire", winner="A", failure=None, claim_revision=source["claim_revision"])
+        version = remote._commit_receipt(repo, initial, self.a["claimed_at"])
+        self.assertIsNotNone(version)
+        self.assertTrue(remote._push(repo, str(bare), reference, version, None))
+        self.submit(role="yield", reason="owner_authorized_handoff", target=target)
+        self.submit(self.b, reason="owner_authorized_handoff")
+        old_huddle_id = self.huddle["id"]
+        old_bid = board_api.bid_receipt(self.huddle["id"], target, 1, home=self.home)
+        # A changed target lease invalidates the old immutable acceptance.
+        with board_api._transaction(self.home) as (root, path, payload):
+            changed = next(c for c in payload["claims"] if board_api._claim_ref(c) == target)
+            changed["return_by"] = "2026-09-05T17:00:00Z"
+            self.b = copy.deepcopy(changed)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: changed target lease", now=NOW)
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "acceptance"):
+            board_api.begin_huddle_handoff(huddle_id=self.huddle["id"], generation=self.huddle["generation"],
+                source_claim=source, successor_claim={**source, "owner": "B"}, target_prior_claim=target,
+                remote_ref=reference, expected_remote_version=version, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+        returned, changed = board_api.release(plan, "~bb22", owner="B", reason="handback",
+                                              expected_claim=self.b, now=NOW, home=self.home)
+        self.assertTrue(changed)
+        self.assertEqual(returned["huddles"][0]["state"], "resolved")
+        self.assertEqual(returned["claims"], [self.a])
+        self.b = HuddleClaimCreationTests.take(self, repo, plan, "~bb22", "B")["claim"]
+        self.huddle = next(h for h in board_api.snapshot(home=self.home)["huddles"] if h["state"] != "resolved")
+        fresh_target = board_api._claim_ref(self.b)
+        self.assertNotEqual(fresh_target["claim_revision"], target["claim_revision"])
+        self.assertNotEqual(self.huddle["id"], old_huddle_id)
+        self.submit(role="yield", reason="owner_authorized_handoff", target=fresh_target)
+        stale_request = self.request(self.b, reason="owner_authorized_handoff")
+        stale_request["evidence"] = old_bid["evidence"]
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "acceptance"):
+            board_api.submit_huddle_bid(**stale_request, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+        self.submit(self.b, reason="owner_authorized_handoff")
+        fresh_bid = board_api.bid_receipt(self.huddle["id"], fresh_target, 1, home=self.home)
+        self.assertNotEqual(fresh_bid["evidence"], old_bid["evidence"])
+        successor = {**source, "owner": "B"}
+        pending = board_api.begin_huddle_handoff(huddle_id=self.huddle["id"], generation=self.huddle["generation"],
+            source_claim=source, successor_claim=successor, target_prior_claim=fresh_target,
+            remote_ref=reference, expected_remote_version=version, now=NOW, home=self.home)
+        # Substitute only the test transport locator. Claim binding, board
+        # transitions, Git CAS and authenticated double readback stay real;
+        # this fixture is not a live-network authorization receipt.
+        fixture_transport = remote.UpstreamBinding(remote.RemoteEligibility.REMOTE,
+            endpoint=str(bare), public_identity="github.com/example/huddle-fixture", merge_refs=frozenset({"refs/heads/main"}))
+        with mock.patch.object(remote, "upstream_binding", return_value=fixture_transport):
+            readback = remote.handoff_huddle_claim(repo, expected_remote_version=version,
+                source_claim=self.a, successor_claim={**self.a, "owner": "B"}, project="shadow", plan_token=token)
+        self.assertEqual(readback.outcome, "successor")
+        final = board_api.finalize_huddle_handoff(huddle_id=self.huddle["id"],
+            generation=next(h for h in pending.payload["huddles"] if h["id"] == self.huddle["id"])["generation"],
+            remote_receipt=readback, now=NOW, home=self.home)
+        h = next(h for h in final.payload["huddles"] if h["id"] == self.huddle["id"])
+        self.assertEqual(h["resolution"]["write_owners"], [successor])
+        self.assertEqual(h["holds"], [fresh_target])
+        self.assertEqual(next(c for c in final.payload["claims"] if c["row"] == "~aa11"), {**self.a, "owner": "B"})
+        self.assertEqual(board_api.bid_receipt(h["id"], fresh_target, 1, home=self.home), fresh_bid)
 
 
 class HuddleAdoptionTests(HuddleTestCase):
