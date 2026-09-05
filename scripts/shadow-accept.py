@@ -776,6 +776,8 @@ def restore_local_authority(
 def atomic_write_text(
     path: Path,
     text: str,
+    *,
+    expected_root: str | None = None,
 ) -> _plan_store.PublishReceipt | None:
     """Replace one complete PLAN in its own directory; never leave truncation."""
     try:
@@ -787,7 +789,7 @@ def atomic_write_text(
             return (
                 _plan_store.PlanTransaction.begin(
                     path,
-                    expected_root=snapshot.root_sha256,
+                    expected_root=expected_root or snapshot.root_sha256,
                 )
                 .replace_content(text.encode("utf-8"))
                 .publish()
@@ -795,10 +797,83 @@ def atomic_write_text(
         except _plan_store.PlanStoreError as exc:
             raise AcceptError(f"entity plan tree could not be replaced: {exc}") from exc
     try:
-        durable_write(path, text.encode("utf-8"), mode=path.stat().st_mode & 0o777)
-    except OSError as exc:
+        if expected_root is not None:
+            _plan_store.restore_exact_root(
+                path, expected_current_root=expected_root,
+                target_root_bytes=text.encode("utf-8"),
+            )
+        else:
+            durable_write(path, text.encode("utf-8"), mode=path.stat().st_mode & 0o777)
+    except (OSError, _plan_store.PlanStoreError) as exc:
         raise AcceptError("entity plan could not be replaced atomically") from exc
     return None
+
+
+def publish_local_completion(
+    plan_path: Path, row_id: str, owner: str, *,
+    expected_plan: dict, expected_text: str, expected_claim: dict, updated: str,
+    expected_root: str | None = None,
+) -> None:
+    """Publish under the caller's plan lock; undo only our refused publication."""
+    original = local_plan_root_snapshot(plan_path)
+    if expected_root is not None and original.root_sha256 != expected_root:
+        raise AcceptError("the local plan root changed before completion publication; retry")
+    if original.materialize() != expected_text.encode("utf-8"):
+        raise AcceptError("the local plan changed before completion publication; retry")
+    try:
+        claim_token = _board.reserve_completion(
+            plan_path, row_id, owner, expected_plan=expected_plan, expected_claim=expected_claim,
+        )
+    except _board.BoardError as exc:
+        raise AcceptError(f"local claim could not reserve completion: {exc}") from exc
+    updated_bytes = updated.encode("utf-8")
+    published_root = hashlib.sha256(updated_bytes).hexdigest()
+    new_objects = set()
+    if original.is_tree:
+        # Know our exact candidate before the storage call: its root may be
+        # replaced successfully even when the publisher's readback then fails.
+        candidate = _plan_store.with_lineage(
+            _plan_store.build_tree(updated_bytes),
+            generation=original.root["generation"] + 1,
+            previous_root=original.root_sha256,
+        )
+        published_root = hashlib.sha256(candidate.root_bytes).hexdigest()
+        new_objects = (set(candidate.objects) | {original.root_sha256}) - plan_object_digests(plan_path)
+    try:
+        publication = atomic_write_text(plan_path, updated, expected_root=original.root_sha256)
+        if publication is not None:
+            new_objects = set(publication.new_objects)
+        completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
+        if completed_bytes != updated_bytes:
+            raise AcceptError("the local plan changed after completion publication")
+        parsed = _amp._parse(updated)
+        parsed["claimed"] = set()
+        result = _board.release(
+            plan_path, row_id, owner=owner, reason="completed",
+            resumes=_amp._candidate_ids(parsed), expected_plan=completed_token,
+            expected_text=updated, expected_claim=claim_token,
+        )
+        if result is None or not result[1]:
+            raise AcceptError("the exact local completion claim did not close")
+    except (_board.BoardError, _plan_store.PlanStoreError, AcceptError, OSError) as exc:
+        try:
+            # Keep the claim stable while restoring. If release actually
+            # committed, or another owner took over, do not undo its proof.
+            with _board._transaction() as (_, _, payload):
+                exact_claim = {key: value for key, value in claim_token.items() if key != "revision"}
+                if exact_claim not in payload["claims"]:
+                    raise AcceptError("completion claim changed; publication retained for reconciliation")
+                if local_plan_root_snapshot(plan_path).root_sha256 != original.root_sha256:
+                    _plan_store.restore_exact_root(
+                        plan_path, expected_current_root=published_root,
+                        target_root_bytes=original.root_bytes,
+                    )
+                _plan_store.discard_unreachable(plan_path, new_objects)
+        except (_board.BoardError, _plan_store.PlanStoreError, AcceptError, OSError) as rollback:
+            raise AcceptError(
+                f"local completion refused: {exc}; exact prior authority could not be restored: {rollback}"
+            ) from rollback
+        raise AcceptError(f"local completion refused: {exc}; prior plan restored") from exc
 
 
 def restore_plan_index(
@@ -1525,31 +1600,11 @@ def accept_local_proposal(
         if frozen_source_head(repo) != source_head:
             raise AcceptError("the source HEAD changed before proposal publication")
         require_clean_source_checkout(repo)
-        try:
-            atomic_write_text(plan_path, updated)
-            completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
-            completed_text = completed_bytes.decode("utf-8")
-            if completed_text != updated:
-                raise AcceptError("proposal publication readback did not match")
-            completed_plan = _amp._parse(completed_text)
-            completed_plan["claimed"] = set()
-            _board.release(
-                plan_path,
-                row_id,
-                owner=owner,
-                reason="completed",
-                resumes=_amp._candidate_ids(completed_plan),
-                expected_plan=completed_token,
-                expected_text=completed_text,
-                expected_claim=claim,
-            )
-        except BaseException as exc:
-            restore_local_authority(plan_path, root_bytes, original_objects)
-            if isinstance(exc, KeyboardInterrupt):
-                raise
-            raise AcceptError(
-                "proposal completion could not finalize; prior authority was restored"
-            ) from exc
+        publish_local_completion(
+            plan_path, row_id, owner, expected_plan=plan_token,
+            expected_text=plan_text, expected_claim=claim, updated=updated,
+            expected_root=root_snapshot.root_sha256,
+        )
 
     print(
         f"accepted {row_id}: sealed Codex proposal proved marker {marker} "
@@ -1674,7 +1729,7 @@ def accept_local_plan(
         # Machine-local authority, judgment proof: nothing to rerun and
         # nothing to publish — the recorded observation is the receipt and
         # the flip is one atomic local write under the plan lock.
-        require_accept_ready_judgment_row(plan_path, plan_text, row_id, owner)
+        claim, _, _, _ = require_accept_ready_judgment_row(plan_path, plan_text, row_id, owner)
         with _board.project_lock(plan_path):
             fresh_token, fresh_bytes = _board.frozen_plan_snapshot(plan_path)
             try:
@@ -1688,45 +1743,17 @@ def accept_local_plan(
             # the private plan; lint them where they run or a read flip is
             # refused for a neighbor's proof (2026-09-02: ~rs05).
             refuse_lint_blocked_plan(updated, plan_path, proof_root=repo, row_id=row_id)
-            try:
-                claim_token = _board.reserve_completion(
-                    plan_path,
-                    row_id,
-                    owner,
-                    expected_plan=fresh_token,
-                )
-            except _board.BoardError as exc:
-                raise AcceptError(
-                    f"local claim could not reserve completion: {exc}"
-                ) from exc
-            atomic_write_text(plan_path, updated)
-            completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
-            completed_text = completed_bytes.decode("utf-8")
-            parsed = _amp._parse(completed_text)
-            parsed["claimed"] = set()
-            try:
-                _board.release(
-                    plan_path,
-                    row_id,
-                    owner=owner,
-                    reason="completed",
-                    resumes=_amp._candidate_ids(parsed),
-                    expected_plan=completed_token,
-                    expected_text=completed_text,
-                    expected_claim=claim_token,
-                )
-            except _board.BoardError as exc:
-                raise AcceptError(
-                    "the completed plan is written; the local claim could not "
-                    f"close: {exc}"
-                ) from exc
+            publish_local_completion(
+                plan_path, row_id, owner, expected_plan=fresh_token,
+                expected_text=fresh_text, expected_claim=claim, updated=updated,
+            )
         print(f"accepted {row_id}: recorded observation accepted; local row flipped")
         return 0
     source_identity = bind_local_plan_to_proof_repo(
         plan_text,
         repo,
     )
-    _, _, _, _, argv = require_accept_ready_row(plan_path, plan_text, row_id, owner)
+    claim, _, _, _, argv = require_accept_ready_row(plan_path, plan_text, row_id, owner)
     source_head = frozen_source_head(repo)
     pool = lead_review_pool(repo)
     review = create_lead_review_worktree(
@@ -1789,38 +1816,10 @@ def accept_local_plan(
                 row_id=row_id,
             )
             require_frozen_review_head(review, source_head)
-            try:
-                claim_token = _board.reserve_completion(
-                    plan_path,
-                    row_id,
-                    owner,
-                    expected_plan=fresh_token,
-                )
-            except _board.BoardError as exc:
-                raise AcceptError(
-                    f"local claim could not reserve completion: {exc}"
-                ) from exc
-            atomic_write_text(plan_path, updated)
-            completed_token, completed_bytes = _board.frozen_plan_snapshot(plan_path)
-            completed_text = completed_bytes.decode("utf-8")
-            parsed = _amp._parse(completed_text)
-            parsed["claimed"] = set()
-            try:
-                _board.release(
-                    plan_path,
-                    row_id,
-                    owner=owner,
-                    reason="completed",
-                    resumes=_amp._candidate_ids(parsed),
-                    expected_plan=completed_token,
-                    expected_text=completed_text,
-                    expected_claim=claim_token,
-                )
-            except _board.BoardError as exc:
-                raise AcceptError(
-                    "the completed plan is written; the local claim could not "
-                    f"close: {exc}"
-                ) from exc
+            publish_local_completion(
+                plan_path, row_id, owner, expected_plan=fresh_token,
+                expected_text=fresh_text, expected_claim=claim, updated=updated,
+            )
     finally:
         remove_review_worktree(repo, review)
         try:

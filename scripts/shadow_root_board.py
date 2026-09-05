@@ -1774,14 +1774,29 @@ def _validate_huddles(payload: dict, *, pending_retention: bool = False) -> None
             historical = set()
             if settled:
                 historical.update(_claim_key(e["claim"]) for e in h["compliance"] if e["status"] == "satisfied")
-                handoff = h["resolution"]["handoff"]
+                resolution = h["resolution"]
+                actions = {_claim_key(action["claim"]): action["action"]
+                           for action in resolution["actions"]}
+                writer_keys = {_claim_key(ref) for ref in resolution["write_owners"]}
+                # A proof-first stale close can remove only a continuing writer
+                # while a different participant remains pending compliance.
+                historical.update(
+                    key for key in writer_keys
+                    if key not in current and actions.get(key) in {
+                        "continue", "continue_disjoint", "handoff_complete",
+                    }
+                )
+                handoff = resolution["handoff"]
                 if handoff:
                     historical.add(_claim_key(handoff["source_claim"]))
                     successor = handoff["successor_claim"]
                     key = _claim_key(successor)
-                    if key not in current or _claim_ref(current[key]) != successor or key in members:
+                    if key in current and (_claim_ref(current[key]) != successor or key in members):
                         raise BoardError("Huddle successor is not its unique current source claim")
-                    members.add(key)
+                    if key in current:
+                        members.add(key)
+                    elif key not in writer_keys:
+                        raise BoardError("Huddle successor is not an authorized continuing writer")
             for key, ref in refs.items():
                 if key not in historical and (key not in current or _claim_ref(current[key]) != ref or current[key]["access"] == "read_only"):
                     raise BoardError("Huddle reference is not a current source claim")
@@ -4367,7 +4382,14 @@ def check_huddle_release(plan: Path, claim: dict, *, reason: str,
                               plan_root=plan_state_token(plan) if text else None)
 
 
-def _depart_huddles(payload: dict, claim: dict, *, now: datetime) -> None:
+def _depart_huddles(
+    payload: dict,
+    claim: dict,
+    *,
+    now: datetime,
+    completion_kind: str = "return",
+    completion_receipt: str = "self",
+) -> None:
     """Update membership and claim release in their one existing board commit."""
     if payload["schema"] != V2_SCHEMA:
         return
@@ -4376,9 +4398,14 @@ def _depart_huddles(payload: dict, claim: dict, *, now: datetime) -> None:
     for h in _claim_huddles(payload, claim):
         h["generation"] += 1
         if h["state"] == "awaiting_compliance":
-            entry = next(e for e in h["compliance"] if e["claim"] == ref and e["status"] == "pending")
-            entry.update(status="satisfied", completion={"kind": "return",
-                         "board_revision": payload["revision"] + 1, "receipt": "self"})
+            entry = next((e for e in h["compliance"]
+                          if e["claim"] == ref and e["status"] == "pending"), None)
+            if entry is not None:
+                entry.update(status="satisfied", completion={
+                    "kind": completion_kind,
+                    "board_revision": payload["revision"] + 1,
+                    "receipt": completion_receipt,
+                })
             h["holds"] = [e["claim"] for e in h["compliance"] if e["status"] == "pending"]
             if not h["holds"]:
                 h.update(state="resolved", resolved_at=_stamp(now),
@@ -4403,12 +4430,24 @@ def _depart_huddles(payload: dict, claim: dict, *, now: datetime) -> None:
                      reply_by=_stamp(now + timedelta(minutes=2)))
 
 
+def _require_expected_claim(payload: dict, claim: dict | None, expected_claim: dict | None) -> None:
+    if expected_claim is None:
+        return
+    fields = ("entity", "row", "owner", "claimed_at", "return_by", "recovery")
+    if payload["schema"] == V2_SCHEMA:
+        fields += ("claim_revision", "access", "repository_binding", "write_scope")
+    if (not isinstance(expected_claim, dict) or claim is None
+        or any(claim.get(key) != expected_claim.get(key) for key in fields)):
+        raise BoardError("claim changed before completion could close it; reconcile the proven row")
+
+
 def _reserve_claim_receipt(
     plan: Path,
     row: str,
     owner: str,
     *,
     expected_plan: dict[str, str] | None = None,
+    expected_claim: dict | None = None,
     protect_until: datetime | None = None,
     home: Path | None = None,
 ) -> dict:
@@ -4436,6 +4475,7 @@ def _reserve_claim_receipt(
         )
         if claim is None:
             raise BoardError(f"{row} is not claimed; run shadow throw first")
+        _require_expected_claim(payload, claim, expected_claim)
         if claim["owner"] != owner:
             raise BoardError(f"claim is owned by {claim['owner']}")
         _check_huddle_release(payload, claim, reason="completed")
@@ -4459,6 +4499,7 @@ def reserve_completion(
     owner: str,
     *,
     expected_plan: dict[str, str],
+    expected_claim: dict | None = None,
     now: datetime | None = None,
     home: Path | None = None,
 ) -> dict:
@@ -4469,6 +4510,7 @@ def reserve_completion(
         row,
         owner,
         expected_plan=expected_plan,
+        expected_claim=expected_claim,
         protect_until=current + timedelta(minutes=COMPLETION_RESERVATION_MINUTES),
         home=home,
     )
@@ -4514,16 +4556,7 @@ def release(
             ),
             None,
         )
-        if expected_claim is not None:
-            fields = ("entity", "row", "owner", "claimed_at", "return_by", "recovery")
-            if payload["schema"] == V2_SCHEMA:
-                fields += ("claim_revision", "access", "repository_binding", "write_scope")
-            claim_fields = {
-                key: expected_claim.get(key)
-                for key in fields
-            }
-            if claim is None or any(claim.get(key) != value for key, value in claim_fields.items()):
-                raise BoardError("claim changed before completion could close it; reconcile the proven row")
+        _require_expected_claim(payload, claim, expected_claim)
         if claim is not None and owner != claim["owner"]:
             raise BoardError(f"claim is owned by {claim['owner']}")
         content = read_plan_text(plan) if claim is not None else ""
@@ -4563,7 +4596,11 @@ def release(
         return json.loads(json.dumps(payload)), True
 
 
-def release_stranded_completed_claims(*, home: Path | None = None) -> int:
+def release_stranded_completed_claims(
+    *,
+    now: datetime | None = None,
+    home: Path | None = None,
+) -> int:
     """Drop stale claims whose plan row already completed with its PROOF receipt.
 
     The plan is the authority for row state; refresh only stops contradicting
@@ -4576,6 +4613,7 @@ def release_stranded_completed_claims(*, home: Path | None = None) -> int:
     worktree skips the claim, never authorizes the drop), the working file
     for a machine-local one.
     """
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     payload = snapshot(home=home)
     if payload is None:
         return 0
@@ -4585,12 +4623,12 @@ def release_stranded_completed_claims(*, home: Path | None = None) -> int:
         if isinstance(entity.get("plan"), str)
     }
     stranded = [
-        (claim["entity"], claim["row"])
+        (claim["entity"], claim["row"], _claim_ref(claim) if payload["schema"] == V2_SCHEMA else None)
         for claim in payload["claims"]
-        if claim_is_stale(claim) and plans.get(claim["entity"]) is not None
+        if claim_is_stale(claim, now=current) and plans.get(claim["entity"]) is not None
     ]
     released = 0
-    for identity, row in stranded:
+    for identity, row, expected_ref in stranded:
         locator = plans[identity]
         if not regular_plan(Path(locator)):
             continue
@@ -4603,10 +4641,12 @@ def release_stranded_completed_claims(*, home: Path | None = None) -> int:
                 ),
                 None,
             )
-            if claim is None or not claim_is_stale(claim):
+            if (claim is None or not claim_is_stale(claim, now=current)
+                    or expected_ref is not None and _claim_ref(claim) != expected_ref):
                 continue
             try:
-                _, frozen = frozen_plan_snapshot(plan, home=home)
+                plan_token, frozen = frozen_plan_snapshot(plan, home=home)
+                plan_state = plan_state_token(plan)
                 try:
                     text = frozen.decode("utf-8")
                 except UnicodeError:
@@ -4614,10 +4654,31 @@ def release_stranded_completed_claims(*, home: Path | None = None) -> int:
                 _release_state(plan, row, "completed", text=text)
             except BoardError:
                 continue
+            # A remote handoff has no authoritative local successor yet.  Its
+            # stale lease cannot settle until exact remote ownership readback.
+            if any(h["state"] == "remote_pending" for h in _claim_huddles(fresh, claim)):
+                continue
+            receipt_lines = [
+                line for line in section_lines(text, "Progress")
+                if (receipt := progress_proof_receipt(line)) is not None and receipt[0] == row
+            ]
+            receipt_digest = hashlib.sha256("\n".join(receipt_lines).encode("utf-8")).hexdigest()
+            _depart_huddles(
+                fresh,
+                claim,
+                now=current,
+                completion_kind="proof_first_stale_recovery",
+                completion_receipt=receipt_digest,
+            )
             fresh["claims"] = [item for item in fresh["claims"] if item is not claim]
             fresh["revision"] += 1
             _validate(fresh)
-            _write_and_commit(root, path, fresh, f"shadow board: release {row}")
+            def guard():
+                observed_token, observed = frozen_plan_snapshot(plan, home=home)
+                if (observed_token != plan_token or observed != frozen
+                        or plan_state_token(plan) != plan_state):
+                    raise BoardError("canonical plan changed before stale completion committed")
+            _write_and_commit(root, path, fresh, f"shadow board: release {row}", guard=guard, now=current)
             released += 1
     return released
 

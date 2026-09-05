@@ -341,6 +341,31 @@ class HuddleLifecycleTests(HuddleTestCase):
         return board_api.release(self.plans[claim["owner"]], claim["row"], owner=claim["owner"],
                                  reason=reason, expected_claim=claim, now=NOW, home=self.home)
 
+    def age_claim(self, claim):
+        with board_api._transaction(self.home) as (root, path, payload):
+            current = next(item for item in payload["claims"]
+                           if (item["entity"], item["row"]) == (claim["entity"], claim["row"]))
+            # A Huddle reference includes claimed_at; expiry is represented only
+            # by the lease, not by fabricating a different claim instance.
+            current["return_by"] = "2026-09-04T15:59:00Z"
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: age claim", now=NOW)
+
+    def set_return_by(self, claim, value):
+        with board_api._transaction(self.home) as (root, path, payload):
+            current = next(item for item in payload["claims"]
+                           if (item["entity"], item["row"]) == (claim["entity"], claim["row"]))
+            current["return_by"] = value
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: set claim lease", now=NOW)
+
+    def complete_plan(self, owner):
+        receipt = "- 2026-09-04T16:00:00Z ~aa11 PROOF cmd true -> pass (manual)"
+        plan = self.plans[owner]
+        plan.write_text(plan.read_text().replace("[pending] Work", "[completed] Work")
+                        + f"\n{receipt}\n")
+        return receipt
+
     def test_return_removes_membership_and_resolves_surviving_owner(self):
         result, changed = self.release(self.a)
         self.assertTrue(changed)
@@ -407,6 +432,174 @@ class HuddleLifecycleTests(HuddleTestCase):
                 self.assertTrue(changed)
                 self.assertEqual(result["huddles"][0]["claims"], [board_api._claim_ref(self.b)])
                 self.assertEqual(result["huddles"][0]["state"], "resolved")
+
+    def test_stale_completed_hold_recovers_before_settlement(self):
+        self.age_claim(self.b)
+        before = self.authority()
+        self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 0)
+        self.assertEqual(self.authority(), before)
+
+        receipt = self.complete_plan("B")
+        self.set_return_by(self.b, "2026-09-04T17:00:00Z")
+        before = self.authority()
+        self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 0)
+        self.assertEqual(self.authority(), before)
+
+        self.age_claim(self.b)
+        self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 1)
+        result = board_api.snapshot(home=self.home)
+        self.assertEqual([claim["owner"] for claim in result["claims"]], ["A"])
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "resolved")
+        self.assertEqual(h["claims"], [board_api._claim_ref(self.a)])
+        self.assertEqual(h["resolution"]["rule"], "exact_claim_owner")
+        self.assertNotIn(receipt, json.dumps(result))
+
+    def test_stale_completed_plan_race_keeps_board_and_journal_unchanged(self):
+        self.complete_plan("B")
+        self.age_claim(self.b)
+        before = self.authority()
+        original_write = board_api._write_and_commit
+
+        def race(*args, **kwargs):
+            self.plans["B"].write_text(self.plans["B"].read_text() + "\n- racing edit\n")
+            return original_write(*args, **kwargs)
+
+        with mock.patch.object(board_api, "_write_and_commit", side_effect=race):
+            with self.assertRaisesRegex(board_api.BoardError, "canonical plan changed"):
+                board_api.release_stranded_completed_claims(now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_stale_completed_support_claim_refuses_without_retargeting_bid(self):
+        support = {**self.b, "row": "~ss11", "access": "read_only",
+                   "repository_binding": None, "write_scope": [], "claim_revision": 3}
+        with board_api._transaction(self.home) as (root, path, payload):
+            payload["claims"].append(support)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: add support", now=NOW)
+        plan = self.plans["B"]
+        plan.write_text("# Support\n\n## Tasks\n- [pending] Support ~ss11 | proof: cmd true\n\n## Progress\n")
+        self.submit(self.b, role="review", scope=[], support_claim=board_api._claim_ref(support))
+        plan.write_text("# Support\n\n## Tasks\n- [completed] Support ~ss11 | proof: cmd true\n"
+                        "\n## Progress\n- 2026-09-04T16:00:00Z ~ss11 PROOF cmd true -> pass (manual)\n")
+        self.age_claim(support)
+        before = self.authority()
+
+        with self.assertRaisesRegex(board_api.BoardError, "support"):
+            board_api.release_stranded_completed_claims(now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_stale_required_return_preserves_another_pending_return(self):
+        plan_c = self.home / ".shadow" / "plans" / "c" / "PLAN.md"
+        plan_c.parent.mkdir(parents=True)
+        plan_c.write_text(self.plans["B"].read_text())
+        entity_c = board_api.entity_id(plan_c)
+        with board_api._transaction(self.home) as (root, path, payload):
+            claim_c = copy.deepcopy(self.b)
+            claim_c.update(entity=entity_c, owner="C", claim_revision=3)
+            payload["entities"].append(dict(id=entity_c, project="shadow", plan=str(plan_c),
+                                             resume="~aa11"))
+            payload["claims"].append(claim_c)
+            self.plans["C"] = plan_c
+            h = payload["huddles"][0]
+            ref_c = board_api._claim_ref(claim_c)
+            h["claims"] = sorted(h["claims"] + [ref_c], key=board_api._claim_rank)
+            h["edges"] = sorted(
+                h["edges"] + [dict(left=board_api._claim_ref(self.a), right=ref_c, kinds=["path_overlap"]),
+                              dict(left=board_api._claim_ref(self.b), right=ref_c, kinds=["path_overlap"])],
+                key=lambda edge: (board_api._claim_rank(edge["left"]),
+                                  board_api._claim_rank(edge["right"])),
+            )
+            h["holds"] = board_api.claim_holds(h)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: join third claim", now=NOW)
+        self.submit()
+        self.submit(self.b, role="stand_down", reason="duplicate_intent")
+        self.submit(next(claim for claim in board_api.snapshot(home=self.home)["claims"]
+                         if claim["owner"] == "C"),
+                    role="stand_down", reason="duplicate_intent")
+        settled = self.settle().payload
+        h_before = settled["huddles"][0]
+        receipt = self.complete_plan("B")
+        self.age_claim(self.b)
+
+        before_release_revision = board_api.snapshot(home=self.home)["revision"]
+        self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 1)
+
+        result = board_api.snapshot(home=self.home)
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual(h["resolution"], h_before["resolution"])
+        self.assertEqual(h["holds"], [entry["claim"] for entry in h["compliance"]
+                                      if entry["status"] == "pending"])
+        self.assertEqual([entry["status"] for entry in h["compliance"]], ["satisfied", "pending"])
+        completion = h["compliance"][0]["completion"]
+        self.assertEqual(completion["kind"], "proof_first_stale_recovery")
+        self.assertEqual(completion["board_revision"], before_release_revision + 1)
+        self.assertEqual(completion["receipt"], hashlib.sha256(receipt.encode()).hexdigest())
+
+    def test_stale_selected_writer_completion_preserves_pending_return(self):
+        self.submit()
+        self.submit(self.b, role="stand_down", reason="duplicate_intent")
+        settled = self.settle().payload
+        self.complete_plan("A")
+        self.age_claim(self.a)
+
+        self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 1)
+
+        result = board_api.snapshot(home=self.home)
+        self.assertEqual([claim["owner"] for claim in result["claims"]], ["B"])
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual(h["resolution"], settled["huddles"][0]["resolution"])
+        self.assertEqual(h["holds"], [board_api._claim_ref(self.b)])
+        self.assertEqual(h["compliance"][0]["status"], "pending")
+
+    def test_stale_local_handoff_successor_completion_preserves_pending_return(self):
+        self.submit(role="yield", reason="owner_authorized_handoff",
+                    target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        settled = self.settle().payload
+        successor = next(claim for claim in settled["claims"] if claim["entity"] == self.a["entity"])
+        self.assertEqual(successor["owner"], "B")
+        self.complete_plan("A")
+        self.age_claim(successor)
+
+        self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 1)
+
+        result = board_api.snapshot(home=self.home)
+        self.assertEqual([claim["owner"] for claim in result["claims"]], ["B"])
+        self.assertEqual(result["claims"][0]["row"], self.b["row"])
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual(h["resolution"], settled["huddles"][0]["resolution"])
+        self.assertEqual(h["holds"], [board_api._claim_ref(self.b)])
+
+    def test_stale_remote_ambiguity_leaves_board_and_journal_unchanged(self):
+        self.submit(role="yield", reason="owner_authorized_handoff",
+                    target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        with board_api._transaction(self.home) as (root, path, payload):
+            h = payload["huddles"][0]
+            source = board_api._claim_ref(self.a)
+            successor = {**source, "owner": "B"}
+            h.update(state="remote_pending", reply_by=None,
+                     holds=[source, successor, board_api._claim_ref(self.b)],
+                     remote_transition=dict(
+                         source_claim=source, successor_claim=successor,
+                         target_prior_claim=board_api._claim_ref(self.b),
+                         target_prior_action="return_required",
+                         remote_ref=board_api._remote_claim.claim_ref(source["entity"], source["row"]),
+                         expected_remote_version="e" * 40, readback="not_attempted",
+                         attempt_receipt=None))
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: remote ambiguity", now=NOW)
+        self.complete_plan("A")
+        self.age_claim(self.a)
+        before = self.authority()
+
+        self.assertEqual(board_api.release_stranded_completed_claims(now=NOW, home=self.home), 0)
+        self.assertEqual(self.authority(), before)
 
     def test_held_public_accept_refuses_before_proof_or_plan_write(self):
         source = self.home / "source"
