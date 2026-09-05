@@ -64,6 +64,8 @@ def main():
         sandbox.write_text('(version 1)\n(allow default)\n(deny network*)\n'
                            '(deny file-read* file-write* (subpath ' + json.dumps(home_path) + '))\n'
                            '(deny file-read* file-write* (subpath "/Library/Keychains"))\n'
+                           '(deny file-write* (subpath ' + json.dumps(str(sdk)) + '))\n'
+                           '(allow file-read-metadata ' + ' '.join('(literal ' + json.dumps(str(parent)) + ')' for parent in sdk.parents) + ')\n'
                            '(allow file-read* (subpath ' + json.dumps(str(sdk)) + '))\n')
         launch = ["/usr/bin/sandbox-exec", "-f", str(sandbox), str(binary)]
         isolated_env = {**minimal_env, **{f"XDG_{key}_HOME": str(temp / key.lower()) for key in ("CONFIG", "DATA", "CACHE", "STATE")},
