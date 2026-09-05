@@ -16,6 +16,7 @@ import errno
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -333,12 +334,13 @@ def _claim_payload(
         raise CleanError("entity plan changed while creation was locked")
     if source is not None:
         try:
-            declared = _board.origin_of(Path(entity_record["plan"]).parent)
-            observed = _source_identity(source)
+            plan = Path(entity_record["plan"])
+            if _board.is_local_plan(plan):
+                _bind_local_creation_source(plan, source)
+            elif _board.origin_of(plan.parent) != _source_identity(source):
+                raise CleanError("source checkout does not share the entity source identity")
         except (_board.BoardError, CleanError) as exc:
             raise CleanError(str(exc)) from None
-        if declared != observed:
-            raise CleanError("source checkout does not share the entity source identity")
     claim = next(
         (
             item
@@ -352,6 +354,27 @@ def _claim_payload(
     if _board.claim_is_stale(claim):
         raise CleanError("exact live claim is expired")
     return claim
+
+
+def _bind_local_creation_source(plan: Path, source: Path) -> None:
+    """Reuse acceptance's Origin/SOURCE validator without an import-time cycle."""
+    name = "shadow_clean_accept"
+    accept = sys.modules.get(name)
+    if accept is None:
+        spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / "shadow-accept.py")
+        if spec is None or spec.loader is None:
+            raise CleanError("source binding validator is unavailable")
+        accept = importlib.util.module_from_spec(spec)
+        sys.modules[name] = accept
+        try:
+            spec.loader.exec_module(accept)
+        except (ImportError, OSError, SyntaxError) as exc:
+            sys.modules.pop(name, None)
+            raise CleanError("source binding validator is unavailable") from exc
+    try:
+        accept.bind_local_plan_to_proof_repo(_board.read_plan_text(plan), source)
+    except (_board.BoardError, accept.AcceptError) as exc:
+        raise CleanError(str(exc)) from None
 
 
 def _claim(home: Path, entity: str, checkpoint: str, seat: str, *, source: Path | None = None) -> dict[str, Any]:

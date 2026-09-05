@@ -3526,13 +3526,14 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
             runner.assert_not_called()
 
     def test_real_accept_release_trashes_one_managed_child_when_opted_in(self) -> None:
-        plan = self.repo / "PLAN.md"
+        plan = self.home / ".shadow" / "plans" / "demo" / "PLAN.md"
         plan_text = """# Demo
 
 ## Brief
 
 - Project: demo
 - Mode: ship
+- Origin: github.com/example/demo
 
 ## Tasks
 
@@ -3547,8 +3548,10 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
         git(self.repo, "init", "-q")
         git(self.repo, "config", "user.email", "test@example.invalid")
         git(self.repo, "config", "user.name", "Lifecycle Tests")
+        git(self.repo, "remote", "add", "origin", "https://github.com/example/demo.git")
         (self.repo / "x.txt").write_text("hello\n", encoding="utf-8")
-        install_plan_tree(self.repo, plan_text.encode("utf-8"))
+        plan.parent.mkdir(parents=True)
+        install_plan_tree(plan.parent, plan_text.encode("utf-8"))
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-qm", "seed")
         entity = clean._board.entity_id(plan)
@@ -3583,7 +3586,8 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
         accepted = subprocess.run(
             [
                 sys.executable, str(ROOT / "scripts" / "shadow-accept.py"),
-                "--repo", str(self.repo), "--row", "~aa11", "--by", "seat-a",
+                "--repo", str(self.repo), "--entity", entity,
+                "--row", "~aa11", "--by", "seat-a",
                 "--no-push",
             ],
             capture_output=True,

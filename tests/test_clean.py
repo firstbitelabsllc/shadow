@@ -21,6 +21,7 @@ SCRIPT = ROOT / "scripts" / "shadow_clean.py"
 CLI = ROOT / "bin" / "shadow"
 sys.path.insert(0, str(ROOT / "scripts"))
 import shadow_root_board as board  # noqa: E402
+from tests.plan_tree_fixture import install_plan_tree  # noqa: E402
 
 
 PLAN = """# Demo
@@ -134,6 +135,32 @@ class CleanPreviewTests(unittest.TestCase):
         journal["receipt_sha256"] = "0" * 64
         journals[0].write_text(json.dumps(journal), encoding="utf-8")
         self.assertEqual(self.clean.preview(home=self.home)["candidates"], [])
+
+    def test_local_plan_creation_refuses_missing_wrong_or_ambiguous_source(self):
+        git(self.repo, "remote", "add", "origin", "https://github.com/example/demo.git")
+        plan = self.home / ".shadow" / "plans" / "demo" / "PLAN.md"
+        plan.parent.mkdir(parents=True)
+        valid = PLAN.replace("- Project: demo", "- Project: demo\n- Origin: github.com/example/demo")
+        install_plan_tree(plan.parent, valid.encode())
+        entity = board.entity_id(plan)
+        board.claim(plan, "~aa11", "seat-a", project="demo", priority=2, home=self.home)
+        destination = self.repo.parent / "refused-local-child"
+        cases = (
+            (PLAN, "no Origin"),
+            (valid.replace("github.com/example/demo", "github.com/example/other"), "does not match"),
+            (valid.replace("- Origin:", "- Origin: github.com/example/demo\n- Origin:"), "more than one Origin"),
+            (valid.replace("github.com/example/demo", "../private/repo"), "not a normalized Git identity"),
+        )
+        for text, reason in cases:
+            with self.subTest(reason=reason):
+                install_plan_tree(plan.parent, text.encode())
+                with self.assertRaisesRegex(self.clean.CleanError, reason):
+                    self.clean.create_managed_worktree(
+                        self.repo, destination, entity=entity, checkpoint="~aa11",
+                        seat="seat-a", landed_ref="refs/heads/master", home=self.home,
+                    )
+                self.assertFalse(destination.exists())
+                self.assertFalse((self.home / ".shadow" / "clean").exists())
 
     def test_lifecycle_summary_uses_safe_issued_state_and_strict_shape(self):
         destination = self.repo.parent / "managed-summary"
