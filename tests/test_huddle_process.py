@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sys
+import sysconfig
 import tempfile
 import time
 import unittest
@@ -16,14 +17,20 @@ class BoundedPipeProcessTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.cwd = Path(temporary.name)
+        # setup-python's shared Linux interpreter needs its installed library
+        # directory even in a deliberately minimal child environment. Do not
+        # forward ambient loader settings or the rest of the host environment.
+        self.child_env = {}
+        if sys.platform.startswith("linux") and sysconfig.get_config_var("Py_ENABLE_SHARED"):
+            self.child_env["LD_LIBRARY_PATH"] = str(Path(sys.base_prefix) / "lib")
 
     def execute(self, body: str, **kwargs):
         return run_bounded_pipes((sys.executable, "-c", body), cwd=self.cwd,
-                                 env={"PATH": os.environ.get("PATH", "")}, stdin=b"", **kwargs)
+                                 env={"PATH": os.environ.get("PATH", ""), **self.child_env}, stdin=b"", **kwargs)
 
     def test_success_has_bounded_stdout_and_stderr(self):
         result = self.execute("import sys; print('out'); print('err', file=sys.stderr)")
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
         self.assertFalse(result.timed_out)
         self.assertFalse(result.output_limited)
         self.assertEqual(result.stdout, b"out\n")
@@ -61,7 +68,7 @@ class BoundedPipeProcessTests(unittest.TestCase):
         fd = os.open(secret, os.O_RDONLY)
         self.addCleanup(os.close, fd)
         result = run_bounded_pipes((sys.executable, "-c", "import os; print(os.read(int(os.environ['FD']), 2).decode())"),
-                                   cwd=self.cwd, env={"FD": str(fd)}, stdin=b"", pass_fds=(fd,))
+                                   cwd=self.cwd, env={**self.child_env, "FD": str(fd)}, stdin=b"", pass_fds=(fd,))
         self.assertEqual(result.stdout, b"ok\n")
 
     def test_unlisted_inheritable_sentinel_fd_is_closed(self):
@@ -72,7 +79,7 @@ class BoundedPipeProcessTests(unittest.TestCase):
         os.set_inheritable(fd, True)
         body = "import os; fd=int(os.environ['FD']);\ntry: os.fstat(fd)\nexcept OSError: print('closed')\nelse: print('leaked')"
         result = run_bounded_pipes((sys.executable, "-c", body), cwd=self.cwd,
-                                   env={"FD": str(fd)}, stdin=b"")
+                                   env={**self.child_env, "FD": str(fd)}, stdin=b"")
         self.assertEqual(result.stdout, b"closed\n")
 
     def test_strict_argument_types_refuse_before_launch(self):
@@ -132,7 +139,7 @@ class BoundedPipeProcessTests(unittest.TestCase):
         start = time.monotonic()
         try:
             result = run_bounded_pipes((sys.executable, "-c", body), cwd=self.cwd,
-                                       env={}, stdin=b"", timeout=.1)
+                                       env=self.child_env, stdin=b"", timeout=.1)
             self.assertTrue(result.timed_out)
             self.assertLess(time.monotonic() - start, 1)
         finally:

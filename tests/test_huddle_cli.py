@@ -271,9 +271,13 @@ class HuddleCliTests(HuddleTestCase):
         self.assertEqual(self.authority(), before)
 
     def test_contact_register_is_explicitly_unavailable_without_adapter(self):
+        before = tuple(self.home.iterdir())
         result = self.run_cli("contact-register", "--seat", "A", stdin=b"{}")
         self.assertEqual(result.returncode, 0, result.stderr.decode())
-        self.assertEqual(json.loads(result.stdout), {"available": False, "reason": "optional delivery adapter absent"})
+        expected_reason = ("optional delivery adapter absent"
+                           if sys.platform == "darwin" else "unsupported_confinement")
+        self.assertEqual(json.loads(result.stdout), {"available": False, "reason": expected_reason})
+        self.assertEqual(tuple(self.home.iterdir()), before)
 
     def test_cli_rejects_noncanonical_ids_and_out_of_bounds_integers(self):
         board.ensure(home=self.home)

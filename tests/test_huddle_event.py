@@ -151,6 +151,13 @@ class HuddleEventTests(unittest.TestCase):
             # Pure descriptor/recipient selection only; this is never run.
             client.write_bytes(b"\xcf\xfa\xed\xfe" + b"\0" * 64)
         client.chmod(0o700)
+        self.fixture_interpreter = self.home / "fixture-interpreter"
+        if sys.platform != "darwin":
+            # Pure descriptor selection only; never execute this copy. Linux CI
+            # may expose a toolcache interpreter owned by another uid, while
+            # this fixture is safely owned by the test process.
+            shutil.copyfile(sys.executable, self.fixture_interpreter)
+            self.fixture_interpreter.chmod(0o700)
         now = datetime.now(timezone.utc).replace(microsecond=0)
         stamp = lambda value: value.strftime("%Y-%m-%dT%H:%M:%SZ")
         caps = {"schema": "shadow.huddle-provider-capabilities.v1",
@@ -172,9 +179,16 @@ class HuddleEventTests(unittest.TestCase):
         contact_path.chmod(0o600)
         return board, extension, contacts, client, caps, contact
 
+    def prepare_descriptor(self, event, **options):
+        if sys.platform == "darwin":
+            return event_api.prepare_delivery_invocation(event, **options)
+        with mock.patch.object(event_api, "_verified_interpreter",
+                               return_value=self.fixture_interpreter):
+            return event_api.prepare_delivery_invocation(event, **options)
+
     def test_preselection_binds_current_recipient_and_retained_readonly_fds(self):
         board, extension, contacts, client, caps, contact = self.runtime()
-        invocation = event_api.prepare_delivery_invocation(
+        invocation = self.prepare_descriptor(
             EVENT | {"huddle_id": board["huddles"][0]["id"], "generation": board["huddles"][0]["generation"]}, operation="event",
             seat=None, contact_input=None, repo_root=Path(__file__).resolve().parent.parent, home=self.home)
         self.assertIsNotNone(invocation)
@@ -198,6 +212,23 @@ class HuddleEventTests(unittest.TestCase):
         extension.rename(original)
         extension.symlink_to(original, target_is_directory=True)
         self.assertIsNone(event_api.prepare_delivery_invocation(**request))
+
+    def test_unsafe_fixed_interpreter_is_refused_without_launch(self):
+        board, _, _, _, _, _ = self.runtime()
+        unsafe = self.home / "unsafe-interpreter"
+        shutil.copyfile(sys.executable, unsafe)
+        unsafe.chmod(0o777)
+        before = tuple(self.home.iterdir())
+        event = EVENT | {"huddle_id": board["huddles"][0]["id"],
+                         "generation": board["huddles"][0]["generation"]}
+        with mock.patch.object(event_api, "_verified_interpreter", return_value=unsafe), \
+             mock.patch.object(event_api, "_launch_prepared_runner") as launch:
+            invocation = event_api.prepare_delivery_invocation(
+                event, operation="event", seat=None, contact_input=None,
+                repo_root=Path(__file__).resolve().parent.parent, home=self.home)
+        self.assertIsNone(invocation)
+        launch.assert_not_called()
+        self.assertEqual(tuple(self.home.iterdir()), before)
 
     def test_capability_duplicates_and_noncanonical_timestamps_are_refused(self):
         _, _, _, _, caps, _ = self.runtime()
@@ -455,7 +486,7 @@ time.sleep(10)
         _, _, _, _, _, stored = self.runtime()
         request = {key: value for key, value in stored.items()
                    if key not in {"seat", "registered_at", "refreshed_at", "expires_at"}}
-        invocation = event_api.prepare_delivery_invocation(None, operation="contact_register", seat=stored["seat"],
+        invocation = self.prepare_descriptor(None, operation="contact_register", seat=stored["seat"],
             contact_input=json.dumps(request).encode(), repo_root=Path(event_api.__file__).resolve().parent.parent, home=self.home)
         self.assertIsNotNone(invocation)
         self.addCleanup(invocation.close)
@@ -564,9 +595,9 @@ int main(void) {
         self.assertNotEqual(path.stat().st_ino, old_inode)
         options = dict(operation="event", seat=None, contact_input=None,
                        repo_root=Path(event_api.__file__).resolve().parent.parent, home=self.home)
-        self.assertIsNone(event_api.prepare_delivery_invocation(old_event, **options))
+        self.assertIsNone(self.prepare_descriptor(old_event, **options))
         current_event = old_event | {"generation": board["huddles"][0]["generation"]}
-        invocation = event_api.prepare_delivery_invocation(current_event, **options)
+        invocation = self.prepare_descriptor(current_event, **options)
         self.assertIsNotNone(invocation)
         self.addCleanup(invocation.close)
         with mock.patch.dict(os.environ, {"SHADOW_HUDDLE_BOARD_PATH": str(path)}):
