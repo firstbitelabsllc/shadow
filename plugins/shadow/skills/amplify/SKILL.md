@@ -23,28 +23,38 @@ outcome, decisions, checkpoints, acceptance, proof, and anti-sprawl controls.
 
 ```text
 Outcome: <finite end state and what the person stops supervising>.
-Resume: shadow status --by <seat> + PLAN.md at committed ref; continue owned claims, then the highest-value reachable checkpoint; delegate bulk to the cheaper roster when a delegate harness is installed, else run native and record the fallback.
+Resume: shadow status --by <seat>; open <entity/repo>:<PLAN-path>@<root/ref>; drain owned, then reachable checkpoints. Delegate through Shadow to the cheapest capable seat; preserve proof, escalate when needed, and record native fallback.
 Proof: <mechanical finish line>; keep source, merge, install/deploy, and live distinct.
 Skills: <one to four canonical invocation names from the current session's available skill catalog>.
 ```
 
-`Resume` always names Shadow by its command and always carries the delegation
-default. The default is conditional: when a delegate harness and a model roster
-are installed on the host, the lead seat orchestrates and sends bulk build,
-proof, research, and drafting to the cheapest capable roster seat — for
-example GLM lanes, a cheap coder behind an exact spec, a bare runner for review,
-a critic for best-of-n, an editor agent for read-only plans. A spec writer
-never orchestrates; the apex tier takes only the hardest planning, challenge,
-and the slices the cost-router refuses to send down. A stock Shadow install
-ships no harness and no roster (the plugin manifest exposes `./skills/` only):
-that seat runs the work itself and records the native fallback in the owning
-`PLAN.md`, exactly as host law already requires. The roster, effort ladder, and
-refusal rules live in the owning `PLAN.md` and the harness, never in the
-launcher.
+`Resume` always names Shadow by its command and ends with this common clause:
+**Delegate through Shadow to the cheapest capable seat; preserve proof,
+escalate when needed, and record native fallback.**
+
+Bind the plan locator to the board-owned entity and current plan root, or the
+declared repository plan and committed ref. Reconcile the live board before
+execution; a pinned locator never overrides a newer canonical owner.
+
+At every checkpoint, assess delegation using the current installed harness
+and roster. Claim before dispatch. Give each bounded worker the verified
+source, allowed paths, acceptance, refusal cases and return/wake; parallelize
+only independent work. Choose the least costly seat capable of that specific
+job, including its required context, tools and verification. Never reduce the
+outcome or proof to fit a cheaper seat. Escalate when capability is missing,
+uncertain, or disproved by the work; do not repeat failing cheap attempts.
+The lead owns integration and independently checks critical results.
+
+Shadow coordinates claims; it does not imply an installed worker runtime.
+If no suitable delegation surface is callable, or a tiny task costs less to
+finish directly than to hand off, execute natively and record that reason in
+the existing receipt (do not create a plan for a trivial task). Keep provider,
+model, effort and cost evidence in the owning PLAN and installed harness,
+never hard-coded here or in the launcher. Do not invent prices, child lineage,
+a router, a fixed fan-out count, or an automatic quota/spend fallback.
 
 Choose skills only after reading the checkpoint's actual verbs and surfaces.
-A launcher whose `Resume` line omits the delegation default — delegate when a
-harness exists, native fallback when it does not — is not compiled.
+A launcher whose `Resume` line omits the common delegation clause is not compiled.
 Use the catalog's exact canonical invocation name, including a plugin-qualified
 name when supplied. Each skill must own a distinct part of execution. Never tag
 Shadow itself, this goal compiler, a merely adjacent skill, an unavailable or
