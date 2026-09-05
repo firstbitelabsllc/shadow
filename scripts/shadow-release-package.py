@@ -627,7 +627,8 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
     eligible = json_command(["clean", "--repo", str(project)])
     first_preview = next((item for item in eligible.get("candidates", []) if item.get("id") == first_id), None)
     if not isinstance(first_preview, dict) or first_preview.get("state") != "eligible":
-        raise RuntimeError("installed accepted child did not become eligible")
+        reason = first_preview.get("reason") if isinstance(first_preview, dict) else "managed child missing from preview"
+        raise RuntimeError(f"installed accepted child did not become eligible: {reason}")
     prepared = json_command(["clean", "--prepare", "--worktree", str(first_child)])
     manifest_id, manifest_cas = prepared.get("id"), prepared.get("cas")
     if not isinstance(manifest_id, str) or not manifest_id.startswith("manifest@") or not isinstance(manifest_cas, str):
