@@ -455,7 +455,7 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
             if clause not in output:
                 raise RuntimeError(f"installed help {verb} lost: {clause}")
     huddle_help = command([str(cli), "huddle", "--help"], consumer, env=env).stdout
-    for clause in ("preflight", "contact-register", "status pull"):
+    for clause in ("preflight", "open", "bid", "show", "settle", "contact-register"):
         if clause not in huddle_help:
             raise RuntimeError(f"installed huddle help lost: {clause}")
     imported = command(
