@@ -2485,6 +2485,88 @@ def huddle_show(huddle_id: str, *, home: Path | None = None) -> dict:
     raise BoardError("Huddle was not found")
 
 
+def submit_huddle_bid(*, huddle_id: str, seat: str, claim: dict, role: str,
+                      scope: list[str], reason: str, target: dict | None,
+                      support_claim: dict | None, evidence: dict, round: int,
+                      expected_huddle_generation: int, now: datetime,
+                      home: Path | None = None) -> BoardMutation:
+    """Record structured intent without granting, shrinking or returning scope."""
+    if not isinstance(huddle_id, str) or re.fullmatch(r"hdl_[0-9a-f]{8}", huddle_id) is None:
+        raise BoardError("Huddle id is invalid")
+    request = dict(seat=seat, claim=claim, role=role, scope=scope, reason=reason,
+                   target=target, support_claim=support_claim, evidence=evidence,
+                   round=round, expected_huddle_generation=expected_huddle_generation)
+    with _transaction(home) as (root, path, payload):
+        h = next((item for item in payload.get("huddles", []) if item["id"] == huddle_id), None)
+        if h is None:
+            raise BoardError("Huddle was not found")
+        _validate_huddle_reference(claim, payload["revision"])
+        if type(round) is not int or round not in (1, 2):
+            raise BoardError("Huddle bid round is invalid")
+        try:
+            digest = _bid_digest(huddle_id, request)
+        except (TypeError, ValueError, UnicodeError):
+            raise BoardError("Huddle bid request is malformed") from None
+        prior = next((bid for bid in h["bids"] if _claim_key(bid["claim"]) == _claim_key(claim)
+                      and bid["round"] == round), None)
+        if prior is not None:
+            if digest != prior["bid_digest"]:
+                raise BoardError("Huddle bid key replay has changed content")
+            return BoardMutation(copy.deepcopy(payload), False, None)
+        if (type(expected_huddle_generation) is not int
+            or expected_huddle_generation != h["generation"]):
+            raise BoardError("Huddle bid generation changed")
+        if h["state"] not in {"open_round_1", "open_round_2"} or round != h["round"]:
+            raise BoardError("Huddle is not accepting bids for this round")
+        if now >= _timestamp(h["reply_by"], "Huddle deadline"):
+            raise BoardError("Huddle bid deadline reached")
+        bid = copy.deepcopy(request)
+        bid.update(bid_digest=digest, submitted_at=_stamp(now))
+        h["bids"].append(bid)
+        _validate_bids(h, payload)
+        support_plan = None
+        support_bytes = None
+        if support_claim is not None:
+            support = next(c for c in payload["claims"] if _claim_ref(c) == support_claim)
+            held = claim_holds(h)
+            if any(_claim_ref(c) in h["claims"] and _claim_ref(c) not in held
+                   and _scope_edge(support, c) for c in payload["claims"]):
+                raise BoardError("Huddle support scope conflicts with a selected writer")
+            entity = next(e for e in payload["entities"] if e["id"] == support_claim["entity"])
+            support_plan = Path(entity["plan"])
+            support_bytes = read_plan_bytes(support_plan)
+            try:
+                text = support_bytes.decode("utf-8")
+            except UnicodeError:
+                raise BoardError("Huddle support plan is not UTF-8") from None
+            rows = [match for line in section_lines(text, "Tasks")
+                    if (match := _grammar.ROW_RE.fullmatch(line)) is not None
+                    and match.group("id") == support_claim["row"]]
+            if (len(rows) != 1 or support_claim["row"] not in _grammar.candidate_row_ids(text)
+                or not any(field.group("key") == "proof" and field.group("value").strip()
+                           for field in _grammar.FIELD_RE.finditer(rows[0].group("tail")))):
+                raise BoardError("Huddle support checkpoint is not reachable in its canonical plan")
+        payload["revision"] += 1
+        def guard():
+            if support_plan is not None and read_plan_bytes(support_plan) != support_bytes:
+                raise BoardError("Huddle support plan changed during bid publication")
+        _write_and_commit(root, path, payload, "shadow board: record Huddle bid", guard=guard, now=now)
+        return BoardMutation(copy.deepcopy(payload), True, {
+            "schema": "shadow.huddle-delivery-event.v1", "event": "huddle_changed",
+            "huddle_id": h["id"], "generation": h["generation"]})
+
+
+def bid_receipt(huddle_id: str, claim: dict, round: int, *, home: Path | None = None) -> dict:
+    """Read the original immutable bid, even after its generation advanced."""
+    h = huddle_show(huddle_id, home=home)
+    if not _valid_claim_ref(claim) or type(round) is not int or round not in (1, 2):
+        raise BoardError("Huddle bid key is invalid")
+    for bid in h["bids"]:
+        if bid["claim"] == claim and bid["round"] == round:
+            return copy.deepcopy(bid)
+    raise BoardError("Huddle bid was not found")
+
+
 def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
                      access: str, write_scope: list[str], expected_claim_revision: int | None,
                      expected_board_revision: int, now: datetime,

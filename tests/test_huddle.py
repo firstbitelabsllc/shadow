@@ -66,6 +66,113 @@ class HuddleTestCase(unittest.TestCase):
         return (root / board_api.BOARD_NAME).read_bytes(), board_api._journal_head(root)
 
 
+class HuddleBidTests(HuddleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.a, self.b = HuddleGraphTests.seed(self, [["a"], ["a"]])
+        self.huddle = HuddleGraphTests.open(self, self.a, [self.b]).payload["huddles"][0]
+
+    def request(self, participant=None, **changes):
+        participant = participant or self.a
+        value = dict(huddle_id=self.huddle["id"], seat=participant["owner"],
+            claim=board_api._claim_ref(participant), role="own", scope=participant["write_scope"],
+            reason="existing_claim", target=None, support_claim=None,
+            evidence={"kind": "claim", "value": "self"}, round=1,
+            expected_huddle_generation=self.huddle["generation"])
+        return value | changes
+
+    def submit(self, participant=None, *, now=NOW, **changes):
+        return board_api.submit_huddle_bid(**self.request(participant, **changes), now=now, home=self.home)
+
+    def test_multiple_bids_share_generation_and_replay_returns_original_bid(self):
+        first = self.submit()
+        receipt = board_api.bid_receipt(self.huddle["id"], board_api._claim_ref(self.a), 1, home=self.home)
+        second = self.submit(self.b, role="stand_down", reason="duplicate_intent", now=NOW + timedelta(seconds=2))
+        self.assertEqual(second.payload["revision"], first.payload["revision"] + 1)
+        self.assertEqual(second.payload["huddles"][0]["generation"], self.huddle["generation"])
+        before = self.authority()
+        replay = self.submit(now=NOW + timedelta(minutes=3))
+        self.assertFalse(replay.changed)
+        self.assertIsNone(replay.event)
+        self.assertEqual(board_api.bid_receipt(self.huddle["id"], board_api._claim_ref(self.a), 1, home=self.home), receipt)
+        self.assertEqual(self.authority(), before)
+        with self.assertRaisesRegex(board_api.BoardError, "replay"):
+            self.submit(role="unavailable")
+        self.assertEqual(self.authority(), before)
+
+    def test_invalid_new_bids_refuse_without_mutation(self):
+        before = self.authority()
+        for changes in (
+            {"seat": "Other"}, {"claim": {**board_api._claim_ref(self.a), "claim_revision": 0}},
+            {"expected_huddle_generation": 99}, {"round": 2}, {"round": True},
+            {"role": "stand_down"}, {"role": "yield", "target": board_api._claim_ref(self.a)},
+            {"scope": ["expanded"]}, {"role": "disjoint", "scope": []},
+            {"evidence": {"kind": "claim", "value": "/private/path"}},
+            {"target": board_api._claim_ref(self.b)},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(board_api.BoardError):
+                self.submit(**changes)
+            self.assertEqual(self.authority(), before)
+        with self.assertRaisesRegex(board_api.BoardError, "deadline"):
+            self.submit(now=NOW + timedelta(minutes=2))
+        self.assertEqual(self.authority(), before)
+
+    def test_bids_are_intent_not_scope_change_or_handoff(self):
+        before = board_api.snapshot(home=self.home)["claims"]
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        after = board_api.snapshot(home=self.home)
+        self.assertEqual(after["claims"], before)
+        self.assertEqual(after["huddles"][0]["holds"], self.huddle["holds"])
+        self.assertIsNone(after["huddles"][0]["resolution"])
+
+    def test_disjoint_bid_does_not_shrink_authority_or_release_hold(self):
+        before = board_api.snapshot(home=self.home)
+        self.submit(self.b, role="disjoint", scope=["a/narrow"], reason="path_disjoint")
+        after = board_api.snapshot(home=self.home)
+        self.assertEqual(after["claims"], before["claims"])
+        self.assertEqual(after["huddles"][0]["holds"], before["huddles"][0]["holds"])
+        self.assertEqual(after["huddles"][0]["generation"], before["huddles"][0]["generation"])
+
+    def support(self, *, access="read_only", scope=None):
+        with board_api._transaction(self.home) as (root, path, payload):
+            support = {**self.b, "row": "~ss11", "access": access,
+                       "write_scope": scope or [], "claim_revision": payload["revision"] + 1}
+            if access == "read_only":
+                support["repository_binding"] = None
+            payload["claims"].append(support)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: support claim", now=NOW)
+            entity = next(e for e in payload["entities"] if e["id"] == support["entity"])
+        plan = Path(entity["plan"])
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text("# Support\n\n## Tasks\n\n- [pending] Support ~ss11 | proof: cmd true\n")
+        return support, plan
+
+    def test_review_support_requires_reachable_canonical_checkpoint(self):
+        support, plan = self.support()
+        valid = plan.read_text()
+        for invalid in ("# Empty\n", valid.replace("pending", "completed"),
+                        valid.replace("cmd true", "gate approval"),
+                        valid.replace(" | proof: cmd true", ""),
+                        valid.rstrip() + " | needs: ~zz99\n"):
+            plan.write_text(invalid)
+            before = self.authority()
+            with self.subTest(plan=invalid), self.assertRaises(board_api.BoardError):
+                self.submit(self.b, role="review", scope=[], support_claim=board_api._claim_ref(support))
+            self.assertEqual(self.authority(), before)
+        plan.write_text(valid)
+        self.assertTrue(self.submit(self.b, role="review", scope=[],
+                                   support_claim=board_api._claim_ref(support)).changed)
+
+    def test_prove_support_cannot_conflict_with_selected_writer(self):
+        support, _ = self.support(access="write", scope=["a"])
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "support.*conflict"):
+            self.submit(self.b, role="prove", support_claim=board_api._claim_ref(support))
+        self.assertEqual(self.authority(), before)
+
+
 class HuddleMigrationTests(HuddleTestCase):
     def test_v1_migration_is_lossless_and_does_not_mutate_input(self) -> None:
         payload = self.v1_board()
