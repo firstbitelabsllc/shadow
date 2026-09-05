@@ -1448,8 +1448,9 @@ class HuddleAccessTests(HuddleTestCase):
         repo = self.home / name
         repo.mkdir()
         git(repo, "init", "-b", "main")
-        git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.test",
-            "commit", "--allow-empty", "-m", "fixture")
+        git(repo, "config", "user.name", "Test")
+        git(repo, "config", "user.email", "test@example.test")
+        git(repo, "commit", "--allow-empty", "-m", "fixture")
         return repo
 
     def test_binding_matches_worktrees_and_separate_clones_without_paths(self):
@@ -1861,7 +1862,19 @@ class HuddleClaimCreationTests(HuddleTestCase):
             now=NOW, home=self.home, **kwargs)
 
     def test_real_claim_creation_assigns_revision_and_opens_overlap_atomically(self):
-        repo, plan = self.seed()
+        clean_git_env = dict(os.environ)
+        for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+                    "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            clean_git_env.pop(key, None)
+        clean_git_env.update({
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "user.useConfigOnly",
+            "GIT_CONFIG_VALUE_0": "true",
+        })
+        with mock.patch.dict(os.environ, clean_git_env, clear=True):
+            repo, plan = self.seed()
         first = self.take(repo, plan, "~aa11", "A")
         second = self.take(repo, plan, "~bb22", "B")
         payload = board_api.snapshot(home=self.home)
