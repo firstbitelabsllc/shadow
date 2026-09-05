@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import fcntl
 import hashlib
 import json
 import os
@@ -705,6 +706,13 @@ class HistoricalProgressCompaction(unittest.TestCase):
             self.assertEqual(applied.returncode, 0, report)
             self.assertEqual(report["action"], "archived_progress")
             self.assertTrue(str(report["commit"]).startswith("local:"))
+            payload = lifecycle._board.snapshot(home=home)
+            self.assertEqual(payload["schema"], lifecycle._board.V2_SCHEMA)
+            self.assertEqual(len(payload["claims"]), 1)
+            claim = payload["claims"][0]
+            self.assertEqual(claim["access"], "read_only")
+            self.assertIsNone(claim["repository_binding"])
+            self.assertEqual(claim["write_scope"], [])
             repeated, repeated_report = run(
                 entity,
                 "--progress-before",
@@ -2904,6 +2912,42 @@ class DirtyOrProvenanceBearingStateIsRefused(unittest.TestCase):
 
 
 class LifecycleClaimsReachableSuccessor(unittest.TestCase):
+    def test_overlapping_successor_is_held_and_noticed_only_after_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            peer = home / ".shadow" / "plans" / "peer" / "PLAN.md"
+            peer.parent.mkdir(parents=True)
+            peer.write_text(PLAN, encoding="utf-8")
+            repo = make_repo(root)
+            events = []
+
+            def observe(event, *, repo_root):
+                self.assertEqual(repo_root, ROOT)
+                with (home / ".shadow" / ".board.lock").open("rb") as lock:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    try:
+                        payload = lifecycle._board.snapshot(home=home)
+                        self.assertEqual(payload["huddles"][0]["id"], event["huddle_id"])
+                        events.append(event)
+                    finally:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                raise lifecycle._huddle_event.RunnerRefused("optional delivery unavailable")
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                lifecycle._board.claim(peer, "~cc33", "incumbent", project="demo",
+                                       priority=3, repo=repo)
+                with mock.patch.object(lifecycle._huddle_event, "emit_post_commit", side_effect=observe):
+                    receipt = lifecycle.claim_successor(repo / "PLAN.md", "successor", "~cc33")
+                    self.assertEqual(receipt["action"], "claimed")
+                    self.assertEqual(len(events), 1)
+                    replay = lifecycle.claim_successor(repo / "PLAN.md", "successor", "~cc33")
+                    self.assertEqual(replay["action"], "already_claimed")
+                    self.assertEqual(len(events), 1)
+            payload = lifecycle._board.snapshot(home=home)
+            successor = next(claim for claim in payload["claims"] if claim["owner"] == "successor")
+            self.assertEqual(payload["huddles"][0]["holds"], [lifecycle._board._claim_ref(successor)])
+
     def test_apply_by_claims_the_first_reachable_successor(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -2932,6 +2976,10 @@ class LifecycleClaimsReachableSuccessor(unittest.TestCase):
                 [("~cc33", "lifecycle-seat")],
             )
             self.assertEqual(payload["entities"][0]["resume"], "~cc33")
+            self.assertEqual(payload["schema"], lifecycle._board.V2_SCHEMA)
+            self.assertEqual(payload["claims"][0]["access"], "unscoped")
+            self.assertEqual(payload["claims"][0]["repository_binding"],
+                             lifecycle._board.repository_binding(repo))
 
     def test_committed_archive_reports_successor_failure_and_exact_retry_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

@@ -27,6 +27,7 @@ import shadow_root_board as _board  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
+import shadow_huddle_event as _huddle_event  # noqa: E402
 from shadow_durable_lib import durable_write, fsync_directory  # noqa: E402
 from shadow_json_lib import json_text  # noqa: E402
 
@@ -1368,6 +1369,7 @@ def claim_successor(plan: Path, owner: str, target_row: str | None) -> dict:
             }
         project = parsed["brief"].get("Project")
         priority = int(parsed["brief"].get("Priority", "3"))
+        local_authority = _board.is_local_plan(plan)
         receipt = _board.claim(
             plan,
             target_row,
@@ -1376,11 +1378,17 @@ def claim_successor(plan: Path, owner: str, target_row: str | None) -> dict:
             priority=priority,
             expected_plan=token,
             home=Path.home(),
+            repo=None if local_authority else Path(token["repo"]),
+            access="read_only" if local_authority else "unscoped",
         )
     except (_board.BoardError, KeyError, TypeError, UnicodeError, ValueError) as exc:
         if isinstance(exc, LifecycleError):
             raise
         raise LifecycleError(f"successor claim refused after archive commit: {exc}") from None
+    _huddle_event.post_commit_mutation(
+        _board.BoardMutation(receipt["payload"], True, receipt.get("event")),
+        repo_root=ROOT,
+    )
     claim = receipt["claim"]
     return {
         "action": "claimed",

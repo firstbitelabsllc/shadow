@@ -58,6 +58,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         "tests.test_board_schema", "tests.test_huddle_event", "tests.test_huddle_cli",
         "tests.test_huddle_amp", "tests.test_huddle_status", "tests.test_shadow_host",
         "tests.test_local_plan_store", "tests.test_authority_proposal", "tests.test_browser",
+        "tests.test_lifecycle",
     )),
     (("scripts/shadow-status.py", "scripts/shadow-priority.py", "scripts/shadow-doctor.py"), (
         "tests.test_status_focus", "tests.test_status_fast_path",
@@ -66,6 +67,7 @@ GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("scripts/shadow-huddle.py", "scripts/shadow_huddle_event.py"), (
         "tests.test_huddle", "tests.test_huddle_cli", "tests.test_huddle_event", "tests.test_huddle_status",
         "tests.test_throw", "tests.test_shadow_host", "tests.test_shadow_accept", "tests.test_return",
+        "tests.test_lifecycle",
     )),
     (("scripts/shadow-amp.py",), ("tests.test_amp", "tests.test_huddle_amp", "tests.test_throw", "tests.test_status_focus")),
     ((

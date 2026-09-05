@@ -63,6 +63,7 @@ class HuddleSelectionTests(unittest.TestCase):
                              ("scripts/shadow_root_board.py", "tests.test_huddle_cli"),
                              ("scripts/shadow_root_board.py", "tests.test_local_plan_store"),
                              ("scripts/shadow_root_board.py", "tests.test_authority_proposal"),
+                             ("scripts/shadow_root_board.py", "tests.test_lifecycle"),
                              ("scripts/shadow_board_schema.py", "tests.test_browser"),
                              ("scripts/shadow-amp.py", "tests.test_huddle_amp"),
                              ("scripts/shadow-throw.py", "tests.test_huddle_amp"),
