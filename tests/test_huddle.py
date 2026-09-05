@@ -638,8 +638,9 @@ class HuddleScopeTransitionTests(HuddleTestCase):
             with self.subTest(access=access), self.assertRaises(board_api.BoardError):
                 self.preflight(repo, b, scope, access=access)
             self.assertEqual(self.authority(), before)
+        self.assertFalse(self.preflight(repo, a, ["a"], now=NOW + timedelta(minutes=2)).changed)
         with self.assertRaises(board_api.BoardError):
-            self.preflight(repo, a, ["a"], now=NOW + timedelta(minutes=2))
+            self.preflight(repo, a, ["a", "b"], now=NOW + timedelta(minutes=2))
         self.assertEqual(self.authority(), before)
 
     def test_stale_board_preflight_never_changes_scope_or_generation(self):

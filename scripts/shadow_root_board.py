@@ -2507,7 +2507,21 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
             raise BoardError("preflight claim instance changed")
         if claim["owner"] != owner:
             raise AlreadyClaimed(claim["owner"])
+        before = copy.deepcopy(claim)
+        observed_binding = None if access == "read_only" else repository_binding(repo)
+        binding = observed_binding
+        if observed_binding is not None and claim["repository_binding"] is not None:
+            if not _same_repository(observed_binding, claim["repository_binding"]):
+                raise BoardError("preflight repository binding changed")
+            binding = claim["repository_binding"]
+        scope, component_witnesses = _scope_snapshot(repo, write_scope)
+        if access == "write" and any(c is not claim and c["access"] == "unscoped" and c["repository_binding"] is None for c in payload["claims"]):
+            raise BoardError("legacy_binding_unknown: classify or return every unbound legacy claim")
         involved = [h for h in payload["huddles"] if h["state"] != "resolved" and _claim_ref(claim) in h["claims"]]
+        if involved and access == claim["access"] == "write" and scope == claim["write_scope"]:
+            # Repeating an authorized scope does not advance a round or revoke
+            # a selected writer. Each execution door still checks live holds.
+            return BoardMutation(copy.deepcopy(payload), False, None)
         if involved:
             h = involved[0]
             if h["state"] not in ("awaiting_scope", "open_round_1", "open_round_2"):
@@ -2525,17 +2539,7 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
                 if access != "write" or any(not any(old == "." or p == old or p.startswith(old + "/")
                     for old in claim["write_scope"]) for p in scope):
                     raise BoardError("held claim cannot expand its scope or clear its hold through access changes")
-        before = copy.deepcopy(claim)
-        observed_binding = None if access == "read_only" else repository_binding(repo)
-        binding = observed_binding
-        if observed_binding is not None and claim["repository_binding"] is not None:
-            if not _same_repository(observed_binding, claim["repository_binding"]):
-                raise BoardError("preflight repository binding changed")
-            binding = claim["repository_binding"]
-        scope, component_witnesses = _scope_snapshot(repo, write_scope)
         claim.update(access=access, write_scope=scope, repository_binding=binding)
-        if access == "write" and any(c["access"] == "unscoped" and c["repository_binding"] is None for c in payload["claims"]):
-            raise BoardError("legacy_binding_unknown: classify or return every unbound legacy claim")
         peers = [c for c in payload["claims"] if c is not claim and _scope_edge(claim, c)] if access != "read_only" else []
         huddle = None
         if peers or (involved and claim != before):
@@ -2553,6 +2557,65 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
         event = None if huddle is None else {"schema": "shadow.huddle-delivery-event.v1", "event": "huddle_changed",
             "huddle_id": huddle["id"], "generation": huddle["generation"]}
         return BoardMutation(copy.deepcopy(payload), True, event)
+
+
+def authorize_host_attempt(*, context: dict | None, repo: Path, write_scope: list[str],
+                           authority_proposal: bool, now: datetime,
+                           home: Path | None = None) -> BoardMutation | None:
+    """Preflight a host door, then recheck its exact claim before dispatch.
+
+    V1 remains staged off. No-change proposals check ownership without changing
+    access. The lock is released before the external worker runs; this is a
+    cooperative launch authorization, not an operating-system write sandbox.
+    """
+    observed = snapshot(home=home)
+    if observed is None or observed["schema"] == V1_SCHEMA:
+        if context is not None:
+            raise BoardError("host claim context requires a v2 board")
+        return None
+    if not isinstance(context, dict) or set(context) != {
+        "entity", "row", "owner", "claim_revision", "board_revision"
+    }:
+        raise BoardError("host requires one complete exact claim context")
+    if (not isinstance(context["entity"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", context["entity"]) is None
+        or not isinstance(context["row"], str) or ROW_ID.fullmatch(context["row"]) is None
+        or not isinstance(context["owner"], str) or not context["owner"]
+        or len(context["owner"]) > 160
+        or any(type(context[key]) is not int or context[key] < 0
+               for key in ("claim_revision", "board_revision"))):
+        raise BoardError("host claim context is malformed")
+    scope, witnesses = _scope_snapshot(repo, write_scope)
+    # Native editors do not promise no-follow operations on a terminal link.
+    if any((repo / prefix).is_symlink() for prefix in scope):
+        raise BoardError("host scope cannot dereference a terminal symlink")
+    binding = repository_binding(repo)
+    result = None
+    revision = context["board_revision"]
+    if not authority_proposal:
+        result = preflight_access(
+            entity=context["entity"], row=context["row"], owner=context["owner"],
+            repo=repo, access="write", write_scope=write_scope,
+            expected_claim_revision=context["claim_revision"],
+            expected_board_revision=revision, now=now, home=home)
+        revision = result.payload["revision"]
+    with _transaction(home) as (_, _, payload):
+        if payload["schema"] != V2_SCHEMA or payload["revision"] != revision:
+            raise BoardError("host board changed; repeat preflight")
+        claim = next((c for c in payload["claims"] if c["entity"] == context["entity"]
+                      and c["row"] == context["row"]), None)
+        if (claim is None or claim["owner"] != context["owner"]
+            or claim["claim_revision"] != context["claim_revision"]):
+            raise BoardError("host claim instance changed")
+        if claim["repository_binding"] is None or not _same_repository(binding, claim["repository_binding"]):
+            raise BoardError("host repository does not match the bound claim")
+        if any(_claim_ref(claim) in h["holds"] for h in payload["huddles"] if h["state"] != "resolved"):
+            raise BoardError("host claim is held; settle or return before launch")
+        if repository_binding(repo) != binding or _scope_snapshot(repo, write_scope) != (scope, witnesses):
+            raise BoardError("host repository or scope changed; repeat preflight")
+        if any((repo / prefix).is_symlink() for prefix in scope):
+            raise BoardError("host scope cannot dereference a terminal symlink")
+        return result or BoardMutation(copy.deepcopy(payload), False, None)
 
 
 def _rollback_v2_to_v1(
