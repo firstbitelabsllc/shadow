@@ -2886,16 +2886,9 @@ def _release_state(plan: Path, row: str, reason: str, *, text: str | None = None
             raise BoardError("completed return requires the completed row and its PROOF receipt")
         return
     if reason == "blocked":
-        matching_wakes = []
-        for line in section_lines(text, "Deferred"):
-            match = re.match(r"^- (?P<id>~[0-9a-z]{4})(?:\s|$)", line)
-            if (
-                match is not None
-                and match.group("id") == row
-                and re.search(r"(?:^|\| )wake: \S", line)
-            ):
-                matching_wakes.append(line)
-        if len(matching_wakes) != 1:
+        try:
+            _grammar.deferred_wake_projection(text, row)
+        except ValueError:
             raise BoardError("blocked return requires one Deferred entry naming the row and wake")
         if state != "blocked":
             raise BoardError("blocked return requires the project row to be blocked")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,22 @@ assert SPEC and SPEC.loader
 lifecycle = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = lifecycle
 SPEC.loader.exec_module(lifecycle)
+
+CLEAN_SPEC = importlib.util.spec_from_file_location(
+    "shadow_clean_lifecycle_test", ROOT / "scripts" / "shadow_clean.py"
+)
+assert CLEAN_SPEC and CLEAN_SPEC.loader
+clean = importlib.util.module_from_spec(CLEAN_SPEC)
+sys.modules[CLEAN_SPEC.name] = clean
+CLEAN_SPEC.loader.exec_module(clean)
+
+ACCEPT_SPEC = importlib.util.spec_from_file_location(
+    "shadow_accept_lifecycle_test", ROOT / "scripts" / "shadow-accept.py"
+)
+assert ACCEPT_SPEC and ACCEPT_SPEC.loader
+accept = importlib.util.module_from_spec(ACCEPT_SPEC)
+sys.modules[ACCEPT_SPEC.name] = accept
+ACCEPT_SPEC.loader.exec_module(accept)
 
 
 PLAN = """# Demo
@@ -3230,6 +3247,360 @@ class GitProbesIgnoreAmbientRedirects(unittest.TestCase):
             self.assertIn("refused", result.stderr)
             self.assertIn("--by is unsafe", result.stderr)
             self.assertNotIn("Traceback", result.stderr)
+
+class LifecycleAutomaticCleanupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name) / "home"
+        self.home.mkdir()
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+
+    def test_absent_preference_is_disabled_and_zero_write(self) -> None:
+        self.assertEqual(clean.automatic_status(home=self.home)["automatic_trash"], False)
+        self.assertFalse((self.home / ".shadow").exists())
+        with mock.patch.object(clean, "_valid_records", side_effect=AssertionError("scan")):
+            report = clean.run_automatic_cleanup(self.repo, home=self.home)
+        self.assertFalse(report["enabled"])
+        self.assertFalse((self.home / ".shadow").exists())
+
+    def test_preference_is_strict_and_atomic(self) -> None:
+        self.assertTrue(clean._write_automatic(True, home=self.home))
+        path = self.home / ".shadow" / "clean" / "automatic.json"
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+        self.assertFalse(clean._write_automatic(True, home=self.home))
+        self.assertTrue(clean.automatic_status(home=self.home)["automatic_trash"])
+        path.chmod(0o644)
+        with self.assertRaises(clean.CleanError):
+            clean.automatic_status(home=self.home)
+
+    def test_preference_rejects_extra_fields_and_symlink(self) -> None:
+        path = self.home / ".shadow" / "clean" / "automatic.json"
+        path.parent.mkdir(parents=True, mode=0o700)
+        path.write_text(
+            json.dumps({
+                "schema": clean.AUTOMATIC_SCHEMA,
+                "automatic_trash": True,
+                "unexpected": True,
+            })
+            + "\n",
+            encoding="utf-8",
+        )
+        path.chmod(0o600)
+        with self.assertRaises(clean.CleanError):
+            clean.automatic_status(home=self.home)
+        path.unlink()
+        target = path.with_name("target.json")
+        target.write_text(
+            json.dumps({"schema": clean.AUTOMATIC_SCHEMA, "automatic_trash": True}) + "\n",
+            encoding="utf-8",
+        )
+        target.chmod(0o600)
+        path.symlink_to(target)
+        with self.assertRaises(clean.CleanError):
+            clean.automatic_status(home=self.home)
+
+    def test_enabled_pass_previews_prepares_and_applies_each_candidate_once(self) -> None:
+        clean._write_automatic(True, home=self.home)
+        receipt = {
+            "receipt_sha256": "a" * 64,
+            "claim": {"entity": "b" * 64, "checkpoint": "~aa11"},
+            "worktree": {"path": str(self.repo / "child")},
+            "initial": {"head": "c" * 40},
+            "landed_ref": "refs/heads/main",
+            "issuance_journal_sha256": "d" * 64,
+        }
+        journal = {"source_repo": str(self.repo)}
+        with (
+            mock.patch.object(clean, "_valid_records", return_value=[(receipt, journal)]),
+            mock.patch.object(clean, "_preview_refusal", return_value=None) as preview,
+            mock.patch.object(clean, "prepare_manifest", return_value={"id": "manifest@aaaaaaaaaaaa", "cas": "e" * 64}) as prepare,
+            mock.patch.object(clean, "apply_manifest", return_value={"action": "trashed", "changed": True}) as apply,
+        ):
+            report = clean.run_automatic_cleanup(self.repo, home=self.home, trash_root=self.repo)
+        preview.assert_called_once()
+        prepare.assert_called_once()
+        apply.assert_called_once_with(
+            "manifest@aaaaaaaaaaaa", expected_sha256="e" * 64,
+            home=self.home, trash_root=self.repo,
+        )
+        self.assertTrue(report["changed"])
+        self.assertNotIn(str(self.repo), json.dumps(report))
+
+    def test_refusal_is_path_free_and_never_retried(self) -> None:
+        clean._write_automatic(True, home=self.home)
+        receipt = {
+            "receipt_sha256": "a" * 64,
+            "claim": {"entity": "b" * 64, "checkpoint": "~aa11"},
+            "worktree": {"path": str(self.repo / "child")},
+            "initial": {"head": "c" * 40},
+            "landed_ref": "refs/heads/main",
+            "issuance_journal_sha256": "d" * 64,
+        }
+        with (
+            mock.patch.object(clean, "_valid_records", return_value=[(receipt, {"source_repo": str(self.repo)})]),
+            mock.patch.object(clean, "_preview_refusal", return_value=None),
+            mock.patch.object(clean, "prepare_manifest", return_value={"id": "manifest@aaaaaaaaaaaa", "cas": "e" * 64}),
+            mock.patch.object(clean, "apply_manifest", side_effect=clean.CleanError("recovery required at /private/path")) as apply,
+        ):
+            report = clean.run_automatic_cleanup(self.repo, home=self.home, trash_root=self.repo)
+        apply.assert_called_once()
+        self.assertEqual(report["candidates"][0]["reason"], "recovery required")
+        self.assertNotIn("/private/path", json.dumps(report))
+
+    def test_auto_control_is_mutually_exclusive_with_cleanup_operations(self) -> None:
+        result = subprocess.run(
+            [str(CLI), "clean", "--auto", "enable", "--repo", str(self.repo)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "HOME": str(self.home)},
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("mutually exclusive", result.stderr)
+        self.assertFalse((self.home / ".shadow").exists())
+
+    def test_status_reports_status_action_without_writing(self) -> None:
+        result = subprocess.run(
+            [str(CLI), "clean", "--auto", "status", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "HOME": str(self.home)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["action"], "status")
+        self.assertFalse(payload["automatic_trash"])
+        self.assertFalse((self.home / ".shadow").exists())
+        human = subprocess.run(
+            [str(CLI), "clean", "--auto", "status"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "HOME": str(self.home)},
+        )
+        self.assertEqual(human.returncode, 0, human.stderr)
+        self.assertIn("automatic cleanup: disabled", human.stdout)
+
+    def test_automatic_run_has_distinct_schema(self) -> None:
+        clean._write_automatic(True, home=self.home)
+        with mock.patch.object(clean, "_valid_records", return_value=[]):
+            report = clean.run_automatic_cleanup(self.repo, home=self.home)
+        self.assertEqual(report["schema"], "shadow.clean-automatic-run.v1")
+
+    def test_finalize_completion_reports_exact_release_boundary(self) -> None:
+        args = (
+            self.repo,
+            self.repo / "PLAN.md",
+            "~aa11",
+            "seat",
+            {"entity": "e" * 64, "row": "~aa11", "owner": "seat"},
+            {"head": "a" * 40},
+            "plan",
+            [],
+            False,
+            "done",
+        )
+        with (
+            mock.patch.object(accept, "remote_completion_receipt", return_value=None),
+            mock.patch.object(accept._remote_claim, "managed_for_release", return_value=False),
+            mock.patch.object(accept, "publish_completion", return_value=0),
+            mock.patch.object(accept._board, "release") as release,
+        ):
+            self.assertEqual(accept.finalize_completion(*args), (0, True))
+            release.assert_called_once()
+
+        unmanaged_no_push_args = (*args[:8], True, args[9])
+        with (
+            mock.patch.object(accept, "remote_completion_receipt", return_value=None),
+            mock.patch.object(accept._remote_claim, "managed_for_release", return_value=False),
+            mock.patch.object(accept, "publish_completion", return_value=0),
+            mock.patch.object(accept._board, "release") as release,
+        ):
+            self.assertEqual(accept.finalize_completion(*unmanaged_no_push_args), (0, True))
+            release.assert_called_once()
+
+        managed_args = (*args[:8], True, args[9])
+        with (
+            mock.patch.object(accept, "remote_completion_receipt", return_value={"owner": "seat"}),
+            mock.patch.object(accept._remote_claim, "managed_for_release", return_value=True),
+            mock.patch.object(accept, "publish_completion", return_value=0),
+            mock.patch.object(accept._board, "release") as release,
+        ):
+            self.assertEqual(accept.finalize_completion(*managed_args), (0, False))
+            release.assert_not_called()
+
+    def test_accept_hook_requires_actual_release_and_prints_one_bounded_report(self) -> None:
+        report = {
+            "schema": "shadow.clean-automatic-run.v1",
+            "enabled": True,
+            "changed": False,
+            "candidates": [{"id": "worktree@aaaaaaaaaaaa", "state": "refused", "reason": "recovery required"}],
+        }
+        with (
+            mock.patch.object(accept._board, "entity_id", return_value="e" * 64),
+            mock.patch.object(accept._clean, "run_automatic_cleanup", return_value=report) as runner,
+            mock.patch("builtins.print") as output,
+        ):
+            accept._automatic_after_accept(
+                self.repo, self.repo / "PLAN.md", "~aa11", 0, released=False
+            )
+            runner.assert_not_called()
+            output.assert_not_called()
+            accept._automatic_after_accept(
+                self.repo, self.repo / "PLAN.md", "~aa11", 0, released=True
+            )
+            runner.assert_called_once()
+            self.assertEqual(output.call_count, 1)
+            rendered = output.call_args.args[0]
+            self.assertIn("automatic cleanup:", rendered)
+            self.assertNotIn(str(self.repo), rendered)
+
+    def test_accept_hook_reports_runner_failure_once_without_changing_success(self) -> None:
+        with (
+            mock.patch.object(accept._board, "entity_id", return_value="e" * 64),
+            mock.patch.object(
+                accept._clean,
+                "run_automatic_cleanup",
+                side_effect=clean.CleanError("recovery required at /private/worktree"),
+            ) as runner,
+            mock.patch("builtins.print") as output,
+        ):
+            accept._automatic_after_accept(
+                self.repo, self.repo / "PLAN.md", "~aa11", 0, released=True
+            )
+        runner.assert_called_once()
+        output.assert_called_once()
+        rendered = output.call_args.args[0]
+        self.assertIn('"schema":"shadow.clean-automatic-run.v1"', rendered)
+        self.assertIn('"reason":"recovery required"', rendered)
+        self.assertNotIn("/private/worktree", rendered)
+
+    def test_lifecycle_runs_automatic_cleanup_only_after_changed_apply(self) -> None:
+        base = {"ok": True, "changed": True, "action": "archived"}
+        with (
+            mock.patch.object(lifecycle._board, "validate_owner"),
+            mock.patch.object(lifecycle, "apply", return_value=base),
+            mock.patch.object(
+                lifecycle._clean,
+                "run_automatic_cleanup",
+                return_value={
+                    "schema": "shadow.clean-automatic-run.v1",
+                    "action": "automatic_cleanup",
+                    "enabled": True,
+                    "changed": False,
+                    "candidates": [],
+                },
+            ) as runner,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            self.assertEqual(
+                lifecycle.main([
+                    "--repo", str(self.repo), "--milestone", "M", "--apply",
+                    "--expect", "cas", "--by", "seat", "--json",
+                ]),
+                0,
+            )
+        runner.assert_called_once_with(self.repo)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["automatic_cleanup"]["schema"], "shadow.clean-automatic-run.v1")
+
+    def test_lifecycle_skips_automatic_cleanup_for_noop_or_failed_apply(self) -> None:
+        for result in (
+            {"ok": True, "changed": False, "action": "already_archived"},
+            {"ok": False, "changed": False, "action": "refused", "error": "no"},
+        ):
+            with (
+                mock.patch.object(lifecycle._board, "validate_owner"),
+                mock.patch.object(lifecycle, "apply", return_value=result),
+                mock.patch.object(lifecycle._clean, "run_automatic_cleanup") as runner,
+                mock.patch("sys.stdout", new_callable=io.StringIO),
+            ):
+                lifecycle.main([
+                    "--repo", str(self.repo), "--milestone", "M", "--apply",
+                    "--expect", "cas", "--by", "seat", "--json",
+                ])
+            runner.assert_not_called()
+
+    def test_real_accept_release_trashes_one_managed_child_when_opted_in(self) -> None:
+        plan = self.repo / "PLAN.md"
+        plan_text = """# Demo
+
+## Brief
+
+- Project: demo
+- Mode: ship
+
+## Tasks
+
+### Work
+- [in_progress] x.txt says hello ~aa11 | proof: cmd true
+- [pending] follow-up remains ~bb22 (DoD) | proof: cmd true | needs: ~aa11
+
+## Progress
+
+- 2026-09-04T00:00:00Z NOTE seeded
+"""
+        git(self.repo, "init", "-q")
+        git(self.repo, "config", "user.email", "test@example.invalid")
+        git(self.repo, "config", "user.name", "Lifecycle Tests")
+        (self.repo / "x.txt").write_text("hello\n", encoding="utf-8")
+        plan.write_text(plan_text, encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", "seed")
+        entity = clean._board.entity_id(plan)
+        clean._board.claim(
+            plan, "~aa11", "seat-a", project="demo", priority=2, home=self.home
+        )
+        destination = Path(self.tmp.name) / "managed-child"
+        landed_ref = f"refs/heads/{git(self.repo, 'branch', '--show-current')}"
+        created = subprocess.run(
+            [
+                str(CLI), "clean", "--create", "--repo", str(self.repo),
+                "--worktree", str(destination), "--entity", entity,
+                "--row", "~aa11", "--by", "seat-a", "--landed-ref", landed_ref,
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "HOME": str(self.home)},
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        self.assertTrue(destination.is_dir())
+        (self.home / ".Trash").mkdir()
+        enabled = subprocess.run(
+            [str(CLI), "clean", "--auto", "enable"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "HOME": str(self.home)},
+        )
+        self.assertEqual(enabled.returncode, 0, enabled.stderr)
+        accepted = subprocess.run(
+            [
+                sys.executable, str(ROOT / "scripts" / "shadow-accept.py"),
+                "--repo", str(self.repo), "--row", "~aa11", "--by", "seat-a",
+                "--no-push",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "HOME": str(self.home)},
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        self.assertIn("automatic cleanup:", accepted.stdout)
+        self.assertFalse(destination.exists())
+        self.assertEqual(len(list((self.home / ".Trash").iterdir())), 1)
+        self.assertEqual(
+            len(list((self.home / ".shadow" / "clean" / "trash-receipts").glob("*.json"))),
+            1,
+        )
+        state = clean._board.entity_state(plan, home=self.home)
+        self.assertEqual(state["claims"], [])
 
 
 if __name__ == "__main__":

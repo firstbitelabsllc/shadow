@@ -33,6 +33,13 @@ CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
 # growth budget, not a target.
 MAX_FILE_COUNT = 160
 MAX_UNPACKED_BYTES = 2_000_000
+STRANGER_CLEANUP_PROOF = {
+    "preview_zero_write": True,
+    "auto_round_trip": True,
+    "creation_receipt": True,
+    "manifest_apply": True,
+    "trash_recovery": True,
+}
 REQUIRED_FILES = {
     ".agents/plugins/marketplace.json",
     ".claude-plugin/plugin.json",
@@ -58,6 +65,8 @@ REQUIRED_FILES = {
     "scripts/shadow-return.py",
     "scripts/shadow-priority.py",
     "scripts/shadow-lifecycle.py",
+    "scripts/shadow-clean.py",
+    "scripts/shadow_clean.py",
     "scripts/shadow_board_import.py",
     "browser/board_projection.py",
     "browser/static/gallery.css",
@@ -383,7 +392,7 @@ def commit_disposable_fixture(project: Path) -> None:
     )
 
 
-def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
+def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[str, bool]:
     """Prove a stranger can install from the archive with Git, Bash, Python —
     exactly the path install.sh documents."""
     consumer = root / "consumer"
@@ -444,6 +453,16 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
             "--expect CAS",
             "--by SEAT",
         ),
+        "clean": (
+            "strictly zero-write",
+            "--auto enable|disable|status",
+            "--create",
+            "--prepare",
+            "--apply --manifest /ABS/manifest.json --expect CAS --by SEAT",
+            "--restore --receipt WORKTREE_ID",
+            "recoverable Trash",
+            "never hard-deletes or force-removes",
+        ),
     }
     for verb, clauses in expected_help.items():
         output = command([str(cli), "help", verb], consumer, env=env).stdout
@@ -488,7 +507,10 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
         raise RuntimeError("installed two-seat harness did not complete its offline proof")
     project = root / "installed-project"
     project.mkdir()
+    trash = home / ".Trash"
+    trash.mkdir()
     command(["git", "init", "--quiet"], project)
+    command(["git", "branch", "-M", "main"], project)
     command(["git", "config", "user.name", "Shadow Stranger"], project)
     command(["git", "config", "user.email", "shadow-stranger@example.invalid"], project)
     (project / "PLAN.md").write_text(
@@ -508,20 +530,213 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> None:
     command(["git", "add", "PLAN.md"], project)
     commit_disposable_fixture(project)
     lifecycle_env = {**env, "SHADOW_PORTFOLIO_ROOT": str(project)}
+    def json_command(arguments: list[str]) -> dict[str, Any]:
+        output = command([str(cli), *arguments, "--json"], project, env=lifecycle_env).stdout
+        value = json.loads(output)
+        if not isinstance(value, dict):
+            raise RuntimeError("installed command returned a non-object JSON proof")
+        return value
+
+    def count_files(directory: Path, pattern: str = "*") -> int:
+        return len([path for path in directory.glob(pattern) if path.is_file()]) if directory.is_dir() else 0
+
+    def count_entries(directory: Path) -> int:
+        return len(list(directory.iterdir())) if directory.is_dir() else 0
+
+    def tree_snapshot(directory: Path) -> tuple[tuple[str, int, int, int, int, int, str], ...]:
+        if not directory.is_dir():
+            return ()
+        entries = []
+        for path in sorted(directory.rglob("*"), key=lambda item: str(item.relative_to(directory))):
+            metadata = path.lstat()
+            if path.is_symlink():
+                digest = f"symlink:{os.readlink(path)}"
+            elif path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            else:
+                digest = "directory"
+            entries.append((
+                str(path.relative_to(directory)),
+                metadata.st_mode,
+                metadata.st_size,
+                metadata.st_ino,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+                digest,
+            ))
+        return tuple(entries)
+
+    preference = home / ".shadow" / "clean" / "automatic.json"
+    clean_root = home / ".shadow" / "clean"
+    initial_status = json_command(["clean", "--auto", "status"])
+    if initial_status.get("automatic_trash") is not False or preference.exists() or clean_root.exists():
+        raise RuntimeError("installed automatic cleanup was not disabled without a write")
+
     command([str(cli), "status", "--root", str(project), "--by", "release-seat", "--json"], project, env=lifecycle_env)
     command([str(cli), "throw", "--repo", str(project), "--task", "~aa11", "--by", "release-seat"], project, env=lifecycle_env)
     packet = command([str(cli), "amp", "--repo", str(project), "--task", "~aa11", "--by", "release-seat"], project, env=lifecycle_env).stdout
     if "/goal" not in packet:
         raise RuntimeError("installed claim did not produce its owned packet")
+
+    board = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
+    matching_entities = [
+        item for item in board["entities"]
+        if Path(item.get("plan", "")).resolve() == (project / "PLAN.md").resolve()
+    ]
+    entity = matching_entities[0]["id"] if len(matching_entities) == 1 else None
+    if not entity:
+        raise RuntimeError("installed claim did not register its entity")
+    first_child = project.parent / "installed-child-a"
+    created = json_command([
+        "clean", "--create", "--repo", str(project), "--worktree", str(first_child),
+        "--entity", entity, "--row", "~aa11", "--by", "release-seat", "--landed-ref", "refs/heads/main",
+    ])
+    first_id = created.get("id")
+    if not isinstance(first_id, str) or not first_id.startswith("worktree@") or not first_child.is_dir():
+        raise RuntimeError("installed clean --create did not issue a managed child")
+    creation_receipts = sorted((clean_root / "receipts").glob("*.json"))
+    if len(creation_receipts) != 1:
+        raise RuntimeError("installed clean --create did not persist one creation receipt")
+    creation_receipt = json.loads(creation_receipts[0].read_text(encoding="utf-8"))
+    if (
+        creation_receipt.get("schema") != "shadow.worktree-creation.v1"
+        or creation_receipt.get("claim") != {
+            "entity": entity,
+            "checkpoint": "~aa11",
+            "seat": "release-seat",
+        }
+        or creation_receipt.get("worktree", {}).get("path") != str(first_child)
+        or first_id != f"worktree@{creation_receipt.get('receipt_sha256', '')[:12]}"
+    ):
+        raise RuntimeError("installed creation receipt did not bind exact provenance")
+    before_preview_clean = tree_snapshot(clean_root)
+    before_preview_trash = tree_snapshot(trash)
+    refused = json_command(["clean", "--repo", str(project)])
+    first_preview = next((item for item in refused.get("candidates", []) if item.get("id") == first_id), None)
+    if (
+        not isinstance(first_preview, dict)
+        or first_preview.get("state") != "refused"
+        or first_preview.get("reason") not in {"active claim", "checkpoint is not terminal"}
+        or tree_snapshot(clean_root) != before_preview_clean
+        or tree_snapshot(trash) != before_preview_trash
+        or preference.exists()
+    ):
+        raise RuntimeError("installed default cleanup preview did not preserve the active claim refusal")
+
     command([str(cli), "accept", "--repo", str(project), "--row", "~aa11", "--by", "release-seat", "--no-push"], project, env=lifecycle_env)
+    eligible = json_command(["clean", "--repo", str(project)])
+    first_preview = next((item for item in eligible.get("candidates", []) if item.get("id") == first_id), None)
+    if not isinstance(first_preview, dict) or first_preview.get("state") != "eligible":
+        raise RuntimeError("installed accepted child did not become eligible")
+    prepared = json_command(["clean", "--prepare", "--worktree", str(first_child)])
+    manifest_id, manifest_cas = prepared.get("id"), prepared.get("cas")
+    if not isinstance(manifest_id, str) or not manifest_id.startswith("manifest@") or not isinstance(manifest_cas, str):
+        raise RuntimeError("installed clean --prepare did not issue an opaque manifest and CAS")
+    original_inode = first_child.lstat().st_ino
+    applied = json_command(["clean", "--apply", "--manifest", manifest_id, "--expect", manifest_cas, "--by", "release-seat"])
+    if applied.get("action") != "trashed" or applied.get("receipt") != first_id or first_child.exists():
+        raise RuntimeError("installed clean --apply did not move the exact child to Trash")
+    first_receipts = count_files(clean_root / "trash-receipts", "*.json")
+    trash_entries = list(trash.iterdir())
+    if (
+        len(trash_entries) != 1
+        or trash_entries[0].lstat().st_ino != original_inode
+        or first_receipts != 1
+    ):
+        raise RuntimeError("installed clean --apply did not leave one recoverable Trash artifact and receipt")
+    restored_preview = json_command(["clean", "--restore", "--receipt", first_id])
+    restore_cas = restored_preview.get("cas")
+    if restored_preview.get("action") != "would_restore" or not isinstance(restore_cas, str):
+        raise RuntimeError("installed clean --restore preview did not issue a CAS")
+    restored = json_command(["clean", "--restore", "--receipt", first_id, "--apply", "--expect", restore_cas])
+    if (
+        restored.get("action") != "restored"
+        or not first_child.is_dir()
+        or first_child.lstat().st_ino != original_inode
+        or count_entries(trash) != 0
+    ):
+        raise RuntimeError("installed clean restore did not recover the original inode and path")
+
     command([str(cli), "throw", "--repo", str(project), "--task", "~bb22", "--by", "release-seat"], project, env=lifecycle_env)
-    command([str(cli), "return", "--repo", str(project), "--row", "~bb22", "--by", "release-seat"], project, env=lifecycle_env)
+    second_child = project.parent / "installed-child-b"
+    created_second = json_command([
+        "clean", "--create", "--repo", str(project), "--worktree", str(second_child),
+        "--entity", entity, "--row", "~bb22", "--by", "release-seat", "--landed-ref", "refs/heads/main",
+    ])
+    second_id = created_second.get("id")
+    if not isinstance(second_id, str) or not second_child.is_dir():
+        raise RuntimeError("installed clean --create did not issue the second managed child")
+    second_inode = second_child.lstat().st_ino
+    before_auto_receipts = {
+        path.name for path in (clean_root / "trash-receipts").glob("*.json")
+    }
+    command([str(cli), "clean", "--auto", "enable"], project, env=lifecycle_env)
+    enabled_status = json_command(["clean", "--auto", "status"])
+    if (
+        enabled_status.get("automatic_trash") is not True
+        or not preference.is_file()
+        or preference.lstat().st_mode & 0o777 != 0o600
+    ):
+        raise RuntimeError("installed automatic cleanup preference did not enable exactly")
+    accepted = command(
+        [str(cli), "accept", "--repo", str(project), "--row", "~bb22", "--by", "release-seat", "--no-push"],
+        project,
+        env=lifecycle_env,
+    )
+    automatic_output = accepted.stdout
+    automatic_trash_entries = list(trash.iterdir())
+    after_auto_receipts = {
+        path.name for path in (clean_root / "trash-receipts").glob("*.json")
+    }
+    new_receipts = after_auto_receipts - before_auto_receipts
+    automatic_receipt = (
+        json.loads(
+            ((clean_root / "trash-receipts") / next(iter(new_receipts))).read_text(
+                encoding="utf-8"
+            )
+        )
+        if len(new_receipts) == 1
+        else {}
+    )
+    if (
+        "automatic cleanup:" not in automatic_output
+        or str(home) in automatic_output
+        or str(project) in automatic_output
+        or second_child.exists()
+        or not first_child.is_dir()
+        or len(automatic_trash_entries) != 1
+        or automatic_trash_entries[0].lstat().st_ino != second_inode
+        or count_files(clean_root / "trash-receipts", "*.json") != first_receipts + 1
+        or automatic_receipt.get("schema") != "shadow.clean-trash-receipt.v1"
+        or automatic_receipt.get("worktree_id") != second_id
+        or automatic_receipt.get("target") != str(second_child)
+        or automatic_receipt.get("trash") != str(automatic_trash_entries[0])
+        or automatic_receipt.get("inode") != second_inode
+        or automatic_receipt.get("entity") != entity
+        or automatic_receipt.get("checkpoint") != "~bb22"
+    ):
+        raise RuntimeError("installed lifecycle accept did not perform one bounded automatic Trash move")
+    command([str(cli), "clean", "--auto", "disable"], project, env=lifecycle_env)
+    final_status = json_command(["clean", "--auto", "status"])
+    if (
+        final_status.get("automatic_trash") is not False
+        or not preference.is_file()
+        or preference.lstat().st_mode & 0o777 != 0o600
+    ):
+        raise RuntimeError("installed automatic cleanup preference did not disable cleanly")
+
     board = json.loads((home / ".shadow" / "board.json").read_text(encoding="utf-8"))
     if board["claims"]:
         raise RuntimeError("installed lifecycle left a claim behind")
     completed = (project / "PLAN.md").read_text(encoding="utf-8")
-    if "[completed] claim and prove" not in completed or "~aa11 PROOF" not in completed:
+    if (
+        "[completed] claim and prove" not in completed
+        or "~aa11 PROOF" not in completed
+        or "[completed] return remains owner-safe" not in completed
+        or "~bb22 PROOF" not in completed
+    ):
         raise RuntimeError("installed accept did not persist its completion proof")
+    return dict(STRANGER_CLEANUP_PROOF)
 
 
 def verify(
@@ -570,9 +785,12 @@ def verify(
         if first_sha != second_sha or manifest.get("files") != second_manifest.get("files"):
             errors.append("repeated git archive runs are not reproducible")
         install_ok = False
+        cleanup_proof = {key: False for key in STRANGER_CLEANUP_PROOF}
         if not errors:
-            stranger_install(tarball, temp, version)
-            install_ok = True
+            cleanup_proof = stranger_install(tarball, temp, version)
+            install_ok = cleanup_proof == STRANGER_CLEANUP_PROOF
+            if not install_ok:
+                errors.append("stranger cleanup proof was incomplete")
     return {
         "schema": "shadow.release.v1",
         "ok": not errors,
@@ -587,6 +805,7 @@ def verify(
         "sha256": first_sha,
         "reproducible": first_sha == second_sha,
         "stranger_install": install_ok,
+        "stranger_cleanup": cleanup_proof,
         "dirty_files": dirty,
         "errors": errors,
     }
