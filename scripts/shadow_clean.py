@@ -1135,21 +1135,17 @@ def _process_holds(path: Path) -> None:
                 # Keying on `entry.exists()` alone read every exiting
                 # test-harness child as "unavailable" and failed the whole
                 # gate on the CI runner.
-                if isinstance(exc, FileNotFoundError) or not entry.exists():
+                if isinstance(exc, FileNotFoundError):
                     continue
-                # PermissionError on a same-uid process is real on hardened
-                # hosts: GitHub's runner denies /proc/<pid>/cwd for sandboxed
-                # children of this very user (observed: PID 1115, EACCES). A
-                # process we cannot read cannot be shown to hold the target,
-                # and refusing the whole gate for it made cleanup impossible
-                # on every CI host. The cwd/fd walk is one of two witnesses;
-                # the lsof pass below is the other, and it sees through this.
-                continue
-        # /proc was one witness. Corroborate with lsof when the host has it;
-        # a host with neither readable /proc nor lsof still fails closed.
-        lsof = shutil.which("lsof")
-        if not lsof:
-            return
+                if not entry.exists():
+                    continue
+                try:
+                    if "zombie" in (entry / "status").read_text().lower().split("state:", 1)[1].splitlines()[0]:
+                        continue
+                except (OSError, IndexError):
+                    pass
+                raise CleanError("process inspection unavailable")
+        return
     lsof = shutil.which("lsof")
     if not lsof:
         raise CleanError("process inspection unavailable")
