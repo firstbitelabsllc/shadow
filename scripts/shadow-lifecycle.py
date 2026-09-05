@@ -29,6 +29,7 @@ import shadow_git as _shadow_git  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
 from shadow_durable_lib import durable_write, fsync_directory  # noqa: E402
 from shadow_json_lib import json_text  # noqa: E402
+import shadow_clean as _clean  # noqa: E402
 
 
 MAX_PLAN_BYTES = _board.HOT_PLAN_MAX_BYTES
@@ -2660,6 +2661,13 @@ def print_text(report: dict, *, apply_mode: bool) -> None:
             )
         else:
             print(f"Successor: {successor['action']} — {successor['reason']}")
+    automatic = report.get("automatic_cleanup")
+    if isinstance(automatic, dict):
+        print(
+            "Automatic cleanup: "
+            f"{automatic.get('action', 'automatic_cleanup')} — "
+            f"{automatic.get('changed', False)}"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2748,6 +2756,21 @@ def main(argv: list[str] | None = None) -> int:
             "error": str(exc),
             "retirement": retirement_boundary(),
         }
+    if args.apply and report.get("ok") and report.get("changed"):
+        # Lifecycle cleanup is an optional post-commit boundary.  The
+        # operation above has fully unwound its plan lock before this call;
+        # cleanup refusal/recovery can never change the lifecycle result.
+        try:
+            report["automatic_cleanup"] = _clean.run_automatic_cleanup(repo)
+        except Exception as exc:
+            report["automatic_cleanup"] = {
+                "schema": _clean.AUTOMATIC_RUN_SCHEMA,
+                "action": "automatic_cleanup",
+                "enabled": False,
+                "changed": False,
+                "candidates": [],
+                "reason": _clean._public_reason(str(exc)),
+            }
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     elif report["action"] == "refused":

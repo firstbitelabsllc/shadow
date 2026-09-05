@@ -863,6 +863,48 @@ class ShadowAcceptTests(unittest.TestCase):
         )
         self.assertIsNone(accept.local_plan_source_identity(plan))
 
+    def test_legacy_source_collection_requires_row_prefix_and_known_shapes(
+        self,
+    ) -> None:
+        row = "~rlex"
+        accepted_at = "2026-08-22T20:40:26Z"
+        pending = PLAN.replace(
+            "### M — file speaks\n",
+            "### M — file speaks\n"
+            f"- [in_progress] remote completion reservation {row} | proof: cmd true\n"
+            "- [in_progress] attribution correction ~rgrc | proof: cmd true\n",
+        )
+        accepted = accept.completed_plan_text(
+            pending,
+            row,
+            ["true"],
+            accepted_at,
+        )
+        first = (
+            "- 2026-08-22T20:07:03Z ~rlex SOURCE / TEST -> candidate "
+            "eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
+            "on codex/remote-completion-reservation-20260822 adds remote "
+            "completion reservation proof\n"
+        )
+        follow_up = (
+            "- 2026-08-22T20:17:43Z ~rlex SOURCE / TEST FOLLOW-UP -> candidate "
+            "eebd1fb5855ecaa2560a6b3205f4b403e5b4ab2a "
+            "on codex/published-behind-completion-20260822 adds published-behind "
+            "completion proof\n"
+        )
+        embedded_cross_row = (
+            "- 2026-08-22T21:00:00Z ~rgrc ATTRIBUTION CORRECTION / ~rlex "
+            "SOURCE -> this belongs to the other row\n"
+        )
+        plan_text = accept.append_progress_line(
+            accept.append_progress_line(
+                accept.append_progress_line(accepted, first),
+                follow_up,
+            ),
+            embedded_cross_row,
+        )
+        self.assertIsNone(accept.local_plan_source_identity(plan_text))
+
     def test_local_completed_retry_uses_the_recorded_source_head(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()

@@ -483,11 +483,15 @@ class ShadowLintTests(unittest.TestCase):
         self.assertIn("MODE-ILLEGAL", bad.stdout)
 
     def test_cli_lints_every_file_and_aggregates_worst_exit(self) -> None:
+        # This aggregates lint results, not availability of an optional npm toolchain.
+        portable_plan = CLEAN_PLAN.replace("npm run test:pdp", "git status").replace(
+            "npm run smoke", "git diff --check"
+        )
         with tempfile.TemporaryDirectory() as dirname:
             clean = Path(dirname) / "clean.md"
-            clean.write_text(CLEAN_PLAN, encoding="utf-8")
+            clean.write_text(portable_plan, encoding="utf-8")
             dirty = Path(dirname) / "dirty.md"
-            dirty.write_text(CLEAN_PLAN.replace("- Mode: ship", "- Mode: turbo"), encoding="utf-8")
+            dirty.write_text(portable_plan.replace("- Mode: ship", "- Mode: turbo"), encoding="utf-8")
             missing = Path(dirname) / "missing.md"
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), str(clean), str(missing), str(dirty)],

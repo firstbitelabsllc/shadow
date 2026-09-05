@@ -240,7 +240,14 @@ def _event_start_ns(event: dict, fallback: int) -> int:
     recorded = event.get("recorded_at")
     if isinstance(recorded, str):
         try:
-            parsed = datetime.fromisoformat(recorded.replace("Z", "+00:00"))
+            # Python 3.10 accepts only three or six fractional digits.
+            # Normalize valid microsecond precision; retain malformed-clock fallback.
+            normalized = re.sub(
+                r"(\.\d{1,6})(?=[+-]\d{2}:\d{2}$)",
+                lambda match: match.group(1).ljust(7, "0"),
+                recorded.replace("Z", "+00:00"),
+            )
+            parsed = datetime.fromisoformat(normalized)
             return int(parsed.timestamp() * 1_000_000_000)
         except ValueError:
             pass

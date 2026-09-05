@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shadow.invalid/schemas/clean-manifest.v1.json",
+  "title": "Shadow clean manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "generated_at", "expires_at", "target", "entity", "checkpoint", "creation_receipt", "issuance_journal", "lifecycle_target"],
+  "properties": {
+    "schema": {"const": "shadow.clean-manifest.v1"},
+    "generated_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"},
+    "expires_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"},
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "head", "landed_ref"],
+      "properties": {
+        "kind": {"const": "worktree"}, "path": {"type": "string", "pattern": "^/"},
+        "head": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "landed_ref": {"type": "string", "pattern": "^refs/(heads|tags)/[-A-Za-z0-9._/]+$"}
+      }
+    },
+    "entity": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "checkpoint": {"type": "string", "pattern": "^~[0-9a-z]{4}$"},
+    "creation_receipt": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "issuance_journal": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lifecycle_target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "head", "landed_ref"],
+      "properties": {
+        "kind": {"const": "worktree"}, "head": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "landed_ref": {"type": "string", "pattern": "^refs/(heads|tags)/[-A-Za-z0-9._/]+$"}
+      }
+    }
+  }
+}

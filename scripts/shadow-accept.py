@@ -49,6 +49,7 @@ from shadow_cmd_proof import script_operand_issue  # noqa: E402
 import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_plan_store as _plan_store  # noqa: E402
 from shadow_durable_lib import durable_write  # noqa: E402
+import shadow_clean as _clean  # noqa: E402
 
 _AMP_SPEC = importlib.util.spec_from_file_location(
     "shadow_accept_amp", ROOT / "scripts" / "shadow-amp.py"
@@ -1450,7 +1451,7 @@ def accept_local_proposal(
     owner: str,
     proposal_path: Path,
     timeout_seconds: int,
-) -> int:
+) -> tuple[int, bool]:
     """Accept one untrusted completion proposal against machine-local authority."""
     proposal = load_authority_proposal(repo, proposal_path)
     if proposal["entity_id"] != entity_id:
@@ -1646,7 +1647,7 @@ def accept_local_proposal(
         f"accepted {row_id}: sealed Codex proposal proved marker {marker} "
         f"at floor {floor}; machine-local authority flipped at source HEAD {source_head}"
     )
-    return 0
+    return 0, True
 
 
 def accept_local_plan(
@@ -1655,7 +1656,7 @@ def accept_local_plan(
     row_id: str,
     owner: str,
     timeout_seconds: int,
-) -> int:
+) -> tuple[int, bool]:
     """Accept a private PLAN while reviewing its declared source checkout.
 
     Local plans are the machine authority, so their flip is an atomic local
@@ -1685,6 +1686,7 @@ def accept_local_plan(
                 raise AcceptError(
                     "the completed local row has no recorded passing observation"
                 )
+            released = False
             if claim is not None:
                 parsed = _amp._parse(plan_text)
                 parsed["claimed"] = set()
@@ -1703,11 +1705,12 @@ def accept_local_plan(
                     raise AcceptError(
                         f"local claim could not close after the observation check: {exc}"
                     ) from exc
+                released = True
             print(
                 f"accepted {row_id}: recorded observation authenticated; "
                 "root claim reconciled"
             )
-            return 0
+            return 0, released
         if not proof.startswith("cmd "):
             raise AcceptError("the completed local row was not accepted from a cmd proof")
         source_identity = bind_local_plan_to_proof_repo(
@@ -1737,6 +1740,7 @@ def accept_local_plan(
             timeout_seconds,
         ) as review:
             require_frozen_review_head(review, source_head)
+            released = False
             if claim is not None:
                 parsed = _amp._parse(plan_text)
                 parsed["claimed"] = set()
@@ -1755,11 +1759,12 @@ def accept_local_plan(
                     raise AcceptError(
                         f"local claim could not close after the proof review: {exc}"
                     ) from exc
+                released = True
         print(
             f"accepted {row_id}: completed proof reran at its recorded source; "
             "root claim reconciled"
         )
-        return 0
+        return 0, released
     if find_row(plan_text, row_id)[3].split(" ", 1)[0] in {"read", "gate"}:
         # Machine-local authority, judgment proof: nothing to rerun and
         # nothing to publish — the recorded observation is the receipt and
@@ -1811,7 +1816,7 @@ def accept_local_plan(
                     f"close: {exc}"
                 ) from exc
         print(f"accepted {row_id}: recorded observation accepted; local row flipped")
-        return 0
+        return 0, True
     source_identity = bind_local_plan_to_proof_repo(
         plan_text,
         repo,
@@ -1921,7 +1926,7 @@ def accept_local_plan(
         f"accepted {row_id}: proof and final lint passed at {source_identity} "
         f"HEAD {source_head}; local row flipped with its PROOF and SOURCE lines"
     )
-    return 0
+    return 0, True
 
 
 def unmet_needs(plan_text: str, needs: str) -> list[str]:
@@ -2657,7 +2662,7 @@ def finalize_completion(
     resumes: list[str],
     no_push: bool,
     summary: str,
-) -> int:
+) -> tuple[int, bool]:
     """Publish authority, close its remote journal, then release locally."""
     receipt = remote_completion_receipt(repo, plan_path, row_id, owner)
     try:
@@ -2668,19 +2673,22 @@ def finalize_completion(
     except _remote_claim.RemoteClaimError as exc:
         raise AcceptError(str(exc)) from exc
     if no_push and managed:
-        return publish_completion(
-            repo,
-            row_id,
-            True,
-            summary,
-            expected_head=plan_token["head"],
+        return (
+            publish_completion(
+                repo,
+                row_id,
+                True,
+                summary,
+                expected_head=plan_token["head"],
+            ),
+            False,
         )
     if managed:
         published = ensure_completion_published(
             repo, row_id, plan_token, plan_text, summary
         )
         if published:
-            return published
+            return published, False
         remote_claim = claim_from_remote_receipt(receipt) if receipt is not None else claim
         if receipt is not None and not completion_reservation_matches(claim, remote_claim):
             raise AcceptError(
@@ -2698,7 +2706,7 @@ def finalize_completion(
             expected_head=plan_token["head"],
         )
         if published:
-            return published
+            return published, False
     _board.release(
         plan_path,
         row_id,
@@ -2711,7 +2719,40 @@ def finalize_completion(
     )
     if managed:
         print(f"accepted {row_id}: {summary}; published and remote claim completed")
-    return 0
+    return 0, True
+
+
+def _automatic_after_accept(
+    repo: Path, plan_path: Path, row_id: str, result: int, *, released: bool,
+) -> None:
+    """Best-effort lifecycle boundary hook; never changes acceptance result."""
+    if result != 0 or not released:
+        return
+    try:
+        entity = _board.entity_id(plan_path)
+        report = _clean.run_automatic_cleanup(repo, entity=entity, checkpoint=row_id)
+        if report.get("enabled"):
+            # Keep the optional follow-up visible, bounded, and path-free.
+            print(
+                "automatic cleanup: "
+                + json.dumps(report, sort_keys=True, separators=(",", ":"))
+            )
+    except Exception as exc:
+        # Automatic Trash is an optional follow-up.  Its refusal, malformed
+        # preference, or recovery wake must never turn a successful accept
+        # into a failed terminal boundary or leak private diagnostics.
+        report = {
+            "schema": _clean.AUTOMATIC_RUN_SCHEMA,
+            "action": "automatic_cleanup",
+            "enabled": False,
+            "changed": False,
+            "candidates": [],
+            "reason": _clean._public_reason(str(exc)),
+        }
+        print(
+            "automatic cleanup: "
+            + json.dumps(report, sort_keys=True, separators=(",", ":"))
+        )
 
 
 def finalize_completed_retry_without_local_claim(
@@ -2830,9 +2871,8 @@ def main(argv: list[str] | None = None) -> int:
                             "--repo <proof-source-checkout>"
                         )
                     source_root = proof_source_checkout(args.repo)
-                    owned_claim(_board.entity_state(plan_path), row_id, owner)
                     if args.proposal is not None:
-                        return accept_local_proposal(
+                        result, released = accept_local_proposal(
                             source_root,
                             plan_path,
                             args.entity,
@@ -2841,13 +2881,23 @@ def main(argv: list[str] | None = None) -> int:
                             args.proposal,
                             args.timeout_seconds,
                         )
-                    return accept_local_plan(
+                        _automatic_after_accept(
+                            source_root, plan_path, row_id, result,
+                            released=released,
+                        )
+                        return result
+                    result, released = accept_local_plan(
                         source_root,
                         plan_path,
                         row_id,
                         owner,
                         args.timeout_seconds,
                     )
+                    _automatic_after_accept(
+                        source_root, plan_path, row_id, result,
+                        released=released,
+                    )
+                    return result
                 if args.repo is not None:
                     raise AcceptError(
                         "Git-backed --entity recovery does not take --repo; "
@@ -2929,7 +2979,7 @@ def main(argv: list[str] | None = None) -> int:
                     parsed["claimed"] = set()
                     try:
                         with _board.project_lock(plan_path):
-                            return finalize_completion(
+                            result, released = finalize_completion(
                                 repo,
                                 plan_path,
                                 row_id,
@@ -2942,6 +2992,11 @@ def main(argv: list[str] | None = None) -> int:
                                 "recorded observation authenticated; "
                                 "root claim reconciled",
                             )
+                        _automatic_after_accept(
+                            repo, plan_path, row_id, result,
+                            released=released,
+                        )
+                        return result
                     except (_board.BoardError, AcceptError) as exc:
                         raise AcceptError(
                             f"the completed row's root claim could not reconcile: {exc}"
@@ -3001,7 +3056,7 @@ def main(argv: list[str] | None = None) -> int:
                     parsed["claimed"] = set()
                     try:
                         with _board.project_lock(plan_path):
-                            return finalize_completion(
+                            result, released = finalize_completion(
                                 repo,
                                 plan_path,
                                 row_id,
@@ -3014,6 +3069,11 @@ def main(argv: list[str] | None = None) -> int:
                                 "completed proof reran in its clean source "
                                 "checkout; root claim reconciled",
                             )
+                        _automatic_after_accept(
+                            repo, plan_path, row_id, result,
+                            released=released,
+                        )
+                        return result
                     except (_board.BoardError, AcceptError) as exc:
                         raise AcceptError(
                             f"the completed row's root claim could not reconcile: {exc}"
@@ -3053,7 +3113,7 @@ def main(argv: list[str] | None = None) -> int:
                     updated,
                     resumes,
                 )
-                return finalize_completion(
+                result, released = finalize_completion(
                     repo,
                     plan_path,
                     row_id,
@@ -3065,6 +3125,11 @@ def main(argv: list[str] | None = None) -> int:
                     args.no_push,
                     "recorded observation accepted as the row's PROOF; row flipped",
                 )
+                _automatic_after_accept(
+                    repo, plan_path, row_id, result,
+                    released=released,
+                )
+                return result
             except _board.BoardError as exc:
                 raise AcceptError(
                     f"the judgment flip landed, but the root claim could not close: {exc}; "
@@ -3157,7 +3222,7 @@ def main(argv: list[str] | None = None) -> int:
                 updated,
                 resumes,
             )
-            return finalize_completion(
+            result, released = finalize_completion(
                 repo,
                 plan_path,
                 row_id,
@@ -3169,6 +3234,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.no_push,
                 "proof passed in a clean checkout; row flipped with its PROOF line",
             )
+            _automatic_after_accept(
+                repo, plan_path, row_id, result,
+                released=released,
+            )
+            return result
         except _board.BoardError as exc:
             raise AcceptError(
                 f"the project proof landed, but the root claim could not close: {exc}; "
