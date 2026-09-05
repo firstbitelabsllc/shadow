@@ -1341,11 +1341,13 @@ def _commit_consuming_ref(
         raise BoardError(
             "init registration receipt changed before board registration"
         )
+    # Config keeps maintenance foreground on both old and new Git. Git 2.43
+    # does not support maintenance run --no-detach and would reject the run.
     _git(
         root,
         "-c", "maintenance.autoDetach=false",
         "-c", "gc.autoDetach=false",
-        "maintenance", "run", "--auto", "--quiet", "--no-detach",
+        "maintenance", "run", "--auto", "--quiet",
     )
     return revision, head_reference
 
