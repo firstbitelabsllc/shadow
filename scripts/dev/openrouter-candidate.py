@@ -42,16 +42,8 @@ def _unique(pairs):
     return result
 
 
-def evaluate(files, writable, test, proposal):
-    """Return candidate bytes and test-process exit; never apply to source.
-
-    files/writable/test are trusted seat inputs, not parsed from model output.
-    Candidate code shares the interpreter and can exit before assertions run.
-    Exit zero and diagnostic text are untrusted observations, never acceptance.
-    Independent ordinary-seat diff review is required before testing source.
-    """
-    if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
-        raise Refused("the characterized macOS sandbox is required")
+def validate_inventory(files, writable, test):
+    """Validate trusted source scope before any provider or test execution."""
     if not isinstance(files, dict) or not 1 <= len(files) <= 64:
         raise Refused("invalid source inventory")
     names = [_name(name) for name in files]
@@ -68,6 +60,19 @@ def evaluate(files, writable, test, proposal):
         raise Refused("writable names must belong to the frozen inventory")
     if _name(test) not in files or test in writable:
         raise Refused("test must be present and immutable")
+
+
+def evaluate(files, writable, test, proposal):
+    """Return candidate bytes and test-process exit; never apply to source.
+
+    files/writable/test are trusted seat inputs, not parsed from model output.
+    Candidate code shares the interpreter and can exit before assertions run.
+    Exit zero and diagnostic text are untrusted observations, never acceptance.
+    Independent ordinary-seat diff review is required before testing source.
+    """
+    if sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").is_file():
+        raise Refused("the characterized macOS sandbox is required")
+    validate_inventory(files, writable, test)
     if not isinstance(proposal, str) or len(proposal.encode()) > 1024 * 1024:
         raise Refused("candidate exceeds text-only budget")
     try:
@@ -102,6 +107,8 @@ def evaluate(files, writable, test, proposal):
                            '(literal "/dev/urandom") (subpath ' + json.dumps(str(snapshot)) + '))\n'
                            '(allow file-read* (subpath ' + json.dumps(str(scratch)) + '))\n'
                            '(allow file-write-data (literal ' + json.dumps(str(scratch / "test-output")) + '))\n'
+                           '(deny file-read-data (literal "/private") '
+                           '(literal "/private/tmp") (literal ' + json.dumps(str(root)) + '))\n'
                            '(deny file-write-unlink)\n(deny process-fork)\n(deny process-exec)\n'
                            '(allow process-exec (literal ' + json.dumps(binary) + '))\n'
                            '(deny mach-lookup (global-name "com.apple.securityd"))\n')

@@ -92,6 +92,7 @@ def denied(action):
     raise AssertionError("forbidden operation succeeded")
 denied(lambda: pathlib.Path({str(external)!r}).read_text())
 denied(lambda: pathlib.Path({str(external)!r}).stat())
+denied(lambda: os.listdir("/private/tmp"))
 denied(lambda: pathlib.Path({str(marker)!r}).write_text("escape"))
 denied(lambda: pathlib.Path("answer.py").unlink())
 denied(lambda: pathlib.Path("check.py").write_text("pass"))
