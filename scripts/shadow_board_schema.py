@@ -839,7 +839,7 @@ def _validate_v2(payload: object, *, pending_retention: bool = False) -> dict:
             if binding is not None or scope:
                 raise BoardError("read-only claims must be unbound with empty scope")
         elif access == "unscoped":
-            if binding is not None or claim_revision != 0:
+            if binding is not None:
                 _validate_repository_binding(binding)
             if scope:
                 raise BoardError("unscoped claims must have empty scope")

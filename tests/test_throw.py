@@ -255,6 +255,77 @@ class StagedV2Throw(unittest.TestCase):
             self.assertEqual(bound["repository_binding"], board.repository_binding(repo))
             self.assertEqual(local.read_text(encoding="utf-8"), PLAN)
 
+    def test_expired_unscoped_unbound_machine_local_claim_adopts_without_guessing_source(self) -> None:
+        """A legacy local claim stays unscoped when its successor has no --repo."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            local = home / ".shadow" / "plans" / "demo" / "PLAN.md"
+            local.parent.mkdir(parents=True)
+            local.write_text(PLAN, encoding="utf-8")
+            with mock.patch.dict(os.environ, env):
+                board.reconcile(
+                    [{"plan": str(local), "project": "demo", "priority": 2,
+                      "candidates": ["~bb22"]}],
+                    [],
+                    home=home,
+                )
+                entity = board.entity_id(local)
+            with board._transaction(home) as (root, path, payload):
+                self.assertEqual(payload["schema"], board.V1_SCHEMA)
+                migrated = board.migrate_v1_to_v2(payload)
+                payload.clear()
+                payload.update(migrated)
+                payload["claims"] = [{
+                    "entity": entity,
+                    "row": "~bb22",
+                    "owner": "old-seat",
+                    "claimed_at": "2000-01-01T00:00:00Z",
+                    "return_by": "2000-01-01T08:00:00Z",
+                    "recovery": board.RECOVERY_ACTION,
+                    "claim_revision": 0,
+                    "access": "unscoped",
+                    "repository_binding": None,
+                    "write_scope": [],
+                }]
+                board._write_and_commit(root, path, payload, "test: legacy unbound lease")
+            before = board.snapshot(home=home)
+            self.assertEqual(
+                (before["claims"][0]["claim_revision"], before["claims"][0]["access"],
+                 before["claims"][0]["repository_binding"]),
+                (0, "unscoped", None),
+            )
+            legacy = before["claims"][0]
+            for with_repo in (False, True):
+                with self.subTest(with_repo=with_repo):
+                    with board._transaction(home) as (root, path, payload):
+                        payload["claims"] = [dict(legacy)]
+                        board._write_and_commit(
+                            root, path, payload, "test: restore legacy unbound lease"
+                        )
+                    before = board.snapshot(home=home)
+                    command = [sys.executable, str(THROW)]
+                    if with_repo:
+                        command.extend(("--repo", str(repo)))
+                    command.extend((
+                        "--entity", entity, "--task", "~bb22", "--by", "new-seat",
+                        "--adopt-expired",
+                    ))
+                    adopted = subprocess.run(
+                        command, env=env, capture_output=True, text=True, check=False
+                    )
+
+                    self.assertEqual(adopted.returncode, 0, adopted.stderr)
+                    self.assertIn("unscoped requires declared preflight", adopted.stdout)
+                    current = board.snapshot(home=home)
+                    self.assertEqual(len(current["claims"]), 1)
+                    claim = current["claims"][0]
+                    self.assertEqual(
+                        (claim["owner"], claim["access"], claim["repository_binding"]),
+                        ("new-seat", "unscoped", None),
+                    )
+                    self.assertEqual(claim["claim_revision"], before["revision"] + 1)
+                    self.assertEqual(claim["claim_revision"], current["revision"])
+
 
 class ThrowRefusesAmbiguousWork(unittest.TestCase):
     def test_unknown_needs_blocked_and_proofless_rows_refuse(self) -> None:
@@ -700,7 +771,7 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
                 [],
                 home=home,
             )
-            board.claim(
+            legacy = board.claim(
                 repo / "PLAN.md",
                 "~bb22",
                 "old-seat",
@@ -709,7 +780,7 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
                 now=datetime(2000, 1, 1, tzinfo=timezone.utc),
                 home=home,
                 repo=repo,
-            )
+            )["claim"]
 
             ordinary = run(THROW, repo, env, "--task", "~bb22", "--by", "new-seat")
             self.assertEqual(ordinary.returncode, 1, ordinary.stderr)
@@ -727,9 +798,59 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             )
 
             self.assertEqual(adopted.returncode, 0, adopted.stderr)
+            self.assertIn("unscoped requires declared preflight", adopted.stdout)
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(len(payload["claims"]), 1)
-            self.assertEqual(payload["claims"][0]["owner"], "new-seat")
+            current = payload["claims"][0]
+            self.assertEqual(current["owner"], "new-seat")
+            self.assertEqual(current["access"], "unscoped")
+            self.assertEqual(current["repository_binding"], board.repository_binding(repo))
+            self.assertEqual(current["claim_revision"], legacy["claim_revision"] + 1)
+
+    def test_source_backed_adoption_preserves_a_legacy_unknown_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            board.reconcile(
+                [{"plan": str(repo / "PLAN.md"), "project": "demo", "priority": 2,
+                  "candidates": ["~bb22"]}],
+                [],
+                home=home,
+            )
+            entity = board.entity_id(repo / "PLAN.md")
+            with board._transaction(home) as (root, path, payload):
+                migrated = board.migrate_v1_to_v2(payload)
+                payload.clear()
+                payload.update(migrated)
+                payload["claims"] = [{
+                    "entity": entity,
+                    "row": "~bb22",
+                    "owner": "old-seat",
+                    "claimed_at": "2000-01-01T00:00:00Z",
+                    "return_by": "2000-01-01T08:00:00Z",
+                    "recovery": board.RECOVERY_ACTION,
+                    "claim_revision": 0,
+                    "access": "unscoped",
+                    "repository_binding": None,
+                    "write_scope": [],
+                }]
+                board._write_and_commit(root, path, payload, "test: legacy source lease")
+            before = board.snapshot(home=home)
+            self.assertEqual(before["claims"][0]["repository_binding"], None)
+
+            adopted = run(
+                THROW, repo, env, "--task", "~bb22", "--by", "new-seat", "--adopt-expired"
+            )
+
+            self.assertEqual(adopted.returncode, 0, adopted.stderr)
+            self.assertIn("unscoped requires declared preflight", adopted.stdout)
+            current = board.snapshot(home=home)
+            claim = current["claims"][0]
+            self.assertEqual(
+                (claim["owner"], claim["access"], claim["repository_binding"]),
+                ("new-seat", "unscoped", None),
+            )
+            self.assertEqual(claim["claim_revision"], before["revision"] + 1)
+            self.assertEqual(claim["claim_revision"], current["revision"])
 
     def test_a_caller_supplied_future_clock_cannot_steal_a_live_claim(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -909,7 +1030,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
         extra_env: dict[str, str] | None = None,
         extra_args: tuple[str, ...] = (),
     ) -> subprocess.Popen[str]:
-        home.mkdir()
+        home.mkdir(exist_ok=True)
         return subprocess.Popen(
             [
                 sys.executable,
@@ -1839,10 +1960,49 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             )
             self.assertEqual(initial["status"], "acquired")
             old_tip = self.git(bare, "rev-parse", initial["ref"])
+            legacy_journal = json.loads(
+                self.git(bare, "show", f"{initial['ref']}:claim.json")
+            )
+            self.assertNotIn("claim_revision", legacy_journal["claim"])
+            home_b = root / "home-b"
+            home_b.mkdir()
+            with mock.patch.dict(os.environ, {"HOME": str(home_b)}):
+                board.reconcile(
+                    [{"plan": str(second / "PLAN.md"), "project": "protected-demo",
+                      "priority": 2, "candidates": ["~bb22"]}],
+                    [],
+                    home=home_b,
+                )
+                entity = board.entity_id(second / "PLAN.md")
+            with board._transaction(home_b) as (board_root, board_path, payload):
+                migrated = board.migrate_v1_to_v2(payload)
+                payload.clear()
+                payload.update(migrated)
+                payload["claims"] = [{
+                    "entity": entity,
+                    "row": "~bb22",
+                    "owner": initial["owner"],
+                    "claimed_at": initial["claim"]["claimed_at"],
+                    "return_by": initial["claim"]["return_by"],
+                    "recovery": initial["claim"]["recovery"],
+                    "claim_revision": 0,
+                    "access": "unscoped",
+                    "repository_binding": None,
+                    "write_scope": [],
+                }]
+                board._write_and_commit(
+                    board_root, board_path, payload, "test: legacy remote lease"
+                )
+            before = board.snapshot(home=home_b)
+            self.assertEqual(
+                (before["claims"][0]["claim_revision"], before["claims"][0]["access"],
+                 before["claims"][0]["repository_binding"]),
+                (0, "unscoped", None),
+            )
 
             adopted = self.throw_process(
                 second,
-                root / "home-b",
+                home_b,
                 "seat-b",
                 extra_args=("--adopt-expired",),
             )
@@ -1854,6 +2014,18 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
             self.assertEqual((receipt["owner"], receipt["reason"]), ("seat-b", "adopt"))
             new_tip = self.git(bare, "rev-parse", receipt["ref"])
             self.assertEqual(self.git(bare, "rev-parse", f"{new_tip}^"), old_tip)
+            local = board.snapshot(home=home_b)
+            local_claim = local["claims"][0]
+            self.assertEqual(
+                (local_claim["access"], local_claim["repository_binding"]),
+                ("unscoped", None),
+            )
+            self.assertEqual(local_claim["claim_revision"], before["revision"] + 1)
+            self.assertEqual(receipt["claim"]["claim_revision"], local_claim["claim_revision"])
+            self.assertEqual(
+                json.loads(self.git(bare, "show", f"{receipt['ref']}:claim.json"))["claim"],
+                receipt["claim"],
+            )
 
     def test_pre_push_hook_blocks_transport_and_is_scrubbed_before_compensation(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
