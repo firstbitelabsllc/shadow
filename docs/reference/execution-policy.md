@@ -148,6 +148,24 @@ that blocks every forbidden capability. Until then, coding, mutation, tools,
 images, structured output, protected data, and ordinary-route-unavailability
 admission refuse with `openrouter_runtime_boundary_unproved`.
 
+The preceding CLI validates the original inert advisory contract; it is not
+the launcher contract. The offline experiment under `scripts/dev/` separately
+tests research, immutable tests, and confined candidate replacements through
+a mandatory guarded OpenCode provider. Its admission logic derives ordinary
+routes from `shadow_execution_policy`, and its transport guard validates the
+actual native request and response bytes. It does not call the inert CLI or
+relax that CLI's historical refusal rules. The private existing overflow
+wrapper owns provider and credential integration; Shadow owns no account or
+credential lookup. Neither path registers a runnable wildcard host.
+
+The offline native harness is `scripts/dev/test-openrouter-native.py` with
+`--required-provider`, an explicit matching `--binary`, and a prepared
+`--sdk-node-modules` directory. It uses fixture credentials and denied network
+access. A candidate result always has `accepted: false`; process exit zero
+does not prove its immutable test reached the assertions. Unavailability
+fixtures prove admission logic only, never real route exhaustion. Installation
+and live execution require separate proof and authorization.
+
 ## The ten failures this closes
 
 1. **A host name was mistaken for a model decision.** That made every roster
