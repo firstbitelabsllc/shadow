@@ -57,6 +57,13 @@ class ReleasePackageTests(unittest.TestCase):
         pack["files"] = [item for item in pack["files"] if item["path"] != "bin/shadow"]
         self.assertTrue(any("missing" in error for error in self.errors(plugin, pack, tracked)))
 
+    def test_unpacked_size_ceiling_accepts_exact_limit_and_rejects_one_more(self) -> None:
+        plugin, pack, tracked = baseline()
+        pack["unpackedSize"] = mod.MAX_UNPACKED_BYTES
+        self.assertEqual(self.errors(plugin, pack, tracked), [])
+        pack["unpackedSize"] += 1
+        self.assertTrue(any("unpacked bytes" in error for error in self.errors(plugin, pack, tracked)))
+
     def test_lifecycle_command_ships_with_the_dispatcher(self) -> None:
         self.assertIn("scripts/shadow-lifecycle.py", mod.REQUIRED_FILES)
         self.assertIn("schemas/retirement-manifest.v1.json", mod.REQUIRED_FILES)
@@ -87,6 +94,29 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("retire one exact manifested artifact", argparse_help.stdout)
         for option in ("--retirement-manifest", "--expect", "--by"):
             self.assertIn(option, argparse_help.stdout)
+
+    def test_worktree_cleanup_payload_and_help_ship_with_the_dispatcher(self) -> None:
+        for path in ("scripts/shadow-clean.py", "scripts/shadow_clean.py"):
+            self.assertIn(path, mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "help", "clean"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        for clause in (
+            "strictly zero-write",
+            "--auto enable|disable|status",
+            "--create",
+            "--prepare",
+            "--apply --manifest /ABS/manifest.json --expect CAS --by SEAT",
+            "--restore --receipt WORKTREE_ID",
+            "recoverable Trash",
+            "never hard-deletes or force-removes",
+        ):
+            self.assertIn(clause, output.stdout)
 
     def test_plan_migration_command_ships_with_its_store(self) -> None:
         self.assertIn("scripts/shadow-plan.py", mod.REQUIRED_FILES)
@@ -232,7 +262,39 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, report)
         self.assertTrue(report["stranger_install"])
         self.assertTrue(report["reproducible"])
+        self.assertEqual(
+            report["stranger_cleanup"],
+            {
+                "preview_zero_write": True,
+                "auto_round_trip": True,
+                "creation_receipt": True,
+                "manifest_apply": True,
+                "trash_recovery": True,
+            },
+        )
         self.assertFalse(report["publishable"])
+
+    def test_incomplete_stranger_cleanup_proof_fails_the_release(self) -> None:
+        identity = {"commit": "a" * 40, "release_ref": None, "errors": []}
+        manifest = {"files": [], "unpackedSize": 0}
+        packed = (manifest, Path("/unused/archive.tar.gz"), "b" * 64)
+        invalid_proofs = (
+            {key: False for key in mod.STRANGER_CLEANUP_PROOF},
+            {"preview_zero_write": True},
+            {**mod.STRANGER_CLEANUP_PROOF, "unexpected": True},
+        )
+        for proof in invalid_proofs:
+            with self.subTest(proof=proof), mock.patch.object(
+                mod, "inspect_release_identity", return_value=identity
+            ), mock.patch.object(mod, "pack", return_value=packed), mock.patch.object(
+                mod, "dirty_files", return_value=set()
+            ), mock.patch.object(mod, "tracked_files", return_value=set()), mock.patch.object(
+                mod, "validate_release_candidate", return_value=[]
+            ), mock.patch.object(mod, "stranger_install", return_value=proof):
+                report = mod.verify(ROOT)
+            self.assertFalse(report["ok"])
+            self.assertFalse(report["stranger_install"])
+            self.assertEqual(report["errors"], ["stranger cleanup proof was incomplete"])
 
 
 class DirtyFilePorcelain(unittest.TestCase):

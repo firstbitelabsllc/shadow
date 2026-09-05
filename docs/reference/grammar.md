@@ -64,6 +64,13 @@ source HEAD exists. Their task proof must still match the immutable
 them. The first new accepted row persists the permanent `Origin:` and its own
 exact source HEAD. A missing `SOURCE` receipt at or after the cutover always
 fails closed.
+Repeated pre-cutover observations are allowed only when every accepted receipt
+for that row names the same exact argv as the completed `cmd` proof. A shell
+wrapper, working-directory prefix, or other textual adaptation is not
+equivalent to that argv, and prose containing `ROW SOURCE` is not a canonical
+source receipt. Cutover comparisons require a semantically valid UTC timestamp;
+an impossible timestamp or a row-scoped `SOURCE` candidate with noncanonical
+spacing fails closed instead of becoming legacy prose.
 
 An `Origin:` value is never a working-tree path, basename, or project slug.
 Once present, missing, duplicate, malformed, or different values fail closed.

@@ -73,6 +73,8 @@ and actions. Doctor validates the complete closed board without repair or
 adapter installation. Post-commit notice contains only event schema, event
 enum, Huddle ID and generation; delivery failure cannot change the result.
 
+| `shadow clean [--repo PATH] [--worktree /ABS/PATH] [--auto enable\|disable\|status] [--json]` | Read-only preview of only Shadow-managed worktrees whose immutable creation receipt has a matching issued journal. The default writes no repository, board, plan, manifest, Git, or Trash state and reports an opaque `worktree@…` identity. `shadow clean --create` is the sole provenance door and requires an exact live entity/checkpoint/seat claim plus an absent destination; interrupted creation can resume only its matching pending journal. `shadow clean --prepare --worktree /ABS/PATH` is the explicit manifest write and always uses the exclusive private path below `~/.shadow/clean/manifests/`, while returning only opaque identities, expiry, and exact CAS (never private paths or raw receipt/journal/manifest fields). `--auto` manages a strict 0600 computer-local opt-in at `~/.shadow/clean/automatic.json`; absent means disabled. Enabled cleanup runs only once after a successful terminal accept or changed lifecycle apply, reusing the strict preview/manifest/Trash transaction with no daemon or scheduler. |
+
 ## Remote coordination boundary
 
 When the current branch tracks a remote branch, claim transitions use that same

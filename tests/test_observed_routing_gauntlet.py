@@ -321,6 +321,36 @@ class LocalSinkBoundaryTests(unittest.TestCase):
                 with self.assertRaises(gauntlet.GauntletError):
                     gauntlet.LangfuseSink()
 
+    def test_codex_observation_keeps_earliest_parent_when_a_child_finishes_later(self) -> None:
+        sink = object.__new__(gauntlet.LangfuseSink)
+        sink.project_id = "project_test"
+        queries: list[str] = []
+
+        def readback(query: str) -> str:
+            queries.append(query)
+            selects_root = all((
+                query.count("FROM default.events_core") == 2,
+                "turn.project_id = 'project_test'" in query,
+                "root.project_id = 'project_test'" in query,
+                "turn.metadata_values[indexOf(turn.metadata_names, 'resourceAttributes.env')]" in query,
+                "root.metadata_values[indexOf(root.metadata_names, 'resourceAttributes.env')]" in query,
+                "(turn.trace_id, turn.parent_span_id) IN" in query,
+                "SELECT root.trace_id, root.span_id" in query,
+                "name = 'op.dispatch.turn_input'" in query,
+                "ORDER BY turn.start_time ASC" in query,
+            ))
+            if selects_root:
+                return '{"model":"gpt-5.6-sol","input_tokens":101,"output_tokens":11}'
+            return '{"model":"gpt-5.6-luna","input_tokens":202,"output_tokens":22}'
+
+        sink._readback_query = readback
+
+        self.assertEqual(
+            sink.observed_codex("eval-0123456789abcdef"),
+            ("gpt-5.6-sol", 101, 11),
+        )
+        self.assertEqual(len(queries), 1)
+
 
 class NativeStreamParserTests(unittest.TestCase):
     def test_claude_parent_model_is_not_replaced_by_helper_usage(self) -> None:
@@ -386,6 +416,8 @@ class NativeStreamParserTests(unittest.TestCase):
             item for item in gauntlet.SCENARIOS if item.scenario_id == "delegation-lineage"
         )
         self.assertIn("spawn_agent", gauntlet.prompt_for_host("codex", scenario))
+        self.assertIn('model="gpt-5.6-luna"', gauntlet.prompt_for_host("codex", scenario))
+        self.assertIn('fork_turns="none"', gauntlet.prompt_for_host("codex", scenario))
         self.assertIn("shadow-evidence", gauntlet.prompt_for_host("claude-code", scenario))
         self.assertIn("spawn_subagent", gauntlet.prompt_for_host("grok", scenario))
 

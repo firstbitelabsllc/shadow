@@ -52,6 +52,15 @@ class BrowserShellContract(unittest.TestCase):
         self.assertIn("@media (prefers-color-scheme: dark)", CSS)
         self.assertNotRegex(CSS, r"\b(?:animation|transition)\s*:")
 
+    def test_tree_is_one_read_only_projection_view(self) -> None:
+        self.assertIn('id="view-tree"', HTML)
+        self.assertIn('aria-controls="tree"', HTML)
+        self.assertIn('id="tree"', HTML)
+        self.assertIn("renderTree", APP)
+        self.assertIn("state.tree", APP)
+        self.assertNotIn("fetch('/api/tree'", APP)
+        self.assertNotIn("addEventListener('keydown'", APP)
+
 
 # npm/npx in COMMAND position. Leading indentation counts as line start so an
 # indented `npm ci` inside a YAML `run: |` block is caught; prose keeps npm

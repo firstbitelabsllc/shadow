@@ -5815,6 +5815,26 @@ class ReleaseStateSpeaksTheOneGrammar(unittest.TestCase):
         with self.assertRaisesRegex(board_api.BoardError, "claim return row is missing"):
             board_api._release_state(Path("plan.md"), "~aa11", "return", text=text)
 
+    def test_blocked_return_rejects_a_missing_shared_deferred_wake(self) -> None:
+        text = (
+            "# P\n\n## Tasks\n\n### M1 — live\n"
+            "- [blocked] parked ~aa11 | proof: gate owner\n\n"
+            "## Deferred\n\n- ~aa11 parked\n"
+        )
+        with self.assertRaisesRegex(board_api.BoardError, "one Deferred entry naming the row and wake"):
+            board_api._release_state(Path("plan.md"), "~aa11", "blocked", text=text)
+
+    def test_blocked_return_rejects_duplicate_shared_deferred_wakes(self) -> None:
+        text = (
+            "# P\n\n## Tasks\n\n### M1 — live\n"
+            "- [blocked] parked ~aa11 | proof: gate owner\n\n"
+            "## Deferred\n\n"
+            "- ~aa11 parked | wake: first\n"
+            "- ~aa11 parked | wake: second\n"
+        )
+        with self.assertRaisesRegex(board_api.BoardError, "one Deferred entry naming the row and wake"):
+            board_api._release_state(Path("plan.md"), "~aa11", "blocked", text=text)
+
 
 class LocatorNeverRaises(unittest.TestCase):
     def test_a_transient_origin_read_degrades_to_the_digest_shape(self) -> None:

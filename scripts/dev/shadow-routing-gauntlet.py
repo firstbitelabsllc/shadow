@@ -101,7 +101,11 @@ def prompt_for_host(host: str, scenario: Scenario) -> str:
         return prompt
     instruction = {
         "claude-code": "You MUST invoke the configured shadow-evidence Agent for manifest-a.txt.",
-        "codex": "You MUST call spawn_agent for the manifest-a.txt evidence lane, then reconcile its result.",
+        "codex": (
+            "You MUST call the native spawn_agent tool directly with "
+            f'model="{resolve_route("codex", "coding").model}" and fork_turns="none" '
+            "for the manifest-a.txt evidence lane, then reconcile its result."
+        ),
         "cursor": "You MUST use a native child agent if the CLI exposes one; never invent child lineage.",
         "grok": (
             "You MUST call spawn_subagent for manifest-a.txt with subagent_type "
@@ -382,10 +386,18 @@ SELECT
   metadata_values[indexOf(metadata_names, 'attributes.model')] AS model,
   toInt64OrNull(metadata_values[indexOf(metadata_names, 'attributes.codex.turn.token_usage.input_tokens')]) AS input_tokens,
   toInt64OrNull(metadata_values[indexOf(metadata_names, 'attributes.codex.turn.token_usage.output_tokens')]) AS output_tokens
-FROM default.events_core
-WHERE name = 'session_task.turn'
-  AND metadata_values[indexOf(metadata_names, 'resourceAttributes.env')] = '{environment}'
-ORDER BY start_time DESC LIMIT 1 FORMAT JSONEachRow
+FROM default.events_core AS turn
+WHERE turn.name = 'session_task.turn'
+  AND turn.project_id = '{self.project_id}'
+  AND turn.metadata_values[indexOf(turn.metadata_names, 'resourceAttributes.env')] = '{environment}'
+  AND (turn.trace_id, turn.parent_span_id) IN (
+    SELECT root.trace_id, root.span_id
+    FROM default.events_core AS root
+    WHERE root.name = 'op.dispatch.turn_input'
+      AND root.project_id = '{self.project_id}'
+      AND root.metadata_values[indexOf(root.metadata_names, 'resourceAttributes.env')] = '{environment}'
+  )
+ORDER BY turn.start_time ASC LIMIT 1 FORMAT JSONEachRow
 """.strip()
         for _ in range(30):
             try:

@@ -41,6 +41,7 @@ CONTRADICTION_NONE_RE: Final = re.compile(
     re.IGNORECASE,
 )
 ORIGIN_LINE_RE: Final = re.compile(r"^- Origin:(?: (?P<value>.*))?$")
+DEFERRED_ROW_RE: Final = re.compile(r"^- (?P<id>~[0-9a-z]{4})(?:\s|$)")
 
 # `shadow accept` executes a proof with argv, never an implicit shell.  These
 # helpers are shared so lint rejects precisely the argument shapes accept would
@@ -171,3 +172,36 @@ def contradiction_is_open(line: str) -> bool:
     if not stripped.startswith("- ") or CONTRADICTION_NONE_RE.match(stripped):
         return False
     return CONTRADICTION_RESOLVED_RE.match(stripped) is None
+
+
+def deferred_wake_projection(plan_text: str, row_id: str) -> str:
+    """Return the one exact Deferred wake for ``row_id``.
+
+    A wake is valid only when exactly one Deferred entry names the row and
+    carries a non-empty ``wake:`` field.  Counting malformed entries as
+    matches is deliberate: callers must not accept one valid wake alongside a
+    duplicate or wake-less entry for the same row.
+    """
+    if ROW_ID_RE.fullmatch(row_id) is None:
+        raise ValueError("Deferred wake row id is invalid")
+    matches: list[str | None] = []
+    in_deferred = False
+    for line in plan_text.splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            in_deferred = heading == "Deferred" or heading.startswith("Deferred ")
+            continue
+        if not in_deferred:
+            continue
+        candidate = DEFERRED_ROW_RE.match(line)
+        if candidate is None or candidate.group("id") != row_id:
+            continue
+        wake_values = [
+            field.group("value").strip()
+            for field in FIELD_RE.finditer(line)
+            if field.group("key") == "wake"
+        ]
+        matches.append(wake_values[0] if len(wake_values) == 1 and wake_values[0] else None)
+    if len(matches) != 1 or matches[0] is None:
+        raise ValueError("Deferred entry must name the row exactly once with one wake")
+    return matches[0]

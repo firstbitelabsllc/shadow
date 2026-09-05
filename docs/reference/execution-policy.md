@@ -78,6 +78,76 @@ provider execution; observed-model proof requires the owner-local gauntlet
 below. Account, session, billing, raw prompt, transcript, and provider payload
 remain excluded.
 
+## OpenRouter wildcard activation prerequisite
+
+`openrouter-wildcard` is not a runnable Shadow host. It is deliberately absent
+from `HOSTS`, `shadow host run`, and the observed-routing gauntlet. Even when an
+OpenCode setup selects `openrouter/free`, its selector and model-authored output
+do not authenticate the concrete model OpenRouter served or the amount
+OpenRouter charged. An unrestricted same-user agent process is also not a
+capability boundary for Shadow authority, Git, credentials, sends, purchases,
+or deletion.
+
+Shadow therefore ships only an inert contract for a future adapter. The closed
+request shape is:
+
+```json
+{
+  "schema": "shadow.openrouter-wildcard-request.v1",
+  "task_sha256": "64-lowercase-hex",
+  "work_class": "planning|review|lightweight",
+  "operation": "advisory",
+  "data_class": "non-sensitive",
+  "admission": {"mode": "explicit"},
+  "required_capabilities": ["text"],
+  "request": {
+    "model": "openrouter/free",
+    "provider": {
+      "zdr": true,
+      "data_collection": "deny",
+      "require_parameters": true,
+      "allow_fallbacks": false,
+      "max_price": {
+        "prompt": 0,
+        "completion": 0,
+        "request": 0,
+        "image": 0
+      }
+    }
+  }
+}
+```
+
+The corresponding result shape binds those canonical request bytes to the
+claimed response fields:
+
+```json
+{
+  "schema": "shadow.openrouter-wildcard-result.v1",
+  "request_sha256": "64-lowercase-hex",
+  "response": {
+    "model": "provider/concrete-model",
+    "usage": {"cost": 0}
+  }
+}
+```
+
+Validate files without dispatching a model or reading a credential:
+
+```bash
+scripts/shadow-python.sh scripts/shadow_openrouter_wildcard.py request \
+  --input /absolute/request.json
+scripts/shadow-python.sh scripts/shadow_openrouter_wildcard.py verify \
+  --request /absolute/request.json --result /absolute/result.json
+```
+
+Successful validation proves only the closed data shape. It does not establish
+that the result came from OpenRouter. Runtime activation still requires an
+authenticated wire-level request/response witness and a pre-execution boundary
+that blocks every forbidden capability. Until then, coding, mutation, tools,
+images, structured output, protected data, and ordinary-route-unavailability
+admission refuse with `openrouter_runtime_boundary_unproved`.
+
 ## The ten failures this closes
 
 1. **A host name was mistaken for a model decision.** That made every roster
