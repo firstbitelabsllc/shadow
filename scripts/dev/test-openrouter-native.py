@@ -11,12 +11,15 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 from openrouter_native import POLICY, VERSION, native_session, run_native
 
 
 def main():
+    if sys.flags.optimize:
+        raise SystemExit("native proof refuses optimized Python; assertions must execute")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--sdk-node-modules", type=Path, required=True)
