@@ -108,6 +108,7 @@ test('OpenRouter documented usage frame repeats stop without content', async () 
 for (const [name, options] of Object.entries({
   paid: {cost: 0.01}, missingCost: {body: stream().replace('"cost":0', '"tokens":1')},
   stringCost: {cost: '0'}, booleanCost: {cost: false},
+  underflowCost: {body: stream().replace('"cost":0', '"cost":1e-400')},
   routerAlias: {model: 'openrouter/free'}, malformedModel: {model: 'free'},
   truncated: {done: false}, malformed: {body: 'data: not-json\n\ndata: [DONE]\n\n'},
   redirect: {status: 302}, providerError: {body: 'data: {"error":"bad"}\n\ndata: [DONE]\n\n'},

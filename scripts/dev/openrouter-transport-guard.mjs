@@ -16,7 +16,7 @@ function uniqueJson(text) {
   // Parse first for grammar; scan keys separately because JSON.parse discards
   // duplicate values (including a paid cost preceding a zero cost).
   const stack = [];
-  const tokens = [...text.matchAll(/"(?:\\[\s\S]|[^"\\])*"|[{}\[\]:,]/g)];
+  const tokens = [...text.matchAll(/"(?:\\[\s\S]|[^"\\])*"|[{}\[\]:,]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g)];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i][0];
     if (token === '{') stack.push(new Set());
@@ -25,6 +25,9 @@ function uniqueJson(text) {
     else if (token.startsWith('"') && tokens[i + 1]?.[0] === ':') {
       const key = JSON.parse(token), keys = stack.at(-1);
       if (!keys || keys.has(key)) fail();
+      // A tiny nonzero JSON decimal can underflow to zero in JSON.parse.
+      // Cost must be zero in the provider bytes as well as the parsed number.
+      if (key === 'cost' && !/^-?0(?:\.0+)?(?:[eE][+-]?\d+)?$/.test(tokens[i + 2]?.[0] ?? '')) fail();
       keys.add(key);
     }
   }
