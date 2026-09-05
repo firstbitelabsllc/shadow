@@ -1441,6 +1441,232 @@ class HuddleAdoptionTests(HuddleTestCase):
         self.assertEqual(h["bids"], [])
         self.assertEqual(h["holds"], [h["claims"][-1]])
 
+    def test_settled_selected_writer_adoption_preserves_resolution_and_maps_terminal(self):
+        self.submit()
+        self.submit(self.b, role="stand_down", reason="duplicate_intent")
+        settled = self.settle().payload["huddles"][0]
+        result = self.adopt(self.a)
+        h = result["payload"]["huddles"][0]
+        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual(h["resolution"], settled["resolution"])
+        self.assertEqual(h["bids"], settled["bids"])
+        self.assertEqual(h["replacements"], [{"original": board_api._claim_ref(self.a),
+                                                "current": board_api._claim_ref(result["claim"])}])
+        self.assertEqual(h["holds"], [board_api._claim_ref(self.b)])
+
+    def test_mapped_pending_return_remains_held_at_host_door(self):
+        self.submit()
+        self.submit(self.b, role="stand_down", reason="duplicate_intent")
+        self.settle()
+        replacement = self.adopt(self.b)
+        claim = replacement["claim"]
+        context = {key: claim[key] for key in ("entity", "row", "owner", "claim_revision")}
+        context["board_revision"] = replacement["payload"]["revision"]
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "held"):
+            board_api.authorize_host_attempt(context=context, repo=self.repo,
+                write_scope=claim["write_scope"], authority_proposal=False,
+                now=NOW + timedelta(hours=9), home=self.home)
+        self.assertEqual(self.authority(), before)
+
+    def test_repeated_held_adoption_preserves_disposition_and_returns_current_only(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        settled = self.settle().payload["huddles"][0]
+        first = self.adopt(self.b)["claim"]
+        self.plan.write_text(self.plan.read_text().replace("[pending] second", "[blocked] second")
+            + "\n## Deferred\n- ~bb22 | overlap owned by A | wake: A completes shared work\n")
+        result = self.adopt(first, now=NOW + timedelta(hours=18), owner="D")
+        terminal, h = result["claim"], result["payload"]["huddles"][0]
+        self.assertEqual(h["replacements"], [{"original": board_api._claim_ref(self.b),
+                                             "current": board_api._claim_ref(terminal)}])
+        for field in ("claims", "edges", "holds", "bids", "resolution", "compliance", "round", "reply_by"):
+            self.assertEqual(h[field], settled[field], field)
+        self.assertEqual(h["generation"], settled["generation"] + 2)
+        before = self.authority()
+        for stale in (self.b, first):
+            with self.subTest(owner=stale["owner"]):
+                with self.assertRaises(board_api.BoardError):
+                    board_api.release(self.plan, stale["row"], owner=stale["owner"], reason="blocked",
+                        expected_claim=stale, now=NOW + timedelta(hours=18), home=self.home)
+                context = {key: stale[key] for key in ("entity", "row", "owner", "claim_revision")}
+                context["board_revision"] = result["payload"]["revision"]
+                with self.assertRaises(board_api.BoardError):
+                    board_api.authorize_host_attempt(context=context, repo=self.repo,
+                        write_scope=stale["write_scope"], authority_proposal=False,
+                        now=NOW + timedelta(hours=18), home=self.home)
+                self.assertEqual(self.authority(), before)
+        returned, changed = board_api.release(self.plan, terminal["row"], owner="D", reason="blocked",
+            expected_claim=terminal, now=NOW + timedelta(hours=18), home=self.home)
+        self.assertTrue(changed)
+        closed = returned["huddles"][0]
+        self.assertEqual(closed["state"], "resolved")
+        self.assertEqual(closed["resolution"], settled["resolution"])
+        self.assertEqual(closed["replacements"], h["replacements"])
+        self.assertEqual(closed["compliance"][0]["claim"], board_api._claim_ref(self.b))
+        self.assertEqual(closed["compliance"][0]["status"], "satisfied")
+        self.assertEqual(closed["compliance"][0]["completion"],
+                         dict(kind="return", board_revision=returned["revision"], receipt="self"))
+        self.assertEqual(returned["claims"], [self.a])
+        fresh = self.adopt(self.a, now=NOW + timedelta(hours=18), owner="Fresh")
+        self.assertEqual(fresh["payload"]["huddles"], returned["huddles"])
+        self.assertEqual(board_api._claim_huddles(fresh["payload"], fresh["claim"]), [])
+
+    def test_mapped_stale_proof_closure_preserves_remaining_compliance(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        settled = self.settle().payload["huddles"][0]
+        replacements = [self.adopt(self.a)["claim"], self.adopt(self.b)["claim"]]
+        for claim, word, expected_state in ((replacements[0], "first", "awaiting_compliance"),
+                                             (replacements[1], "second", "resolved")):
+            self.plan.write_text(self.plan.read_text().replace(f"[pending] {word}", f"[completed] {word}")
+                + f"\n- 2026-09-05T10:00:00Z {claim['row']} PROOF read result -> valid\n")
+            git(self.repo, "add", "PLAN.md")
+            git(self.repo, "commit", "-qm", "record actual canonical completion")
+            self.assertEqual(board_api.release_stranded_completed_claims(
+                now=NOW + timedelta(hours=18), home=self.home), 1)
+            payload = board_api.snapshot(home=self.home)
+            h = payload["huddles"][0]
+            self.assertEqual(h["state"], expected_state)
+            self.assertEqual(h["resolution"], settled["resolution"])
+            self.assertEqual(len(h["replacements"]), 2)
+        self.assertEqual(payload["claims"], [])
+        self.assertEqual(h["compliance"][0]["completion"]["kind"], "proof_first_stale_recovery")
+
+    def test_local_handoff_successor_repeated_adoption_preserves_yield_evidence(self):
+        local = self.home / ".shadow" / "plans" / "handoff" / "PLAN.md"
+        local.parent.mkdir(parents=True)
+        local.write_bytes(self.plan.read_bytes())
+        self.plan = local
+        self.seed_v2(self.v2_board(with_claim=False))
+        self.a = self.take(self.repo, local, "~aa11", "A")["claim"]
+        self.b = self.take(self.repo, local, "~bb22", "B")["claim"]
+        self.huddle = board_api.snapshot(home=self.home)["huddles"][0]
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        settled = self.settle().payload
+        successor = next(c for c in settled["claims"] if c["row"] == self.a["row"])
+        first = self.adopt(successor, owner="C")["claim"]
+        last = self.adopt(first, now=NOW + timedelta(hours=18), owner="D")
+        h = last["payload"]["huddles"][0]
+        for field in ("claims", "edges", "holds", "bids", "resolution", "compliance"):
+            self.assertEqual(h[field], settled["huddles"][0][field], field)
+        self.assertEqual(h["replacements"], [{"original": board_api._claim_ref(successor),
+                                             "current": board_api._claim_ref(last["claim"])}])
+        malformed = copy.deepcopy(last["payload"])
+        malformed["claims"] = [c for c in malformed["claims"] if c["row"] != self.a["row"]]
+        malformed["claims"].append(copy.deepcopy(self.a))
+        with self.assertRaisesRegex(board_api.BoardError, "handoff source"):
+            board_api._validate(malformed)
+        malformed = copy.deepcopy(last["payload"])
+        malformed["huddles"][0]["replacements"][0]["original"] = board_api._claim_ref(self.a)
+        with self.assertRaisesRegex(board_api.BoardError, "operating role"):
+            board_api._validate(malformed)
+        malformed = copy.deepcopy(last["payload"])
+        next(c for c in malformed["claims"] if c["row"] == self.a["row"])["write_scope"] = ["b"]
+        with self.assertRaisesRegex(board_api.BoardError, "edges"):
+            board_api._validate(malformed)
+        before = self.authority()
+        for stale in (self.a, successor, first):
+            with self.assertRaises(board_api.BoardError):
+                board_api.check_huddle_release(local, stale, reason="completed", home=self.home)
+            self.assertEqual(self.authority(), before)
+        local.write_text(local.read_text().replace("[pending] first", "[completed] first")
+            + "\n- 2026-09-05T19:00:00Z ~aa11 PROOF read result -> valid\n")
+        self.assertEqual(board_api.release_stranded_completed_claims(
+            now=NOW + timedelta(hours=27), home=self.home), 1)
+        recovered = board_api.snapshot(home=self.home)["huddles"][0]
+        self.assertEqual(recovered["state"], "awaiting_compliance")
+        self.assertEqual(recovered["holds"], [board_api._claim_ref(self.b)])
+        self.assertEqual(recovered["resolution"], h["resolution"])
+
+    def test_replacement_schema_rejects_unbound_alias_and_stale_terminal(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        baseline = self.adopt(self.b)["payload"]
+        board_api._validate(baseline)
+        for defect in ("missing", "foreign_original", "cross_row", "duplicate", "nonmonotonic",
+                       "chain", "old_live", "satisfied_live", "scope_drift", "owner_time", "predates_settlement"):
+            malformed = copy.deepcopy(baseline)
+            h = malformed["huddles"][0]
+            mapping = h["replacements"][0]
+            current = next(c for c in malformed["claims"] if c["row"] == self.b["row"])
+            if defect == "missing":
+                del h["replacements"]
+            elif defect == "foreign_original":
+                mapping["original"]["owner"] = "NotParticipant"
+            elif defect == "cross_row":
+                mapping["current"]["row"] = "~cc33"
+            elif defect == "duplicate":
+                h["replacements"].append(copy.deepcopy(mapping))
+            elif defect == "nonmonotonic":
+                mapping["current"]["claim_revision"] = mapping["original"]["claim_revision"]
+            elif defect == "chain":
+                h["replacements"].append(dict(original=copy.deepcopy(mapping["current"]),
+                    current={**mapping["current"], "owner": "D", "claim_revision": malformed["revision"] + 1}))
+                malformed["revision"] += 1
+            elif defect == "old_live":
+                malformed["claims"].append(copy.deepcopy(self.b))
+            elif defect == "satisfied_live":
+                malformed["revision"] += 1
+                h["compliance"][0].update(status="satisfied", completion=dict(kind="return",
+                    board_revision=malformed["revision"], receipt="self"))
+                h.update(state="resolved", holds=[], resolved_at="2026-09-05T02:00:00Z",
+                         retain_until="2026-09-06T02:00:00Z")
+            elif defect == "scope_drift":
+                current["write_scope"] = ["b"]
+            elif defect == "predates_settlement":
+                current["claim_revision"] = mapping["current"]["claim_revision"] = h["resolution"]["settled_revision"]
+            else:
+                mapping["current"]["claimed_at"] = "2026-09-04T15:00:00Z"
+            with self.subTest(defect=defect), self.assertRaises(board_api.BoardError):
+                board_api._validate(malformed)
+
+    def test_settled_adoption_rechecks_plan_and_rolls_back_journal_failure(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        before = self.authority()
+        with mock.patch.object(board_api, "_commit", side_effect=board_api.BoardError("journal refused")):
+            with self.assertRaisesRegex(board_api.BoardError, "journal refused"):
+                self.adopt(self.b)
+        self.assertEqual(self.authority(), before)
+        original = board_api._write_and_commit
+        def change(*args, **kwargs):
+            self.plan.write_text(self.plan.read_text() + "\nConcurrent canonical edit\n")
+            return original(*args, **kwargs)
+        with mock.patch.object(board_api, "_write_and_commit", side_effect=change):
+            with self.assertRaisesRegex(board_api.BoardError, "canonical plan changed"):
+                self.adopt(self.b)
+        self.assertEqual(self.authority(), before)
+
+    def test_remote_pending_refuses_adoption_and_any_terminal_mapping(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        with board_api._transaction(self.home) as (root, path, payload):
+            h = payload["huddles"][0]
+            source, prior = board_api._claim_ref(self.a), board_api._claim_ref(self.b)
+            successor = {**source, "owner": "B"}
+            h.update(state="remote_pending", reply_by=None,
+                holds=sorted([source, successor, prior], key=board_api._claim_rank),
+                remote_transition=dict(source_claim=source, successor_claim=successor,
+                    target_prior_claim=prior, target_prior_action="return_required",
+                    remote_ref=board_api._remote_claim.claim_ref(source["entity"], source["row"]),
+                    expected_remote_version="e" * 40, readback="not_attempted", attempt_receipt=None))
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: pending remote CAS", now=NOW)
+        before = self.authority()
+        for participant in (self.a, self.b):
+            with self.assertRaises(board_api.BoardError):
+                self.adopt(participant)
+            self.assertEqual(self.authority(), before)
+        malformed = board_api.snapshot(home=self.home)
+        malformed["huddles"][0]["replacements"] = [dict(original=source,
+            current={**source, "owner": "C", "claim_revision": malformed["revision"]})]
+        with self.assertRaises(board_api.BoardError):
+            board_api._validate(malformed)
+
     def test_unaffected_stand_down_remains_exact_after_peer_becomes_selected(self):
         self.submit(self.b, role="stand_down")
         before = board_api.snapshot(home=self.home)["huddles"][0]["bids"]
@@ -1569,7 +1795,7 @@ class HuddleSchemaTests(HuddleTestCase):
         h = dict(id="hdl_1234abcd", state=state, reason="write_scope_overlap", opened_revision=3,
             generation=3, opened_at="2026-09-04T16:00:00Z", reply_by="2026-09-04T16:02:00Z",
             round=1, claims=[a, b], edges=[{"left": a, "right": b, "kinds": ["path_overlap"]}],
-            holds=[b], bids=[], resolution=None, compliance=[], remote_transition=None,
+            holds=[b], bids=[], resolution=None, compliance=[], remote_transition=None, replacements=[],
             resolved_at=None, retain_until=None)
         payload["huddles"] = [h]
         if state == "awaiting_scope":
