@@ -1168,8 +1168,8 @@ def _terminal_checkpoint(home: Path, entity: str, checkpoint: str) -> tuple[Path
     if plan.is_symlink() or not plan.is_file():
         raise CleanError("entity plan is unavailable")
     try:
-        text = plan.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
+        text = _board.read_plan_text(plan)
+    except (_board.BoardError, OSError, UnicodeError) as exc:
         raise CleanError("entity plan is unavailable") from exc
     rows = [
         match for line in text.splitlines()
