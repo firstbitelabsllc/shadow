@@ -15,6 +15,7 @@ from tests.test_return import (
     remote_fixture, run,
 )
 from tests.plan_tree_fixture import install_plan_tree, shard_path
+from tests.proc_fixture import configure_public_fixture_ssh_remote
 import shadow_plan_store as store
 
 
@@ -49,6 +50,7 @@ class PublishedPlanTree(unittest.TestCase):
     def second_seat(self) -> tuple[Path, dict]:
         second = self.root / "second"
         subprocess.run(["git", "clone", "-q", str(self.remote), str(second)], check=True)
+        configure_public_fixture_ssh_remote(second, self.remote)
         home = self.root / "home-b"
         home.mkdir()
         git(second, "config", "user.email", "shadow-test@example.invalid")
@@ -210,6 +212,7 @@ class PublishedPlanTree(unittest.TestCase):
         git(repo, "push", "-qu", "origin", "HEAD:main")
         second = root / "second"
         subprocess.run(["git", "clone", "-q", str(remote), str(second)], check=True)
+        configure_public_fixture_ssh_remote(second, remote)
         home = root / "home-b"
         home.mkdir()
         env_b = {**os.environ, "HOME": str(home), "SHADOW_PORTFOLIO_ROOT": str(second)}

@@ -32,7 +32,9 @@ CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
 # review. The live archive holds 118 files (2026-08-29); 160 is the reviewed
 # growth budget, not a target.
 MAX_FILE_COUNT = 160
-MAX_UNPACKED_BYTES = 2_000_000
+# The combined Huddle/worktree-lifecycle release measured 2,067,333 bytes on
+# 2026-09-05; this reviewed 2.1 MB ceiling admits that artifact with headroom.
+MAX_UNPACKED_BYTES = 2_100_000
 STRANGER_CLEANUP_PROOF = {
     "preview_zero_write": True,
     "auto_round_trip": True,
@@ -74,11 +76,15 @@ REQUIRED_FILES = {
     "browser/static/gallery.js",
     "browser/static/gallery-fixtures.json",
     "scripts/shadow_root_board.py",
+    "scripts/shadow_board_schema.py",
+    "scripts/shadow-huddle.py",
+    "scripts/shadow_huddle_event.py",
     "scripts/shadow-host-directives.py",
     "scripts/shadow-slots.py",
     "scripts/shadow_config.py",
     "scripts/shadow-verify-host.sh",
     "scripts/shadow-verify-two-seat.py",
+    "scripts/shadow_git_fixture.py",
     "scripts/shadow_process_lib.py",
     "scripts/shadow_cmd_proof.py",
     "scripts/shadow_plan_grammar.py",
@@ -395,6 +401,7 @@ def commit_disposable_fixture(project: Path) -> None:
 def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[str, bool]:
     """Prove a stranger can install from the archive with Git, Bash, Python —
     exactly the path install.sh documents."""
+    root = root.resolve()
     consumer = root / "consumer"
     consumer.mkdir()
     command(["tar", "-xf", str(tarball), "-C", str(consumer)], root)
@@ -469,6 +476,20 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
         for clause in clauses:
             if clause not in output:
                 raise RuntimeError(f"installed help {verb} lost: {clause}")
+    huddle_help = command([str(cli), "huddle", "--help"], consumer, env=env).stdout
+    for clause in ("preflight", "open", "bid", "show", "settle", "contact-register"):
+        if clause not in huddle_help:
+            raise RuntimeError(f"installed huddle help lost: {clause}")
+    imported = command(
+        [str(consumer / "scripts" / "shadow-python.sh"), "-c",
+         "import shadow_board_schema, shadow_huddle_event"],
+        consumer,
+        env={**env, "PYTHONPATH": str(consumer / "scripts")},
+    )
+    if imported.returncode != 0:
+        raise RuntimeError("installed Huddle schema or event helper is not importable")
+    if (home / ".shadow" / "runtime" / "huddle-delivery").exists():
+        raise RuntimeError("stranger install created optional Huddle delivery runtime")
     for mount in (
         home / ".claude" / "skills" / "shadow",
         home / ".agents" / "skills" / "shadow",
@@ -488,6 +509,9 @@ def stranger_install(tarball: Path, root: Path, expected_version: str) -> dict[s
     doctor = json.loads(command([str(cli), "doctor", "--json"], consumer, env=env).stdout)
     if not doctor.get("ok"):
         raise RuntimeError("installed doctor did not accept the stranger installation")
+    huddle = next((item for item in doctor.get("checks", []) if item.get("name") == "huddle authority"), None)
+    if huddle is None or huddle.get("optional_delivery") != "absent":
+        raise RuntimeError("installed doctor did not report pull-only Huddle delivery state")
     two_seat = json.loads(command(
         [
             str(consumer / "scripts" / "shadow-python.sh"),

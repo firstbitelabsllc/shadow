@@ -192,6 +192,7 @@ class BrowserTests(unittest.TestCase):
                 project="release-notes",
                 priority=2,
                 home=home,
+                repo=canonical,
             )
             server._root_board.set_priority(plan, 1, home=home)
 
@@ -325,6 +326,7 @@ class BrowserTests(unittest.TestCase):
                 project="rotation",
                 priority=2,
                 home=home,
+                repo=repo,
             )
             _, records, warning = server.board_plan_records(repo, home)
 
@@ -537,6 +539,7 @@ class BrowserTests(unittest.TestCase):
                 project="release-notes",
                 priority=2,
                 home=home,
+                repo=repo,
             )
             plan.write_text(PLAN.replace("~aa11", "~cc33"), encoding="utf-8")
             git(repo, "add", "project/PLAN.md")
@@ -1460,7 +1463,8 @@ class BrowserTreeProjectionTests(unittest.TestCase):
             self.assertIsNone(warning)
             entity = board["entities"][0]
             server._root_board.claim(
-                plan, "~bb22", "seat-a", project="tree-fixture", priority=1, home=home
+                plan, "~bb22", "seat-a", project="tree-fixture", priority=1,
+                home=home, repo=repo,
             )
             board, records, warning = server.board_plan_records(repo, home)
             tree = server.tree_projection(

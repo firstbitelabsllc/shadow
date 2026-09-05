@@ -731,6 +731,7 @@ def _prepare_project_map_migration(
     child_identity = board_store.logical_entity_id(origin, child_relative)
     if state["entity"]["id"] != root_identity:
         raise PlanStoreError("project-map source entity identity is stale")
+    board_store.require_huddle_migration_clear(board_payload, {root_identity, child_identity})
     before = {
         "revision": board_payload["revision"],
         "raw_sha256": board_store.board_file_sha256(),

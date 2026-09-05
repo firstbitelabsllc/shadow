@@ -452,3 +452,43 @@ contains pointer metadata only. Human status and the browser dereference those
 pointers and render project rows without copying them. An unparseable or
 missing pointed plan fails loudly; no dashboard or scan becomes competing
 authority.
+
+### V2 claims and Huddles
+
+`shadow.root-board.v2` extends the closed v1 pointer ledger with `huddles`.
+Each claim keeps `entity`, `row`, `owner`, `claimed_at`, `return_by`, `recovery`
+and adds `claim_revision`, `access`, `repository_binding`, `write_scope`.
+New claim revisions are positive; migrated claims retain revision zero.
+The exact participant reference is `entity`, `row`, `claim_revision`, `owner`,
+`claimed_at`. A replacement or handoff cannot reuse a different claim instance.
+
+Access is `unscoped`, `read_only`, or `write`. Source-bound claims record only
+the Git common-directory hash and normalized public remote identity (null
+only for verified local-only Git). No raw common-directory path is stored.
+Ambiguous local remote paths, embedded secrets, queries and fragments refuse.
+Write scopes are bounded lexical relative prefixes with no traversal or
+symlink-parent following. Unicode/case aliases conservatively overlap, but
+comparison normalization never expands an exact declared write permission.
+Read-only source-free claims have no binding and empty scope.
+
+A Huddle has exactly `id`, `state`, `reason`, `opened_revision`, `generation`,
+`opened_at`, `reply_by`, `round`, `claims`, `edges`, `holds`, `bids`,
+`resolution`, `compliance`, `remote_transition`, `replacements`, `resolved_at`,
+`retain_until`. Its ID is `hdl_` plus eight lowercase hexadecimal characters.
+States are `awaiting_scope`, `open_round_1`, `open_round_2`, `remote_pending`,
+`awaiting_compliance`, `resolved`. Direct edges name path overlap, unknown
+scope, or semantic suspicion; transitive membership does not invent a direct
+scope conflict. Reads never advance rounds or deadlines.
+
+Bids are immutable closed structured records. Only the board derives their
+digest and submission time; exact replay is a no-op. Resolution preserves the
+existing valid owner unless the exact owner-authorized handoff is accepted.
+Pending remote transitions retain both holds until authenticated readback.
+Compliance references and bounded same-entity replacement mappings preserve
+the committed disposition through stale recovery. A required return stays
+held until its exact owner action is observed; Huddle does not write plan text.
+
+`scripts/shadow_board_schema.py` owns the pure complete decoder shared by the
+board and confined delivery reader. The optional event has exactly `schema`,
+`event`, `huddle_id`, `generation`; contacts, scopes, claims, evidence and
+provider targets never enter it. Adapter absence leaves board semantics intact.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -56,6 +57,13 @@ class ReleasePackageTests(unittest.TestCase):
         plugin, pack, tracked = baseline()
         pack["files"] = [item for item in pack["files"] if item["path"] != "bin/shadow"]
         self.assertTrue(any("missing" in error for error in self.errors(plugin, pack, tracked)))
+
+    def test_unpacked_size_ceiling_accepts_exact_limit_and_rejects_one_more(self) -> None:
+        plugin, pack, tracked = baseline()
+        pack["unpackedSize"] = mod.MAX_UNPACKED_BYTES
+        self.assertEqual(self.errors(plugin, pack, tracked), [])
+        pack["unpackedSize"] += 1
+        self.assertTrue(any("unpacked bytes" in error for error in self.errors(plugin, pack, tracked)))
 
     def test_lifecycle_command_ships_with_the_dispatcher(self) -> None:
         self.assertIn("scripts/shadow-lifecycle.py", mod.REQUIRED_FILES)
@@ -161,6 +169,21 @@ class ReleasePackageTests(unittest.TestCase):
         for clause in ("--live", "--goal-file", "--timeout-seconds", "--json"):
             self.assertIn(clause, output.stdout)
 
+    def test_huddle_core_ships_with_schema_and_inert_delivery_seam(self) -> None:
+        for path in (
+            "scripts/shadow-huddle.py",
+            "scripts/shadow_huddle_event.py",
+            "scripts/shadow_git_fixture.py",
+            "scripts/shadow_board_schema.py",
+        ):
+            self.assertIn(path, mod.REQUIRED_FILES)
+        output = subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "huddle", "--help"], cwd=ROOT,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr)
+        self.assertIn("contact-register", output.stdout)
+
     def test_cmd_proof_validator_ships_with_lint_and_accept(self) -> None:
         self.assertIn("scripts/shadow_cmd_proof.py", mod.REQUIRED_FILES)
 
@@ -229,13 +252,22 @@ class ReleasePackageTests(unittest.TestCase):
             )
 
     def test_current_checkout_packs_and_installs(self) -> None:
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--root", str(ROOT), "--allow-dirty", "--json"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # Exercise canonical installed receipts even when the host temp root
+        # has an alias (as /var does on macOS).
+        with tempfile.TemporaryDirectory() as dirname:
+            temp = Path(dirname)
+            real = temp / "real"
+            real.mkdir()
+            alias = temp / "alias"
+            alias.symlink_to(real, target_is_directory=True)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", str(ROOT), "--allow-dirty", "--json"],
+                cwd=ROOT,
+                env={**os.environ, "TMPDIR": str(alias)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
         report = json.loads(result.stdout)
         self.assertEqual(result.returncode, 0, report)
         self.assertTrue(report["stranger_install"])

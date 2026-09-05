@@ -427,6 +427,26 @@ def slot_checks() -> list[dict[str, Any]]:
         return [check("extension slots", "fail", str(exc))]
 
 
+def huddle_check() -> dict[str, Any]:
+    """Read local Huddle authority without initializing, repairing, or expiring it."""
+    try:
+        import shadow_board_schema as schema
+        home = Path.home()
+        board_path = home / ".shadow" / "board.json"
+        runtime = home / ".shadow" / "runtime" / "huddle-delivery"
+        if not board_path.exists():
+            return check("huddle authority", "warn", "local board is absent; optional delivery is unsupported",
+                         valid=False, optional_delivery="absent")
+        payload = schema.decode_board_bytes(board_path.read_bytes())
+        huddles = payload.get("huddles", [])
+        delivery = "present" if runtime.exists() else "absent"
+        return check("huddle authority", "pass", f"{len(huddles)} valid Huddle record(s); optional delivery {delivery}",
+                     valid=True, schema=payload.get("schema"), huddles=len(huddles), optional_delivery=delivery)
+    except Exception as exc:
+        return check("huddle authority", "fail", f"malformed local board or Huddle state: {exc}",
+                     valid=False, optional_delivery="unknown")
+
+
 def collect() -> dict[str, Any]:
     checks = [
         check(
@@ -442,6 +462,7 @@ def collect() -> dict[str, Any]:
         *skill_precedence_checks(),
         *host_goal_checks(),
         *slot_checks(),
+        huddle_check(),
     ]
     failed = sum(item["state"] == "fail" for item in checks)
     warned = sum(item["state"] == "warn" for item in checks)

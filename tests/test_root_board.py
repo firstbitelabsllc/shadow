@@ -767,6 +767,17 @@ class ColdSeatsResumeThroughBoardEntityIds(unittest.TestCase):
                 {(claim["row"], claim["owner"]) for claim in claims},
                 {("~aa11", "codex-mac"), ("~bb22", "claude-mac")},
             )
+            # Different row IDs are not disjoint source permission. Make the
+            # fixture's advertised disjoint work explicit before resuming it.
+            for claim in claims:
+                current = board_api.snapshot(home=home)
+                board_api.preflight_access(
+                    entity=claim["entity"], row=claim["row"], owner=claim["owner"],
+                    repo=repo, access="write", write_scope=[f"{claim['owner']}.txt"],
+                    expected_claim_revision=claim["claim_revision"],
+                    expected_board_revision=current["revision"],
+                    now=board_api.datetime.now(board_api.timezone.utc), home=home,
+                )
             claude_resume = run(
                 home, "amp", "--entity", identity, "--by", "claude-mac", cwd=unrelated
             )
@@ -976,6 +987,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
                         project="project",
                         priority=2,
                         home=home,
+                        repo=repo,
                     )
 
             self.assertEqual(board_path.read_bytes(), before_bytes)
@@ -1023,6 +1035,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
                 project="project",
                 priority=2,
                 home=home,
+                repo=repo,
             )
 
             self.assertEqual(successor["claim"]["owner"], "successor-seat")
@@ -1057,6 +1070,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
                         project="project",
                         priority=2,
                         home=home,
+                        repo=repo,
                     )
 
             self.assertEqual(board_path.read_bytes(), before_bytes)
@@ -1113,6 +1127,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
                         project="project",
                         priority=2,
                         home=home,
+                        repo=repo,
                     )
 
             self.assertEqual(board_path.read_bytes(), before_bytes)
@@ -1167,6 +1182,7 @@ class AWriteCountsWithNoRemoteConfigured(unittest.TestCase):
                         project="project",
                         priority=2,
                         home=home,
+                        repo=repo,
                     )
 
             self.assertEqual(board_path.read_bytes(), before_bytes)
@@ -3545,6 +3561,16 @@ class ProjectsGroupEntitiesWithoutCollapsingThem(unittest.TestCase):
                 {(item["entity"], item["row"]) for item in claims},
                 {(entity_id, "~aa11") for entity_id in entities.values()},
             )
+            for claim in claims:
+                current = board_api.snapshot(home=home)
+                scope = "root-output.txt" if claim["entity"] == entities["PLAN.md"] else "plans/api/result.txt"
+                board_api.preflight_access(
+                    entity=claim["entity"], row=claim["row"], owner="map-seat",
+                    repo=repo, access="write", write_scope=[scope],
+                    expected_claim_revision=claim["claim_revision"],
+                    expected_board_revision=current["revision"],
+                    now=board_api.datetime.now(board_api.timezone.utc), home=home,
+                )
             selected_owned, owned_count = board_api.seat_board_entities(
                 board(home),
                 "map-seat",
@@ -3781,7 +3807,7 @@ class ProjectMapMigrationIsAtomicAndReversible(unittest.TestCase):
             authority, sort_keys=True, separators=(",", ":")
         )
 
-    def _fixture(self, root: Path) -> dict[str, object]:
+    def _fixture(self, root: Path, *, classify_read_only: bool = True) -> dict[str, object]:
         home = root / "home"
         portfolio = root / "portfolio"
         unrelated = root / "unrelated"
@@ -3842,6 +3868,11 @@ class ProjectMapMigrationIsAtomicAndReversible(unittest.TestCase):
             cwd=unrelated,
         )
         self.assertEqual(root_claimed.returncode, 0, root_claimed.stderr)
+        # These leases exercise identity/resume preservation, not source work.
+        # Classify each before the next claim instead of inventing disjoint
+        # source permission for a migration fixture.
+        if classify_read_only:
+            self._classify_read_only(home, repo, "root-seat")
         claimed = run(
             home,
             "throw",
@@ -3854,6 +3885,8 @@ class ProjectMapMigrationIsAtomicAndReversible(unittest.TestCase):
             cwd=unrelated,
         )
         self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        if classify_read_only:
+            self._classify_read_only(home, repo, "cold-seat")
         source_head = subprocess.run(
             ["git", "-C", str(repo), "rev-parse", "HEAD"],
             capture_output=True,
@@ -3938,6 +3971,18 @@ class ProjectMapMigrationIsAtomicAndReversible(unittest.TestCase):
             "board_bytes": board_bytes,
             "board_head": board_head,
         }
+
+    @staticmethod
+    def _classify_read_only(home: Path, repo: Path, owner: str) -> None:
+        payload = board_api.snapshot(home=home)
+        current = next(claim for claim in payload["claims"] if claim["owner"] == owner)
+        board_api.preflight_access(
+            entity=current["entity"], row=current["row"], owner=owner,
+            repo=repo, access="read_only", write_scope=[],
+            expected_claim_revision=current["claim_revision"],
+            expected_board_revision=payload["revision"],
+            now=board_api.datetime.now(board_api.timezone.utc), home=home,
+        )
 
     @staticmethod
     def _map_args(fixture: dict[str, object]) -> list[str]:
@@ -4164,6 +4209,46 @@ class ProjectMapMigrationIsAtomicAndReversible(unittest.TestCase):
             self.assertEqual(self._head(repo), fixture["source_head"])
             self.assertEqual(self._board_head(home), restored_board_head)
             self.assertEqual(board(home), restored)
+
+    def test_live_huddle_refuses_map_preparation_without_changing_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp), classify_read_only=False)
+            self.assertEqual(fixture["before"]["huddles"][0]["state"], "awaiting_scope")
+            refused = run(
+                fixture["home"], *self._map_args(fixture), "--dry-run",
+                cwd=fixture["repo"],
+            )
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("live Huddle", refused.stderr)
+            self.assertEqual(self._head(fixture["repo"]), fixture["source_head"])
+            self.assertEqual(self._board_head(fixture["home"]), fixture["board_head"])
+            self.assertEqual(
+                (fixture["home"] / ".shadow" / "board.json").read_bytes(),
+                fixture["board_bytes"],
+            )
+
+    def test_live_huddle_apply_gate_restores_git_and_preserves_board(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._fixture(Path(tmp), classify_read_only=False)
+            home, repo = fixture["home"], fixture["repo"]
+            receipt = home / "huddle-refusal.json"
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                # Bypass preparation's duplicate check only, to independently
+                # exercise the real transactional check after Git fast-forward.
+                with mock.patch.object(board_api, "require_huddle_migration_clear"):
+                    prepared = plan_api._prepare_project_map_migration(
+                        fixture["plan"], "map-target", Path("plans/child/PLAN.md")
+                    )
+                with mock.patch.object(plan_api, "_prepare_project_map_migration", return_value=prepared):
+                    with self.assertRaisesRegex(board_api.BoardError, "live Huddle"):
+                        plan_api._apply_project_map_migration(
+                            fixture["plan"], "map-target", Path("plans/child/PLAN.md"),
+                            prepared["transaction_sha256"], receipt,
+                        )
+            self.assertEqual(self._head(repo), fixture["source_head"])
+            self.assertEqual(self._board_head(home), fixture["board_head"])
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), fixture["board_bytes"])
+            self.assertEqual(json.loads(receipt.read_text())["phase"], "prepared")
 
     def test_direct_board_api_rejects_forged_routes_and_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5159,7 +5244,7 @@ class ACrashMidClaimLeavesARecoverableBoard(unittest.TestCase):
                         module._replace = replace_then_die
                     module.claim(
                         repo / "PLAN.md", "~aa11", "crashed-seat",
-                        project="project", priority=2, home=home
+                        project="project", priority=2, home=home, repo=repo
                     )
                     os._exit(99)
                 _, status = os.waitpid(child, 0)

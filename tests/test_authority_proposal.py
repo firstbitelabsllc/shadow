@@ -391,6 +391,7 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
         project="proposal-acceptance",
         priority=1,
         home=home,
+        repo=source_repo,
     )
     state = board.entity_state(plan_path, home=home)
     assert state is not None and state["entity"] is not None
@@ -1144,6 +1145,7 @@ class ProposalAcceptance(unittest.TestCase):
                 project="proposal-git",
                 priority=1,
                 home=home,
+                repo=repo,
             )
             state = board.entity_state(plan_path, home=home)
             assert state is not None and state["entity"] is not None
@@ -1531,3 +1533,33 @@ class ProposalAcceptance(unittest.TestCase):
             self.assertEqual(snapshot_authority(world), before)
             self.assertEqual(release.call_count, 1)
             self.assertEqual(result, 1, output.getvalue())
+
+    def test_finalization_does_not_erase_a_foreign_root_or_a_committed_close(self) -> None:
+        for phase in ("foreign_root", "committed_close"):
+            with self.subTest(phase=phase), proposal_acceptance() as world:
+                release = shadow_accept._board.release
+                raced = {}
+
+                def race_after_publication(*args, **kwargs):
+                    if phase == "foreign_root":
+                        content = current_plan_text(world)
+                        shadow_accept.atomic_write_text(world.plan_path,
+                            content + "- 2026-09-05T00:01:00Z NOTE another writer's edit\n")
+                    else:
+                        release(*args, **kwargs)
+                    raced["snapshot"] = snapshot_authority(world)
+                    raise board.BoardError("test: finalization reply failed")
+
+                output = io.StringIO()
+                with mock.patch.dict(os.environ, {
+                    "HOME": str(world.home), "PYTHONDONTWRITEBYTECODE": "1",
+                    "SHADOW_PROPOSAL_TEST_SENTINEL": str(world.proof_sentinel),
+                }), mock.patch.object(board, "release", side_effect=race_after_publication), \
+                     redirect_stdout(output), redirect_stderr(output):
+                    result = shadow_accept.main(["--entity", world.entity_id,
+                        "--repo", str(world.source_repo), "--row", world.row_id,
+                        "--by", world.owner, "--proposal", str(world.attempt_path)])
+                self.assertEqual(result, 1, output.getvalue())
+                self.assertEqual(proof_run_count(world), 1)
+                self.assertEqual(snapshot_authority(world), raced["snapshot"])
+                self.assertNotIn("prior authority was restored", output.getvalue())

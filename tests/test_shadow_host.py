@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import copy
+from datetime import datetime, timedelta, timezone
+import fcntl
 import hashlib
 import importlib.util
 import io
@@ -17,6 +20,9 @@ import unittest
 from unittest import mock
 
 from tests.proc_fixture import git
+from tests import test_huddle
+from tests.test_huddle import HuddleTestCase, board_api
+import shadow_huddle_event as event_api
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -165,6 +171,7 @@ def run_host(
     host: str = "cursor",
     force: bool = False,
     authority_proposal: bool = False,
+    extra: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -212,6 +219,7 @@ def run_host(
         )
     if force:
         command.append("--force")
+    command.extend(extra)
     return subprocess.run(
         command,
         env=environment,
@@ -219,6 +227,199 @@ def run_host(
         text=True,
         check=False,
     )
+
+
+class HuddleHostTests(HuddleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.repo = make_repo(self.home)
+        self.binary = make_host(self.home, "observe")
+        self.task = self.home / "task.txt"
+        self.task.write_text("Inspect only the assigned file.")
+        self.output = self.repo / ".shadow/evidence/host.json"
+        payload = self.v2_board()
+        self.claim = payload["claims"][0]
+        self.claim.update(claim_revision=1, access="unscoped",
+                          repository_binding=board_api.repository_binding(self.repo))
+        self.seed_v2(payload)
+
+    def context(self, claim=None):
+        claim = claim or self.claim
+        return {key: claim[key] for key in ("entity", "row", "owner", "claim_revision")} | {
+            "board_revision": board_api.snapshot(home=self.home)["revision"]}
+
+    def invoke(self, context=None, *, paths=(), proposal=False):
+        extra = () if context is None else ("--claim-context", json.dumps(context) if isinstance(context, dict) else context)
+        extra += tuple(part for path in paths for part in ("--allowed-path", path))
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            return run_host(self.repo, self.binary, self.task, self.output,
+                            host="codex" if proposal else "cursor", force=True,
+                            authority_proposal=proposal, extra=extra)
+
+    def assert_not_launched(self, result):
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(json.loads(result.stdout)["blocked"]["kind"],
+                      {"claim_context_missing", "claim_context_invalid", "claim_access_refused"})
+        self.assertFalse(self.binary.with_suffix(".argv.json").exists())
+        self.assertFalse((self.home / ".proposal-bin/codex.argv.json").exists())
+
+    def test_v2_missing_context_refuses_real_worker_including_proposal(self):
+        before = self.authority()
+        for proposal in (False, True):
+            with self.subTest(proposal=proposal):
+                self.assert_not_launched(self.invoke(proposal=proposal))
+                self.assertEqual(self.authority(), before)
+
+    def test_real_preflight_launches_earlier_owner_and_holds_later_worker(self):
+        result = self.invoke(self.context())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.binary.with_suffix(".argv.json").exists())
+        self.binary.with_suffix(".argv.json").unlink()
+        current = board_api.snapshot(home=self.home)
+        self.assertEqual(current["claims"][0]["access"], "write")
+        self.assertEqual(current["claims"][0]["write_scope"], ["result.txt"])
+        later = copy.deepcopy(current["claims"][0])
+        later.update(row="~bb22", owner="Other", claim_revision=current["revision"] + 1,
+                     access="unscoped", write_scope=[])
+        with board_api._transaction(self.home) as (root, path, payload):
+            payload["revision"] += 1
+            payload["claims"].append(later)
+            board_api._write_and_commit(root, path, payload, "test: later claim")
+        self.assert_not_launched(self.invoke(self.context(later)))
+        held = board_api.snapshot(home=self.home)
+        self.assertEqual([ref["owner"] for ref in held["huddles"][0]["holds"]], ["Other"])
+        before = self.authority()
+        # A deadline calls for settlement; it does not revoke the valid earlier
+        # writer's unchanged scope while the other claim stays held.
+        board_api.authorize_host_attempt(
+            context=self.context(), repo=self.repo, write_scope=["result.txt"],
+            authority_proposal=False, now=datetime.now(timezone.utc) + timedelta(minutes=3),
+            home=self.home)
+        self.assertEqual(self.authority(), before)
+        self.assert_not_launched(self.invoke(self.context(later), proposal=True))
+        self.assertEqual(self.authority(), before)
+        self.assertEqual(held["claims"][1]["access"], "write")
+
+    def test_bad_claim_context_or_raw_scope_refuses_without_board_write(self):
+        cases = [None, {**self.context(), "board_revision": 0},
+                 {**self.context(), "claim_revision": 6},
+                 {**self.context(), "owner": "Other"},
+                 {**self.context(), "row": "~zz99"},
+                 {**self.context(), "entity": "b" * 64},
+                 {**self.context(), "claim_revision": True},
+                 {**self.context(), "extra": "not allowed"},
+                 json.dumps(self.context())[:-1] + ',"owner":"Other"}']
+        before = self.authority()
+        for context in cases:
+            with self.subTest(context=context):
+                self.assert_not_launched(self.invoke(context))
+                self.assertEqual(self.authority(), before)
+        (self.repo / "alias").symlink_to(self.home, target_is_directory=True)
+        git(self.repo, "add", "alias")
+        git(self.repo, "commit", "-qm", "terminal link fixture")
+        for unsafe in ("../outside", "alias/new.txt", "alias", str(self.repo / "result.txt"), "a//b", ".git/config"):
+            with self.subTest(path=unsafe):
+                self.assert_not_launched(self.invoke(self.context(), paths=(unsafe,)))
+                self.assertEqual(self.authority(), before)
+
+    def test_committed_preflight_emits_after_unlock_even_when_launch_is_held(self):
+        earlier = copy.deepcopy(self.claim)
+        earlier.update(owner="Earlier", row="~bb22", claim_revision=0,
+                       access="write", write_scope=["result.txt"])
+        with board_api._transaction(self.home) as (root, path, payload):
+            payload["claims"].append(earlier)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: earlier scope owner")
+        events = []
+        def observe(event, *, repo_root, home):
+            self.assertEqual(home, self.home)
+            with (self.home / ".shadow" / ".board.lock").open("rb") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    huddle = board_api.snapshot(home=self.home)["huddles"][0]
+                    self.assertEqual(event["huddle_id"], huddle["id"])
+                    self.assertEqual(event["generation"], huddle["generation"])
+                    events.append(event)
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+            raise event_api.RunnerRefused("optional delivery unavailable")
+        with mock.patch.object(event_api, "emit_post_commit", side_effect=observe):
+            with self.assertRaisesRegex(board_api.BoardError, "held"):
+                board_api.authorize_host_attempt(
+                    context=self.context(), repo=self.repo, write_scope=["result.txt"],
+                    authority_proposal=False, now=datetime.now(timezone.utc), home=self.home,
+                )
+            self.assertEqual(len(events), 1)
+            # An identical declaration leaves the hold intact and emits no event.
+            with self.assertRaisesRegex(board_api.BoardError, "held"):
+                board_api.authorize_host_attempt(
+                    context=self.context(), repo=self.repo, write_scope=["result.txt"],
+                    authority_proposal=False, now=datetime.now(timezone.utc), home=self.home,
+                )
+            self.assertEqual(len(events), 1)
+
+    def test_binding_mismatch_refuses_and_no_change_proposal_preserves_access(self):
+        before = self.authority()
+        self.binary.with_suffix(".mode").write_text("proposal")
+        result = self.invoke(self.context(), proposal=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.authority(), before)
+        self.binary.with_suffix(".argv.json").unlink()
+        with board_api._transaction(self.home) as (root, path, payload):
+            payload["claims"][0]["repository_binding"]["common_dir_sha256"] = "f" * 64
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: another source identity")
+        before = self.authority()
+        for proposal in (False, True):
+            with self.subTest(proposal=proposal):
+                self.assert_not_launched(self.invoke(self.context(), proposal=proposal))
+                self.assertEqual(self.authority(), before)
+
+    def test_post_preflight_board_or_scope_change_refuses_dispatch(self):
+        # Exercise real transactions, then inject the race at the seam. The
+        # final authorization must refuse; it cannot rely on an earlier copy.
+        parent = self.repo / "newdir"
+        parent.mkdir()
+        original = board_api.preflight_access
+        def raced(*args, **kwargs):
+            result = original(*args, **kwargs)
+            parent.rename(self.repo / "old-parent")
+            parent.mkdir()
+            return result
+        with mock.patch.object(board_api, "preflight_access", side_effect=raced):
+            with self.assertRaisesRegex(board_api.BoardError, "scope changed"):
+                board_api.authorize_host_attempt(
+                    context=self.context(), repo=self.repo, write_scope=["newdir/result.txt"],
+                    authority_proposal=False, now=datetime.now(timezone.utc), home=self.home)
+        def board_raced(*args, **kwargs):
+            result = original(*args, **kwargs)
+            with board_api._transaction(self.home) as (root, path, payload):
+                payload["revision"] += 1
+                board_api._write_and_commit(root, path, payload, "test: concurrent claim edit")
+            return result
+        with mock.patch.object(board_api, "preflight_access", side_effect=board_raced):
+            with self.assertRaisesRegex(board_api.BoardError, "board changed"):
+                board_api.authorize_host_attempt(
+                    context=self.context(), repo=self.repo, write_scope=["newdir/result.txt"],
+                    authority_proposal=False, now=datetime.now(timezone.utc), home=self.home)
+
+    def test_selected_writer_continues_without_reopening_expired_or_compliance_state(self):
+        for state in ("open_round_1", "awaiting_compliance"):
+            with self.subTest(state=state):
+                payload = test_huddle.HuddleSchemaTests.fixture(self, state)
+                for claim in payload["claims"]:
+                    claim.update(repository_binding=board_api.repository_binding(self.repo),
+                                 write_scope=["result.txt"])
+                self.seed_v2(payload)
+                before = self.authority()
+                result = self.invoke(self.context(payload["claims"][0]))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.authority(), before)
+                self.binary.with_suffix(".argv.json").unlink()
+                self.assert_not_launched(self.invoke(self.context(payload["claims"][1])))
+                self.assertEqual(self.authority(), before)
+                self.assert_not_launched(self.invoke(self.context(payload["claims"][0]), paths=("other.txt",)))
+                self.assertEqual(self.authority(), before)
 
 
 class ShadowHostTests(unittest.TestCase):

@@ -6,6 +6,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar
 import json
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -14,8 +15,10 @@ from pathlib import Path
 import re
 import subprocess
 from typing import Any, Final, Iterator
+import weakref
 
 import shadow_git as _shadow_git
+import shadow_board_schema as _board_schema
 import shadow_plan_store as _plan_store
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
 
@@ -30,6 +33,7 @@ JOURNAL_FIELDS: Final = {
 }
 PLAN_FIELDS: Final = {"head", "blob", "relative"}
 CLAIM_FIELDS: Final = {"claimed_at", "return_by", "recovery"}
+HUDDLE_CLAIM_FIELDS: Final = CLAIM_FIELDS | {"claim_revision"}
 DISCOVERY_FIELDS: Final = {"entity", "project", "rows", "relative"}
 HEX_OBJECT: Final = re.compile(r"[0-9a-f]{40,64}\Z")
 ENTITY: Final = re.compile(r"[0-9a-f]{64}\Z")
@@ -75,6 +79,30 @@ class UpstreamBinding:
     # Git availability, which sent a 2026-09-03 portfolio refusal after
     # credentials that were never at fault.
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class HuddleReadback:
+    """An authenticated, stable remote Huddle ownership observation.
+
+    This is deliberately an in-process value rather than a JSON receipt.  A
+    caller may log its digest, but cannot turn a copied digest (or an exit
+    status) into authority at the board-finalization door.
+    """
+
+    ref: str
+    expected_remote_version: str
+    outcome: str
+    attempt_receipt: str
+    source_binding: str
+    successor_binding: str
+    plan_binding: str
+    project: str
+    _seal: object
+
+
+_HUDDLE_READBACK_SEAL: Final = object()
+_HUDDLE_READBACK_REGISTRY: dict[int, tuple[weakref.ReferenceType[HuddleReadback], str]] = {}
 
 
 LOCAL_ONLY = UpstreamBinding(RemoteEligibility.VERIFIED_LOCAL_ONLY)
@@ -591,10 +619,7 @@ def managed_repo_for_plan(
     )
 
 
-def claim_ref(entity: str, row: str) -> str:
-    if ENTITY.fullmatch(entity) is None or ROW.fullmatch(row) is None:
-        raise ValueError("remote claim identity is invalid")
-    return f"refs/heads/shadow/claims/v1/{entity}/{row[1:]}"
+claim_ref = _board_schema.claim_ref
 
 
 def public_safe_plan_token(value: object) -> bool:
@@ -657,7 +682,15 @@ def _receipt(
     reason: str,
     winner: str | None,
     failure: str | None,
+    claim_revision: int | None = None,
 ) -> dict[str, Any]:
+    claim = {
+        "claimed_at": claimed_at,
+        "return_by": return_by,
+        "recovery": recovery,
+    }
+    if claim_revision is not None:
+        claim["claim_revision"] = claim_revision
     return {
         "schema": SCHEMA,
         "status": status,
@@ -667,11 +700,7 @@ def _receipt(
         "owner": owner,
         "project": project,
         "plan": {key: plan_token[key] for key in ("head", "blob", "relative")},
-        "claim": {
-            "claimed_at": claimed_at,
-            "return_by": return_by,
-            "recovery": recovery,
-        },
+        "claim": claim,
         "state": state,
         "reason": reason,
         "winner": winner,
@@ -745,15 +774,18 @@ def _valid_winner(
         return None
     owner = _public_owner(value.get("owner"))
     claim = value.get("claim")
+    claim_fields = set(claim) if isinstance(claim, dict) else set()
     valid_claim = (
         isinstance(claim, dict)
-        and set(claim) == CLAIM_FIELDS
+        and claim_fields in (CLAIM_FIELDS, HUDDLE_CLAIM_FIELDS)
         and isinstance(claim.get("claimed_at"), str)
         and STAMP.fullmatch(claim["claimed_at"]) is not None
         and isinstance(claim.get("return_by"), str)
         and STAMP.fullmatch(claim["return_by"]) is not None
         and claim["return_by"] > claim["claimed_at"]
         and claim.get("recovery") == RECOVERY
+        and (claim_fields == CLAIM_FIELDS or type(claim.get("claim_revision")) is int
+             and claim["claim_revision"] >= 0)
     )
     if (
         value.get("schema") != SCHEMA
@@ -766,7 +798,7 @@ def _valid_winner(
         or not valid_claim
         or value.get("state") not in {"acquired", "released", "completed"}
         or value.get("reason") not in {
-            "acquire", "adopt", "handback", "blocked", "completed"
+            "acquire", "adopt", "handback", "blocked", "completed", "handoff"
         }
     ):
         return None
@@ -860,6 +892,206 @@ def _remote_tip(
             plan_token=plan_token,
         ),
     )
+
+
+def _huddle_ref(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and {"entity", "row", "claim_revision", "owner", "claimed_at"}.issubset(value)
+        and isinstance(value["entity"], str) and ENTITY.fullmatch(value["entity"]) is not None
+        and isinstance(value["row"], str) and ROW.fullmatch(value["row"]) is not None
+        and type(value["claim_revision"]) is int and value["claim_revision"] >= 0
+        and _public_owner(value["owner"]) is not None
+        and isinstance(value["claimed_at"], str) and STAMP.fullmatch(value["claimed_at"]) is not None
+    )
+
+
+def _full_huddle_claim(value: object) -> bool:
+    return (
+        _huddle_ref(value)
+        and isinstance(value.get("return_by"), str) and STAMP.fullmatch(value["return_by"]) is not None
+        and value["return_by"] > value["claimed_at"]
+        and value.get("recovery") == RECOVERY
+    )
+
+
+def _huddle_binding(value: dict) -> str:
+    fields = ("entity", "row", "claim_revision", "owner", "claimed_at", "return_by", "recovery")
+    return json.dumps({field: value[field] for field in fields}, sort_keys=True, separators=(",", ":"))
+
+
+def _huddle_attempt_digest(*, ref: str, expected_remote_version: str,
+                           outcome: str, observations: list[tuple[str, dict[str, Any] | None] | None]) -> str:
+    """Return a path-free audit token; it is never an authorization credential."""
+    value = {
+        "ref": ref,
+        "expected_remote_version": expected_remote_version,
+        "outcome": outcome,
+        "observations": observations,
+    }
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _stable_huddle_tip(repo: Path, *, endpoint: str, ref: str, entity: str,
+                       row: str, project: str, plan_token: dict[str, str],
+                       retries: int) -> tuple[tuple[str, dict[str, Any] | None] | None, list[tuple[str, dict[str, Any] | None] | None]]:
+    """Read an authenticated remote tip twice per attempt, refusing movement."""
+    observations: list[tuple[str, dict[str, Any] | None] | None] = []
+    for _ in range(retries):
+        first = _remote_tip(repo, endpoint=endpoint, ref=ref, entity=entity, row=row,
+                            project=project, plan_token=plan_token)
+        second = _remote_tip(repo, endpoint=endpoint, ref=ref, entity=entity, row=row,
+                             project=project, plan_token=plan_token)
+        observations.extend((first, second))
+        if first is not None and first == second:
+            return first, observations
+    return None, observations
+
+
+def _huddle_receipt_matches(receipt: dict[str, Any] | None, claim: dict,
+                            plan_token: dict[str, str]) -> bool:
+    """Bind a remote journal to the full board identity and unchanged lease."""
+    if not _full_huddle_claim(claim) or receipt is None:
+        return False
+    remote_claim = receipt.get("claim")
+    return (
+        receipt.get("entity") == claim["entity"]
+        and receipt.get("row") == claim["row"]
+        and receipt.get("owner") == claim["owner"]
+        and receipt.get("plan") == {key: plan_token[key] for key in ("head", "blob", "relative")}
+        and isinstance(remote_claim, dict)
+        and remote_claim.get("claim_revision") == claim["claim_revision"]
+        and remote_claim.get("claimed_at") == claim["claimed_at"]
+        and remote_claim.get("return_by") == claim.get("return_by")
+        and remote_claim.get("recovery") == claim.get("recovery")
+        and receipt.get("state") == "acquired"
+    )
+
+
+def _huddle_readback_snapshot(value: HuddleReadback) -> str:
+    """Immutable authorization fields as observed by the remote helper."""
+    return json.dumps({
+        "ref": value.ref,
+        "expected_remote_version": value.expected_remote_version,
+        "outcome": value.outcome,
+        "attempt_receipt": value.attempt_receipt,
+        "source_binding": value.source_binding,
+        "successor_binding": value.successor_binding,
+        "plan_binding": value.plan_binding,
+        "project": value.project,
+    }, sort_keys=True, separators=(",", ":"))
+
+
+def _authenticated_huddle_readback(*, ref: str, expected_remote_version: str,
+                                  outcome: str, attempt_receipt: str,
+                                  source_binding: str, successor_binding: str,
+                                  plan_binding: str, project: str) -> HuddleReadback:
+    """Create the one process-local observation accepted by board finalization."""
+    value = HuddleReadback(ref, expected_remote_version, outcome, attempt_receipt,
+                           source_binding, successor_binding, plan_binding, project,
+                           _HUDDLE_READBACK_SEAL)
+    identifier = id(value)
+
+    def _discard(reference: weakref.ReferenceType[HuddleReadback]) -> None:
+        entry = _HUDDLE_READBACK_REGISTRY.get(identifier)
+        if entry is not None and entry[0] is reference:
+            _HUDDLE_READBACK_REGISTRY.pop(identifier, None)
+
+    _HUDDLE_READBACK_REGISTRY[identifier] = (weakref.ref(value, _discard),
+                                              _huddle_readback_snapshot(value))
+    return value
+
+
+def read_remote_claim_stably(repo: Path, *, expected_remote_version: str,
+                             source_claim: dict, successor_claim: dict,
+                             project: str, plan_token: dict[str, str],
+                             retries: int = 2) -> HuddleReadback:
+    """Authenticate the exact remote handoff result through stable Git readback.
+
+    A generic JSON receipt, a Git exit status, and a digest are intentionally
+    insufficient: only this helper creates the sealed result accepted by the
+    root-board finalizer.
+    """
+    if (not _full_huddle_claim(source_claim) or not _full_huddle_claim(successor_claim)
+            or source_claim["entity"] != successor_claim["entity"]
+            or source_claim["row"] != successor_claim["row"]
+            or source_claim["claim_revision"] != successor_claim["claim_revision"]
+            or source_claim["claimed_at"] != successor_claim["claimed_at"]
+            or source_claim["owner"] == successor_claim["owner"]
+            or any(source_claim[key] != successor_claim[key]
+                   for key in ("return_by", "recovery"))
+            or type(retries) is not int or not 1 <= retries <= 2
+            or HEX_OBJECT.fullmatch(expected_remote_version) is None
+            or not public_safe_plan_token(plan_token) or PROJECT.fullmatch(project) is None):
+        raise RemoteClaimError("remote Huddle handoff input is invalid")
+    binding = upstream_binding(repo)
+    ref = claim_ref(source_claim["entity"], source_claim["row"])
+    if binding.eligibility is not RemoteEligibility.REMOTE or binding.endpoint is None:
+        observations: list[tuple[str, dict[str, Any] | None] | None] = []
+        return _authenticated_huddle_readback(
+            ref=ref, expected_remote_version=expected_remote_version, outcome="ambiguous",
+            attempt_receipt=_huddle_attempt_digest(ref=ref, expected_remote_version=expected_remote_version,
+                                                    outcome="ambiguous", observations=observations),
+            source_binding=_huddle_binding(source_claim), successor_binding=_huddle_binding(successor_claim),
+            plan_binding=json.dumps(plan_token, sort_keys=True, separators=(",", ":")), project=project)
+    observed, observations = _stable_huddle_tip(
+        repo, endpoint=binding.endpoint, ref=ref, entity=source_claim["entity"],
+        row=source_claim["row"], project=project, plan_token=plan_token, retries=retries)
+    if observed is None:
+        outcome = "ambiguous"
+    elif _huddle_receipt_matches(observed[1], successor_claim, plan_token):
+        outcome = "successor"
+    elif (observed[0] == expected_remote_version
+          and _huddle_receipt_matches(observed[1], source_claim, plan_token)):
+        outcome = "predecessor"
+    else:
+        outcome = "ambiguous"
+    return _authenticated_huddle_readback(
+        ref=ref, expected_remote_version=expected_remote_version, outcome=outcome,
+        attempt_receipt=_huddle_attempt_digest(ref=ref, expected_remote_version=expected_remote_version,
+                                                outcome=outcome, observations=observations),
+        source_binding=_huddle_binding(source_claim), successor_binding=_huddle_binding(successor_claim),
+        plan_binding=json.dumps(plan_token, sort_keys=True, separators=(",", ":")), project=project)
+
+
+def handoff_huddle_claim(repo: Path, *, expected_remote_version: str,
+                         source_claim: dict, successor_claim: dict,
+                         project: str, plan_token: dict[str, str],
+                         retries: int = 2) -> HuddleReadback:
+    """CAS the existing claim ref, then return one sealed stable observation."""
+    initial = read_remote_claim_stably(
+        repo, expected_remote_version=expected_remote_version, source_claim=source_claim,
+        successor_claim=successor_claim, project=project, plan_token=plan_token, retries=retries)
+    if initial.outcome != "predecessor":
+        return initial
+    binding = upstream_binding(repo)
+    assert binding.endpoint is not None
+    desired = _receipt(
+        status="acquired", ref=initial.ref, entity=successor_claim["entity"],
+        row=successor_claim["row"], owner=successor_claim["owner"], project=project,
+        plan_token=plan_token, claimed_at=successor_claim["claimed_at"],
+        return_by=source_claim["return_by"], recovery=source_claim["recovery"],
+        state="acquired", reason="handoff", winner=successor_claim["owner"], failure=None,
+        claim_revision=successor_claim["claim_revision"],
+    )
+    commit_id = _commit_receipt(repo, desired, successor_claim["claimed_at"], expected_remote_version)
+    if commit_id is not None:
+        _push(repo, binding.endpoint, initial.ref, commit_id, expected_remote_version)
+    # The final outcome is always readback, including a successful push.
+    return read_remote_claim_stably(
+        repo, expected_remote_version=expected_remote_version, source_claim=source_claim,
+        successor_claim=successor_claim, project=project, plan_token=plan_token, retries=retries)
+
+
+def trusted_huddle_readback(value: object) -> HuddleReadback:
+    """Reject copied JSON/digests before they can authorize a local mutation."""
+    if not isinstance(value, HuddleReadback) or value._seal is not _HUDDLE_READBACK_SEAL:
+        raise RemoteClaimError("remote Huddle readback is not authenticated")
+    entry = _HUDDLE_READBACK_REGISTRY.get(id(value))
+    if (entry is None or entry[0]() is not value
+            or entry[1] != _huddle_readback_snapshot(value)):
+        raise RemoteClaimError("remote Huddle readback is not an original stable observation")
+    return value
 
 
 def discover_active_batch(
@@ -1050,6 +1282,7 @@ def acquire(
     return_by: str,
     recovery: str,
     adopt_expired: bool = False,
+    claim_revision: int | None = None,
 ) -> dict[str, Any] | None:
     """Return None for local-only repos, else one closed public outcome."""
     binding = upstream_binding(repo)
@@ -1068,6 +1301,7 @@ def acquire(
         or STAMP.fullmatch(return_by) is None
         or return_by <= claimed_at
         or recovery != RECOVERY
+        or claim_revision is not None and (type(claim_revision) is not int or claim_revision <= 0)
     ):
         return _receipt(
             status="error", ref=ref, entity=entity, row=row, owner=owner,
@@ -1090,6 +1324,7 @@ def acquire(
         reason="acquire",
         winner=owner,
         failure=None,
+        claim_revision=claim_revision,
     )
     if binding.eligibility is RemoteEligibility.UNKNOWN:
         return _result(acquired, "error", winner=None, failure="ambiguous_remote")
@@ -1150,6 +1385,7 @@ def acquire(
             reason=acquired["reason"],
             winner=winner["owner"],
             failure="claim_exists",
+            claim_revision=claim_revision,
         )
     if previous is None and observed == ("", None):
         return _result(acquired, "lost", winner=None, failure="transport_failed")
@@ -1168,6 +1404,7 @@ def acquire(
         reason=acquired["reason"],
         winner=None,
         failure="transport_failed",
+        claim_revision=claim_revision,
     )
 
 
@@ -1185,6 +1422,9 @@ def transition(
     recover_detached: bool = False,
 ) -> dict[str, Any] | None:
     """CAS one acquired journal tip to released/completed."""
+    revision = claim.get("claim_revision")
+    if revision is not None and (type(revision) is not int or revision < 0):
+        raise RemoteClaimError("remote transition claim revision is invalid")
     binding = upstream_binding(
         repo,
         recover_detached=recover_detached,
@@ -1202,6 +1442,10 @@ def transition(
         project=project, plan_token=plan_token, claimed_at=claim["claimed_at"],
         return_by=claim["return_by"], recovery=claim["recovery"], state=state,
         reason=reason, winner=owner, failure=None,
+        # Revision zero denotes a migrated v1 claim whose original remote
+        # journal has the historical three-field lease. Never downgrade a
+        # positive revision: it must match the remote identity exactly.
+        claim_revision=revision or None,
     )
     if binding.eligibility is RemoteEligibility.UNKNOWN:
         return _result(desired, "error", winner=None, failure="ambiguous_remote")

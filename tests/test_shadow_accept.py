@@ -19,7 +19,7 @@ import unittest
 from unittest import mock
 
 from tests.plan_tree_fixture import install_plan_tree
-from tests.proc_fixture import git
+from tests.proc_fixture import configure_public_fixture_ssh_remote, git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +92,7 @@ def run_accept(repo: Path, row: str) -> subprocess.CompletedProcess[str]:
             project="demo",
             priority=3,
             home=home,
+            repo=repo,
         )
     return subprocess.run(
         [
@@ -198,6 +199,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="detached",
                 priority=1,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -315,6 +317,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -444,6 +447,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -944,6 +948,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -958,18 +963,26 @@ class ShadowAcceptTests(unittest.TestCase):
                 "--by",
                 "seat-a",
             ]
-            first_output = io.StringIO()
-
-            with mock.patch.dict(
-                os.environ, {"HOME": str(home)}
-            ), mock.patch.object(
-                accept._board,
-                "release",
-                side_effect=fail_after_project_commit,
-            ), redirect_stdout(first_output), redirect_stderr(first_output):
-                first = accept.main(accept_argv)
-
-            self.assertEqual(first, 1, first_output.getvalue())
+            # A recoverable BoardError now rolls back its own publication.
+            # Exercise a genuine process-death window, where rollback cannot
+            # run, to retain the recorded-source retry contract.
+            first = subprocess.run(
+                [sys.executable, "-c",
+                 "import os; from tests.test_shadow_accept import accept; "
+                 "accept._board.release = lambda *a, **k: os._exit(87); "
+                 f"accept.main({accept_argv!r})"],
+                cwd=ROOT, env={**os.environ, "HOME": str(home)},
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(first.returncode, 87, first.stdout + first.stderr)
+            # The killed process could not retire its proof checkout either.
+            # Recover that exact clean fixture through the normal guarded
+            # cleanup before exercising the separate completed-row retry.
+            pool = accept.lead_review_pool(repo)
+            retained = list(pool.iterdir())
+            self.assertEqual(len(retained), 1)
+            accept.remove_review_worktree(repo, retained[0])
+            pool.rmdir()
             completed = plan.read_text(encoding="utf-8")
             self.assertIn("[completed] x.txt says hello ~ab12", completed)
             source_receipts = [
@@ -1106,6 +1119,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 project="demo",
                 priority=3,
                 home=home,
+                repo=repo,
             )
             entity = accept._board.entity_state(
                 plan, home=home
@@ -1921,6 +1935,7 @@ class ShadowAcceptTests(unittest.TestCase):
                 priority=3,
                 now=datetime.now(timezone.utc) - timedelta(hours=9),
                 home=home,
+                repo=repo,
             )
             before_plan = plan.read_bytes()
             before_head = git(repo, "rev-parse", "HEAD")
@@ -1934,6 +1949,7 @@ class ShadowAcceptTests(unittest.TestCase):
                     priority=3,
                     adopt_expired=True,
                     home=home,
+                    repo=repo,
                 )
                 return True
 
@@ -2501,6 +2517,7 @@ class ShadowAcceptTests(unittest.TestCase):
             remote = root / "remote.git"
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
+            configure_public_fixture_ssh_remote(repo, remote)
             git(repo, "push", "-qu", "origin", "HEAD:main")
             git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
             home = root / "home"
@@ -2551,6 +2568,33 @@ class ShadowAcceptTests(unittest.TestCase):
             self.assertIn("~ab12 PROOF", git(remote, "show", "main:PLAN.md"))
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"], [])
+
+    def test_source_claim_refuses_a_raw_localpath_remote(self) -> None:
+        """A fixture transport must not accidentally become source identity."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            remote = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            git(repo, "remote", "add", "origin", str(remote))
+            home = root / "home"
+            home.mkdir()
+
+            claimed = run_shadow(
+                repo,
+                home,
+                "throw",
+                "--repo",
+                str(repo),
+                "--task",
+                "~ab12",
+                "--by",
+                "seat-a",
+            )
+
+            self.assertNotEqual(claimed.returncode, 0, claimed.stderr)
+            self.assertIn("remote identity is not a normalized Git identity", claimed.stderr)
+            self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
 
     def test_unmanaged_retry_keeps_the_claim_when_publication_fails(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
@@ -2733,6 +2777,7 @@ class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
             remote = root / "remote.git"
             subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
             git(repo, "remote", "add", "origin", str(remote))
+            configure_public_fixture_ssh_remote(repo, remote)
             git(repo, "push", "-qu", "origin", "HEAD:main")
             home = root / "home"
             home.mkdir()
@@ -2769,6 +2814,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
         remote = root / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
         git(repo, "remote", "add", "origin", str(remote))
+        configure_public_fixture_ssh_remote(repo, remote)
         git(repo, "push", "-qu", "origin", "HEAD:main")
         git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
         home = root / "home"
@@ -2861,6 +2907,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
 
             advanced = root / "advanced"
             subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
             git(advanced, "config", "user.email", "t@example.invalid")
             git(advanced, "config", "user.name", "T")
             (advanced / "AFTER.txt").write_text("after completion\n", encoding="utf-8")
@@ -3014,6 +3061,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
 
             advanced = root / "advanced"
             subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
             git(advanced, "config", "user.email", "t@example.invalid")
             git(advanced, "config", "user.name", "T")
             (advanced / "PLAN.md").write_text(compacted, encoding="utf-8")
@@ -3312,6 +3360,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
                 ["git", "clone", "-q", str(remote), str(second)],
                 check=True,
             )
+            configure_public_fixture_ssh_remote(second, remote)
             git(second, "config", "user.email", "t@example.invalid")
             git(second, "config", "user.name", "T")
             home_b = root / "home-b"
@@ -3411,6 +3460,7 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
                 ["git", "clone", "-q", str(remote), str(second)],
                 check=True,
             )
+            configure_public_fixture_ssh_remote(second, remote)
             git(second, "config", "user.email", "t@example.invalid")
             git(second, "config", "user.name", "T")
             home = root / "home-b"
@@ -4082,7 +4132,9 @@ class AcceptNeverCommitsAPlanLintBlocks(unittest.TestCase):
                 [],
                 home=home,
             )
-            accept._board.claim(plan, "~ab12", "seat-a", project="demo", priority=3, home=home)
+            accept._board.claim(
+                plan, "~ab12", "seat-a", project="demo", priority=3, home=home, repo=repo
+            )
             board_path = home / ".shadow" / "board.json"
             board_before = board_path.read_bytes()
             head = git(repo, "rev-parse", "HEAD")
@@ -4253,10 +4305,12 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
         origin_entity = by_plan[origin_plan.resolve()]
         sidecar_entity = by_plan[sidecar_plan.resolve()]
         accept._board.claim(
-            sidecar_plan, "~ab12", "seat-a", project="sidecar", priority=3, home=home
+            sidecar_plan, "~ab12", "seat-a", project="sidecar", priority=3, home=home,
+            access="read_only",
         )
         accept._board.claim(
-            origin_plan, "~cd34", "seat-a", project="widget", priority=2, home=home
+            origin_plan, "~cd34", "seat-a", project="widget", priority=2, home=home,
+            access="read_only",
         )
         guessed = accept._board.local_plan_for_repo(repo, home=home)
         return {
@@ -4311,6 +4365,246 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
         self.assertNotIn(str(world["repo"]), combined)
         self.assertNotIn("/Users/", combined)
         self.assertNotIn("/tmp/", combined)
+
+    def test_huddle_settled_after_reservation_restores_only_the_accept_publication(self):
+        for kind in ("cmd", "read"):
+            for tree in (False, True):
+                with self.subTest(kind=kind, tree=tree):
+                    text = SIDECAR_LOCAL_PLAN
+                    if kind == "read":
+                        text = text.replace("proof: cmd true", "proof: read source receipt", 1)
+                        text += "- 2026-09-05T00:00:00Z ~ab12 PROOF source inspected -> pass (manual)\n"
+                    world = self._world(sidecar_plan_text=text)
+                    plan, home = world["sidecar_plan"], world["home"]
+                    if tree:
+                        install_plan_tree(plan.parent, text.encode())
+                    before = plan.read_bytes()
+                    objects = accept.plan_object_digests(plan)
+                    board = accept._board
+                    now = datetime.now(timezone.utc)
+                    with board._transaction(home) as (root, path, payload):
+                        if payload["schema"] == board.V1_SCHEMA:
+                            payload = board.migrate_v1_to_v2(payload)
+                        for claim in payload["claims"]:
+                            claim.update(access="write", write_scope=["README.md"],
+                                repository_binding=board.repository_binding(world["repo"]),
+                                claim_revision=1 if claim["row"] == "~ab12" else 2)
+                        board._write_and_commit(root, path, payload, "test: staged Huddle", now=now)
+                    reserve = board.reserve_completion
+                    raced = {}
+
+                    def reserve_then_settle(*args, **kwargs):
+                        token = reserve(*args, **kwargs)
+                        claims = board.snapshot(home=home)["claims"]
+                        a = next(c for c in claims if c["row"] == "~ab12")
+                        b = next(c for c in claims if c["row"] == "~cd34")
+                        h = board.open_or_join_huddle(claim=b, overlap=[a],
+                            reason="write_scope_overlap", now=now, home=home).payload["huddles"][0]
+                        for claim, role, reason in ((a, "own", "existing_claim"),
+                                                    (b, "stand_down", "duplicate_intent")):
+                            result = board.submit_huddle_bid(huddle_id=h["id"],
+                                seat=claim["owner"], claim=board._claim_ref(claim), role=role,
+                                scope=claim["write_scope"], reason=reason, target=None,
+                                support_claim=None, evidence={"kind": "claim", "value": "self"},
+                                round=1, expected_huddle_generation=h["generation"], now=now, home=home)
+                        settled = board.settle_huddle(huddle_id=h["id"],
+                            actor_claim=board._claim_ref(a), expected_generation=h["generation"],
+                            expected_board_revision=result.payload["revision"], now=now, home=home)
+                        self.assertEqual(settled.payload["huddles"][0]["state"], "awaiting_compliance")
+                        raced["bytes"] = (home / ".shadow/board.json").read_bytes()
+                        raced["head"] = board._journal_head(home / ".shadow")
+                        return token
+
+                    output = io.StringIO()
+                    with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                         mock.patch.object(board, "reserve_completion", side_effect=reserve_then_settle), \
+                         redirect_stdout(output), redirect_stderr(output):
+                        result = accept.main(["--entity", world["sidecar_entity"],
+                            "--repo", str(world["repo"]), "--row", "~ab12", "--by", "seat-a"])
+                    self.assertEqual(result, 1, output.getvalue())
+                    self.assertIn("compliance", output.getvalue())
+                    self.assertEqual(plan.read_bytes(), before)
+                    self.assertEqual(accept.plan_object_digests(plan), objects)
+                    self.assertEqual((home / ".shadow/board.json").read_bytes(), raced["bytes"])
+                    self.assertEqual(board._journal_head(home / ".shadow"), raced["head"])
+
+    def test_local_completion_preserves_concurrent_edits_and_committed_release(self):
+        for phase in ("reserved", "published", "released"):
+            for tree in (False, True):
+                with self.subTest(phase=phase, tree=tree):
+                    text = SIDECAR_LOCAL_PLAN.replace("proof: cmd true", "proof: read source receipt", 1)
+                    text += "- 2026-09-05T00:00:00Z ~ab12 PROOF source inspected -> pass (manual)\n"
+                    world = self._world(sidecar_plan_text=text)
+                    plan, home = world["sidecar_plan"], world["home"]
+                    if tree:
+                        install_plan_tree(plan.parent, text.encode())
+                    board = accept._board
+                    reserve, release = board.reserve_completion, board.release
+                    original_write = accept.atomic_write_text
+                    raced = {}
+
+                    def foreign_edit():
+                        current = board.read_plan_text(plan)
+                        original_write(plan, current + "- 2026-09-05T00:01:00Z NOTE other writer's edit\n")
+                        raced["root"] = plan.read_bytes()
+                        raced["objects"] = accept.plan_object_digests(plan)
+
+                    def reserve_with_race(*args, **kwargs):
+                        result = reserve(*args, **kwargs)
+                        if phase == "reserved":
+                            foreign_edit()
+                        return result
+
+                    def release_with_race(*args, **kwargs):
+                        if phase == "published":
+                            foreign_edit()
+                            return release(*args, **kwargs)
+                        result = release(*args, **kwargs)
+                        if phase == "released":
+                            raced["root"] = plan.read_bytes()
+                            raced["objects"] = accept.plan_object_digests(plan)
+                            raise board.BoardError("test: committed release reply lost")
+                        return result
+
+                    output = io.StringIO()
+                    with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                         mock.patch.object(board, "reserve_completion", side_effect=reserve_with_race), \
+                         mock.patch.object(board, "release", side_effect=release_with_race), \
+                         redirect_stdout(output), redirect_stderr(output):
+                        result = accept.main(["--entity", world["sidecar_entity"],
+                            "--repo", str(world["repo"]), "--row", "~ab12", "--by", "seat-a"])
+                    self.assertEqual(result, 1, output.getvalue())
+                    self.assertEqual(plan.read_bytes(), raced["root"])
+                    self.assertEqual(accept.plan_object_digests(plan), raced["objects"])
+                    self.assertNotIn("prior plan restored", output.getvalue())
+                    claims = board.entity_state(plan, home=home)["claims"]
+                    self.assertEqual(bool(claims), phase != "released")
+                    if phase == "reserved":
+                        self.assertIn("[in_progress] sidecar-only", board.read_plan_text(plan))
+                    else:
+                        self.assertIn("[completed] sidecar-only", board.read_plan_text(plan))
+
+    def test_local_completion_rolls_back_post_publication_io_errors(self):
+        for stage in ("publication", "readback", "release"):
+            for tree in (False, True):
+                with self.subTest(stage=stage, tree=tree):
+                    text = SIDECAR_LOCAL_PLAN.replace("proof: cmd true", "proof: read source receipt", 1)
+                    text += "- 2026-09-05T00:00:00Z ~ab12 PROOF source inspected -> pass (manual)\n"
+                    world = self._world(sidecar_plan_text=text)
+                    plan, home = world["sidecar_plan"], world["home"]
+                    if tree:
+                        install_plan_tree(plan.parent, text.encode())
+                    before, objects = plan.read_bytes(), accept.plan_object_digests(plan)
+                    board = accept._board
+                    freeze, release = board.frozen_plan_snapshot, board.release
+                    replace = accept._plan_store._atomic_replace
+                    publication_faulted = False
+
+                    def publication_fault(path, *args, **kwargs):
+                        nonlocal publication_faulted
+                        result = replace(path, *args, **kwargs)
+                        if stage == "publication" and path == plan and not publication_faulted:
+                            publication_faulted = True
+                            raise OSError("test: root replaced before publisher reply failed")
+                        return result
+
+                    def readback_fault(*args, **kwargs):
+                        result = freeze(*args, **kwargs)
+                        if stage == "readback" and b"[completed] sidecar-only" in result[1]:
+                            raise OSError("test: post-publication readback I/O failure")
+                        return result
+
+                    def release_fault(*args, **kwargs):
+                        if stage == "release":
+                            raise OSError("test: post-publication board I/O failure")
+                        return release(*args, **kwargs)
+
+                    output = io.StringIO()
+                    with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                         mock.patch.object(accept._plan_store, "_atomic_replace", side_effect=publication_fault), \
+                         mock.patch.object(board, "frozen_plan_snapshot", side_effect=readback_fault), \
+                         mock.patch.object(board, "release", side_effect=release_fault), \
+                         redirect_stdout(output), redirect_stderr(output):
+                        result = accept.main(["--entity", world["sidecar_entity"],
+                            "--repo", str(world["repo"]), "--row", "~ab12", "--by", "seat-a"])
+                    self.assertEqual(result, 1, output.getvalue())
+                    self.assertIn("prior plan restored", output.getvalue())
+                    self.assertEqual(plan.read_bytes(), before)
+                    self.assertEqual(accept.plan_object_digests(plan), objects)
+                    self.assertTrue(board.entity_state(plan, home=home)["claims"])
+
+    def test_local_completion_restores_before_propagating_interruption(self):
+        for interruption in (KeyboardInterrupt, SystemExit):
+            for tree in (False, True):
+                with self.subTest(interruption=interruption.__name__, tree=tree):
+                    text = SIDECAR_LOCAL_PLAN.replace("proof: cmd true", "proof: read source receipt", 1)
+                    text += "- 2026-09-05T00:00:00Z ~ab12 PROOF source inspected -> pass (manual)\n"
+                    world = self._world(sidecar_plan_text=text)
+                    plan, home = world["sidecar_plan"], world["home"]
+                    if tree:
+                        install_plan_tree(plan.parent, text.encode())
+                    before, objects = plan.read_bytes(), accept.plan_object_digests(plan)
+                    board = accept._board
+                    reserved = {}
+
+                    def interrupt_release(*args, **kwargs):
+                        self.assertIn("[completed] sidecar-only", board.read_plan_text(plan))
+                        reserved["board"] = (home / ".shadow/board.json").read_bytes()
+                        reserved["head"] = board._journal_head(home / ".shadow")
+                        raise interruption("test: completion interrupted")
+
+                    output = io.StringIO()
+                    with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                         mock.patch.object(board, "release", side_effect=interrupt_release), \
+                         redirect_stdout(output), redirect_stderr(output), \
+                         self.assertRaises(interruption):
+                        accept.main(["--entity", world["sidecar_entity"],
+                            "--repo", str(world["repo"]), "--row", "~ab12", "--by", "seat-a"])
+                    self.assertEqual(plan.read_bytes(), before)
+                    self.assertEqual(accept.plan_object_digests(plan), objects)
+                    self.assertEqual((home / ".shadow/board.json").read_bytes(), reserved["board"])
+                    self.assertEqual(board._journal_head(home / ".shadow"), reserved["head"])
+                    self.assertTrue(board.entity_state(plan, home=home)["claims"])
+
+    def test_local_accept_refuses_a_replacement_claim_after_readiness(self):
+        for kind in ("cmd", "read"):
+            with self.subTest(kind=kind):
+                text = SIDECAR_LOCAL_PLAN
+                if kind == "read":
+                    text = text.replace("proof: cmd true", "proof: read source receipt", 1)
+                    text += "- 2026-09-05T00:00:00Z ~ab12 PROOF source inspected -> pass (manual)\n"
+                world = self._world(sidecar_plan_text=text)
+                plan, home = world["sidecar_plan"], world["home"]
+                board = accept._board
+                with board._transaction(home) as (root, path, payload):
+                    if payload["schema"] == board.V1_SCHEMA:
+                        payload = board.migrate_v1_to_v2(payload)
+                    claim = next(c for c in payload["claims"] if c["row"] == "~ab12")
+                    claim.update(claim_revision=1, access="write", write_scope=["README.md"],
+                                 repository_binding=board.repository_binding(world["repo"]))
+                    board._write_and_commit(root, path, payload, "test: stage v2")
+                reserve = board.reserve_completion
+                raced = {}
+
+                def replacement_before_reserve(*args, **kwargs):
+                    with board._transaction(home) as (root, path, payload):
+                        payload["revision"] += 1
+                        claim = next(c for c in payload["claims"] if c["row"] == "~ab12")
+                        claim["claim_revision"] = payload["revision"]
+                        board._write_and_commit(root, path, payload, "test: replacement instance")
+                    raced["bytes"] = (home / ".shadow/board.json").read_bytes()
+                    return reserve(*args, **kwargs)
+
+                output = io.StringIO()
+                with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                     mock.patch.object(board, "reserve_completion", side_effect=replacement_before_reserve), \
+                     redirect_stdout(output), redirect_stderr(output):
+                    result = accept.main(["--entity", world["sidecar_entity"],
+                        "--repo", str(world["repo"]), "--row", "~ab12", "--by", "seat-a"])
+                self.assertEqual(result, 1, output.getvalue())
+                self.assertIn("claim changed", output.getvalue())
+                self.assertEqual(plan.read_text(), text)
+                self.assertEqual((home / ".shadow/board.json").read_bytes(), raced["bytes"])
 
     def test_entity_and_explicit_repo_accept_the_non_origin_named_plan(self) -> None:
         world = self._world()
@@ -4730,7 +5024,9 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             [],
             home=home,
         )
-        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home, repo=repo
+        )
 
         result = subprocess.run(
             [
@@ -4789,6 +5085,7 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
         remote = root / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
         git(repo, "remote", "add", "origin", str(remote))
+        configure_public_fixture_ssh_remote(repo, remote)
         git(repo, "push", "-qu", "origin", "HEAD:main")
         git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
         home = root / "home"
@@ -4865,7 +5162,10 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             [],
             home=home,
         )
-        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home,
+            access="read_only",
+        )
         entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
         output = io.StringIO()
 
@@ -4924,7 +5224,10 @@ class ShadowAcceptJudgmentTests(unittest.TestCase):
             [],
             home=home,
         )
-        accept._board.claim(plan, "~jr01", "seat-a", project="demo", priority=3, home=home)
+        accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home,
+            access="read_only",
+        )
         entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
         output = io.StringIO()
 
@@ -5001,7 +5304,8 @@ class AProvenReadRowFlipsOnAPlanTree(unittest.TestCase):
             home=home,
         )
         accept._board.claim(
-            plan, "~jr01", "seat-a", project="demo", priority=3, home=home
+            plan, "~jr01", "seat-a", project="demo", priority=3, home=home,
+            access="read_only",
         )
         entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
         self.assertTrue(accept._board.open_plan(plan).is_tree)

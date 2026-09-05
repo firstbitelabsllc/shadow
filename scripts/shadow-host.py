@@ -13,6 +13,7 @@ otherwise the attempt is blocked or failed closed.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -29,6 +30,7 @@ from typing import Any
 
 import shadow_plan_grammar as _grammar
 import shadow_git as _shadow_git
+import shadow_root_board as _board
 from shadow_durable_lib import durable_write
 from shadow_json_lib import json_text
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
@@ -1124,7 +1126,33 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             )
     repo = Path(args.repo).expanduser().resolve()
     exact_git_root(repo)
-    allowed = [] if authority_proposal else normalize_allowed(repo, args.allowed_path)
+    context = None
+    if args.claim_context is not None:
+        def unique_fields(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate claim context field")
+                result[key] = value
+            return result
+        try:
+            if len(args.claim_context.encode("utf-8")) > 4096:
+                raise ValueError("claim context exceeds 4096 bytes")
+            context = json.loads(args.claim_context, object_pairs_hook=unique_fields)
+            if not isinstance(context, dict):
+                raise ValueError("claim context must be an object")
+        except (ValueError, UnicodeError) as exc:
+            raise HostError("claim_context_invalid", str(exc)) from None
+    try:
+        observed_board = _board.snapshot()
+        staged_v2 = observed_board is not None and observed_board["schema"] == _board.V2_SCHEMA
+        if staged_v2 and context is None:
+            raise HostError("claim_context_missing", "v2 host run requires exact claim context")
+        allowed = ([] if authority_proposal else
+                   _board.normalize_write_scope(repo, args.allowed_path) if staged_v2 else
+                   normalize_allowed(repo, args.allowed_path))
+    except _board.BoardError as exc:
+        raise HostError("claim_access_refused", str(exc)) from None
     destination = validate_output_path(repo, args.out)
     if authority_proposal and destination is None:
         raise HostError(
@@ -1190,6 +1218,12 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             work_class=args.work_class,
             delegation=args.delegation,
         )
+        try:
+            _board.authorize_host_attempt(
+                context=context, repo=repo, write_scope=args.allowed_path,
+                authority_proposal=authority_proposal, now=datetime.now(timezone.utc))
+        except _board.BoardError as exc:
+            raise HostError("claim_access_refused", str(exc)) from None
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
         output_texts = [result.get("stdout", b"").decode("utf-8", errors="replace")]
         output_texts.append(result.get("stderr", b"").decode("utf-8", errors="replace"))
@@ -1344,6 +1378,7 @@ def parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--repo", default=os.getcwd())
     run_parser.add_argument("--task-file", required=True)
     run_parser.add_argument("--task-id", required=True)
+    run_parser.add_argument("--claim-context", help="closed JSON entity, row, owner, claim_revision and board_revision")
     run_parser.add_argument("--allowed-path", action="append", default=[])
     run_parser.add_argument("--out", default="-")
     run_parser.add_argument("--force", action="store_true")

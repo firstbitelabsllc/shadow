@@ -454,6 +454,8 @@ def root_board_view(payload: dict) -> dict:
             }
             for claim in payload["claims"]
         ],
+        "huddles": [in_flight_huddle_marker(huddle) for huddle in payload.get("huddles", [])
+                    if huddle.get("state") != "resolved"],
     }
 
 
@@ -464,7 +466,118 @@ def in_flight_root_board_view(payload: dict) -> dict:
         "schema": view["schema"],
         "revision": view["revision"],
         "claims": view["claims"],
+        "huddles": view["huddles"],
     }
+
+
+def _terminal_huddle_ref(huddle: dict, ref: dict) -> dict:
+    """Use the board's canonical settled replacement mapping, never guesses."""
+    terminal = _board._terminal_ref(huddle, ref)
+    resolution = huddle.get("resolution") or {}
+    handoff = resolution.get("handoff") if isinstance(resolution, dict) else None
+    transition = huddle.get("remote_transition") or {}
+    mappings = [handoff]
+    # A remote-pending successor is not a local claim yet.  Only authenticated
+    # successor readback may change the operating identity projected to status.
+    if huddle.get("state") != "remote_pending" and transition.get("readback") == "successor":
+        mappings.append(transition)
+    for mapping in mappings:
+        if isinstance(mapping, dict) and mapping.get("source_claim") == terminal:
+            successor = mapping.get("successor_claim")
+            if isinstance(successor, dict):
+                terminal = successor
+    return terminal
+
+
+def _operating_huddle_refs(huddle: dict) -> list[dict]:
+    return [_terminal_huddle_ref(huddle, ref) for ref in huddle.get("claims", [])]
+
+
+def in_flight_huddle_marker(huddle: dict) -> dict:
+    """The sole public Huddle projection: compact coordination, no work data."""
+    participants = _operating_huddle_refs(huddle)
+    held = {(ref.get("entity"), ref.get("row"), ref.get("claim_revision"), ref.get("owner"))
+            for ref in (_terminal_huddle_ref(huddle, ref) for ref in huddle.get("holds", []))}
+    seats = sorted({ref.get("owner") for ref in participants if isinstance(ref.get("owner"), str)})
+    hold_view = {seat: any((ref.get("entity"), ref.get("row"), ref.get("claim_revision"), ref.get("owner")) in held
+                               for ref in participants if ref.get("owner") == seat) for seat in seats}
+    resolution = huddle.get("resolution") or {}
+    actions = sorted({entry.get("action") for entry in resolution.get("actions", [])
+                      if isinstance(entry, dict) and isinstance(entry.get("action"), str)})
+    return {
+        "id": huddle.get("id"),
+        "generation": huddle.get("generation"),
+        "state": huddle.get("state"),
+        "round": huddle.get("round"),
+        "deadline": huddle.get("reply_by"),
+        "seats": seats,
+        "holds": hold_view,
+        "settled_rule": resolution.get("rule"),
+        "actions": actions,
+    }
+
+
+def seat_huddle_view(huddle: dict, seat: str) -> dict:
+    """Private agent resume detail; never used by person-facing brief output."""
+    _board.validate_owner(seat)
+    marker = in_flight_huddle_marker(huddle)
+    own = [ref for ref in _operating_huddle_refs(huddle) if ref.get("owner") == seat]
+    if not own:
+        return {"involved": False, "transport": "status_pull"}
+    held_refs = {_board._claim_key(_terminal_huddle_ref(huddle, ref)) for ref in huddle.get("holds", [])}
+    resolution = huddle.get("resolution") or {}
+    pending = {_board._claim_key(_terminal_huddle_ref(huddle, item["claim"]))
+               for item in huddle.get("compliance", []) if isinstance(item.get("claim"), dict)
+               and item.get("status") != "satisfied"}
+    writers = {_board._claim_key(ref) for ref in resolution.get("write_owners", [])}
+    claim_actions = []
+    for ref in own:
+        key = _board._claim_key(ref)
+        if huddle.get("state") == "awaiting_scope":
+            disposition, action, command = "classification_required", "classification", None
+        elif key in pending:
+            disposition, action = "return_required", "return"
+            command = f"shadow return --entity {ref['entity']} --row {ref['row']} --by {shlex.quote(seat)}"
+        elif key in held_refs:
+            disposition, action = "held", "reread"
+            command = f"shadow huddle show --id {huddle['id']}"
+        elif key in writers:
+            disposition, action = "continue", "continue"
+            command = f"shadow amp --entity {ref['entity']} --task {ref['row']} --by {shlex.quote(seat)}"
+        else:
+            disposition, action = "bid_required", "bid"
+            command = f"shadow huddle bid --id {huddle['id']} --generation {huddle['generation']} --by {shlex.quote(seat)}"
+        claim_actions.append({"claim": ref, "disposition": disposition, "next_action": action,
+                              "next_command": command})
+    replacements = [item for item in huddle.get("replacements", [])
+                    if _terminal_huddle_ref(huddle, item["original"]).get("owner") == seat]
+    return {
+        "involved": True,
+        "claims": claim_actions,
+        "disposition": claim_actions[0]["disposition"] if len(claim_actions) == 1 else "mixed",
+        "writers": sorted({ref.get("owner") for ref in resolution.get("write_owners", [])
+                           if isinstance(ref.get("owner"), str)}),
+        "next_command": claim_actions[0]["next_command"] if len(claim_actions) == 1 else None,
+        "next_action": ("supply repository path to huddle preflight" if len(claim_actions) == 1 and claim_actions[0]["next_action"] == "classification" else "per_claim"),
+        "deadline": huddle.get("reply_by"),
+        "transport": "status_pull",
+        "terminal_adoption": bool(replacements),
+        "successor": [item["current"]["owner"] for item in replacements],
+    }
+
+
+def render_seat_huddle(huddle: dict, seat: str) -> str | None:
+    """Agent-only resume block; caller chooses this only for ``status --by``."""
+    if huddle.get("state") == "resolved":
+        return None
+    view = seat_huddle_view(huddle, seat)
+    if not view["involved"]:
+        return None
+    lines = [f"Huddle {huddle['id']} — {view['disposition']}", f"  Reply deadline: {view['deadline']}"]
+    for item in view["claims"]:
+        lines.append(f"  {item['claim']['row']}: {item['next_command'] or 'supply repository path to huddle preflight'}")
+    lines.append(f"  Transport: {view['transport']}")
+    return "\n".join(lines)
 
 
 def prepare_status_entities(
@@ -1040,6 +1153,12 @@ def main(argv: list[str] | None = None) -> int:
                     f"Seat: {args.by} | Focused: {len(focused)} | "
                     f"Owned: {owned} | Unhealthy: {unhealthy}",
                 ]
+                blocks.extend(
+                    rendered for rendered in
+                    (render_seat_huddle(huddle, args.by) for huddle in board_snapshot.get("huddles", [])
+                     if huddle.get("state") != "resolved")
+                    if rendered is not None
+                )
                 blocks.extend(render_seat_v4(record, args.by) for record in focused)
                 print("\n\n".join(blocks) + "\n", end="")
                 return 1 if unhealthy else 0

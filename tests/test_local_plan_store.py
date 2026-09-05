@@ -129,6 +129,7 @@ class LocalPlanStore(unittest.TestCase):
                 project="widget",
                 priority=2,
                 home=home,
+                repo=repo,
             )
             entity = board.entity_state(plan, home=home)["entity"]["id"]
 
@@ -493,7 +494,10 @@ class LocalPlanStore(unittest.TestCase):
                 [],
                 home=home,
             )
-            board.claim(plan, "~aa11", "local-seat", project="widget", priority=2, home=home)
+            board.claim(
+                plan, "~aa11", "local-seat", project="widget", priority=2,
+                home=home, repo=repo,
+            )
             entity = board.entity_state(plan, home=home)["entity"]["id"]
             env = {**os.environ, "HOME": str(home)}
 
@@ -657,6 +661,7 @@ class LocalPlanStore(unittest.TestCase):
                 project="shadow",
                 priority=1,
                 home=home,
+                access="read_only",
             )
             board.claim(
                 target,
@@ -665,6 +670,7 @@ class LocalPlanStore(unittest.TestCase):
                 project="shadow",
                 priority=1,
                 home=home,
+                access="read_only",
             )
             entity = board.entity_state(target, home=home)["entity"]["id"]
             wrong_entity = board.entity_state(wrong, home=home)["entity"]["id"]
@@ -904,6 +910,7 @@ class LocalPlanStore(unittest.TestCase):
                 project="moving",
                 priority=1,
                 home=home,
+                repo=repo,
             )
             entity = board.entity_state(plan, home=home)["entity"]["id"]
 
@@ -1044,6 +1051,7 @@ class LocalPlanStore(unittest.TestCase):
                 project="detached",
                 priority=1,
                 home=home,
+                repo=repo,
             )
             entity = board.entity_state(plan, home=home)["entity"]["id"]
             plan_before = plan.read_bytes()
@@ -1135,7 +1143,10 @@ def _registered_local_tree(root: Path, source: str, *, owner: str | None = "loca
         home=home,
     )
     if owner is not None:
-        board.claim(plan, "~aa11", owner, project="widget", priority=2, home=home)
+        board.claim(
+            plan, "~aa11", owner, project="widget", priority=2, home=home,
+            access="read_only",
+        )
     entity = board.entity_state(plan, home=home)["entity"]["id"]
     return home, plan, entity
 

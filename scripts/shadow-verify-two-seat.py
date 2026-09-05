@@ -25,6 +25,7 @@ from typing import Any
 
 from shadow_process_lib import ProcessResult, run_bounded
 from shadow_root_board import normalized_origin
+from shadow_git_fixture import configure_public_ssh_fixture
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -214,6 +215,13 @@ def mint_repo(scratch: Path, portfolio: Path, name: str, priority: int) -> Path:
     git(repo, "push", "-q", "origin", "HEAD:main")
     git(repo, "branch", "-q", "--set-upstream-to=origin/main")
     git(bare, "symbolic-ref", "HEAD", "refs/heads/main")
+    configure_public_ssh_fixture(
+        repo,
+        bare,
+        public_url=f"ssh://fixture@fixture.invalid/{name}.git",
+        bridge_name=f"{name}-ssh-bridge.py",
+        environment=git_environment(),
+    )
     return repo
 
 

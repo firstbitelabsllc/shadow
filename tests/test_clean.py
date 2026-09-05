@@ -89,6 +89,7 @@ class CleanPreviewTests(unittest.TestCase):
             project="demo",
             priority=2,
             home=self.home,
+            repo=self.repo,
         )
 
     def test_creation_is_pending_then_issued_and_receipt_is_immutable(self):
@@ -142,8 +143,12 @@ class CleanPreviewTests(unittest.TestCase):
         plan.parent.mkdir(parents=True)
         valid = PLAN.replace("- Project: demo", "- Project: demo\n- Origin: github.com/example/demo")
         install_plan_tree(plan.parent, valid.encode())
-        entity = board.entity_id(plan)
-        board.claim(plan, "~aa11", "seat-a", project="demo", priority=2, home=self.home)
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            entity = board.entity_id(plan)
+        board.claim(
+            plan, "~aa11", "seat-a", project="demo", priority=2, home=self.home,
+            access="read_only", write_scope=[],
+        )
         destination = self.repo.parent / "refused-local-child"
         cases = (
             (PLAN, "no Origin"),
@@ -445,7 +450,7 @@ class CleanApplyTests(unittest.TestCase):
         self.entity = board.entity_id(self.repo / "PLAN.md")
         board.claim(
             self.repo / "PLAN.md", "~aa11", "seat-a", project="demo", priority=2,
-            home=self.home,
+            home=self.home, repo=self.repo,
         )
         self.process_patch = mock.patch.object(self.clean, "_process_holds", return_value=None)
         self.process_patch.start()
@@ -1274,7 +1279,10 @@ class CleanApplyTests(unittest.TestCase):
 
     def test_apply_refuses_active_claim_and_preserves_worktree(self):
         destination, _prepared, manifest_path, digest = self._terminal_managed()
-        board.claim(self.repo / "PLAN.md", "~aa11", "seat-a", project="demo", priority=2, home=self.home)
+        board.claim(
+            self.repo / "PLAN.md", "~aa11", "seat-a", project="demo", priority=2,
+            home=self.home, repo=self.repo,
+        )
         trash = Path(self.tmp.name) / "Trash"
         trash.mkdir()
         with self.assertRaisesRegex(self.clean.CleanError, "checkpoint is not terminal|active claim"):

@@ -31,6 +31,7 @@ import shadow_root_board as _board  # noqa: E402
 import shadow_remote_claim as _remote  # noqa: E402
 import shadow_git as _shadow_git  # noqa: E402
 import shadow_telemetry as _telemetry  # noqa: E402
+import shadow_huddle_event as _huddle_event  # noqa: E402
 
 
 BY_MAX: Final = 40
@@ -187,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="shadow throw",
         description="Claim a checkpoint row from one entity plan before work leaves the chat.",
     )
-    parser.add_argument("--repo", default=None, help="repository root (default: cwd)")
+    parser.add_argument("--repo", default=None, help="source repository root; may accompany a machine-local --entity")
     parser.add_argument("--entity", default=None, help="computer-board entity id")
     parser.add_argument(
         "--task",
@@ -206,9 +207,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.entity and args.repo:
-        print("shadow throw: use either --entity or --repo, not both", file=sys.stderr)
-        return 2
+    # Keep source identity separate from the repository holding PLAN.md: a
+    # machine-local authority lives in the private board journal, not the source.
+    source_repo = Path(args.repo).expanduser().resolve() if args.repo else None
     state = None
     if args.entity:
         if _board.ENTITY_ID.fullmatch(args.entity) is None:
@@ -224,6 +225,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         state = resolved["state"]
         plan_path = resolved["plan"]
+        if args.repo and not _board.is_local_plan(plan_path):
+            print("shadow throw: --entity with --repo requires a machine-local entity", file=sys.stderr)
+            return 2
         repo = _repo_for(plan_path)
     else:
         unresolved_repo = Path(args.repo or ".")
@@ -273,6 +277,10 @@ def main(argv: list[str] | None = None) -> int:
             repo, plan, plan_token, args.task = _validated_target(
                 plan_path, args.task
             )
+            # A declared nested entity keeps its own proof directory, but its
+            # source claim belongs to Git's worktree root. Only local authority
+            # needs a separately supplied source checkout.
+            claim_repo = source_repo if plan["local_authority"] else repo
             observed_token, plan_bytes = _board.frozen_plan_snapshot(plan_path)
             if observed_token != plan_token:
                 raise _board.BoardError("entity plan changed before the claim committed; retry")
@@ -303,7 +311,8 @@ def main(argv: list[str] | None = None) -> int:
                 if args.entity:
                     raise _board.BoardError("entity is not registered on this computer")
                 raise _board.BoardError("entity did not enter the bounded computer board")
-            plan["board_revision"] = 9_999_999_999_999_999_999
+            next_revision = state["revision"] + 1
+            plan["board_revision"] = next_revision
             plan["root_priority"] = (
                 state["project"]["priority"]
                 if state is not None and state["project"] is not None
@@ -311,9 +320,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             plan["entity_id"] = state["entity"]["id"]
             plan["seat_owner"] = args.by
+            # Account for the non-droppable v2 host context before making a
+            # claim. The board CAS below binds this exact next revision, even
+            # for arbitrarily wide revision integers or concurrent writers.
+            plan["host_claim_context"] = {
+                "entity": state["entity"]["id"], "row": args.task,
+                "owner": args.by, "claim_revision": next_revision,
+                "board_revision": next_revision,
+            }
+            plan["claim_access"] = "read_only" if claim_repo is None else "unscoped"
             # Prove the final block fits before taking a claim. A concurrent board
-            # write may advance this preview; the claimed block is rebuilt below
-            # from the transaction's actual revision.
+            # write invalidates the preview and refuses before claiming.
             block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
             receipt = _board.claim(
                 plan_path,
@@ -323,6 +340,13 @@ def main(argv: list[str] | None = None) -> int:
                 priority=_priority(plan),
                 adopt_expired=args.adopt_expired,
                 expected_plan=plan_token,
+                expected_board_revision=state["revision"],
+                repo=claim_repo,
+                access="read_only" if claim_repo is None else "unscoped",
+            )
+            _huddle_event.post_commit_mutation(
+                _board.BoardMutation(receipt["payload"], True, receipt.get("event")),
+                repo_root=ROOT,
             )
             payload = receipt["payload"]
             claimed = receipt["claim"]
@@ -332,7 +356,6 @@ def main(argv: list[str] | None = None) -> int:
             plan["root_priority"] = project["priority"]
             plan["entity_id"] = entity["id"]
             plan["seat_owner"] = claimed["owner"]
-            block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
             remote = _remote.acquire(
                 repo,
                 entity=entity["id"],
@@ -344,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
                 return_by=claimed["return_by"],
                 recovery=claimed["recovery"],
                 adopt_expired=args.adopt_expired,
+                claim_revision=claimed["claim_revision"],
             )
             if remote is not None and remote["status"] == "lost":
                 try:
@@ -388,6 +412,28 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             if remote is not None:
                 print(json.dumps(remote, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+            try:
+                _amp.project_v2_claim_context(
+                    plan,
+                    {"revision": payload["revision"], "claims": [
+                        claim for claim in payload["claims"] if claim["entity"] == entity["id"]
+                    ]},
+                    args.task,
+                    args.by,
+                )
+                block, _ = _amp.build_block(plan, repo, plan_path, args.task, _amp.DEFAULT_MAX_CHARS)
+            except _amp.HuddleHeldError as exc:
+                print(
+                    f"shadow throw: claimed-but-held; {exc}; no work packet emitted",
+                    file=sys.stderr,
+                )
+                return 0
+            except _board.BoardError as exc:
+                print(
+                    f"shadow throw: claim retained; packet refused because {exc}; no work packet emitted",
+                    file=sys.stderr,
+                )
+                return 1
     except _board.AlreadyClaimed as exc:
         print(
             f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",

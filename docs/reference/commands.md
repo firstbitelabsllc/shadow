@@ -25,6 +25,53 @@ Every verb `bin/shadow` dispatches. `shadow help <command>` gives exact flags.
 | `shadow host run [--host HOST] [--work-class CLASS] [--delegation MODE] [--authority-proposal] …` | Run a claimed task in its clean worktree with the checked-in native model selector for that host/class pair. `CLASS` is `planning`, `coding`, `review`, or `lightweight`; `MODE` is `direct` or `required`. A valid `~/.shadow/host-defaults.json` may supply the host/class/delegation triple so those flags can be omitted; explicit flags still win. Required delegation enables only a verified native child door and fails closed when unavailable. `--authority-proposal` is Codex-only, accepts no `--allowed-path`, requires a sealed `--out` file, refuses `--binary` and `SHADOW_CODEX_BIN` before launch, and rejects any source or Git control-state change. Invoke again for path-disjoint lanes. |
 | `shadow slots` | Report which extension slots are filled. Absent is a WARN and exits 0; a wrong binding FAILs. No slot reads tooling Shadow does not itself call. |
 | `shadow doctor` | Check installation, skill mounts, native hosts, and whether each host carries the current standing goal. |
+| `shadow huddle` | Read or settle board-owned overlapping work through the six routes below; optional delivery never owns coordination. |
+
+## Huddle coordination
+
+Use exact identities and revisions from current private board readback. IDs,
+scope paths and claim contexts belong in agent recovery output, not the human
+brief. Unknown fields, duplicate JSON keys, noncanonical IDs, oversized input
+and stale revisions refuse without changing authority.
+
+| Route | Input and effect |
+|---|---|
+| `shadow huddle preflight --entity ID --row '~hash' --claim-revision N --by SEAT --repo PATH --access unscoped\|read_only\|write --expect-board N [--path PREFIX ...]` | Declare source access under exact board/claim CAS. Paths are lexical repository-relative prefixes; source binding uses the Git worktree root. A source-free read-only claim needs explicit classification before source work. |
+| `shadow huddle open --by SEAT` | Bounded JSON stdin contains only `claim_keys` (complete five-field references) and `reason: semantic_suspicion`. The actor must resolve to one current participant. Opens or joins the board Huddle, not a chat. |
+| `shadow huddle bid --id HDL_ID --generation N --by SEAT` | Bounded JSON stdin contains `seat`, `claim`, `role`, `scope`, `reason`, `target`, `support_claim`, `evidence`, `round`, `expected_huddle_generation`. The board derives timestamp and digest; exact replay returns the original immutable bid. |
+| `shadow huddle show --id HDL_ID` | Exact closed private Huddle readback; never expires a deadline or changes the board. |
+| `shadow huddle settle --id HDL_ID --generation N --expect-board N --by SEAT` | Resolve exactly one current participant, then settle when all bids arrive or the current two-minute deadline passes. Remote handoff first holds both identities, performs real Git CAS outside the lock, then finalizes from authenticated stable readback. Retrying a pending transition reads back; it does not repush it. |
+| `shadow huddle contact-register --seat SEAT` | Pass bounded contact JSON to the optional confined adapter. With the adapter absent, return explicit unavailable without creating runtime state. |
+
+Valid bid roles are `own`, `disjoint`, `review`, `prove`, `yield`, `stand_down`,
+and `unavailable`. Scope comes from the claim's declaration, never inferred
+permission. A yield alone cannot transfer ownership: the target must accept
+the exact source/target claim and canonical-plan content. Unavailable delivery
+does not count as acceptance or release a hold. Required returns are completed
+through the owner's existing plan-update and return path.
+
+The first successful new claim migrates v1 and creates its v2 claim in one
+board journal commit. Reads do not migrate; refusal or journal failure leaves
+the original board intact. Existing claims retain revision zero and unknown
+source binding until explicitly classified. `throw --entity ID --repo PATH`
+binds a machine-local plan to an explicit source checkout; without that source,
+the claim is read-only. A declared nested Git-backed entity binds to the Git
+root while its proof still runs in the entity directory.
+
+V2 managed host launches require `--claim-context` with exactly `entity`,
+`row`, `owner`, `claim_revision`, and `board_revision`. Source scope is checked
+before launch and held claims refuse. This is cooperative launch admission,
+not an operating-system sandbox around every editor. `amp` refuses a held
+execution packet; an unscoped or read-only packet does not grant source writes.
+`return`, `accept`, and stale proof-first recovery update Huddle compliance in
+the same release transaction. Entity-map migration refuses live participant or
+support references until their Huddles are settled and returned.
+
+Public status carries only a compact ID/generation/state/deadline/seat/hold and
+settled-enum marker. Private `--by` output supplies claim-specific next reads
+and actions. Doctor validates the complete closed board without repair or
+adapter installation. Post-commit notice contains only event schema, event
+enum, Huddle ID and generation; delivery failure cannot change the result.
 
 | `shadow clean [--repo PATH] [--worktree /ABS/PATH] [--auto enable\|disable\|status] [--json]` | Read-only preview of only Shadow-managed worktrees whose immutable creation receipt has a matching issued journal. The default writes no repository, board, plan, manifest, Git, or Trash state and reports an opaque `worktree@…` identity. `shadow clean --create` is the sole provenance door and requires an exact live entity/checkpoint/seat claim plus an absent destination; interrupted creation can resume only its matching pending journal. `shadow clean --prepare --worktree /ABS/PATH` is the explicit manifest write and always uses the exclusive private path below `~/.shadow/clean/manifests/`, while returning only opaque identities, expiry, and exact CAS (never private paths or raw receipt/journal/manifest fields). `--auto` manages a strict 0600 computer-local opt-in at `~/.shadow/clean/automatic.json`; absent means disabled. Enabled cleanup runs only once after a successful terminal accept or changed lifecycle apply, reusing the strict preview/manifest/Trash transaction with no daemon or scheduler. |
 

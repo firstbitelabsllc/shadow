@@ -38,6 +38,10 @@ import shadow_plan_grammar as _grammar  # noqa: E402
 DEFAULT_MAX_CHARS: Final = 4_000
 MAX_GIT_VALUE: Final = 200
 
+
+class HuddleHeldError(_board.BoardError):
+    """A claim was recorded, but its current Huddle forbids execution."""
+
 ROW_RE = _grammar.ROW_RE
 FIELD_RE = _grammar.FIELD_RE
 BRIEF_KEY_RE: Final = re.compile(r"^- (?P<key>Project|Mode|Priority|Loop): (?P<value>.+)$")
@@ -798,6 +802,20 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
             else "fetch, read that section at the current origin ref, and state the ref you read."
         )
     )
+    context = plan.get("host_claim_context")
+    if context is not None:
+        authority += (
+            "\nHOST --claim-context (pass this closed JSON verbatim to shadow host): "
+            + json.dumps(context, sort_keys=True, separators=(",", ":"))
+        )
+    access = plan.get("claim_access")
+    if access == "read_only":
+        authority += "\nSOURCE ACCESS: read_only grants no source changes; read or plan only."
+    elif access == "unscoped":
+        authority += (
+            "\nSOURCE ACCESS: unscoped requires declared preflight or managed host "
+            "preflight before source execution."
+        )
     if dirty:
         # The block was projected from the WORKING TREE; the named ref serves
         # different content, so the pointer would lie to a seat that fetched
@@ -883,6 +901,51 @@ def build_block(plan: dict, repo: Path, plan_path: Path,
             f"{part} at {size} chars — raise --max-chars or shrink that line (see READ-FIT)."
         )
     return block, dropped
+
+
+def _v2_selected_claim(state: dict, row: str, owner: str) -> dict | None:
+    """Read one unchanged v2 claim instance for a packet, without mutating it."""
+    selected = next(
+        (claim for claim in state["claims"] if claim["row"] == row and claim["owner"] == owner),
+        None,
+    )
+    if selected is None or "claim_revision" not in selected:
+        return None
+    current = _board.snapshot()
+    if current is None or current.get("schema") != _board.V2_SCHEMA:
+        raise _board.BoardError("board changed while selecting the claimed row; retry")
+    if current.get("revision") != state.get("revision"):
+        raise _board.BoardError("board changed while selecting the claimed row; retry")
+    live = next(
+        (claim for claim in current["claims"]
+         if claim["entity"] == selected["entity"] and claim["row"] == selected["row"]),
+        None,
+    )
+    if live != selected:
+        raise _board.BoardError("selected claim changed while selecting the claimed row; retry")
+    terminal = _board._terminal_ref
+    for huddle in current["huddles"]:
+        if huddle["state"] == "resolved":
+            continue
+        selected_terminal = terminal(huddle, _board._claim_ref(selected))
+        if any(terminal(huddle, held) == selected_terminal for held in huddle["holds"]):
+            raise HuddleHeldError(
+                "selected claim is held; read "
+                f"shadow huddle show --id {huddle['id']} before execution"
+            )
+    return live
+
+
+def project_v2_claim_context(plan: dict, state: dict, row: str, owner: str) -> dict | None:
+    """Attach the immutable host context after one read-only v2 claim check."""
+    selected = _v2_selected_claim(state, row, owner)
+    if selected is not None:
+        plan["host_claim_context"] = {
+            key: selected[key]
+            for key in ("entity", "row", "owner", "claim_revision")
+        } | {"board_revision": state["revision"]}
+        plan["claim_access"] = selected["access"]
+    return selected
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1060,6 +1123,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             selected_task = resume if resume in active_owned else active_owned[0]
+        try:
+            selected_claim = project_v2_claim_context(plan, state, selected_task, args.by)
+        except _board.BoardError as exc:
+            print(f"shadow amp: {exc}", file=sys.stderr)
+            return 1
     try:
         block, dropped = build_block(plan, repo, plan_path, selected_task, args.max_chars)
     except LookupError as err:

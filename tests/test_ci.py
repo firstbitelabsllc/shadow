@@ -44,5 +44,36 @@ class AmbientGitRedirectPinTests(unittest.TestCase):
             self.assertEqual(pressure["RELEASE_BASELINE"], "")
 
 
+class HuddleSelectionTests(unittest.TestCase):
+    def test_huddle_core_and_docs_select_huddle_proof(self) -> None:
+        for path in ("scripts/shadow-huddle.py", "scripts/shadow_huddle_event.py",
+                     "scripts/shadow_board_schema.py", "docs/reference/commands.md"):
+            with self.subTest(path=path):
+                selection = shadow_ci.select_paths([path])
+                self.assertIn("tests.test_huddle", selection.modules)
+        event = shadow_ci.select_paths(["scripts/shadow_huddle_event.py"])
+        self.assertIn("tests.test_huddle_event", event.modules)
+
+    def test_huddle_boundaries_select_their_direct_falsifiers(self) -> None:
+        # One source can require two distinct boundaries; retain both checks.
+        for path, module in (("scripts/shadow-huddle.py", "tests.test_huddle_cli"),
+                             ("scripts/shadow_board_schema.py", "tests.test_board_schema"),
+                             ("scripts/shadow_board_schema.py", "tests.test_huddle_event"),
+                             ("scripts/shadow_root_board.py", "tests.test_huddle_amp"),
+                             ("scripts/shadow_root_board.py", "tests.test_huddle_cli"),
+                             ("scripts/shadow_root_board.py", "tests.test_local_plan_store"),
+                             ("scripts/shadow_root_board.py", "tests.test_authority_proposal"),
+                             ("scripts/shadow_root_board.py", "tests.test_lifecycle"),
+                             ("scripts/shadow_board_schema.py", "tests.test_browser"),
+                             ("scripts/shadow-amp.py", "tests.test_huddle_amp"),
+                             ("scripts/shadow-throw.py", "tests.test_huddle_amp"),
+                             ("scripts/shadow_remote_claim.py", "tests.test_huddle_cli"),
+                             ("scripts/shadow-plan.py", "tests.test_root_board"),
+                             ("scripts/shadow_git_fixture.py", "tests.test_two_seat_harness"),
+                             ("scripts/shadow_process_lib.py", "tests.test_huddle_process")):
+            with self.subTest(path=path, module=module):
+                self.assertIn(module, shadow_ci.select_paths([path]).modules)
+
+
 if __name__ == "__main__":
     unittest.main()
