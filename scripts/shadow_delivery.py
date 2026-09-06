@@ -26,6 +26,7 @@ import time
 
 import shadow_board_schema as board_schema
 import shadow_contacts as contacts
+import shadow_huddle_event as core
 
 ENVELOPE_SCHEMA = "shadow.huddle-delivery-envelope.v1"
 CAPABILITIES_SCHEMA = "shadow.huddle-provider-capabilities.v1"
@@ -172,7 +173,9 @@ def deliver(*, event: dict, huddle: dict, current_claims: dict, capability_entri
                 # an unrelated same-provider contact is refused by the kernel.
                 fd = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
                              dir_fd=contacts_dir_fd)
-                contact = json.loads(_read_bounded(fd, contacts.MAX_CONTACT_BYTES),
+                # The shipped parent reader enforces the full bounded-file
+                # shape (owner, 0600, single link, stable identity, size).
+                contact = json.loads(core._read_regular(fd, limit=contacts.MAX_CONTACT_BYTES),
                                      object_pairs_hook=board_schema._strict_json_object)
                 seat = contact.get("seat")
                 contacts.validate_stored_contact(contact, seat=seat, now=now)
@@ -188,7 +191,7 @@ def deliver(*, event: dict, huddle: dict, current_claims: dict, capability_entri
                 if capability is None:
                     continue
             except (OSError, ValueError, TypeError, KeyError,
-                    contacts.ContactRefused):
+                    contacts.ContactRefused, core.RunnerRefused):
                 continue
             finally:
                 if fd >= 0:
@@ -214,23 +217,3 @@ def deliver(*, event: dict, huddle: dict, current_claims: dict, capability_entri
                 "outcome": outcome,
             })
     return receipts
-
-
-def _read_bounded(fd: int, limit: int) -> bytes:
-    import stat as stat_module
-    before = os.fstat(fd)
-    if (not stat_module.S_ISREG(before.st_mode) or before.st_uid != os.geteuid()
-            or before.st_nlink != 1 or before.st_size > limit):
-        raise contacts.ContactRefused("unsafe bounded contact file")
-    chunks = []
-    remaining = limit + 1
-    while remaining:
-        part = os.read(fd, min(65536, remaining))
-        if not part:
-            break
-        chunks.append(part)
-        remaining -= len(part)
-    value = b"".join(chunks)
-    if len(value) > limit or len(value) != before.st_size:
-        raise contacts.ContactRefused("contact file changed during bounded read")
-    return value

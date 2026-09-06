@@ -5,6 +5,7 @@ unsupported-host refusal and the pure model surfaces are tested everywhere.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -154,6 +155,47 @@ class PlanBDeliveryTests(unittest.TestCase):
                     parent_ok = False
                 self.assertEqual(child_ok, parent_ok)
                 self.assertEqual(child_ok, expected)
+
+    def test_child_capability_reader_agrees_with_parent_validator(self):
+        # Structural drift guard: the parent resolves and identity-binds
+        # targets (the confined child must not re-open paths), so agreement
+        # is asserted on everything except target resolution — structure,
+        # TTL, duplicates — plus the child-only digest binding.
+        client = str(self.home / "drift-client")
+        client_bytes = b"\xcf\xfa\xed\xfe" + b"\0" * 64
+        Path(client).write_bytes(client_bytes)
+        Path(client).chmod(0o700)
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        stamp = lambda value: value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        def descriptor(entries, generated=None):
+            return json.dumps({"schema": "shadow.huddle-provider-capabilities.v1",
+                               "generated_at": generated or stamp(now),
+                               "expires_at": stamp(now + timedelta(minutes=10)),
+                               "entries": entries}).encode()
+        good = [{"provider": "cmux", "capability": "cmux.surface-send.v1",
+                 "transport": "exec", "target": client}]
+        digests = [hashlib.sha256(delivery.canonical_bytes(entry)).hexdigest()
+                   for entry in good]
+        # Both validators refuse: structural / TTL violations.
+        for index, (raw, case_digests) in enumerate([
+                (descriptor(good + good[:1]), digests),
+                (descriptor([dict(good[0], transport="network",
+                                  target="https://x.invalid")]), digests),
+                (descriptor([dict(good[0], capability="bad space")]), digests),
+                (descriptor([dict(good[0], provider="smtp")]), digests),
+                (descriptor(good, generated=stamp(now + timedelta(minutes=1))), digests),
+                (descriptor(good, generated=stamp(now - timedelta(minutes=30))), digests)]):
+            with self.subTest(both_refuse=index):
+                with self.assertRaises(contacts.ContactRefused):
+                    delivery.read_armed_entries(raw, case_digests, now=now)
+                with self.assertRaises(event_api.RunnerRefused):
+                    event_api.validate_capabilities(raw, now=now)
+        # Child-only refusals: digest binding is the parent's arming record;
+        # the parent validator legitimately accepts an unbound descriptor.
+        with self.subTest(child_only="not-armed"):
+            with self.assertRaises(contacts.ContactRefused):
+                delivery.read_armed_entries(descriptor(good), [], now=now)
+            event_api.validate_capabilities(descriptor(good), now=now)
 
     def test_envelope_is_closed_bounded_deterministic_and_private(self):
         endpoint = {"surface_uuid": str(uuid.uuid4())}
@@ -337,8 +379,9 @@ class PlanBDeliveryTests(unittest.TestCase):
         stale_claim = dict(stored["claim_keys"][0], claim_revision=99)
         second = dict(stored, instance_nonce="123e4567-e89b-12d3-a456-426614174009",
                       claim_keys=[stale_claim])
-        (contacts_dir / (second["instance_nonce"] + ".json")).write_text(
-            json.dumps(second))
+        second_path = contacts_dir / (second["instance_nonce"] + ".json")
+        second_path.write_text(json.dumps(second))
+        second_path.chmod(0o600)
         receipts = delivery.deliver(
             event=event, huddle=huddle,
             current_claims=event_api._current_claims(board),
