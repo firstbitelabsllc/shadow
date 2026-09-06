@@ -194,6 +194,22 @@ class ShadowAcceptTests(unittest.TestCase):
                 refused = invalidate(owner, receipt)
                 self.assertNotEqual(refused.returncode, 0)
                 self.assertEqual(plan.read_bytes(), before)
+            old_proof = accept.find_row(reopened, "~ab12")[3]
+            for changed in (
+                reopened.replace("[in_progress] x.txt says hello", "[completed] x.txt says hello"),
+                reopened.replace(f"| proof: {old_proof}", "| proof: read result -> checked"),
+                reopened.replace(f"| proof: {old_proof}", "| proof: cmd false"),
+            ):
+                plan.write_text(changed, encoding="utf-8")
+                refused = invalidate("seat-a", digest)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertEqual(plan.read_text(), changed)
+            plan.write_text(reopened, encoding="utf-8")
+            git(repo, "remote", "set-url", "origin", "https://github.com/other/source.git")
+            before = plan.read_bytes()
+            self.assertNotEqual(invalidate("seat-a", digest).returncode, 0)
+            self.assertEqual(plan.read_bytes(), before)
+            git(repo, "remote", "set-url", "origin", "https://github.com/example/invalidation.git")
             invalidated = invalidate("seat-a", digest)
             self.assertEqual(invalidated.returncode, 0, invalidated.stderr)
             after = plan.read_text(encoding="utf-8")

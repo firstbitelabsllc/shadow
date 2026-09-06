@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import stat
 import subprocess
 import sys
@@ -48,6 +49,58 @@ _ACCEPT_SPEC.loader.exec_module(accept)
 
 
 PlanStoreError = store.PlanStoreError
+
+
+def _invalidate(
+    entity: str, row_id: str, owner: str, proof_root: Path, receipt_sha256: str,
+) -> dict[str, object]:
+    """Supersede one exact accepted pair on an already reopened local row."""
+    if accept.OBJECT_DIGEST_RE.fullmatch(receipt_sha256) is None:
+        raise PlanStoreError("--receipt-sha256 must be one lowercase SHA-256")
+    resolved = board_store.resolve_entity(entity)
+    plan = resolved["plan"] if resolved else None
+    if plan is None or not board_store.is_local_plan(plan):
+        raise PlanStoreError("invalidate requires a registered machine-local plan")
+    with board_store.project_lock(plan):
+        state = board_store.entity_state(plan, exact_on_conflict=True)
+        claim = next((item for item in (state["claims"] if state else [])
+                      if item["row"] == row_id), None)
+        if claim is None or claim["owner"] != owner:
+            raise PlanStoreError(f"{row_id} must be claimed by {owner} before invalidation")
+        try:
+            accept.require_huddle_accept(plan, claim)
+            text = board_store.open_plan(plan).materialize().decode("utf-8")
+            _, _, row_state, proof, _ = accept.find_row(text, row_id)
+            if row_state not in {"pending", "in_progress", "blocked"} or not proof.startswith("cmd "):
+                raise accept.AcceptError("invalidate requires an already reopened cmd row")
+            origins = grammar.brief_origin_values(text)
+            if len(origins) != 1 or board_store.well_formed_proof_origin(origins[0]) != accept.public_source_identity(proof_root):
+                raise accept.AcceptError("source checkout does not match permanent Origin")
+            pair = accept.local_invalidation_pair(accept.active_local_progress(text), row_id)
+            if grammar.progress_proof_receipt(pair[0])[1] != shlex.join(accept.proof_argv(proof[4:])):
+                raise accept.AcceptError("current cmd proof does not match the receipt being invalidated")
+            if accept.local_receipt_digest(*pair) != receipt_sha256:
+                raise accept.AcceptError("--receipt-sha256 does not name the active receipt pair")
+            stamp = accept.next_local_receipt_stamp(text, row_id)
+            candidate = accept.append_progress_line(
+                text, f"- {stamp} {row_id} INVALIDATE {receipt_sha256} -> superseded (invalidate)\n"
+            )
+            # Validate the historical Origin and exact pair before suppressing
+            # it. Other already reopened rows may be repaired individually.
+            accept.active_local_progress(candidate)
+            accept.refuse_lint_blocked_plan(candidate, plan, proof_root=proof_root, row_id=row_id)
+            current = board_store.entity_state(plan, exact_on_conflict=True)
+            if not current or claim not in current["claims"]:
+                raise accept.AcceptError("invalidation claim changed before publication")
+            publication = accept.atomic_write_text(plan, candidate)
+        except (accept.AcceptError, ValueError) as exc:
+            raise PlanStoreError(str(exc)) from exc
+    return {
+        "schema": "shadow.plan-invalidate.v1", "action": "invalidated",
+        "row": row_id, "by": owner, "receipt_sha256": receipt_sha256,
+        "root_sha256": publication.root_sha256 if publication else None,
+        "generation": publication.generation if publication else None,
+    }
 
 
 def _amend(
@@ -1185,6 +1238,14 @@ def parser() -> argparse.ArgumentParser:
     map_rollback.add_argument("--receipt", required=True, type=Path)
     map_rollback.add_argument("--apply", action="store_true", required=True)
     map_rollback.add_argument("--expect", required=True)
+    invalidate = commands.add_parser(
+        "invalidate", help="supersede one exact receipt on an already reopened local cmd row",
+    )
+    invalidate.add_argument("--entity", required=True)
+    invalidate.add_argument("--row", required=True)
+    invalidate.add_argument("--by", required=True)
+    invalidate.add_argument("--repo", required=True, type=Path)
+    invalidate.add_argument("--receipt-sha256", required=True)
     amend = commands.add_parser(
         "amend",
         help="rewrite one claimed row's proof and/or record its read/gate observation",
@@ -1208,6 +1269,10 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
+        if args.command == "invalidate":
+            payload = _invalidate(args.entity, args.row, args.by, args.repo.resolve(), args.receipt_sha256)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
         if args.command == "amend":
             payload = _amend(
                 args.entity,

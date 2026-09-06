@@ -78,6 +78,35 @@ SSH and HTTPS spellings of the same remote normalize to one identity. Acceptance
 revalidates the exact frozen Brief under the lifecycle lock before publishing.
 A `--repo`-only accept does not read this line.
 
+### Invalidated local acceptance
+
+When an independent falsification has already reopened a machine-local `cmd`
+row, its owner may use `shadow plan invalidate` to supersede one exact old
+acceptance. The command requires the reopened row's claim, its unchanged proof
+command, the matching source checkout, and the SHA-256 of the canonical PROOF
+line plus newline followed by its same-timestamp SOURCE line plus newline.
+It appends only this record inside Progress; it never deletes history, changes
+Origin, reopens a completed row, or completes a pending row:
+
+```text
+- <timestamp> ~hash INVALIDATE <64-lowercase-hex> -> superseded (invalidate)
+```
+
+Acceptance validates every invalidation before selecting active receipts.
+Each must name exactly one prior active modern PROOF/SOURCE pair, whose source
+equals the permanent Origin. Duplicate, malformed, unmatched, cross-row,
+foreign-source and out-of-order records refuse. Bare REOPEN notes cannot
+supersede anything. The digest binds bytes in the private authority; it is not
+a cryptographic signature against someone who can rewrite that authority.
+
+After invalidation, supported proof amendment and a normal `shadow accept` may
+record a corrected completion. Only the new active pair supplies the source
+commit for completed-row retries; all old lines remain. Local SOURCE and
+INVALIDATE timestamps are strictly increasing per row, advancing by one second
+when needed to distinguish operations within the clock's one-second precision.
+Other receipt timestamps are unchanged. Pre-cutover source-less acceptance is
+not eligible for invalidation.
+
 ## Plan location
 
 **Each infrastructure entity's local `PLAN.md` owns its milestone/checkpoint

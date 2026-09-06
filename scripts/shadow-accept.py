@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
@@ -111,6 +111,12 @@ SOURCE_RECEIPT_RE = re.compile(
     r"HEAD (?P<head>[0-9a-f]{40}) "
     r"-> proof and final lint \(accept\)$"
 )
+INVALIDATION_RECEIPT_RE = re.compile(
+    r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
+    r"(?P<id>~[0-9a-z]{4}) INVALIDATE (?P<digest>[0-9a-f]{64}) "
+    r"-> superseded \(invalidate\)$"
+)
+INVALIDATION_MENTION_RE = re.compile(r"~[0-9a-z]{4}\s+INVALIDATE(?:\s|$)")
 LEGACY_LOCAL_SOURCE_ID_RE = re.compile(r"local-git@(?P<digest>[0-9a-f]{12})")
 OPAQUE_LOCAL_SOURCE_ID_RE = re.compile(
     r"local\.shadow\.invalid/(?P<digest>[0-9a-f]{12})"
@@ -495,6 +501,100 @@ def canonical_source_identity(identity: str) -> str:
         raise AcceptError("SOURCE identity is not one public normalized identity") from exc
 
 
+def local_invalidation_pair(
+    progress: list[str], row_id: str,
+) -> tuple[str, str]:
+    """Select one exact modern PROOF/SOURCE pair; never infer missing history."""
+    proofs = [line for line in progress
+              if (receipt := _grammar.progress_proof_receipt(line)) is not None
+              and receipt[0] == row_id and receipt[2] == "pass (accept)"]
+    sources = _source_lines_for_row(progress, row_id)
+    if len(proofs) != 1 or len(sources) != 1:
+        raise AcceptError(f"{row_id} invalidation needs exactly one active PROOF/SOURCE pair")
+    proof = _grammar.PROOF_RECEIPT_RE.fullmatch(proofs[0])
+    source = SOURCE_RECEIPT_RE.fullmatch(sources[0])
+    if (proof is None or source is None
+            or not _valid_progress_timestamp(proof.group("ts"))
+            or proof.group("ts") < LOCAL_SOURCE_RECEIPT_CUTOVER
+            or proof.group("ts") != source.group("ts")):
+        raise AcceptError(f"{row_id} invalidation needs a canonical paired SOURCE receipt")
+    return proofs[0], sources[0]
+
+
+def local_receipt_digest(proof: str, source: str) -> str:
+    return hashlib.sha256((proof + "\n" + source + "\n").encode("utf-8")).hexdigest()
+
+
+def active_local_progress(plan_text: str) -> list[str]:
+    """Validate every supersession before omitting its exact historical pair.
+
+    A digest binds bytes within the local authority; it is not a signature.
+    Old REOPEN prose has no effect. Even a self-consistent invalidation cannot
+    hide a SOURCE from another Origin or target a non-current pair.
+    """
+    progress = _board.section_lines(plan_text, "Progress")
+    if not any(INVALIDATION_MENTION_RE.search(line) for line in progress):
+        return progress
+    origins = _grammar.brief_origin_values(plan_text)
+    if len(origins) != 1:
+        raise AcceptError("invalidation requires one permanent Origin")
+    try:
+        origin = _board.well_formed_proof_origin(origins[0])
+    except ValueError as exc:
+        raise AcceptError("invalidation requires a normalized Origin") from exc
+    active: list[str] = []
+    invalidated: set[str] = set()
+    last_invalidation: dict[str, str] = {}
+    for line in progress:
+        if not INVALIDATION_MENTION_RE.search(line):
+            # An accepted successor must be newer than its supersession. This
+            # also prevents identical bytes from naming two different pairs.
+            proof = _grammar.PROOF_RECEIPT_RE.fullmatch(line)
+            receipt = _grammar.progress_proof_receipt(line)
+            if (proof is not None and receipt is not None
+                    and receipt[2] == "pass (accept)"
+                    and receipt[0] in last_invalidation
+                    and (not _valid_progress_timestamp(proof.group("ts"))
+                         or proof.group("ts") <= last_invalidation[receipt[0]])):
+                raise AcceptError("acceptance must follow its invalidation")
+            active.append(line)
+            continue
+        match = INVALIDATION_RECEIPT_RE.fullmatch(line)
+        if match is None or not _valid_progress_timestamp(match.group("ts")):
+            raise AcceptError("malformed INVALIDATE receipt")
+        row_id, digest = match.group("id"), match.group("digest")
+        _, _, _, row_proof, _ = find_row(plan_text, row_id)
+        if not row_proof.startswith("cmd "):
+            raise AcceptError("invalidation belongs only to a cmd row")
+        proof_line, source_line = local_invalidation_pair(active, row_id)
+        source = SOURCE_RECEIPT_RE.fullmatch(source_line)
+        assert source is not None
+        if canonical_source_identity(source.group("source")) != origin:
+            raise AcceptError("invalidated SOURCE does not match permanent Origin")
+        if (digest in invalidated
+                or digest != local_receipt_digest(proof_line, source_line)
+                or match.group("ts") <= source.group("ts")):
+            raise AcceptError("INVALIDATE does not name one prior active receipt")
+        invalidated.add(digest)
+        last_invalidation[row_id] = match.group("ts")
+        active.remove(proof_line)
+        active.remove(source_line)
+    return active
+
+
+def next_local_receipt_stamp(plan_text: str, row_id: str) -> str:
+    """Keep exact same-row pairs unique even within one clock second."""
+    stamp = datetime.now(timezone.utc).replace(microsecond=0)
+    for line in _board.section_lines(plan_text, "Progress"):
+        match = SOURCE_RECEIPT_RE.fullmatch(line) or INVALIDATION_RECEIPT_RE.fullmatch(line)
+        if match is not None and match.group("id") == row_id:
+            if not _valid_progress_timestamp(match.group("ts")):
+                raise AcceptError("malformed local receipt timestamp")
+            previous = datetime.strptime(match.group("ts"), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            stamp = max(stamp, previous + timedelta(seconds=1))
+    return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def local_source_receipt(
     plan_text: str,
     row_id: str,
@@ -502,7 +602,8 @@ def local_source_receipt(
 ) -> tuple[str, str]:
     """Return the one source identity and commit bound to a local completion."""
     receipts: list[tuple[str, str, str]] = []
-    for line in _board.section_lines(plan_text, "Progress"):
+    progress = active_local_progress(plan_text)
+    for line in progress:
         if not _line_mentions_source_for_row(line, row_id):
             continue
         match = SOURCE_RECEIPT_RE.fullmatch(line)
@@ -522,7 +623,7 @@ def local_source_receipt(
             f"{row_id} has {len(receipts)} canonical SOURCE receipts; "
             "root claim stays open"
         )
-    proof_stamps = _receipt_stamps(plan_text, row_id, argv)
+    proof_stamps = _receipt_stamps(plan_text, row_id, argv, progress=progress)
     if proof_stamps != [receipts[0][0]]:
         raise AcceptError(
             f"{row_id} SOURCE is not paired with one canonical PROOF receipt; "
@@ -668,7 +769,8 @@ def local_plan_source_identity(plan_text: str) -> str | None:
                 "the local plan Origin is not a normalized Git identity"
             ) from exc
     accepted_receipts: list[tuple[str, str, str]] = []
-    for line in _board.section_lines(plan_text, "Progress"):
+    progress = active_local_progress(plan_text)
+    for line in progress:
         receipt = _grammar.progress_proof_receipt(line)
         match = _grammar.PROOF_RECEIPT_RE.fullmatch(line)
         if (
@@ -706,7 +808,7 @@ def local_plan_source_identity(plan_text: str) -> str | None:
                 f"{row_id} task proof no longer matches its canonical accept PROOF"
             )
         source_lines = _source_lines_for_row(
-            _board.section_lines(plan_text, "Progress"),
+            progress,
             row_id,
         )
         canonical_source_lines = [
@@ -1675,7 +1777,7 @@ def accept_local_proposal(
             ):
                 raise AcceptError("the canonical row is no longer ready")
 
-            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            stamp = next_local_receipt_stamp(fresh_text, row_id)
             updated = completed_local_plan_text(
                 fresh_text,
                 row_id,
@@ -1910,7 +2012,7 @@ def accept_local_plan(
                 fresh_text, row_id, fresh_needs
             ):
                 raise AcceptError("the local row is no longer ready; nothing was changed")
-            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            stamp = next_local_receipt_stamp(fresh_text, row_id)
             updated = completed_local_plan_text(
                 fresh_text,
                 row_id,
@@ -2141,10 +2243,12 @@ def completed_local_plan_text(
     )
 
 
-def _receipt_stamps(plan_text: str, row_id: str, argv: list[str]) -> list[str]:
+def _receipt_stamps(
+    plan_text: str, row_id: str, argv: list[str], *, progress: list[str] | None = None,
+) -> list[str]:
     expected = shlex.join(argv)
     stamps: list[str] = []
-    for line in _board.section_lines(plan_text, "Progress"):
+    for line in (_board.section_lines(plan_text, "Progress") if progress is None else progress):
         receipt = _grammar.progress_proof_receipt(line)
         match = _grammar.PROOF_RECEIPT_RE.match(line)
         if (
