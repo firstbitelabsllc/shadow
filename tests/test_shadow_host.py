@@ -60,6 +60,17 @@ elif mode == "commit":
     subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "bounded change"], cwd=repo, check=True, capture_output=True)
     changed = ["result.txt"]
+elif mode == "commit-iso-8859-1":
+    repo = pathlib.Path.cwd()
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run([b"git", b"add", b"result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        [b"git", b"-c", b"i18n.commitEncoding=ISO-8859-1", b"commit", b"-qm", b"caf\xe9"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    changed = ["result.txt"]
 elif mode == "out-of-scope-then-revert":
     repo = pathlib.Path.cwd()
     repo.joinpath("outside.txt").write_text("escape\\n", encoding="utf-8")
@@ -1572,6 +1583,39 @@ class ExecutionBindingTests(HuddleTestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(payload["execution_binding"]["execution_candidate"])
+
+    def test_preexisting_iso_8859_1_reflog_subject_preserves_normal_receipt(self):
+        subprocess.run(
+            [b"git", b"-C", os.fsencode(self.repo), b"-c", b"i18n.commitEncoding=ISO-8859-1", b"commit", b"--allow-empty", b"-qm", b"caf\xe9"],
+            check=True,
+            capture_output=True,
+        )
+
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["execution_binding"]["execution_candidate"])
+        self.assertNotIn("café", json.dumps(payload, ensure_ascii=False))
+
+    def test_during_host_iso_8859_1_reflog_subject_preserves_normal_receipt(self):
+        self.binary.with_suffix(".mode").write_text("commit-iso-8859-1", encoding="utf-8")
+
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["execution_binding"]["execution_candidate"])
+        self.assertNotIn("café", json.dumps(payload, ensure_ascii=False))
+
+    def test_malformed_reflog_object_id_is_classified(self):
+        malformed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=(b"\xff" * 40) + b"\tcommit: subject\0", stderr=b""
+        )
+        with mock.patch.object(shadow_host.subprocess, "run", return_value=malformed):
+            with self.assertRaisesRegex(shadow_host.HostError, "worktree reflog head is malformed") as caught:
+                shadow_host.head_reflog_snapshot(self.repo)
+        self.assertEqual(caught.exception.kind, "git_unavailable")
 
     def test_distinct_worktrees_sharing_a_base_have_distinct_opaque_identities(self):
         other = self.home / "other-worktree"

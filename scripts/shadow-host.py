@@ -269,12 +269,18 @@ def head_reflog_snapshot(repo: Path, *, limit: int = HEAD_REFLOG_LIMIT) -> tuple
         if b"\t" not in record:
             raise HostError("git_unavailable", "worktree reflog is malformed")
         raw_head, raw_message = record.split(b"\t", 1)
-        head = raw_head.decode("ascii", errors="strict")
-        message = raw_message.decode("utf-8", errors="strict")
+        try:
+            head = raw_head.decode("ascii", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise HostError("git_unavailable", "worktree reflog head is malformed") from exc
         if GIT_SHA1_RE.fullmatch(head) is None:
             raise HostError("git_unavailable", "worktree reflog head is malformed")
-        action = message.partition(":")[0]
-        entries.append((head, action if action in {"commit", "checkout", "reset"} else "other"))
+        action = {
+            b"commit": "commit",
+            b"checkout": "checkout",
+            b"reset": "reset",
+        }.get(raw_message.partition(b":")[0], "other")
+        entries.append((head, action))
     return tuple(entries)
 
 
