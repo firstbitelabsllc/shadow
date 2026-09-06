@@ -10,9 +10,10 @@ Current policy:
   presence isn't an invitation for unsolicited external PRs; the policy above
   still applies.
 - If you build on Shadow, examples and field reports are especially useful.
-- Please do not propose integrations that sync Shadow state into an external
-  project-management board. Shadow's queue authority is `PLAN.md` in git; teams
-  can mirror that state by hand, but Shadow will not round-trip it.
+- Please do not propose integrations that make an external project-management
+  board another task authority. Each computer's local board owns coordination;
+  its local `PLAN.md` files own task detail and proof. Shadow does not round-trip
+  that authority through an external board.
 
 Why:
 
