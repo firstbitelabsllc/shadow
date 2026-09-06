@@ -31,16 +31,20 @@ Three things, and I tried hard to keep it to three.
 
 1. **Plans on disk.** A `PLAN.md` with an outcome and 2-7 tasks per
    milestone. Each task names the check that proves it. The next session
-   reads the plan, not your chat history. One board per computer tracks who
-   owns what; one plan per project holds the detail.
-2. **Claims.** Every worker, human or agent, picks a name and sticks with
-   it. Before touching a task it runs `shadow throw` to claim the row.
-   A second agent can't quietly start the same thing.
-3. **Proof before done.** Each task names its proof: a command, a thing
+   reads the plan, not your chat history. There is one board per computer;
+   the **board** is the small local file tracking who owns what. Each
+   project gets one authoritative `PLAN.md` per independently tracked piece
+   of work: a release, a docs push, not a whole repo. Related **plans**
+   form a project map.
+2. **Claims.** Every worker, human or agent, picks a stable seat name and
+   sticks with it (**seats** are the names that survive across
+   conversations). Before touching a task it runs `shadow throw` to
+   **claim** the row. A second agent can't quietly start the same thing.
+3. **Proof before done.** Each task names its **proof**: a command, a thing
    you observed by hand, or a human decision. `shadow accept` re-runs a
    command proof against the committed source. Fail, and the row stays
-   open. Pass, and the plan keeps a receipt line with the command and the
-   commit hash. It's just text in Git.
+   open. Pass, and **accept** writes a receipt line with the command and the
+   commit hash. That receipt is durable; it's just text in Git.
 
 The loop is **claim → work → prove → accept → next**.
 
@@ -166,9 +170,12 @@ proof. Details in the [execution policy](docs/reference/execution-policy.md).
 When two workers claim overlapping work, [Huddle](docs/reference/commands.md#huddle-coordination)
 pauses both until they split the scope or one hands the work back.
 
-A proposal-enabled row can also let a sealed Codex run suggest completion
-after you've committed the reviewed source. The full invocation is in the
-[command reference](docs/reference/commands.md).
+A proposal-enabled machine-local row can ask a sealed Codex run for a
+no-change completion proposal (`--authority-proposal`, then
+`shadow accept --proposal`). Commit the reviewed source first. Shadow binds
+the proposal to the row and reruns the proof in an isolated temporary `HOME`.
+Git-backed plans, other hosts, and manual `read`/`gate` proofs don't support
+this; the [command reference](docs/reference/commands.md) has the rest.
 
 ## Feedback
 
