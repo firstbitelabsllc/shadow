@@ -60,6 +60,22 @@ class AuditTests(unittest.TestCase):
             self.assertNotIn("multiple_session_ids", missing["gaps"])
             self.assertEqual(missing["source_digests"], [digest])
 
+    def test_mixed_identified_and_unidentified_records_refuse_totals(self):
+        identified = {"type": "assistant", "sessionId": "session-a",
+                      "message": {"id": "message-a", "model": "claude-fable-5",
+                                  "usage": {"input_tokens": 10, "output_tokens": 2}}}
+        unidentified = {**identified, "sessionId": "", "message": {
+            "id": "message-b", "model": "claude-fable-5",
+            "usage": {"input_tokens": 20, "output_tokens": 3}}}
+        r = self.run_records("claude", [identified, unidentified])
+        s = r["sessions"][0]
+        self.assertIsNone(s["usage"])
+        self.assertIn("session_identity_missing", s["gaps"])
+        self.assertNotIn("multiple_session_ids", s["gaps"])
+        identified_only = self.run_records("claude", [identified])
+        self.assertEqual(identified_only["sessions"][0]["usage"]["input_tokens"], 10)
+        self.assertNotIn("session_identity_missing", identified_only["sessions"][0]["gaps"])
+
     def test_counter_reset_is_unknown(self):
         records = [{"type": "session_meta", "payload": {"id": "session-a"}},
                    self.codex(16), self.codex(10)]

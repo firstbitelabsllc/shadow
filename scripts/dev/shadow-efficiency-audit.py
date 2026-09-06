@@ -137,6 +137,9 @@ def parse(host, records, digest, start, end):
             if not isinstance(message, dict):
                 gaps.add("unrecognized_response")
                 continue
+            sid = record.get("sessionId")
+            if not isinstance(sid, str) or not sid:
+                gaps.add("session_identity_missing")
             t = utc(record.get("timestamp"))
             if (start or end) and t is None:
                 gaps.add("timestamp_missing")
