@@ -78,3 +78,24 @@ Keep requested identity, native label and provider attestation separate. Only
 after that join and exact approved local trace readback should the owning
 observation protocol start its comparison window. Do not add a second ledger,
 watchdog, hook, scheduler or skill to implement resume.
+# Canonical source comparison
+
+The companion `scripts/dev/shadow-efficiency-acceptance.py --attempt /canonical/path/attempt.json`
+reads explicitly selected receipts against the current private Shadow board and
+owning plan. It reuses the acceptance command's row and paired PROOF/SOURCE readers.
+It does not execute proof commands or alter the board. Inputs are limited to 64
+files of 64 KiB each; identical byte copies deduplicate. Board and plan changes
+during a read refuse a mixed-state report.
+
+`exact_accepted_source_match` means only that supplied source fields match the
+current canonical command acceptance. A copied valid receipt, forged owner,
+failed-format handback, or parent-committed change cannot acquire worker credit
+through this comparison. `accepted_worker_contribution`, `usage_join`, accepted
+worker totals, cost and attention metrics remain null. Read/gate work remains
+unknown here because it needs a separate independently observed acceptance witness.
+This is a source comparison tool, not completed roster allocation measurement.
+
+The existing native producer has no authenticated attempt provenance or native
+session/token witness. A digest identifies receipt bytes; it does not authenticate
+their producer. Do not add actor attribution by trusting `task_id`,
+`execution_candidate`, `accepted_by_lead`, a claimed owner or an accepted Git head.
