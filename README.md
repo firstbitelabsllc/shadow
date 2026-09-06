@@ -42,6 +42,8 @@ continue.
 
 ## Sixty seconds, real commands
 
+From a Git repository you want to work on:
+
 ```console
 $ shadow init --here
 created local PLAN.md: ~/.shadow/plans/readme-demo/PLAN.md
@@ -50,7 +52,7 @@ $ $EDITOR ~/.shadow/plans/readme-demo/PLAN.md   # add one task with a proof
 $ shadow lint --repo . ~/.shadow/plans/readme-demo/PLAN.md
 ~/.shadow/plans/readme-demo/PLAN.md: clean
 
-$ shadow status --by demo        # prints the exact throw command for the next reachable row
+$ shadow status --by demo        # prints the exact claim command (the --repo form below is equivalent)
 $ shadow throw --repo . --task '~a1b2' --by demo
 [throw] ~a1b2 claimed by demo on this computer
 RESUME: [pending] hello.txt exists with today's greeting ~a1b2
@@ -81,8 +83,9 @@ cd shadow && bash install.sh && shadow doctor
 ```
 
 Git, Bash, Python 3.10+, and one supported host. No Node, no package manager.
-The clone **is** the install; upgrading means checking out a newer `shadow-v*`
-tag and rerunning `install.sh`. Missing `shadow`? Add `~/.local/bin` to PATH.
+The clone **is** the install; upgrading means checking out a newer
+`shadow-*` release tag (for example `shadow-1.4.0`) and rerunning
+`install.sh`. Missing `shadow`? Add `~/.local/bin` to PATH.
 The [full install guide](https://firstbitelabsllc.github.io/shadow/guide/installation) covers
 the edge cases.
 
@@ -97,7 +100,8 @@ the edge cases.
 
 Shadow's plans are Markdown you can read in any editor. Claims are atomic on a
 local board. Proof is a command that can fail. State lives in `~/.shadow` and
-your own Git, and deleting both removes every trace.
+your own Git; deleting both removes every local trace (the only exception: one
+coordination ref on the remote your branch already tracks).
 
 ## Sealed delegation to real hosts
 
@@ -113,7 +117,8 @@ shadow host run --host codex --work-class coding --delegation direct \
 Four semantic work classes (`planning`, `coding`, `review`, `lightweight`)
 plus an explicit execution shape (`direct` or `required`). Each host maps to a
 small checked-in model policy — Claude Code, Codex, Cursor, Grok, and Z.AI
-today. Unsupported child capability fails closed; a quota failure never
+today (or Codex pointed at Z.AI via the `codex-zai` pairing). Unsupported
+child capability fails closed; a quota failure never
 silently falls back to another provider. A receipt is evidence, never
 acceptance: review the diff and reproduce the proof yourself.
 

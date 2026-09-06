@@ -11,8 +11,9 @@ bash install.sh
 shadow doctor
 ```
 
-The namespaced tag is immutable. To update, read GitHub Latest, fetch tags,
-check out its exact `shadow-v*` tag, and rerun `bash install.sh`. Clone `main`
+The release tag is immutable. To update, read GitHub Latest, fetch tags,
+check out its exact `shadow-<version>` tag (for example `shadow-1.4.0`), and
+rerun `bash install.sh`. Clone `main`
 only when you deliberately want moving development source.
 
 `install.sh` links `bin/shadow` into `~/.local/bin` and mounts the skill in
