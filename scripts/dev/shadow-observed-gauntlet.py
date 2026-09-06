@@ -46,6 +46,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -53,6 +54,11 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PYTHON = ROOT / "scripts" / "shadow-python.sh"
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import shadow_root_board as board
 
 # Long jobs, heaviest last. Each runs in its own process from the repo root.
 JOBS: dict[str, list[str]] = {
@@ -66,7 +72,26 @@ JOBS: dict[str, list[str]] = {
     "gauntlet": ["-m", "unittest", "tests.test_gauntlet"],
     "two-seat-offline": ["-m", "unittest", "tests.test_two_seat_harness"],
     "full-discover": ["-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+    "huddle-lifecycle": [],
 }
+
+HUDDLE_JOB = "huddle-lifecycle"
+HUDDLE_STEPS = (
+    "hold_observed",
+    "bids_recorded",
+    "settled",
+    "held_write_refused",
+    "compliance_satisfied",
+)
+HUDDLE_ATTRIBUTES = (
+    "huddle_id",
+    "huddle_generation",
+    "lifecycle_step",
+    "huddle_state",
+    "opened_revision",
+    "settled_revision",
+    "compliance_revision",
+)
 
 HOME_PREFIX = str(Path.home())
 
@@ -198,6 +223,40 @@ class Sink:
                 time.sleep(delay_s)
         return False
 
+    def verify_huddle_trace(self, trace_id: str, expected_rows: list[dict], *, attempts: int = 8,
+                            delay_s: float = 5.0) -> bool:
+        """Require all five owner-local Huddle projections, exactly once each."""
+        if (not self.readback or not re.fullmatch(r"[A-Za-z0-9_-]{3,128}", self.project_id)
+                or not re.fullmatch(r"[0-9a-f]{32}", trace_id)
+                or not _valid_huddle_rows(expected_rows)):
+            return False
+        columns = ",\n  ".join(
+            "toUInt64OrNull(" + f"metadata_values[indexOf(metadata_names, 'attributes.shadow.{key}')]" + ") "
+            f"AS {key}" if key in {"huddle_generation", "opened_revision", "settled_revision", "compliance_revision"}
+            else f"metadata_values[indexOf(metadata_names, 'attributes.shadow.{key}')] AS {key}"
+            for key in HUDDLE_ATTRIBUTES
+        )
+        query = (
+            f"SELECT\n  {columns}\nFROM default.events_core "
+            f"WHERE project_id = '{self.project_id}' AND trace_id = '{trace_id}' "
+            "AND name = 'huddle.lifecycle' ORDER BY lifecycle_step "
+            "SETTINGS output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow"
+        )
+        expected = sorted(expected_rows, key=_huddle_row_key)
+        for attempt in range(attempts):
+            try:
+                raw = self._readback_query(query)
+                rows = [json.loads(line) for line in raw.splitlines() if line]
+                if all(isinstance(row, dict) and set(row) == set(HUDDLE_ATTRIBUTES) for row in rows):
+                    normalized = [_normalize_huddle_row(row) for row in rows]
+                    if all(row is not None for row in normalized) and sorted(normalized, key=_huddle_row_key) == expected:
+                        return True
+            except (json.JSONDecodeError, TypeError, urllib.error.URLError, OSError):
+                pass
+            if attempt + 1 < attempts:
+                time.sleep(delay_s)
+        return False
+
     def _verify_trace_web(self, trace_id: str, *, attempts: int, delay_s: float) -> bool:
         request = urllib.request.Request(
             f"{self.host}/api/public/traces/{trace_id}",
@@ -219,6 +278,215 @@ class Sink:
 
 def _now_ns() -> int:
     return time.time_ns()
+
+
+def _loopback_http_endpoint(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    return (parsed.scheme in {"http", "https"} and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+            and parsed.username is None and parsed.password is None and not parsed.query and not parsed.fragment)
+
+
+def _huddle_row_key(row: dict) -> tuple:
+    return tuple(row[key] for key in HUDDLE_ATTRIBUTES)
+
+
+def _normalize_huddle_row(row: dict) -> dict | None:
+    if not isinstance(row, dict) or set(row) != set(HUDDLE_ATTRIBUTES):
+        return None
+    if not isinstance(row.get("huddle_id"), str) or not re.fullmatch(r"hdl_[0-9a-f]{8}", row["huddle_id"]):
+        return None
+    if row.get("lifecycle_step") not in HUDDLE_STEPS or row.get("huddle_state") not in {
+        "open_round_1", "awaiting_compliance", "resolved"
+    }:
+        return None
+    numeric = ("huddle_generation", "opened_revision", "settled_revision", "compliance_revision")
+    if any(type(row.get(key)) is not int or row[key] < 0 for key in numeric):
+        return None
+    return {key: row[key] for key in HUDDLE_ATTRIBUTES}
+
+
+def _valid_huddle_rows(rows: object) -> bool:
+    if not isinstance(rows, list) or len(rows) != len(HUDDLE_STEPS):
+        return False
+    normalized = [_normalize_huddle_row(row) for row in rows]
+    if any(row is None for row in normalized):
+        return False
+    if [row["lifecycle_step"] for row in rows] != list(HUDDLE_STEPS) or len({row["huddle_id"] for row in rows}) != 1:
+        return False
+    if [row["huddle_generation"] for row in rows] != [1, 1, 2, 2, 3]:
+        return False
+    if [row["huddle_state"] for row in rows] != [
+        "open_round_1", "open_round_1", "awaiting_compliance", "awaiting_compliance", "resolved"
+    ]:
+        return False
+    opened = rows[0]["opened_revision"]
+    settled = rows[2]["settled_revision"]
+    compliance = rows[4]["compliance_revision"]
+    return (opened > 0 and all(row["opened_revision"] == opened for row in rows)
+            and [row["settled_revision"] for row in rows] == [0, 0, settled, settled, settled]
+            and settled > opened and [row["compliance_revision"] for row in rows] == [0, 0, 0, 0, compliance]
+            and compliance > settled)
+
+
+def _huddle_plan(title: str, row: str) -> str:
+    return (
+        f"# {title}\n\n## Brief\n\n- Project: huddle-observed\n- Mode: ship\n\n"
+        f"## Tasks\n\n- [pending] {title} {row} | proof: cmd true\n\n## Progress\n"
+    )
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+
+
+def _journal_head(home: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"], check=True,
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def _huddle_span(trace_id: str, row: dict, start_ns: int) -> dict:
+    return {
+        "traceId": trace_id,
+        "spanId": secrets.token_hex(8),
+        "name": "huddle.lifecycle",
+        "kind": 1,
+        "status": {"code": 2},
+        "startTimeUnixNano": str(start_ns),
+        "endTimeUnixNano": str(start_ns + 1),
+        "attributes": [_attr(f"shadow.{key}", row[key]) for key in HUDDLE_ATTRIBUTES],
+    }
+
+
+def _claim_ref(claim: dict) -> dict:
+    """Copy the exact public claim identity required by the Huddle API."""
+    return {key: claim[key] for key in ("entity", "row", "owner", "claimed_at", "claim_revision")}
+
+
+def huddle_lifecycle_rows() -> list[dict]:
+    """Exercise the public board lifecycle in a disposable Git repository."""
+    with tempfile.TemporaryDirectory(prefix="shadow-huddle-observed-") as temporary:
+        root = Path(temporary)
+        home, repo = root / "home", root / "repo"
+        home.mkdir()
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _git(repo, "config", "user.email", "huddle@example.invalid")
+        _git(repo, "config", "user.name", "Huddle observed")
+        plan_a, plan_b = repo / "a" / "PLAN.md", repo / "b" / "PLAN.md"
+        plan_a.parent.mkdir()
+        plan_b.parent.mkdir()
+        plan_a.write_text(_huddle_plan("Owner A", "~aa11"), encoding="utf-8")
+        plan_b.write_text(_huddle_plan("Owner B", "~bb22"), encoding="utf-8")
+        (repo / "shared").write_text("tracked shared scope\n", encoding="utf-8")
+        _git(repo, "add", "a/PLAN.md", "b/PLAN.md", "shared")
+        _git(repo, "commit", "-qm", "huddle fixture")
+
+        board.ensure(home=home)
+        board.reconcile([
+            {"plan": str(plan_a), "project": "huddle-observed", "priority": 1, "candidates": ["~aa11"]},
+            {"plan": str(plan_b), "project": "huddle-observed", "priority": 1, "candidates": ["~bb22"]},
+        ], [], home=home)
+        first = board.claim(plan_a, "~aa11", "huddle-a", project="huddle-observed", priority=1,
+                            repo=repo, access="write", write_scope=["shared"], home=home)
+        second = board.claim(plan_b, "~bb22", "huddle-b", project="huddle-observed", priority=1,
+                             repo=repo, access="write", write_scope=["shared"], home=home)
+        opened = board.snapshot(home=home)
+        huddle = opened["huddles"][0]
+        if (len(huddle["claims"]) != 2 or len(huddle["holds"]) != 1
+                or huddle["state"] != "open_round_1" or huddle["generation"] != 1):
+            raise RuntimeError("Huddle did not open with one real held claim")
+        held_ref = huddle["holds"][0]
+        claims = {(claim["entity"], claim["row"]): claim for claim in opened["claims"]}
+        held = claims[(held_ref["entity"], held_ref["row"])]
+        selected = next(claim for claim in opened["claims"] if _claim_ref(claim) != held_ref)
+        opened_revision = huddle["opened_revision"]
+        rows = [dict(huddle_id=huddle["id"], huddle_generation=1, lifecycle_step="hold_observed",
+                     huddle_state="open_round_1", opened_revision=opened_revision,
+                     settled_revision=0, compliance_revision=0)]
+
+        for claim, role, reason in ((selected, "own", "existing_claim"), (held, "stand_down", "duplicate_intent")):
+            board.submit_huddle_bid(
+                huddle_id=huddle["id"], seat=claim["owner"], claim=_claim_ref(claim), role=role,
+                scope=claim["write_scope"], reason=reason, target=None, support_claim=None,
+                evidence={"kind": "claim", "value": "self"}, round=1,
+                expected_huddle_generation=1, now=datetime.now(timezone.utc), home=home,
+            )
+        after_bids = board.snapshot(home=home)
+        bid_huddle = after_bids["huddles"][0]
+        for claim in (selected, held):
+            receipt = board.bid_receipt(huddle["id"], _claim_ref(claim), 1, home=home)
+            if receipt["claim"] != _claim_ref(claim) or receipt["scope"] != claim["write_scope"]:
+                raise RuntimeError("Huddle bid receipt changed")
+        if (bid_huddle["id"] != huddle["id"] or bid_huddle["opened_revision"] != opened_revision
+                or after_bids["claims"] != opened["claims"] or bid_huddle["holds"] != huddle["holds"]
+                or bid_huddle["generation"] != 1):
+            raise RuntimeError("Huddle bid changed claims, holds, or generation")
+        rows.append(dict(huddle_id=huddle["id"], huddle_generation=1, lifecycle_step="bids_recorded",
+                         huddle_state="open_round_1", opened_revision=opened_revision,
+                         settled_revision=0, compliance_revision=0))
+
+        settled = board.settle_huddle(
+            huddle_id=huddle["id"], actor_claim=_claim_ref(selected), expected_generation=1,
+            expected_board_revision=after_bids["revision"], now=datetime.now(timezone.utc), home=home,
+        ).payload
+        settled_huddle = settled["huddles"][0]
+        settled_revision = settled["revision"]
+        if (settled_huddle["id"] != huddle["id"] or settled_huddle["opened_revision"] != opened_revision
+                or settled_huddle["state"] != "awaiting_compliance" or settled_huddle["generation"] != 2
+                or settled_huddle["resolution"]["write_owners"] != [_claim_ref(selected)]
+                or settled_huddle["resolution"]["settled_revision"] != settled_revision
+                or settled_huddle["holds"] != [held_ref]):
+            raise RuntimeError("Huddle settlement was not the expected held-owner resolution")
+        rows.append(dict(huddle_id=huddle["id"], huddle_generation=2, lifecycle_step="settled",
+                         huddle_state="awaiting_compliance", opened_revision=opened_revision,
+                         settled_revision=settled_revision, compliance_revision=0))
+
+        before_refusal = ((home / ".shadow" / board.BOARD_NAME).read_bytes(), plan_a.read_bytes(),
+                          plan_b.read_bytes(), _journal_head(home))
+        held_context = {key: held[key] for key in ("entity", "row", "owner", "claim_revision")}
+        held_context["board_revision"] = settled_revision
+        try:
+            board.authorize_host_attempt(context=held_context, repo=repo, write_scope=["shared"],
+                                         authority_proposal=False, now=datetime.now(timezone.utc), home=home)
+        except board.BoardError as exc:
+            if "held" not in str(exc):
+                raise
+        else:
+            raise RuntimeError("Huddle held public write was authorized")
+        if before_refusal != ((home / ".shadow" / board.BOARD_NAME).read_bytes(), plan_a.read_bytes(),
+                              plan_b.read_bytes(), _journal_head(home)):
+            raise RuntimeError("held Huddle write refusal changed durable state")
+        rows.append(dict(huddle_id=huddle["id"], huddle_generation=2, lifecycle_step="held_write_refused",
+                         huddle_state="awaiting_compliance", opened_revision=opened_revision,
+                         settled_revision=settled_revision, compliance_revision=0))
+
+        plans = {entity["id"]: Path(entity["plan"]) for entity in opened["entities"]}
+        held_plan, selected_plan = plans[held["entity"]], plans[selected["entity"]]
+        held_text = held_plan.read_text(encoding="utf-8").replace("[pending]", "[blocked]", 1)
+        held_plan.write_text(held_text + f"\n## Deferred\n\n- {held['row']} | wake: owner disposition is needed\n", encoding="utf-8")
+        released, changed = board.release(held_plan, held["row"], owner=held["owner"], reason="blocked",
+                                          expected_claim=held, now=datetime.now(timezone.utc), home=home)
+        resolved = released["huddles"][0]
+        compliance = resolved["compliance"][0]
+        compliance_revision = released["revision"]
+        if (not changed or resolved["id"] != huddle["id"] or resolved["opened_revision"] != opened_revision
+                or resolved["state"] != "resolved" or resolved["generation"] != 3
+                or resolved["holds"] or compliance["status"] != "satisfied"
+                or compliance["completion"]["kind"] != "return"
+                or compliance["completion"]["board_revision"] != compliance_revision):
+            raise RuntimeError("Huddle compliance return did not resolve exactly")
+        board.release(selected_plan, selected["row"], owner=selected["owner"], reason="handback", expected_claim=selected,
+                      now=datetime.now(timezone.utc), home=home)
+        if board.snapshot(home=home)["claims"]:
+            raise RuntimeError("Huddle cleanup left a live disposable claim")
+        rows.append(dict(huddle_id=huddle["id"], huddle_generation=3, lifecycle_step="compliance_satisfied",
+                         huddle_state="resolved", opened_revision=opened_revision,
+                         settled_revision=settled_revision, compliance_revision=compliance_revision))
+        if not _valid_huddle_rows(rows):
+            raise RuntimeError("Huddle lifecycle evidence was incomplete")
+        return rows
 
 
 def run_job(name: str, argv: list[str]) -> tuple[int, float, str]:
@@ -302,13 +570,56 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     sink = Sink()
 
-    chosen = [j.strip() for j in args.jobs.split(",") if j.strip()] or list(JOBS)
+    # Huddle is an explicit owner opt-in: existing generic/default calls stay v3-compatible.
+    chosen = [j.strip() for j in args.jobs.split(",") if j.strip()] or [
+        name for name in JOBS if name != HUDDLE_JOB
+    ]
     unknown = [j for j in chosen if j not in JOBS]
     if unknown:
         print(f"unknown jobs: {', '.join(unknown)}; known: {', '.join(JOBS)}", file=sys.stderr)
         return 2
 
     events_env = os.environ.get("SHADOW_LANGFUSE_EVENTS", "")
+    if HUDDLE_JOB in chosen:
+        if len(chosen) != 1:
+            print("huddle-lifecycle cannot be mixed with generic jobs", file=sys.stderr)
+            return 2
+        if args.rounds < 1:
+            print("huddle-lifecycle requires at least one round", file=sys.stderr)
+            return 2
+        if events_env:
+            print("huddle-lifecycle refuses SHADOW_LANGFUSE_EVENTS; generic event forwarding is not Huddle evidence",
+                  file=sys.stderr)
+            return 2
+        if not (sink.readback and sink.project_id):
+            print("huddle-lifecycle requires explicit loopback ClickHouse readback and project ID", file=sys.stderr)
+            return 2
+        if not _loopback_http_endpoint(sink.host):
+            print("huddle-lifecycle requires an explicit loopback OTLP HTTP endpoint", file=sys.stderr)
+            return 2
+        if not re.fullmatch(r"[A-Za-z0-9_-]{3,128}", sink.project_id):
+            print("huddle-lifecycle requires a safely shaped project ID", file=sys.stderr)
+            return 2
+        failures = 0
+        for round_number in range(1, args.rounds + 1):
+            trace_id = secrets.token_hex(16)
+            try:
+                rows = huddle_lifecycle_rows()
+            except (board.BoardError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
+                print(f"[round {round_number}] huddle-lifecycle: RED: {exc}", file=sys.stderr)
+                failures += 1
+                continue
+            start = _now_ns()
+            spans = [_huddle_span(trace_id, row, start + index * 2) for index, row in enumerate(rows)]
+            if not sink.send_spans(spans):
+                print(f"[round {round_number}] RED: Huddle trace delivery failed; no readback possible", file=sys.stderr)
+                failures += 1
+            elif not sink.verify_huddle_trace(trace_id, rows):
+                print(f"[round {round_number}] RED: Huddle trace {trace_id} did not exactly read back", file=sys.stderr)
+                failures += 1
+            else:
+                print(f"[round {round_number}] huddle-lifecycle: pass")
+        return 1 if failures else 0
     failures = 0
     delivery_failures = 0
     for round_number in range(1, args.rounds + 1):
