@@ -222,6 +222,147 @@ def exact_git_root(repo: Path) -> Path:
     return root
 
 
+def git_branch(repo: Path) -> str | None:
+    """Return the attached branch name, or None for a detached HEAD."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect worktree branch: {exc}") from exc
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        raise HostError("git_unavailable", "cannot inspect worktree branch")
+    branch = result.stdout.strip()
+    if not branch or CONTROL_RE.search(branch) or PRIVATE_PATH_RE.search(branch) or SECRET_SHAPE_RE.search(branch):
+        raise HostError("git_unavailable", "worktree branch identity is unsafe")
+    return branch
+
+
+def git_commit_paths(repo: Path, before: str, after: str) -> tuple[bool, bool, set[str]]:
+    """Return ancestry, merge presence, and every path touched in a commit range.
+
+    Git's NUL-delimited name-status output keeps spaces and rename endpoints
+    unambiguous. This is source observation, never host-reported metadata.
+    """
+    try:
+        ancestor = subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", before, after],
+            capture_output=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+        if ancestor.returncode not in {0, 1}:
+            raise HostError("git_unavailable", "cannot compare source revisions")
+        if ancestor.returncode:
+            return False, False, set()
+        commits = subprocess.run(
+            ["git", "-C", str(repo), "rev-list", "--parents", f"{before}..{after}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+        if commits.returncode:
+            raise HostError("git_unavailable", "cannot inspect source commit range")
+        commit_ids: list[str] = []
+        has_merge = False
+        for line in commits.stdout.splitlines():
+            fields = line.split()
+            if not fields or GIT_SHA1_RE.fullmatch(fields[0]) is None:
+                raise HostError("git_unavailable", "source commit range is malformed")
+            if len(fields) != 2:
+                has_merge = True
+            commit_ids.append(fields[0])
+        paths: set[str] = set()
+        for commit in commit_ids:
+            diff = subprocess.run(
+                ["git", "-C", str(repo), "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", commit],
+                capture_output=True,
+                timeout=5,
+                env=_shadow_git.sanitized_git_env(),
+                check=False,
+            )
+            if diff.returncode:
+                raise HostError("git_unavailable", "cannot inspect source commit paths")
+            records = [item for item in diff.stdout.split(b"\0") if item]
+            index = 0
+            while index < len(records):
+                status = records[index].decode("ascii", errors="strict")
+                index += 1
+                if not status or status[0] not in {"A", "C", "D", "M", "R", "T", "U", "X", "B"}:
+                    raise HostError("git_unavailable", "source commit path status is malformed")
+                names = 2 if status[0] in {"R", "C"} else 1
+                if index + names > len(records):
+                    raise HostError("git_unavailable", "source commit path record is malformed")
+                for raw_path in records[index:index + names]:
+                    path = raw_path.decode("utf-8", errors="strict")
+                    if not path or CONTROL_RE.search(path):
+                        raise HostError("git_unavailable", "source commit path is malformed")
+                    paths.add(path)
+                index += names
+        return True, has_merge, paths
+    except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+        raise HostError("git_unavailable", f"cannot inspect source commit range: {exc}") from exc
+
+
+def execution_binding(
+    *,
+    admitted_claim: dict[str, Any],
+    authorized_revision: int,
+    authorized_at: datetime,
+    repository: dict[str, Any],
+    repo: Path,
+    branch_before: str | None,
+    head_before: str,
+    branch_after: str | None,
+    head_after: str,
+    task_sha256: str,
+    allowed_scope: list[str],
+    status: str,
+    final_clean: bool,
+    observation: tuple[bool, bool, set[str]] | None = None,
+) -> tuple[dict[str, Any], set[str]]:
+    """Build a runner-owned candidate receipt after one native execution."""
+    ancestry, has_merge, committed_paths = observation or git_commit_paths(repo, head_before, head_after)
+    candidate = (
+        status == "ok"
+        and branch_before is not None
+        and branch_after == branch_before
+        and head_after != head_before
+        and ancestry
+        and not has_merge
+        and all(path_allowed(path, allowed_scope) for path in committed_paths)
+        and final_clean
+    )
+    claim = {
+        key: admitted_claim[key]
+        for key in ("entity", "row", "owner", "claim_revision", "claimed_at")
+    }
+    return {
+        "admitted_claim": claim,
+        "authorized_board_revision": authorized_revision,
+        "authorized_at": authorized_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "repository": repository,
+        "worktree_sha256": hashlib.sha256(str(repo.resolve()).encode("utf-8")).hexdigest(),
+        "branch_before": branch_before,
+        "branch_after": branch_after,
+        "head_before": head_before,
+        "head_after": head_after,
+        "task_sha256": task_sha256,
+        "allowed_scope": allowed_scope,
+        "execution_candidate": candidate,
+    }, committed_paths
+
+
 def status_paths(repo: Path, *, include_ignored: bool = False) -> list[str]:
     command = ["git", "-C", str(repo), "status", "--porcelain=v1", "-z", "--untracked-files=all"]
     if include_ignored:
@@ -1219,11 +1360,31 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             delegation=args.delegation,
         )
         try:
-            _board.authorize_host_attempt(
+            authorized_at = datetime.now(timezone.utc)
+            authorization = _board.authorize_host_attempt(
                 context=context, repo=repo, write_scope=args.allowed_path,
-                authority_proposal=authority_proposal, now=datetime.now(timezone.utc))
+                authority_proposal=authority_proposal, now=authorized_at)
         except _board.BoardError as exc:
             raise HostError("claim_access_refused", str(exc)) from None
+        binding_context: tuple[dict[str, Any], int, datetime, dict[str, Any], str | None, str] | None = None
+        if not authority_proposal and authorization is not None:
+            admitted_claim = next(
+                (
+                    claim for claim in authorization.payload["claims"]
+                    if all(claim[key] == context[key] for key in ("entity", "row", "owner", "claim_revision"))
+                ),
+                None,
+            )
+            if admitted_claim is None:
+                raise HostError("claim_access_refused", "authorized claim disappeared before launch")
+            binding_context = (
+                admitted_claim,
+                authorization.payload["revision"],
+                authorized_at,
+                admitted_claim["repository_binding"],
+                git_branch(repo),
+                git_value(repo, "rev-parse", "--verify", "HEAD^{commit}"),
+            )
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
         output_texts = [result.get("stdout", b"").decode("utf-8", errors="replace")]
         output_texts.append(result.get("stderr", b"").decode("utf-8", errors="replace"))
@@ -1234,7 +1395,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         state_after = local_state_snapshot(repo)
         source_head_after = (
             git_value(repo, "rev-parse", "--verify", "HEAD^{commit}")
-            if authority_proposal
+            if authority_proposal or binding_context is not None
             else None
         )
         git_control_after = (
@@ -1242,6 +1403,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             if authority_proposal
             else None
         )
+        branch_after = git_branch(repo) if binding_context is not None else None
         changed = sorted(
             set(before).symmetric_difference(after)
             | {path for path in set(state_before) | set(state_after) if state_before.get(path) != state_after.get(path)}
@@ -1253,6 +1415,9 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         status = "failed"
         blocked_reason: dict[str, str] | None = None
         host_receipt: dict[str, Any] | None = None
+        committed_paths: set[str] = set()
+        range_observation: tuple[bool, bool, set[str]] | None = None
+        binding: dict[str, Any] | None = None
         try:
             if result.get("timed_out"):
                 raise HostError("host_timeout", "host exceeded the bounded execution timeout")
@@ -1260,6 +1425,11 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 raise HostError("host_launch_failed", str(result["launch_error"]))
             if result.get("returncode") != 0:
                 raise HostError("host_failed", "host exited non-zero")
+            if binding_context is not None:
+                range_observation = git_commit_paths(
+                    repo, binding_context[5], source_head_after or binding_context[5]
+                )
+                committed_paths = range_observation[2]
             if authority_proposal and source_head_after != source_head_before:
                 raise HostError(
                     "source_head_changed",
@@ -1288,7 +1458,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             reported_missing = [
                 path
                 for path in host_receipt["changed_paths"]
-                if path not in changed and path not in before_ignored
+                if path not in changed and path not in committed_paths and path not in before_ignored
             ]
             if reported_missing:
                 raise HostError("host_receipt_invalid", "host receipt reports a path Git did not change")
@@ -1299,6 +1469,33 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         except HostError as exc:
             blocked_reason = _blocked_reason(exc)
             status = _refusal_status(exc.kind)
+        if binding_context is not None:
+            admitted_claim, authorized_revision, binding_authorized_at, repository, branch_before, head_before = binding_context
+            binding, _ = execution_binding(
+                admitted_claim=admitted_claim,
+                authorized_revision=authorized_revision,
+                authorized_at=binding_authorized_at,
+                repository=repository,
+                repo=repo,
+                branch_before=branch_before,
+                head_before=head_before,
+                branch_after=branch_after,
+                head_after=source_head_after or git_value(repo, "rev-parse", "--verify", "HEAD^{commit}"),
+                task_sha256=task_sha256,
+                allowed_scope=allowed,
+                status=status,
+                final_clean=(
+                    not after
+                    and all(
+                        path.rstrip("/") == ".shadow" or path.startswith(".shadow/evidence/")
+                        for path in after_all
+                    )
+                    and set(state_after).issubset(
+                        {destination.relative_to(repo).as_posix()} if destination is not None else set()
+                    )
+                ),
+                observation=range_observation,
+            )
         payload = {
             "schema": ATTEMPT_SCHEMA,
             "revision": 1,
@@ -1333,6 +1530,8 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "projection_is_usage": False,
             "authority_proposal_mode": authority_proposal,
         }
+        if binding is not None:
+            payload["execution_binding"] = binding
         if (
             status == "ok"
             and host_receipt is not None
