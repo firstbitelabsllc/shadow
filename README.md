@@ -1,18 +1,28 @@
 # Shadow
 
-**Your AI coding work shouldn't die with the chat tab.**
+**All your AI coding sessions are one chat. Anyone can pick it up.**
 
-I run Claude Code, Codex, and Cursor on the same projects, often at the same
-time. Every new session started with the same ritual: paste the last summary,
-explain what I actually wanted, guess which agent was already halfway through
-something, and take "done" on faith because nobody re-ran the test.
+This is what a new session sees, whichever tool it is:
 
-Shadow is the fix I built for myself. It keeps a plan on disk, makes agents
-claim a task before they touch it, and refuses to mark anything finished until
-the check you named actually passes. It's a CLI. Git, Bash, Python. No daemon,
-no cloud, no account.
+```console
+$ shadow status --by codex
+This computer — root board revision 7484
 
-[Install](#install) · [Your first task](https://github.com/firstbitelabsllc/shadow/blob/shadow-1.3.0/docs/guide/quickstart.md) ·
+Portfolio: 41 entities | Seat: codex | Focused: 1 | Owned: 0
+
+resplit ios — TRIP LINK — COLLABORATION PRODUCT
+  Entity plan: resplit-ios/plans/group-link/PLAN.md
+  Mode: ship | Priority: 1
+  Resume: [pending] finish the owner experience: share, preview, revoke, retry ~g202
+  Claim: shadow throw --entity a795ba22… --task '~g202' --by codex
+  Proof: focused tests across off/on/pending/stale/offline/revoke states
+```
+
+No recap. No "where were we." The plan is a file in Git, the board says who
+owns what on this computer, and any **seat** (a stable name for a worker,
+human or agent) can claim the next row and continue. That's the product.
+
+[Install](#install) · [First task](https://github.com/firstbitelabsllc/shadow/blob/shadow-1.3.0/docs/guide/quickstart.md) ·
 [Docs](https://firstbitelabsllc.github.io/shadow/) ·
 [Issues](https://github.com/firstbitelabsllc/shadow/issues)
 
@@ -23,140 +33,100 @@ no cloud, no account.
   <img src="https://img.shields.io/badge/daemon-none-success" alt="No daemon" />
 </p>
 
-<p align="center"><img src="assets/shadow-banner.svg" alt="The Shadow loop: claim a checkpoint, do the work, prove it, accept it, move to the next one." width="100%" /></p>
+<p align="center"><img src="assets/shadow-banner.svg" alt="The Shadow loop: claim, work, prove, accept, next." width="100%" /></p>
 
-## What it actually does
+## Four words
 
-Three things, and I tried hard to keep it to three.
-
-1. **Plans on disk.** A `PLAN.md` with an outcome and 2-7 tasks per
-   milestone. Each task names the check that proves it. The next session
-   reads the plan, not your chat history. There is one board per computer
-   (the **board** is a small local file that tracks who owns what and where
-   to resume) and one authoritative `PLAN.md` per independently steerable
-   entity, meaning a release or a docs push, not a whole repo. Related
-   **plans** form a project map.
-2. **Claims.** Every worker, human or agent, picks a stable seat name
-   (**seats** are just names that survive across conversations). Before
-   touching a task it runs `shadow throw` to **claim** the row. A second
-   agent can't quietly start the same thing.
-3. **Proof before done.** Each task names its **proof**: a command, a thing
-   you observed by hand, or a human decision. `shadow accept` re-runs a
-   command proof against the committed source. Fail, and the row stays
-   open. Pass, and **accept** writes a receipt line with the command and the
-   commit hash. That receipt is durable; it's just text in Git.
+- **plans**: a `PLAN.md` per thing you're shipping. Outcome, 2-7 tasks per
+  milestone, each with the check that proves it. There is one authoritative `PLAN.md` per independently
+  steerable entity; related plans form a project map.
+- **board**: one board per computer, a local file. Who owns what, where to
+  resume.
+- **seats**: the roster. Same name every session, so ownership survives the tab.
+- **claim** / **proof** / **accept**: take a row, do it, rerun its check
+  against committed source. Pass and the plan gets a receipt with the commit
+  hash. Fail and it stays open. The receipt is durable text in Git.
 
 The loop is **claim → work → prove → accept → next**.
 
 ## Install
 
-You need Git, Bash, and Python 3.10+. Your coding host (Claude Code, Codex,
-Cursor) runs the model; Shadow never talks to a provider.
+Git, Bash, Python 3.10+. Your coding host runs the model.
 
 ```bash
 git clone --branch shadow-1.3.0 --depth 1 https://github.com/firstbitelabsllc/shadow.git
-cd shadow
-bash install.sh
+cd shadow && bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 shadow doctor
 ```
 
-`install.sh` symlinks the CLI and host skills back to this clone, so leave
-the clone where it is. To upgrade, check out a newer
-[release tag](https://github.com/firstbitelabsllc/shadow/releases) and rerun
-it. Host setup and troubleshooting are in [installation](docs/guide/installation.md).
-The docs on `main` can be ahead of the pinned release; read the ones in your
-checkout.
+`install.sh` symlinks into this clone; leave it in place. Upgrade by checking
+out a newer [release tag](https://github.com/firstbitelabsllc/shadow/releases).
+Host setup: [installation](docs/guide/installation.md).
 
 ## First task
 
-Inside a Git repo you're working on:
+Your agent runs, inside a repo:
 
 ```bash
-shadow init --here
-shadow status --by leo
+shadow init --here          # starter PLAN.md
+shadow status --by claude   # prints the exact claim command
 ```
 
-`init` writes a starter plan and prints its path. Open it, write the outcome,
-and turn the placeholder tasks into real ones using the repo's real checks.
-Keep the generated `~xxxx` row IDs; the board already points at one of them.
-`--by leo` is your seat name. Use the same one every session or the board
-thinks you're two people.
-
-`status` prints the exact claim command for the next reachable task. Run it,
-do the work, commit, then:
+Fill in the outcome and real tasks; keep the generated `~xxxx` IDs. Claim,
+work, commit, then:
 
 ```bash
-shadow accept --repo . --row '~a1b2' --by leo
+shadow accept --repo . --row '~a1b2' --by claude
 ```
 
-If the task's check is a unit test and that test fails, accept refuses and
-tells you why. If it passes, the row flips and the
-receipt lands in the plan. (Development source on `main` also takes
-`--entity ENTITY_ID`; see the [command reference](docs/reference/commands.md).)
-
-Here's the whole loop from a real session, trimmed:
-
-<p align="center"><img src="assets/shadow-loop.svg" alt="Animated real session: shadow throw claims a checkpoint and prints its proof; after the work is committed, shadow accept reruns the proof, passes, and flips the row with its PROOF and SOURCE receipt lines." width="100%" /></p>
+Real session, trimmed:
 
 ```console
 $ shadow throw --repo . --task '~a1b2' --by demo
 [throw] ~a1b2 claimed by demo on this computer
-/goal readme-demo — first proof
-AUTHORITY: PLAN.md @ this computer … — section "### M1 — first proof"
 RESUME: [pending] hello.txt exists with today's greeting ~a1b2
 PROOF: cmd test -f hello.txt
-RAILS: … no proof, no completed; run `shadow lint` before mode flips …
 
-# … you, Claude Code, or Codex does the work, then commits …
+# … agent does the work, commits …
 
 $ shadow accept --repo . --row '~a1b2' --by demo
-accepted ~a1b2: proof and final lint passed at local.shadow.invalid/1e89… HEAD a22fe1d…; local row flipped with its PROOF and SOURCE lines
+accepted ~a1b2: proof and final lint passed at … HEAD a22fe1d…
 ```
-
-And what the plan looks like afterward, which is what the next session reads:
 
 ```text
 - 2026-09-06T02:09:21Z ~a1b2 PROOF test -f hello.txt -> pass (accept)
-- 2026-09-06T02:09:21Z ~a1b2 SOURCE local.shadow.invalid/1e89… HEAD a22fe1d… -> proof and final lint (accept)
+- 2026-09-06T02:09:21Z ~a1b2 SOURCE … HEAD a22fe1d… -> proof and final lint (accept)
 ```
 
-The [first-task guide](https://github.com/firstbitelabsllc/shadow/blob/shadow-1.3.0/docs/guide/quickstart.md)
-goes through claiming, recording things you observed by hand, and handing
-blocked work back. `shadow status --in-flight` shows who owns what right now.
-`shadow browse` opens the board in a local browser tab.
+<p align="center"><img src="assets/shadow-loop.svg" alt="Animated real session: throw claims and prints the proof; accept reruns it and flips the row." width="100%" /></p>
 
-## Why not just…
+`shadow status --in-flight` shows who owns what. `shadow browse` opens the
+board locally. Development source on `main` also takes `--entity`; see the
+[command reference](docs/reference/commands.md).
 
-| I tried | What went wrong |
+## Why not…
+
+| | |
 |---|---|
-| Chat history | Gone when the tab closes. No owner. No proof anything ran. |
-| `TODO.md` | Two agents edit it at once and it lies. Nothing stops both from picking the same line. |
-| An issue tracker | Built for humans at meeting cadence, not agents claiming work every few minutes. Lives in someone else's cloud. |
-| An agent framework | A daemon, a second database, a prompt router. Now my work lives in their format. |
+| Chat history | gone with the tab, no owner, no proof |
+| `TODO.md` | two agents edit it at once and it lies |
+| Issue tracker | meeting cadence, someone else's cloud |
+| Agent framework | a daemon, a database, a router; your work in their format |
 
-## Things I deliberately didn't build
+## Not built, on purpose
 
-- **No daemon.** Nothing runs between commands.
-- **No cloud.** Plans stay on your disk. With a tracked upstream, claims also
-  use `refs/heads/shadow/claims/v1/` on that remote so two machines don't
-  collide; a repo with no upstream stays local-only.
-- **No prompt reading.** Shadow never sees your conversations or provider
-  traffic. Receipts are names, statuses, and hashes.
-- **No sandbox.** A command proof is a trusted local program. If you name a
-  weak check, a weak check passes. Shadow reruns what you chose; it doesn't
-  judge it.
-- **Telemetry off** by default, local-only if you turn it on, no paths or
-  commands recorded. See [privacy](docs/reference/privacy.md).
+No daemon. No cloud: plans stay on disk, and with a tracked upstream claims
+also use `refs/heads/shadow/claims/v1/` on that remote so two machines don't
+collide. No prompt reading. No sandbox: a proof is a trusted
+local command, and a weak check still passes. Telemetry off; local-only if
+on, no paths or text. [Privacy](docs/reference/privacy.md) ·
+[config](docs/reference/config.md).
 
-Config and the optional extension slots are in
-[config](docs/reference/config.md), kept out of the first-run path on purpose.
+## Sealed host runs
 
-## Handing a task to a host
-
-Once a task is claimed you can push it through a host as a sealed run: a
-frozen task file, exact allowed paths, and a receipt back. Works with Claude
-Code, Codex, Cursor, Grok, and Z.AI.
+A claimed task can go to Claude Code, Codex, Cursor, Grok, or Z.AI as a
+sealed pass: frozen task file, exact allowed paths, receipt back.
 
 ```bash
 shadow host run --host codex --work-class coding --delegation direct \
@@ -164,32 +134,23 @@ shadow host run --host codex --work-class coding --delegation direct \
   --allowed-path src/fix.py --out .shadow/evidence/focused-fix.json
 ```
 
-Four work classes (`planning`, `coding`, `review`, `lightweight`). If a host
-can't do what you asked, it fails closed rather than silently switching
-providers. The receipt is evidence, not acceptance: read the diff, rerun the
-proof. Details in the [execution policy](docs/reference/execution-policy.md).
-When two workers overlap, [Huddle](docs/reference/commands.md#huddle-coordination)
-lets them declare disjoint paths or hand work back.
+Unsupported capability fails closed. A receipt is evidence, not acceptance.
+[Execution policy](docs/reference/execution-policy.md) ·
+[Huddle](docs/reference/commands.md#huddle-coordination) for overlapping claims.
 
 <details>
-<summary>Letting a sealed host propose completion</summary>
+<summary>Proposal-only acceptance</summary>
 
-A proposal-enabled machine-local row can run a sealed Codex no-change pass with
-`--authority-proposal`, then `shadow accept --proposal`. Commit the reviewed
-source first. Shadow binds the proposal to the exact row, owner, claim, plan
-root, and `HEAD`, then reruns the canonical proof in an isolated temporary `HOME`. Git-backed plans, other hosts, and manual `read`/`gate` proofs don't
-support this. Full invocation and refusal cases are in the
-[command reference](docs/reference/commands.md).
+A proposal-enabled machine-local row can run a sealed Codex no-change pass
+with `--authority-proposal`, then `shadow accept --proposal`. Shadow binds
+it to row, owner, claim, plan root, and `HEAD`, and reruns the proof in an
+isolated temporary `HOME`. Git-backed plans, other hosts, and `read`/`gate`
+proofs don't support it. [Command reference](docs/reference/commands.md).
 
 </details>
 
 ## Feedback
 
-MIT. Fork it, bend it to your workflow. If a fresh session loses the thread
-or accept passes something it shouldn't have, open an
+MIT. Confused at a step? Accept passed something it shouldn't? Open an
 [issue](https://github.com/firstbitelabsllc/shadow/issues) with a small
-example. "I installed it and got confused at step 2" is a useful report.
-
-Small pull requests (a doc fix, a repro test) are welcome; open an issue
-first for anything bigger. [Contributing](CONTRIBUTING.md) has the tests and
-the reasoning. Security reports go through [SECURITY.md](SECURITY.md).
+example. Small PRs welcome; [Contributing](CONTRIBUTING.md), [Security](SECURITY.md).
