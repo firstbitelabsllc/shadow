@@ -37,6 +37,9 @@ steerable entity, such as a release or a documentation effort. Related entities
 form a project map. The board stores ownership and priority; the plans store
 the work and its proof.
 
+<details>
+<summary>The six terms the README uses</summary>
+
 | Term | Meaning |
 | --- | --- |
 | **board** | This computer's shared record of owners, priorities, and resume points. |
@@ -45,6 +48,8 @@ the work and its proof.
 | **claim** | Take ownership of a checkpoint before starting it. |
 | **proof** | A command result, a recorded observation, or a human decision. |
 | **accept** | Check the proof and record completion. |
+
+</details>
 
 The loop is **claim → work → prove → accept → next**.
 
@@ -86,19 +91,13 @@ uses one as its resume point. Change the task wording and proof, not that ID.
 
 `status` prints the exact claim command for reachable work. Run it, make the
 change, and commit the source before accepting a command-backed checkpoint.
-For the **1.3.0 release installed above**:
-
 ```bash
 shadow accept --repo . --row '~a1b2' --by your-seat
 ```
 
-For **current development source**, also supply the machine-local entity ID:
-
-```bash
-shadow accept --entity ENTITY_ID --repo . --row '~ab12' --by your-seat
-```
-
-Use the entity and row from your plan. For example, a checkpoint that names a
+Use the row from your plan. (Development source on `main` also takes
+`--entity ENTITY_ID`; the [command reference](docs/reference/commands.md)
+covers it.) For example, a checkpoint that names a
 regression test stays unfinished if that test fails. A passing test establishes
 only what the test checks; it does not establish deployment or user adoption.
 
@@ -122,7 +121,7 @@ RAILS: … no proof, no completed; run `shadow lint` before mode flips …
 
 # … you, Claude Code, or Codex does the work, then commits …
 
-$ shadow accept --entity <id> --repo . --row '~a1b2' --by demo
+$ shadow accept --repo . --row '~a1b2' --by demo
 accepted ~a1b2: proof and final lint passed at local.shadow.invalid/1e89… HEAD a22fe1d…; local row flipped with its PROOF and SOURCE lines
 ```
 
