@@ -532,6 +532,7 @@ def prepare_delivery_invocation(event: dict | None, *, operation: str, seat: str
         roles = {"entrypoint": entry_fd, "capabilities": cap_fd, "contacts_dir": contacts_fd}
         validate_runner_fds(roles)
         env = {"SHADOW_HUDDLE_BOARD_PATH": str(board_path),
+               "SHADOW_HUDDLE_SCRIPTS_PATH": str(root / "scripts"),
                "SHADOW_HUDDLE_CONTACTS_DIR_FD": str(contacts_fd),
                "SHADOW_HUDDLE_CAPABILITIES_FD": str(cap_fd),
                "SHADOW_HUDDLE_ALLOWED_TARGET_DIGESTS": json.dumps([
