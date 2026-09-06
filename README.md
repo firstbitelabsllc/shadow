@@ -31,15 +31,15 @@ Three things, and I tried hard to keep it to three.
 
 1. **Plans on disk.** A `PLAN.md` with an outcome and 2-7 tasks per
    milestone. Each task names the check that proves it. The next session
-   reads the plan, not your chat history. There is one board per computer
-   (the **board** is a small local file that tracks who owns what and where
-   to resume) and one authoritative `PLAN.md` per independently steerable
-   entity, meaning a release or a docs push, not a whole repo. Related
-   **plans** form a project map.
-2. **Claims.** Every worker, human or agent, picks a stable seat name
-   (**seats** are just names that survive across conversations). Before
-   touching a task it runs `shadow throw` to **claim** the row. A second
-   agent can't quietly start the same thing.
+   reads the plan, not your chat history. There is one board per computer;
+   the **board** is the small local file tracking who owns what. Each
+   project gets one authoritative `PLAN.md` per independently tracked piece
+   of work: a release, a docs push, not a whole repo. Related **plans**
+   form a project map.
+2. **Claims.** Every worker, human or agent, picks a stable seat name and
+   sticks with it (**seats** are the names that survive across
+   conversations). Before touching a task it runs `shadow throw` to
+   **claim** the row. A second agent can't quietly start the same thing.
 3. **Proof before done.** Each task names its **proof**: a command, a thing
    you observed by hand, or a human decision. `shadow accept` re-runs a
    command proof against the committed source. Fail, and the row stays
@@ -91,9 +91,8 @@ shadow accept --repo . --row '~a1b2' --by leo
 ```
 
 If the task's check is a unit test and that test fails, accept refuses and
-tells you why. If it passes, the row flips and the
-receipt lands in the plan. (Development source on `main` also takes
-`--entity ENTITY_ID`; see the [command reference](docs/reference/commands.md).)
+tells you why. If it passes, the row flips and the receipt lands in the
+plan.
 
 Here's the whole loop from a real session, trimmed:
 
@@ -168,20 +167,15 @@ Four work classes (`planning`, `coding`, `review`, `lightweight`). If a host
 can't do what you asked, it fails closed rather than silently switching
 providers. The receipt is evidence, not acceptance: read the diff, rerun the
 proof. Details in the [execution policy](docs/reference/execution-policy.md).
-When two workers overlap, [Huddle](docs/reference/commands.md#huddle-coordination)
-lets them declare disjoint paths or hand work back.
+When two workers claim overlapping work, [Huddle](docs/reference/commands.md#huddle-coordination)
+pauses both until they split the scope or one hands the work back.
 
-<details>
-<summary>Letting a sealed host propose completion</summary>
-
-A proposal-enabled machine-local row can run a sealed Codex no-change pass with
-`--authority-proposal`, then `shadow accept --proposal`. Commit the reviewed
-source first. Shadow binds the proposal to the exact row, owner, claim, plan
-root, and `HEAD`, then reruns the canonical proof in an isolated temporary `HOME`. Git-backed plans, other hosts, and manual `read`/`gate` proofs don't
-support this. Full invocation and refusal cases are in the
-[command reference](docs/reference/commands.md).
-
-</details>
+A proposal-enabled machine-local row can ask a sealed Codex run for a
+no-change completion proposal (`--authority-proposal`, then
+`shadow accept --proposal`). Commit the reviewed source first. Shadow binds
+the proposal to the row and reruns the proof in an isolated temporary `HOME`.
+Git-backed plans, other hosts, and manual `read`/`gate` proofs don't support
+this; the [command reference](docs/reference/commands.md) has the rest.
 
 ## Feedback
 
