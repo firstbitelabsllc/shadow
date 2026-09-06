@@ -1,49 +1,43 @@
 # Contributing
 
-Shadow is MIT-licensed and prepared for public reuse, critique, and feedback.
+Shadow is MIT. Use it, fork it, bend it.
 
-Current policy:
+## What helps most right now
 
-- Please open Issues for bugs, gaps, critiques, and adoption feedback.
-- External pull requests are not being accepted right now. `.github/PULL_REQUEST_TEMPLATE.md`
-  exists for PRs the maintainer or their agents open against this repo — its
-  presence isn't an invitation for unsolicited external PRs; the policy above
-  still applies.
-- If you build on Shadow, examples and field reports are especially useful.
-- Please do not propose integrations that make an external project-management
-  board another task authority. Each computer's local board owns coordination;
-  its local `PLAN.md` files own task detail and proof. Shadow does not round-trip
-  that authority through an external board.
+- **First-use reports.** You installed it, followed the README, and got
+  confused or stuck at some step. Open an issue and say which step. That is
+  the most useful thing anyone can send me today.
+- **Bugs with a small example.** A fresh session lost the thread, or
+  `accept` passed something it should have refused. Strip out anything
+  personal and include the plan snippet and the command.
+- **Small pull requests.** Typos, a doc that's wrong, a reproduction test
+  for a bug you hit. Keep it to one thing and I'll review it.
 
-Why:
+## What I'll probably say no to
 
-- The doctrine is still being tightened.
-- The portable core is intentionally small and opinionated.
-- Feedback is high-signal right now; code intake is not.
-- Board sync creates a second queue authority, which is the failure mode Shadow
-  is designed to avoid.
+Larger changes to the core loop, new subcommands, and anything that makes an
+external board (Linear, Jira, GitHub Projects) a second source of truth for
+what's claimed or done. Each computer's local board owns coordination and the
+local `PLAN.md` owns proof; round-tripping that through a cloud board is the
+exact failure Shadow exists to avoid. Open an issue first if you're thinking
+about something in that range, so neither of us wastes a weekend.
 
-If that policy changes, this file will change first.
+## Running the tests
 
-## Running the tests locally
-
-Useful for verifying a bug report or exploring the codebase even though PRs
-aren't merged right now:
+Git, Bash, and Python 3.10+ are the whole toolchain.
 
 ```bash
 scripts/shadow-python.sh -m unittest discover -s tests -p 'test_*.py'
 PLAN_PATH=$(bin/shadow init --here | awk -F': ' '{print $2}')
-bin/shadow lint "$PLAN_PATH"   # init makes the plan; lint takes its path
+bin/shadow lint "$PLAN_PATH"
 scripts/shadow-python.sh scripts/shadow-release-package.py --allow-dirty
 ```
 
-Those are the three commands CI runs. There is nothing to install first: Git,
-Bash, and Python 3.10+ are the whole toolchain. npm was removed on 2026-08-09,
-so any `npm run ...` you find in an older document is stale.
+Those three are what CI runs. If you see `npm run` in an old document, it's
+stale; npm was removed in August 2026.
 
-## Code style
+## Style
 
-There's no linter/formatter config in this repo (no ESLint/Ruff/Prettier) —
-match the surrounding file's formatting. Prose in the agent-facing files
-(`AGENT.md`, `SKILL.md`, `docs/reference/`) follows the house style: say the
-mechanism, name the file, and drop anything that does not change a decision.
+No linter or formatter config in this repo. Match the file you're in. For
+the agent-facing prose (`AGENT.md`, `SKILL.md`, `docs/reference/`): say the
+mechanism, name the file, cut anything that doesn't change a decision.

@@ -190,6 +190,6 @@ or accept passes something it shouldn't have, open an
 [issue](https://github.com/firstbitelabsllc/shadow/issues) with a small
 example. "I installed it and got confused at step 2" is a useful report.
 
-I'm not taking outside pull requests yet; [Contributing](CONTRIBUTING.md)
-says why and how to run the tests locally. Security reports go through
-[SECURITY.md](SECURITY.md).
+Small pull requests (a doc fix, a repro test) are welcome; open an issue
+first for anything bigger. [Contributing](CONTRIBUTING.md) has the tests and
+the reasoning. Security reports go through [SECURITY.md](SECURITY.md).
