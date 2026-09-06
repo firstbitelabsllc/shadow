@@ -1130,6 +1130,9 @@ class ShadowHostTests(unittest.TestCase):
                         str(output),
                         "--json",
                     ],
+                    # This adapter fixture owns no live claim. Keep the
+                    # operator's v2 board out; HuddleHostTests exercises v2.
+                    env={**os.environ, "HOME": str(root)},
                     capture_output=True,
                     text=True,
                     check=False,
