@@ -166,6 +166,30 @@ does not prove its immutable test reached the assertions. Unavailability
 fixtures prove admission logic only, never real route exhaustion. Installation
 and live execution require separate proof and authorization.
 
+The isolated candidate runner requires an already-running local Docker Desktop
+Linux VM and the exact preinstalled arm64 Python image pinned in its source.
+It never starts a VM, pulls an image, or uses a remote Docker endpoint. It
+replaces the earlier macOS candidate sandbox, which had no hard memory bound.
+Before candidate code runs, the trusted bootstrap verifies 64 MiB memory and
+memory-plus-swap limits, one-task confinement, and a 64 MiB hard address-space
+limit. An irreversible default-deny syscall filter permits reads and Python
+memory operations, with writes confined to stdout/stderr. Process creation,
+exec, sockets, deletion and other filesystem mutation are denied.
+The frozen input is mounted read-only; host directories, Docker control and
+Keychain are absent from that namespace. Daemon logging is disabled, captured
+output is bounded, and the parent removes its exact container on completion or
+timeout. Missing runtime, image, controls or filter admission refuses execution.
+This is a Docker/Linux-kernel isolation boundary, not proof against kernel or
+container-runtime vulnerabilities. The cap applies to candidate memory inside
+the VM; it is not a 64 MiB cap on Docker Desktop or its macOS processes.
+There is no native-process fallback when this containment is unavailable.
+
+`tests.test_openrouter_candidate.ContainerProtocolTests` exercises admission
+and cleanup faults without a daemon; it does not prove kernel enforcement.
+The Darwin-only `CandidateTests` separately require the installed runtime and
+image and exercise both oversized allocation denial and a cgroup OOM kill.
+A current-source native run is required before treating containment as proven.
+
 ## The ten failures this closes
 
 1. **A host name was mistaken for a model decision.** That made every roster

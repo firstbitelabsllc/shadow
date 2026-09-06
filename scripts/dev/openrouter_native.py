@@ -25,17 +25,24 @@ def run_native(command, *, env, cwd, timeout):
     """Own the full native process group, including startup descendants."""
     if env.get("OPENCODE_EXPERIMENTAL_NATIVE_LLM", "false").lower() not in ("false", "0"):
         raise ValueError("alternate runtime refused before native launch")
-    process = subprocess.Popen(command, env=env, cwd=cwd, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, start_new_session=True)
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
-    finally:
+    # This native version can exit with a partially flushed JSON line when
+    # stdout is a pipe. Regular-file capture preserves the complete result
+    # without retrying a provider request or accepting truncated JSON.
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        process = subprocess.Popen(command, env=env, cwd=cwd, stdout=stdout,
+                                   stderr=stderr, start_new_session=True)
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait()
+            process.wait(timeout=timeout)
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        stdout.seek(0)
+        stderr.seek(0)
+        return subprocess.CompletedProcess(command, process.returncode,
+                                           stdout.read().decode(), stderr.read().decode())
 
 
 

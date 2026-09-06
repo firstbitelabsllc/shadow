@@ -38,6 +38,7 @@ def main():
             cases.extend((label, POLICY) for label in ("provider-missing", "provider-malformed", "provider-init-failure", "guard-missing"))
             cases.append(("candidate", POLICY))
             cases.append(("ambient-plugin", POLICY))
+            cases.append(("large-output", POLICY))
         results = []
         for label, policy in cases:
             if args.required_provider:
@@ -58,6 +59,8 @@ def main():
                     config["plugin"] = [poison.as_uri()]
             config["provider"]["openrouter"]["models"]["openrouter/free"]["options"] = {"provider": policy}
             expected_text = json.dumps({"answer.py": "VALUE = 42\n"}) if label == "candidate" else "READY"
+            if label == "large-output":
+                expected_text = "READY" * 4096
             if args.required_provider:
                 config["provider"]["openrouter"]["options"]["fixtureText"] = expected_text
             (temp / "config.json").write_text(json.dumps(config))
@@ -71,7 +74,7 @@ def main():
             requests = [json.loads(line.removeprefix("OFFLINE_REQUEST ")) for line in result.stderr.splitlines() if line.startswith("OFFLINE_REQUEST ")]
             receipts = [json.loads(line.removeprefix("OFFLINE_RECEIPT ")) for line in result.stderr.splitlines() if line.startswith("OFFLINE_RECEIPT ")]
             lookups = sum(line == "OFFLINE_CREDENTIAL_LOOKUP" for line in result.stderr.splitlines())
-            if label in ("policy-present", "candidate", "ambient-plugin"):
+            if label in ("policy-present", "candidate", "ambient-plugin", "large-output"):
                 assert result.returncode == 0, transcript[-2000:]
                 assert len(requests) == len(receipts) == 1, transcript[-2000:]
                 assert requests[0] == {"url": "https://openrouter.ai/api/v1/chat/completions", "model": "openrouter/free", "provider": POLICY}
