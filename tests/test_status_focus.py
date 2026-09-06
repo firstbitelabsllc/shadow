@@ -60,6 +60,20 @@ class StatusTests(unittest.TestCase):
             check=False,
         )
 
+    def test_an_empty_seat_name_is_refused_like_any_unsafe_owner(self) -> None:
+        """`--by ""` must not fall through to a nameless projection; throw and
+        accept refuse the same seat, so status names the problem first."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [sys.executable, str(STATUS), "--by", ""],
+                env={**os.environ, "HOME": tmp},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("--by is unsafe", result.stderr)
+
     def test_text_is_a_brief_with_abc(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

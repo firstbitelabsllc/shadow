@@ -4716,6 +4716,32 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
             world["origin_plan"].read_text(encoding="utf-8"), world["origin_text"]
         )
 
+    def test_repo_form_accepts_when_the_seats_own_claim_names_the_guessed_plan(self) -> None:
+        """The README's release form, `accept --repo . --row --by`, must work on
+        main too: the seat's own exact claim on that row is the selector, so no
+        basename guess is trusted on its own."""
+        world = self._world()
+        self.assertEqual(world["guessed"], world["origin_plan"].resolve())
+
+        result = self._accept(
+            world,
+            "--repo",
+            str(world["repo"]),
+            "--row",
+            "~cd34",
+            "--by",
+            "seat-a",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "- [completed]",
+            world["origin_plan"].read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            world["sidecar_plan"].read_text(encoding="utf-8"), world["sidecar_text"]
+        )
+
     def test_path_free_local_entity_remains_refused(self) -> None:
         world = self._world()
 

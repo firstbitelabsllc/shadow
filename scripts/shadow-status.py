@@ -1094,7 +1094,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    if args.by:
+    if args.by is not None:
         try:
             _board.validate_owner(args.by)
         except _board.BoardError as exc:
