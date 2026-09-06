@@ -2039,6 +2039,41 @@ def owned_claim(state: dict | None, row_id: str, owner: str) -> dict | None:
     return claim
 
 
+def _entity_from_own_claim(repo: Path, row_id: str, owner: str) -> str | None:
+    """Select a machine-local entity by the seat's own exact claim on ``row_id``.
+
+    ``--repo`` alone reaches a machine-local plan only through a basename or
+    origin guess, which must never choose between sibling plans. The seat's
+    claim is exact: when this owner holds exactly one claim on the row and it
+    lives on the guessed plan's entity, that entity is selected. Any other
+    shape returns None and the caller keeps refusing.
+    """
+    try:
+        source_root = proof_source_checkout(repo)
+    except AcceptError:
+        source_root = repo
+    try:
+        local_plan = (
+            _board.local_plan_for_repo(repo)
+            or _board.local_plan_for_repo(source_root)
+        )
+        if local_plan is None:
+            return None
+        payload = _board.snapshot()
+        state = _board.entity_state(local_plan)
+    except _board.BoardError:
+        return None
+    if not payload or not state or not state.get("entity"):
+        return None
+    own = [
+        item for item in payload.get("claims", [])
+        if item.get("owner") == owner and item.get("row") == row_id
+    ]
+    if len(own) != 1 or own[0].get("entity") != state["entity"]["id"]:
+        return None
+    return state["entity"]["id"]
+
+
 def completed_plan_text(
     plan_text: str,
     row_id: str,
@@ -2869,6 +2904,8 @@ def main(argv: list[str] | None = None) -> int:
             owner = _board.validate_owner(args.by)
         except _board.BoardError as exc:
             raise AcceptError(f"--by is unsafe: {exc}") from exc
+        if args.entity is None and args.proposal is None:
+            args.entity = _entity_from_own_claim(args.repo.resolve(), row_id, owner)
         try:
             if args.entity:
                 resolved = _board.resolve_entity(args.entity)
