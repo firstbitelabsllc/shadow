@@ -128,6 +128,139 @@ def fail_after_project_commit(*args, **kwargs):
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def test_exact_invalidation_preserves_history_then_reaccepts_new_source(self) -> None:
+        """A stale accepted pair must neither block all work nor win a retry."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            git(repo, "remote", "add", "origin", "https://github.com/example/invalidation.git")
+            home = root / "home"
+            plan = home / ".shadow" / "plans" / "invalidation" / "PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(PLAN.replace(
+                "- Mode: ship\n", "- Mode: ship\n- Origin: github.com/example/invalidation\n"
+            ).replace(
+                "### M — file speaks\n",
+                "### M — file speaks\n- [in_progress] another command ~ef56 | proof: cmd true\n",
+            ), encoding="utf-8")
+            accept._board.reconcile(
+                [{"plan": str(plan), "project": "demo", "priority": 1,
+                  "candidates": ["~ab12", "~ef56"]}], [], home=home,
+            )
+            entity = accept._board.entity_state(plan, home=home)["entity"]["id"]
+
+            def claim(row: str) -> None:
+                accept._board.claim(plan, row, "seat-a", project="demo",
+                                    priority=1, home=home, access="read_only")
+
+            def accept_row(row: str) -> subprocess.CompletedProcess[str]:
+                return run_shadow(repo, home, "accept", "--entity", entity,
+                                  "--repo", str(repo), "--row", row, "--by", "seat-a")
+
+            claim("~ab12")
+            first = accept_row("~ab12")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            accepted_text = plan.read_text(encoding="utf-8")
+            first_head = git(repo, "rev-parse", "HEAD")
+            proof_line = next(line for line in accepted_text.splitlines()
+                              if " ~ab12 PROOF " in line and line.endswith("pass (accept)"))
+            source_line = next(line for line in accepted_text.splitlines() if " ~ab12 SOURCE " in line)
+            digest = hashlib.sha256((proof_line + "\n" + source_line + "\n").encode()).hexdigest()
+            reopened = accepted_text.replace("[completed] x.txt says hello", "[in_progress] x.txt says hello")
+            reopened = accept.append_progress_line(
+                reopened, "- 2026-09-06T01:00:00Z ~ab12 REOPEN independent falsification\n"
+            )
+            plan.write_text(reopened, encoding="utf-8")
+            claim("~ab12")
+            claim("~ef56")
+            blocked = accept_row("~ef56")
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn("no longer belongs", blocked.stderr)
+            malformed = accept.append_progress_line(
+                reopened, "- 2026-09-06T01:00:01Z ~ab12 INVALIDATE forged\n"
+            )
+            plan.write_text(malformed, encoding="utf-8")
+            self.assertNotEqual(accept_row("~ef56").returncode, 0)
+            self.assertEqual(plan.read_text(), malformed)
+            plan.write_text(reopened, encoding="utf-8")
+
+            def invalidate(owner: str, receipt: str) -> subprocess.CompletedProcess[str]:
+                return run_shadow(repo, home, "plan", "invalidate", "--entity", entity,
+                                  "--row", "~ab12", "--by", owner, "--repo", str(repo),
+                                  "--receipt-sha256", receipt)
+
+            for owner, receipt in (("seat-b", digest), ("seat-a", "0" * 64)):
+                before = plan.read_bytes()
+                refused = invalidate(owner, receipt)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertEqual(plan.read_bytes(), before)
+            invalidated = invalidate("seat-a", digest)
+            self.assertEqual(invalidated.returncode, 0, invalidated.stderr)
+            after = plan.read_text(encoding="utf-8")
+            self.assertIn(proof_line, after)
+            self.assertIn(source_line, after)
+            self.assertIn(f"~ab12 INVALIDATE {digest} -> superseded (invalidate)", after)
+            self.assertIn("[in_progress] x.txt says hello", after)
+            self.assertEqual(len(accept._board.entity_state(plan, home=home)["claims"]), 2)
+            before = plan.read_bytes()
+            self.assertNotEqual(invalidate("seat-a", digest).returncode, 0)
+            self.assertEqual(plan.read_bytes(), before)
+
+            git(repo, "commit", "--allow-empty", "-qm", "corrected proof source")
+            second_head = git(repo, "rev-parse", "HEAD")
+            self.assertNotEqual(first_head, second_head)
+            second = accept_row("~ab12")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            final_text = plan.read_text(encoding="utf-8")
+            self.assertEqual(final_text.count("~ab12 SOURCE "), 2)
+            self.assertEqual(final_text.count("~ab12 INVALIDATE "), 1)
+            self.assertEqual(accept.local_source_receipt(final_text, "~ab12", accept.proof_argv(
+                accept.find_row(final_text, "~ab12")[3][4:]
+            )), ("github.com/example/invalidation", second_head))
+            other = accept_row("~ef56")
+            self.assertEqual(other.returncode, 0, other.stderr)
+            retry = accept_row("~ab12")
+            self.assertEqual(retry.returncode, 0, retry.stderr)
+            self.assertEqual(accept._grammar.brief_origin_values(plan.read_text()),
+                             ["github.com/example/invalidation"])
+            self.assertEqual(accept._board.entity_state(plan, home=home)["claims"], [])
+
+    def test_invalidation_never_hides_malformed_or_foreign_source_history(self) -> None:
+        """Hash filtering must validate historical authority before removing it."""
+        source = "github.com/example/invalidation"
+        original = accept.completed_local_plan_text(
+            PLAN, "~ab12", accept.proof_argv(accept.find_row(PLAN, "~ab12")[3][4:]),
+            "2026-09-01T00:00:00Z", source, "a" * 40,
+        ).replace("[completed] x.txt says hello", "[in_progress] x.txt says hello")
+
+        def invalidate(text: str, stamp: str = "2026-09-01T00:00:01Z") -> str:
+            proof = next(line for line in text.splitlines() if " ~ab12 PROOF " in line)
+            bound = next(line for line in text.splitlines() if " ~ab12 SOURCE " in line)
+            digest = hashlib.sha256((proof + "\n" + bound + "\n").encode()).hexdigest()
+            return accept.append_progress_line(
+                text, f"- {stamp} ~ab12 INVALIDATE {digest} -> superseded (invalidate)\n"
+            )
+
+        valid = invalidate(original)
+        self.assertEqual(accept.local_plan_source_identity(valid), source)
+        last_line = valid.splitlines()[-1] + "\n"
+        cases = {
+            "foreign source with recomputed hash": invalidate(original.replace(
+                f"SOURCE {source}", "SOURCE github.com/other/repository")),
+            "unpaired stamps with recomputed hash": invalidate(original.replace(
+                "2026-09-01T00:00:00Z ~ab12 SOURCE", "2026-09-01T00:00:02Z ~ab12 SOURCE")),
+            "duplicate invalidation": accept.append_progress_line(valid, last_line),
+            "equal timestamp": invalidate(original, "2026-09-01T00:00:00Z"),
+            "invalid timestamp": invalidate(original, "2026-09-31T00:00:01Z"),
+            "other row": valid.replace("~ab12 INVALIDATE", "~ef56 INVALIDATE"),
+            "noncanonical receipt": valid.replace("-> superseded (invalidate)", "-> looks superseded"),
+            "bare reopen": accept.append_progress_line(original, "- 2026-09-01T00:00:01Z ~ab12 REOPEN\n"),
+            "missing Origin": valid.replace(f"- Origin: {source}\n", ""),
+        }
+        for name, text in cases.items():
+            with self.subTest(name=name), self.assertRaises(accept.AcceptError):
+                accept.local_plan_source_identity(text)
+
     def test_detached_proof_cannot_move_the_accepted_source_head(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
