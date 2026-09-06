@@ -17,7 +17,8 @@ about ownership, bids, or settlement.
     shadow-huddle-provider-capabilities.json   armed per use, 0600, <= 16 KiB
 ```
 
-Install with `./install-runtime.sh` (honors `SHADOW_HOME`).
+Install with `./install-runtime.sh` (honors `SHADOW_HOME`, the Shadow home —
+normally `~/.shadow`).
 
 ## Arming capabilities (per use, ten-minute TTL)
 
