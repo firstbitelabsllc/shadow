@@ -148,7 +148,8 @@ class CandidateTests(unittest.TestCase):
 
     def test_timeout_and_output_flood_remove_only_the_owned_container(self):
         original_run = subprocess.run
-        for code, deadline in (('while True: pass', 0.5),
+        # Leave time for VM startup, while staying below the 10-second CPU cap.
+        for code, deadline in (('while True: pass', 5),
                                ("import os\nwhile True: os.write(1, b'x' * 65536)", 5)):
             removed = []
             output_sizes = []
@@ -165,11 +166,13 @@ class CandidateTests(unittest.TestCase):
                 return result
 
             before = time.monotonic()
-            with self.subTest(code=code), patch.object(candidate, 'WALL_SECONDS', deadline), \
+            with patch.object(candidate, 'WALL_SECONDS', deadline), \
                     patch.object(candidate.subprocess, 'run', side_effect=observe_run):
                 result = candidate.evaluate({'answer.py': '', 'check.py': 'import answer'},
                                             {'answer.py'}, 'check.py', json.dumps({'answer.py': code}))
             self.assertNotEqual(result['test_process_exit_code'], 0, result)
+            if code == 'while True: pass':
+                self.assertIsNone(result['test_process_exit_code'], 'CPU exit must not substitute for parent timeout')
             self.assertLess(time.monotonic() - before, 12)
             self.assertEqual(len(removed), 1)
             self.assertLessEqual(output_sizes[0], candidate.OUTPUT_BYTES)
