@@ -1,26 +1,77 @@
 <p align="center"><img src="assets/shadow-banner.svg" alt="The Shadow loop — board, claim, work, prove, accept — orbiting one glowing checkpoint labeled resume here." width="100%" /></p>
 
-# Shadow
+<h1 align="center">Shadow</h1>
 
-**Shadow is you, one step down.** Say what you want in any wired AI coding
-host — Claude Code, Codex, Cursor, Grok — and Shadow keeps the work
-durable: one board per computer, one authoritative `PLAN.md` per independently
-steerable entity, related entities grouped as one project map, and a proof
-receipt on every finished step. Kill any chat; the next session resumes where
-it stopped.
+<p align="center"><strong>AI agents forget. Shadow is the memory, the referee, and the proof.</strong></p>
 
-Six words carry the system:
+<p align="center">
+  <a href="https://github.com/firstbitelabsllc/shadow/actions/workflows/ci.yml"><img src="https://github.com/firstbitelabsllc/shadow/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+" />
+  <img src="https://img.shields.io/badge/daemon-none-success" alt="No daemon" />
+</p>
+
+Every AI coding session starts from zero. The chat dies and the plan dies with
+it. The agent says "done" and nothing checked it. Two agents in one repo edit
+the same files blind. Shadow fixes all three with one boring, durable idea:
+
+**a plan that outlives the session, a claim that only one agent can hold, and
+a proof that must actually pass before anything is called done.**
+
+It runs under Claude Code, Codex, Cursor, Grok, and Z.AI. The whole stack is
+Git, Bash, and Python. No daemon, no cloud service, no transcript store, no
+prompt inspection.
+
+## The loop
+
+Every seat — human or agent — runs the same five moves:
+
+**claim → work → prove → accept → next**
 
 | word | meaning |
 |---|---|
 | **board** | one small ledger per computer: ownership, priority, resume |
 | **plans** | each entity's `PLAN.md`: checkpoints, each with one typed `cmd`, `read`, or `gate` proof |
-| **seats** | the AI workers, each under one stable name |
 | **claim** | a seat takes a checkpoint atomically; exactly one winner |
 | **proof** | done means the checkpoint's named check passed |
 | **accept** | the only flip to completed: rerun the proof clean, record it |
 
-The loop every seat runs: **claim → work → prove → accept → next**.
+Kill any chat mid-sentence. The next session reads the same plan and resumes
+the claimed checkpoint: what passed, what didn't, and the exact command to
+continue.
+
+## Sixty seconds, real commands
+
+```console
+$ shadow init --here
+created local PLAN.md: ~/.shadow/plans/readme-demo/PLAN.md
+
+$ $EDITOR ~/.shadow/plans/readme-demo/PLAN.md   # add one task with a proof
+$ shadow lint --repo . ~/.shadow/plans/readme-demo/PLAN.md
+~/.shadow/plans/readme-demo/PLAN.md: clean
+
+$ shadow status --by demo        # prints the exact throw command for the next reachable row
+$ shadow throw --repo . --task '~a1b2' --by demo
+[throw] ~a1b2 claimed by demo on this computer
+RESUME: [pending] hello.txt exists with today's greeting ~a1b2
+PROOF: cmd test -f hello.txt
+RAILS: … no proof, no completed; run `shadow lint` before mode flips …
+
+# … you, Claude Code, or Codex does the work, then commits …
+
+$ shadow accept --entity <id> --repo . --row '~a1b2' --by demo
+accepted ~a1b2: proof and final lint passed at local.shadow.invalid/1e89… HEAD a22fe1d…; local row flipped with its PROOF and SOURCE lines
+```
+
+The plan now carries the receipt:
+
+```text
+- 2026-09-06T02:09:21Z ~a1b2 PROOF test -f hello.txt -> pass (accept)
+- 2026-09-06T02:09:21Z ~a1b2 SOURCE local.shadow.invalid/1e89… HEAD a22fe1d… -> proof and final lint (accept)
+```
+
+"Done" has a hash and a HEAD. Anything less stays pending. This transcript is
+from a real session, trimmed to fit; every command above is copy-pasteable.
 
 ## Install
 
@@ -29,121 +80,103 @@ git clone --branch shadow-1.3.0 --depth 1 https://github.com/firstbitelabsllc/sh
 cd shadow && bash install.sh && shadow doctor
 ```
 
-Git, Bash, Python 3.10+, and a supported host. No Node, no daemon, no
-transcript store. The clone is the install; to upgrade, check out the
-newer `shadow-v*` tag and rerun `install.sh`. Missing `shadow`? Add
-`~/.local/bin` to PATH.
+Git, Bash, Python 3.10+, and one supported host. No Node, no package manager.
+The clone **is** the install; upgrading means checking out a newer `shadow-v*`
+tag and rerunning `install.sh`. Missing `shadow`? Add `~/.local/bin` to PATH.
+The [full install guide](https://firstbitelabsllc.github.io/shadow/guide/installation) covers
+the edge cases.
 
-## First run
+## Why not just…
 
-From any Git project, replacing only the seat name:
+| Approach | What breaks |
+|---|---|
+| Chat history | dies with the session; no ownership; no proof anything ran |
+| `TODO.md` | no claims, no atomicity; two agents race and the file lies |
+| Issue tracker | built for humans at meeting cadence, not agents at claim cadence; lives in someone's cloud |
+| Agent frameworks | a daemon, a second database, and a prompt router; your work lives in their format |
+
+Shadow's plans are Markdown you can read in any editor. Claims are atomic on a
+local board. Proof is a command that can fail. State lives in `~/.shadow` and
+your own Git, and deleting both removes every trace.
+
+## Sealed delegation to real hosts
+
+Work doesn't have to be yours. Shadow hands a claimed slice to a native host
+as a sealed run: frozen task file, exact allowed paths, and a scoped receipt.
 
 ```bash
-PLAN=$(shadow init --here | awk -F': ' '{print $2}')  # never overwrites a plan
-$EDITOR "$PLAN"                    # fill the Brief; keep 2-7 tasks per milestone
-shadow status --by your-seat      # prints the exact throw command — run it
-# do the work, then close out:
-shadow accept --repo . --row '~a1b2' --by your-seat   # Git-backed plan
-shadow accept --entity ID --repo . --row '~a1b2' --by your-seat  # machine-local plan
 shadow host run --host codex --work-class coding --delegation direct \
-  --authority-proposal --repo . --task-file /absolute/proposal-task.txt \
-  --task-id propose-a1b2 --out .shadow/evidence/attempt.json
-shadow accept --entity ID --repo . --row '~a1b2' --by your-seat \
-  --proposal .shadow/evidence/attempt.json  # proposal-enabled machine-local plan
-# read/gate proofs instead: record the observation in the plan, then shadow return
+  --repo "$PWD" --task-file /tmp/task.md --task-id focused-fix \
+  --allowed-path src/fix.py --out .shadow/evidence/focused-fix.json
 ```
 
-Quote row ids (`'~a1b2'`) and use the id status printed. `shadow status
---in-flight` shows every seat's live work; `shadow browse` renders the board.
+Four semantic work classes (`planning`, `coding`, `review`, `lightweight`)
+plus an explicit execution shape (`direct` or `required`). Each host maps to a
+small checked-in model policy — Claude Code, Codex, Cursor, Grok, and Z.AI
+today. Unsupported child capability fails closed; a quota failure never
+silently falls back to another provider. A receipt is evidence, never
+acceptance: review the diff and reproduce the proof yourself.
 
-A proposal-enabled row keeps its proof command, result marker, and minimum
-execution floor in the canonical machine-local plan. Use two passes: first
-change, review, and commit the source files; then run a sealed Codex no-change
-attempt from a clean checkout that proposes completion against that committed
-`HEAD` through explicit `--authority-proposal` mode. That mode accepts no
-source write paths, refuses binary overrides before launch, and rejects any
-source `HEAD` or Git control-state drift. Shadow binds the proposal to the
-exact entity, row, owner, claim, plan root, and source `HEAD`, reruns the
-canonical proof with an isolated temporary `HOME`, and performs the authority
-write itself. Proposal proofs must be deterministic and cannot depend on
-credentials stored in the operator's home directory. Git-backed plans, other
-hosts, and `read` or `gate` proofs do not support proposals.
+Requested model selection and observed model execution are distinct. The
+owner-local evaluation gauntlet publishes exact falsifiers, hashes, and
+remaining wakes in the
+[native execution policy](https://firstbitelabsllc.github.io/shadow/reference/execution-policy)
+and its [dated 48-row evidence record](https://firstbitelabsllc.github.io/shadow/reference/execution-policy-evidence-2026-08-26).
 
-## When work overlaps
+## When agents overlap, nobody referees chats
 
-Huddle keeps overlapping agents from making you referee their chats. Exact
-duplicate claims are rejected immediately. Other overlap holds later claims
-while the current valid owner continues. Agents declare scope, then bid to own,
-split disjoint work, review, prove, yield, stand down, or report unavailable.
-Each structured round has a two-minute reply window; only an explicit settle
-operation advances it. Ownership changes require an owner-authorized atomic
-handoff, not a message or a timeout.
+Exact duplicate claims are rejected atomically. Other overlap holds the later
+claim while the current owner continues. When agents must negotiate, Huddle
+gives them structured rounds — bid to own, split disjoint, review, yield,
+stand down — each with a bounded reply window and an explicit settle. Ownership
+changes only through an owner-authorized atomic handoff, never through a
+message or a timeout. See the
+[Huddle reference](https://firstbitelabsllc.github.io/shadow/reference/commands#huddle-coordination).
 
-`shadow status --by your-seat` shows the current disposition and next read.
-`shadow huddle --help` lists the six routes; the [command reference](docs/reference/commands.md#huddle-coordination)
-describes their exact input boundaries. The board remains authority even when
-every optional delivery adapter is absent. Huddle adds no daemon, transcript
-store, router, or second task database.
+## What Shadow is not
 
-The first successful new claim upgrades the local board transactionally to v2;
-status and doctor do not migrate it. Existing claims retain their identities
-without invented source bindings. Classify legacy or source-free claims
-explicitly before source work. Test installation and empty-board rollback on
-an isolated home before upgrading a working computer; source tests alone do
-not prove a live installation or provider delivery.
+- **No daemon.** Nothing runs between commands. No background service, no watcher.
+- **No cloud.** No remote task authority, no credential relay, no account binding.
+- **No prompt inspection.** Shadow never reads your conversations or your provider traffic.
+- **No transcript store.** Receipts carry names, statuses, hashes — never prose or payloads.
+- **Telemetry off by default**, local-only when opted in, and even then it
+  records no paths, commands, or text. ([Privacy](https://firstbitelabsllc.github.io/shadow/reference/privacy))
 
-## Customize
+## Customize (deliberately little)
 
-All configuration is deliberately small, and stress-tested that way:
+- **Extensions** (`shadow slots`): `memory`, `taste`. Every one may be empty;
+  none ever gates a cycle. Opt out per machine: `SHADOW_SLOT_MEMORY=off`.
+- **`shadow.yaml`**: one optional file, two keys (`version`,
+  `adversarial-lenses`). That is the whole config surface, by law.
+- **Standing goal**: `shadow goal --install` owns one marked block in your
+  agent file; your methods live beside it, untouched. Cursor hosts prove it
+  with the repo-scoped verifier
+  ([how](https://firstbitelabsllc.github.io/shadow/reference/host-integration)).
+- **Environment**: `SHADOW_ROOT`, host binary overrides, slot bindings — the
+  [full table](https://firstbitelabsllc.github.io/shadow/reference/config).
 
-- **Extensions** — optional capabilities (`shadow slots`): memory, taste.
-  Every one may be empty; none ever gates a cycle. Rebind or opt out per
-  machine with `SHADOW_SLOT_<NAME>=<abs path>|off` — don't want routed
-  recall? `SHADOW_SLOT_MEMORY=off` and everything runs.
-- **`shadow.yaml`** — one optional repo-root file with two keys
-  (`version`, `adversarial-lenses`). That's the whole config file, by law:
-  a dial may exist only where a wrong value costs quality, never truth.
-- **Environment** — `SHADOW_ROOT`, host binary overrides, the slot bindings —
-  table: [Config](https://firstbitelabsllc.github.io/shadow/reference/config).
-- **Standing goal** — `shadow goal --install` owns one marked block in your
-  agent file; your methods live beside it, untouched. Cursor: keep that block
-  in a source-controlled repository-root `AGENTS.md` or `CLAUDE.md`, then prove
-  it with the repo-scoped verifier ([how](https://firstbitelabsllc.github.io/shadow/reference/host-integration)).
-
-When your branch tracks a remote branch, `shadow throw` also takes one Git
-coordination lock on that same tracked remote under
-`refs/heads/shadow/claims/v1/<entity>/<row>`: forks tracking one shared
-upstream coordinate there, while the lock carries no task or proof text and
-never becomes authority. With no upstream the same flow stays local-only.
-Shadow refuses unclaimed execution, missing proof, and ambiguous authority.
-Large projects scale by adding entity plans under the same `Project:` slug;
-the board membership is the map, while each plan keeps its own truth and local
-dependencies. See **[Project maps](https://firstbitelabsllc.github.io/shadow/reference/project-maps)**.
-
-## Route hard work deliberately
-
-Sealed native-host runs require one of four semantic work classes—`planning`,
-`coding`, `review`, or `lightweight`—plus an explicit execution shape:
-`--delegation direct|required`. Shadow maps the chosen host and class to a
-small checked-in native model policy—Fable/Opus/Sonnet for Claude Code,
-Sol/Terra/Luna for Codex, Fable/Opus/Cursor Grok/Auto for Cursor, and Grok
-4.6/4.5 for Grok. Z.AI runs sealed with GLM-5.3-Flash. Required delegation enables the host's verified native child
-door; unsupported child capability fails closed. Shadow does not inspect prompt
-text, select accounts, or silently fall back after a quota failure.
-
-Requested selection is not observed execution. The owner-local evaluation
-gauntlet runs 12 real jobs through all four headless CLIs and requires exact
-model and usage evidence, scoped edits, deterministic verification, native
-child lineage where required, plus Langfuse write and exact readback. See
-**[Native execution policy](https://firstbitelabsllc.github.io/shadow/reference/execution-policy)**.
-The [dated 48-row evidence and cold takeover](https://firstbitelabsllc.github.io/shadow/reference/execution-policy-evidence-2026-08-26)
-publishes the exact falsifiers, corrections, hashes, and remaining wakes.
+Large projects scale by adding entity plans under one `Project:` slug; the
+board membership is the map and each plan keeps its own truth
+([project maps](https://firstbitelabsllc.github.io/shadow/reference/project-maps)).
+When your branch tracks a remote, `shadow throw` takes one coordination lock
+on that same remote so forks tracking one upstream can share a board without a
+server.
 
 ## Docs
 
-The full contract — every verb, plan grammar, extensions, privacy — lives at
-**[the docs site](https://firstbitelabsllc.github.io/shadow/)**; developing starts at
-[`AGENT.md`](AGENT.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md) — external
-PRs are closed.
+Every verb, the plan grammar, extensions, and privacy boundaries:
+**[firstbitelabsllc.github.io/shadow](https://firstbitelabsllc.github.io/shadow/)**
 
-[MIT License](LICENSE).
+Start here: [quick start](https://firstbitelabsllc.github.io/shadow/guide/quickstart) ·
+[commands](https://firstbitelabsllc.github.io/shadow/reference/commands) ·
+[plan grammar](https://firstbitelabsllc.github.io/shadow/reference/grammar) ·
+[other-computer handoff](https://firstbitelabsllc.github.io/shadow/guide/other-computer-handoff)
+
+Developing on Shadow starts at [`AGENT.md`](AGENT.md) and
+[`CONTRIBUTING.md`](CONTRIBUTING.md): issues, bug reports, critiques, and
+field reports are welcome; external pull requests are closed while the
+doctrine settles.
+
+## License
+
+[MIT](LICENSE). Built by [First Bite Labs](https://github.com/firstbitelabsllc).
