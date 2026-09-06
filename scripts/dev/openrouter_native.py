@@ -13,11 +13,13 @@ import pwd
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "1.18.25"
 BINARY_SHA256 = "88eed7b0c2431162422cb0625aa68a55239970446951e4c9aad6a4f1fbc232b9"
+OUTPUT_BYTES = 1024 * 1024
 POLICY = {"zdr": True, "data_collection": "deny", "require_parameters": True,
           "allow_fallbacks": False, "max_price": dict.fromkeys(("prompt", "completion", "request", "image"), 0)}
 
@@ -29,7 +31,16 @@ def run_native(command, *, env, cwd, timeout):
     # stdout is a pipe. Regular-file capture preserves the complete result
     # without retrying a provider request or accepting truncated JSON.
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        process = subprocess.Popen(command, env=env, cwd=cwd, stdout=stdout,
+        # Establish a kernel-enforced per-file ceiling before exec, without
+        # preexec_fn (which can deadlock a threaded caller). Descendants inherit
+        # the hard limit and cannot enlarge either capture file beyond it.
+        bounded = [sys.executable, "-I", "-c",
+                   "import os,resource,sys; "
+                   "limit=int(sys.argv[1]); "
+                   "resource.setrlimit(resource.RLIMIT_FSIZE,(limit,limit)); "
+                   "os.execvpe(sys.argv[2],sys.argv[2:],os.environ)",
+                   str(OUTPUT_BYTES), *command]
+        process = subprocess.Popen(bounded, env=env, cwd=cwd, stdout=stdout,
                                    stderr=stderr, start_new_session=True)
         try:
             process.wait(timeout=timeout)
@@ -39,6 +50,8 @@ def run_native(command, *, env, cwd, timeout):
             except ProcessLookupError:
                 pass
             process.wait()
+        if max(os.fstat(stdout.fileno()).st_size, os.fstat(stderr.fileno()).st_size) >= OUTPUT_BYTES:
+            raise ValueError("native output reached the hard file-size limit")
         stdout.seek(0)
         stderr.seek(0)
         return subprocess.CompletedProcess(command, process.returncode,

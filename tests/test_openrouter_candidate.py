@@ -73,8 +73,8 @@ class ContainerProtocolTests(unittest.TestCase):
             calls.append(command)
             self.assertEqual(command[-3:], ['start', '--attach', cid])
             # Simulate only a completed attach stream; never execute proposals.
-            return original_popen([sys.executable, '-I', '-c',
-                                   "print('OPENROUTER_CANDIDATE_READY')"], **kwargs)
+            return original_popen(['/bin/sh', '-c',
+                                   "printf 'OPENROUTER_CANDIDATE_READY\\n'"], **kwargs)
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(candidate.sys, 'platform', 'darwin'))
