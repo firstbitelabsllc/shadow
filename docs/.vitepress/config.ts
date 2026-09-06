@@ -5,7 +5,7 @@ export default defineConfig({
   description:
     'One durable workboard per computer, authoritative PLAN.md per entity, project maps, atomic claims, and proof receipts — stop any AI coding chat and resume without losing the work',
   base: process.env.DOCS_BASE || '/',
-  srcExclude: ['plan-archive/**', 'superpowers/**'],
+  srcExclude: ['plan-archive/**', 'superpowers/**', 'findings-*.md', 'requests-*.md'],
   themeConfig: {
     outline: { level: [2, 3], label: 'On this page' },
     nav: [

@@ -15,6 +15,13 @@ proof you chose before marking a checkpoint done.
 [Read the docs](https://firstbitelabsllc.github.io/shadow/) ·
 [Report a problem](https://github.com/firstbitelabsllc/shadow/issues)
 
+<p align="center">
+  <a href="https://github.com/firstbitelabsllc/shadow/actions/workflows/ci.yml"><img src="https://github.com/firstbitelabsllc/shadow/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+" />
+  <img src="https://img.shields.io/badge/daemon-none-success" alt="No daemon" />
+</p>
+
 <p align="center"><img src="assets/shadow-banner.svg" alt="The Shadow loop: claim a checkpoint, do the work, prove it, accept it, and resume the next checkpoint." width="100%" /></p>
 
 ## What survives a handoff
@@ -100,6 +107,39 @@ work, recording observations, and returning blocked work.
 `shadow status --in-flight` shows current owners; `shadow browse` opens the
 local board in your browser.
 
+The same loop in real output (trimmed from a live session):
+
+```console
+$ shadow throw --repo . --task '~a1b2' --by demo
+[throw] ~a1b2 claimed by demo on this computer
+/goal readme-demo — first proof
+AUTHORITY: PLAN.md @ this computer … — section "### M1 — first proof"
+RESUME: [pending] hello.txt exists with today's greeting ~a1b2
+PROOF: cmd test -f hello.txt
+RAILS: … no proof, no completed; run `shadow lint` before mode flips …
+
+# … you, Claude Code, or Codex does the work, then commits …
+
+$ shadow accept --entity <id> --repo . --row '~a1b2' --by demo
+accepted ~a1b2: proof and final lint passed at local.shadow.invalid/1e89… HEAD a22fe1d…; local row flipped with its PROOF and SOURCE lines
+```
+
+The plan now carries the receipt, so the next session needs no recap:
+
+```text
+- 2026-09-06T02:09:21Z ~a1b2 PROOF test -f hello.txt -> pass (accept)
+- 2026-09-06T02:09:21Z ~a1b2 SOURCE local.shadow.invalid/1e89… HEAD a22fe1d… -> proof and final lint (accept)
+```
+
+## Why not just…
+
+| Approach | What breaks |
+|---|---|
+| Chat history | dies with the session; no ownership; no proof anything ran |
+| `TODO.md` | no claims, no atomicity; two agents race and the file lies |
+| Issue tracker | built for humans at meeting cadence, not agents at claim cadence; lives in someone's cloud |
+| Agent frameworks | a daemon, a second database, and a prompt router; your work lives in their format |
+
 ## Is it a fit?
 
 Shadow is useful when you work across coding sessions or coordinate several
@@ -120,6 +160,34 @@ one-off edit usually needs no plan.
 The CLI needs no Node runtime, daemon, or transcript store.
 [Configuration and optional extensions](docs/reference/config.md) are documented
 separately from the first-run path.
+
+### What Shadow is not
+
+- **No daemon.** Nothing runs between commands; no watcher, no background service.
+- **No cloud authority.** No remote task store, no credential relay, no account binding.
+- **No prompt inspection.** Shadow never reads your conversations or provider traffic.
+- **No transcript store.** Receipts carry names, statuses, and hashes, not prose or payloads.
+- **Telemetry off by default**, local-only when opted in, recording no paths,
+  commands, or text. See [privacy](docs/reference/privacy.md).
+
+### Sealed delegation to a host
+
+A claimed slice can run through a native host as a sealed pass: frozen task
+file, exact allowed paths, scoped receipt. Hosts today: Claude Code, Codex,
+Cursor, Grok, and Z.AI (or Codex pointed at Z.AI).
+
+```bash
+shadow host run --host codex --work-class coding --delegation direct \
+  --repo "$PWD" --task-file /tmp/task.md --task-id focused-fix \
+  --allowed-path src/fix.py --out .shadow/evidence/focused-fix.json
+```
+
+Four work classes (`planning`, `coding`, `review`, `lightweight`) and an
+explicit execution shape (`direct` or `required`); unsupported child
+capability fails closed, and a quota failure never silently falls back to
+another provider. A receipt is evidence, not acceptance: review the diff and
+reproduce the proof yourself. See the
+[execution policy](docs/reference/execution-policy.md).
 
 <details>
 <summary>Advanced: completion proposals from a sealed host</summary>

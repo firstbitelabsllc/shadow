@@ -374,7 +374,7 @@ shrink the plan.
 
 Archive eligibility, rechecked per milestone at apply time: 2-7 well-formed
 task rows; exactly one `(DoD)` row; every row completed; every row's proof
-matches a typed class ("<id> has no typed proof" otherwise); ids unique
+matches a typed class ("`<id>` has no typed proof" otherwise); ids unique
 within the milestone, and no duplicate task id anywhere in the plan ("plan
 has duplicate task ids" — a duplicate would let the dependency fold strip a
 still-live `needs:`).
