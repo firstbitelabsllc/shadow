@@ -107,7 +107,9 @@ work, recording observations, and returning blocked work.
 `shadow status --in-flight` shows current owners; `shadow browse` opens the
 local board in your browser.
 
-The same loop in real output (trimmed from a live session):
+<p align="center"><img src="assets/shadow-loop.svg" alt="Animated real session: shadow throw claims a checkpoint and prints its proof; after the work is committed, shadow accept reruns the proof, passes, and flips the row with its PROOF and SOURCE receipt lines." width="100%" /></p>
+
+The same loop in real output, copy-pasteable (trimmed from a live session):
 
 ```console
 $ shadow throw --repo . --task '~a1b2' --by demo
