@@ -91,6 +91,14 @@ def _canonical_nonce(value: object) -> str:
     return value
 
 
+def _valid_seat(seat: object) -> bool:
+    try:
+        board_schema.validate_owner(seat)
+        return True
+    except Exception:
+        return False
+
+
 def _endpoint(provider: str, endpoint: object) -> None:
     if not isinstance(endpoint, dict) or set(endpoint) != ENDPOINT_FIELDS[provider]:
         raise ContactRefused("contact endpoint fields are invalid")
@@ -158,6 +166,8 @@ def validate_stored_contact(contact: object, *, seat: str, now: datetime) -> Non
         raise ContactRefused("stored contact must have exactly the stored fields")
     if contact["schema"] != CONTACT_SCHEMA or contact["seat"] != seat:
         raise ContactRefused("stored contact identity is invalid")
+    if not _valid_seat(seat):
+        raise ContactRefused("stored contact seat is invalid")
     registered = parse_canonical_utc(contact["registered_at"])
     refreshed = parse_canonical_utc(contact["refreshed_at"])
     expires = parse_canonical_utc(contact["expires_at"])
@@ -203,7 +213,9 @@ def write_contact(dir_fd: int, contact: dict, *, now: datetime | None = None) ->
     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                  0o600, dir_fd=dir_fd)
     try:
-        os.write(fd, payload)
+        written = 0
+        while written < len(payload):
+            written += os.write(fd, payload[written:])
     finally:
         os.close(fd)
     return name

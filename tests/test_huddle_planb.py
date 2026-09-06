@@ -197,6 +197,75 @@ class PlanBDeliveryTests(unittest.TestCase):
                 delivery.read_armed_entries(descriptor(good), [], now=now)
             event_api.validate_capabilities(descriptor(good), now=now)
 
+    def test_idempotency_key_matches_pinned_golden_vector(self):
+        # The receipt key material is pinned: any change to which fields feed
+        # the key must fail here, not silently re-key every receipt.
+        self.assertEqual(
+            delivery.idempotency_key(
+                provider="cmux", capability="cmux.surface-send.v1",
+                instance_nonce="123e4567-e89b-12d3-a456-426614174003",
+                huddle_id="hdl_1234abcd", generation=3, event="huddle_changed",
+                endpoint={"surface_uuid": "123e4567-e89b-12d3-a456-426614174002"}),
+            "a7a75916bf131283d44a74ff1ee2b8ab40296463bb3d5f05dba4a0ef08356747")
+
+    def test_mismatched_nonce_filename_is_skipped_by_delivery(self):
+        # A record swapped at a selected path whose content claims a different
+        # nonce is skipped by the child's filename/nonce coherence guard.
+        board, extension, contacts_dir, client, caps, stored = self.runtime()
+        huddle = board["huddles"][0]
+        event = EVENT | {"huddle_id": huddle["id"], "generation": huddle["generation"]}
+        entries = event_api.validate_capabilities(json.dumps(caps).encode())
+        fd = os.open(contacts_dir, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        swapped = dict(stored, instance_nonce="123e4567-e89b-12d3-a456-426614174007")
+        (contacts_dir / (stored["instance_nonce"] + ".json")).write_text(
+            json.dumps(swapped))
+        receipts = delivery.deliver(
+            event=event, huddle=huddle,
+            current_claims=event_api._current_claims(board),
+            capability_entries=entries, contacts_dir_fd=fd,
+            now=datetime.now(timezone.utc), deadline_seconds=1.0)
+        self.assertEqual(receipts, [])
+
+    def test_contact_directory_beyond_selection_bound_is_refused(self):
+        board, extension, contacts_dir, client, caps, stored = self.runtime()
+        huddle = board["huddles"][0]
+        event = EVENT | {"huddle_id": huddle["id"], "generation": huddle["generation"]}
+        entries = event_api.validate_capabilities(json.dumps(caps).encode())
+        fd = os.open(contacts_dir, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        for index in range(257):
+            name = "%08d-1111-4222-8333-444444444444.json" % index
+            (contacts_dir / name).write_text("{}")
+        with self.assertRaises(contacts.ContactRefused):
+            delivery.deliver(
+                event=event, huddle=huddle,
+                current_claims=event_api._current_claims(board),
+                capability_entries=entries, contacts_dir_fd=fd,
+                now=datetime.now(timezone.utc), deadline_seconds=1.0)
+
+    def test_handoff_successor_is_eligible_like_the_parent(self):
+        claim = {"entity": "a" * 64, "row": "~aa11", "claim_revision": 1,
+                 "owner": "A", "claimed_at": "2026-09-06T00:00:00Z"}
+        successor = dict(claim, owner="B")
+        huddle = {"id": "hdl_1234abcd", "generation": 3, "claims": [claim],
+                  "replacements": [],
+                  "resolution": {"handoff": {"successor_claim": successor}}}
+        import shadow_board_schema as board_schema
+        expected = board_schema._claim_key(
+            board_schema._terminal_ref(huddle, successor))
+        self.assertIn(expected, delivery.eligible_claim_keys(huddle))
+
+    def test_install_script_refuses_symlinked_runtime(self):
+        (self.home / "elsewhere").mkdir()
+        (self.home / "runtime").mkdir()
+        (self.home / "runtime" / "huddle-delivery").symlink_to(self.home / "elsewhere")
+        env = dict(os.environ, SHADOW_HOME=str(self.home))
+        result = subprocess.run(["/bin/sh", str(DIST / "install-runtime.sh")],
+                                env=env, capture_output=True, timeout=60)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr.decode(errors="replace"))
+
     def test_envelope_is_closed_bounded_deterministic_and_private(self):
         endpoint = {"surface_uuid": str(uuid.uuid4())}
         envelope = delivery.build_envelope(
