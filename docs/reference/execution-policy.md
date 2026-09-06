@@ -148,6 +148,48 @@ that blocks every forbidden capability. Until then, coding, mutation, tools,
 images, structured output, protected data, and ordinary-route-unavailability
 admission refuse with `openrouter_runtime_boundary_unproved`.
 
+The preceding CLI validates the original inert advisory contract; it is not
+the launcher contract. The offline experiment under `scripts/dev/` separately
+tests research, immutable tests, and confined candidate replacements through
+a mandatory guarded OpenCode provider. Its admission logic derives ordinary
+routes from `shadow_execution_policy`, and its transport guard validates the
+actual native request and response bytes. It does not call the inert CLI or
+relax that CLI's historical refusal rules. The private existing overflow
+wrapper owns provider and credential integration; Shadow owns no account or
+credential lookup. Neither path registers a runnable wildcard host.
+
+The offline native harness is `scripts/dev/test-openrouter-native.py` with
+`--required-provider`, an explicit matching `--binary`, and a prepared
+`--sdk-node-modules` directory. It uses fixture credentials and denied network
+access. A candidate result always has `accepted: false`; process exit zero
+does not prove its immutable test reached the assertions. Unavailability
+fixtures prove admission logic only, never real route exhaustion. Installation
+and live execution require separate proof and authorization.
+
+The isolated candidate runner requires an already-running local Docker Desktop
+Linux VM and the exact preinstalled arm64 Python image pinned in its source.
+It never starts a VM, pulls an image, or uses a remote Docker endpoint. It
+replaces the earlier macOS candidate sandbox, which had no hard memory bound.
+Before candidate code runs, the trusted bootstrap verifies 64 MiB memory and
+memory-plus-swap limits, one-task confinement, and a 64 MiB hard address-space
+limit. An irreversible default-deny syscall filter permits reads and Python
+memory operations, with writes confined to stdout/stderr. Process creation,
+exec, sockets, deletion and other filesystem mutation are denied.
+The frozen input is mounted read-only; host directories, Docker control and
+Keychain are absent from that namespace. Daemon logging is disabled, captured
+output is bounded, and the parent removes its exact container on completion or
+timeout. Missing runtime, image, controls or filter admission refuses execution.
+This is a Docker/Linux-kernel isolation boundary, not proof against kernel or
+container-runtime vulnerabilities. The cap applies to candidate memory inside
+the VM; it is not a 64 MiB cap on Docker Desktop or its macOS processes.
+There is no native-process fallback when this containment is unavailable.
+
+`tests.test_openrouter_candidate.ContainerProtocolTests` exercises admission
+and cleanup faults without a daemon; it does not prove kernel enforcement.
+The Darwin-only `CandidateTests` separately require the installed runtime and
+image and exercise both oversized allocation denial and a cgroup OOM kill.
+A current-source native run is required before treating containment as proven.
+
 ## The ten failures this closes
 
 1. **A host name was mistaken for a model decision.** That made every roster

@@ -15,6 +15,12 @@ scripts/shadow-brief.py export-ignore
 # observed gauntlet's jobs reference the export-ignored tests/ tree, so it
 # could never work from the artifact anyway.
 scripts/dev/shadow-observed-gauntlet.py export-ignore
+# Unregistered OpenRouter experiments run only from a reviewed source checkout.
+scripts/dev/openrouter-admission.py export-ignore
+scripts/dev/openrouter-candidate.py export-ignore
+scripts/dev/openrouter-transport-guard.mjs export-ignore
+scripts/dev/openrouter_native.py export-ignore
+scripts/dev/test-openrouter-native.py export-ignore
 scripts/shadow-plan-scale.py export-ignore
 scripts/shadow_plan_scale.py export-ignore
 docs/superpowers/ export-ignore
