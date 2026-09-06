@@ -65,6 +65,8 @@ MAX_RECEIPT_BYTES = 64 * 1024
 MAX_ATTEMPT_BYTES = 64 * 1024
 MAX_SUMMARY_CHARS = 280
 MAX_TEST_NAME_CHARS = 160
+HEAD_REFLOG_LIMIT = 128
+HEAD_REFLOG_ANCHOR_LIMIT = 64
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 # Known-private markers match anywhere: a mid-string `/Users/...` behind a
 # backtick or parenthesis is still a private path.
@@ -245,6 +247,85 @@ def git_branch(repo: Path) -> str | None:
     return branch
 
 
+def head_reflog_snapshot(repo: Path, *, limit: int = HEAD_REFLOG_LIMIT) -> tuple[tuple[str, str], ...]:
+    """Read one bounded, redacted-in-memory HEAD transition witness."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "reflog", "show", "--format=%H%x09%gs", "-z", "-n", str(limit), "HEAD"],
+            capture_output=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect worktree reflog: {exc}") from exc
+    if result.returncode:
+        raise HostError("git_unavailable", "cannot inspect worktree reflog")
+    records = [record for record in result.stdout.split(b"\0") if record]
+    if not records:
+        return ()
+    entries: list[tuple[str, str]] = []
+    for record in records:
+        if b"\t" not in record:
+            raise HostError("git_unavailable", "worktree reflog is malformed")
+        raw_head, raw_message = record.split(b"\t", 1)
+        head = raw_head.decode("ascii", errors="strict")
+        message = raw_message.decode("utf-8", errors="strict")
+        if GIT_SHA1_RE.fullmatch(head) is None:
+            raise HostError("git_unavailable", "worktree reflog head is malformed")
+        action = message.partition(":")[0]
+        entries.append((head, action if action in {"commit", "checkout", "reset"} else "other"))
+    return tuple(entries)
+
+
+def reflog_continuity(
+    repo: Path,
+    before: tuple[tuple[str, str], ...],
+    after: tuple[tuple[str, str], ...],
+    allowed: list[str],
+    head_after: str,
+) -> bool:
+    """Accept only one unambiguous run of scoped forward commit transitions."""
+    if not before or not after or after[0][0] != head_after or len(after) < len(before):
+        return False
+    starts = [index for index in range(len(after) - len(before) + 1) if after[index:index + len(before)] == before]
+    if len(starts) != 1:
+        return False
+    transitions = tuple(reversed(after[:starts[0]]))
+    previous = before[0][0]
+    for head, action in transitions:
+        if action != "commit" or head == previous:
+            return False
+        ancestry, has_merge, paths = git_commit_paths(repo, previous, head)
+        if not ancestry or has_merge or not all(path_allowed(path, allowed) for path in paths):
+            return False
+        previous = head
+    return bool(transitions)
+
+
+def index_has_suppressed_entries(repo: Path) -> bool:
+    """Fail closed when Git flags can hide tracked worktree source changes."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-v", "-t", "-z"],
+            capture_output=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect worktree index flags: {exc}") from exc
+    if result.returncode:
+        raise HostError("git_unavailable", "cannot inspect worktree index flags")
+    for record in (item for item in result.stdout.split(b"\0") if item):
+        if len(record) < 3 or record[1:2] != b" ":
+            raise HostError("git_unavailable", "worktree index flags are malformed")
+        tag = chr(record[0])
+        if tag == "S" or tag.islower():
+            return True
+    return False
+
+
 def git_commit_paths(repo: Path, before: str, after: str) -> tuple[bool, bool, set[str]]:
     """Return ancestry, merge presence, and every path touched in a commit range.
 
@@ -329,6 +410,8 @@ def execution_binding(
     allowed_scope: list[str],
     status: str,
     final_clean: bool,
+    reflog_continuous: bool,
+    index_suppressed: bool,
     observation: tuple[bool, bool, set[str]] | None = None,
 ) -> tuple[dict[str, Any], set[str]]:
     """Build a runner-owned candidate receipt after one native execution."""
@@ -342,6 +425,8 @@ def execution_binding(
         and not has_merge
         and all(path_allowed(path, allowed_scope) for path in committed_paths)
         and final_clean
+        and reflog_continuous
+        and not index_suppressed
     )
     claim = {
         key: admitted_claim[key]
@@ -1366,7 +1451,10 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 authority_proposal=authority_proposal, now=authorized_at)
         except _board.BoardError as exc:
             raise HostError("claim_access_refused", str(exc)) from None
-        binding_context: tuple[dict[str, Any], int, datetime, dict[str, Any], str | None, str] | None = None
+        binding_context: tuple[
+            dict[str, Any], int, datetime, dict[str, Any], str | None, str,
+            tuple[tuple[str, str], ...], bool,
+        ] | None = None
         if not authority_proposal and authorization is not None:
             admitted_claim = next(
                 (
@@ -1377,13 +1465,17 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             )
             if admitted_claim is None:
                 raise HostError("claim_access_refused", "authorized claim disappeared before launch")
+            head_before = git_value(repo, "rev-parse", "--verify", "HEAD^{commit}")
+            reflog_before = head_reflog_snapshot(repo, limit=HEAD_REFLOG_ANCHOR_LIMIT)
             binding_context = (
                 admitted_claim,
                 authorization.payload["revision"],
                 authorized_at,
                 admitted_claim["repository_binding"],
                 git_branch(repo),
-                git_value(repo, "rev-parse", "--verify", "HEAD^{commit}"),
+                head_before,
+                reflog_before,
+                index_has_suppressed_entries(repo),
             )
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
         output_texts = [result.get("stdout", b"").decode("utf-8", errors="replace")]
@@ -1404,6 +1496,8 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             else None
         )
         branch_after = git_branch(repo) if binding_context is not None else None
+        reflog_after = head_reflog_snapshot(repo, limit=HEAD_REFLOG_LIMIT) if binding_context is not None else None
+        index_suppressed_after = index_has_suppressed_entries(repo) if binding_context is not None else False
         changed = sorted(
             set(before).symmetric_difference(after)
             | {path for path in set(state_before) | set(state_after) if state_before.get(path) != state_after.get(path)}
@@ -1470,7 +1564,10 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             blocked_reason = _blocked_reason(exc)
             status = _refusal_status(exc.kind)
         if binding_context is not None:
-            admitted_claim, authorized_revision, binding_authorized_at, repository, branch_before, head_before = binding_context
+            (
+                admitted_claim, authorized_revision, binding_authorized_at, repository,
+                branch_before, head_before, reflog_before, index_suppressed_before,
+            ) = binding_context
             binding, _ = execution_binding(
                 admitted_claim=admitted_claim,
                 authorized_revision=authorized_revision,
@@ -1494,6 +1591,11 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                         {destination.relative_to(repo).as_posix()} if destination is not None else set()
                     )
                 ),
+                reflog_continuous=reflog_continuity(
+                    repo, reflog_before, reflog_after or (), allowed,
+                    source_head_after or head_before,
+                ),
+                index_suppressed=index_suppressed_before or index_suppressed_after,
                 observation=range_observation,
             )
         payload = {

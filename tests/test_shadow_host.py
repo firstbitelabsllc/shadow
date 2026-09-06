@@ -77,6 +77,35 @@ elif mode == "branch-switch":
     subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "wrong branch"], cwd=repo, check=True, capture_output=True)
     changed = ["result.txt"]
+elif mode == "branch-round-trip":
+    repo = pathlib.Path.cwd()
+    original = subprocess.run(["git", "branch", "--show-current"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "checkout", "-qb", "transit"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "transit change"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-q", original], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "merge", "--ff-only", "transit"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "reset-then-advance":
+    repo = pathlib.Path.cwd()
+    repo.joinpath("outside.txt").write_text("escape\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "outside.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "discard out of scope"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "reset", "--hard", "HEAD~1"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "bounded change"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode in {"assume-unchanged", "skip-worktree"}:
+    repo = pathlib.Path.cwd()
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "bounded change"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath(".gitignore").write_text(".env\\nprivate\\n", encoding="utf-8")
+    flag = "--assume-unchanged" if mode == "assume-unchanged" else "--skip-worktree"
+    subprocess.run(["git", "update-index", flag, ".gitignore"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
 elif mode == "detach":
     repo = pathlib.Path.cwd()
     subprocess.run(["git", "checkout", "--detach"], cwd=repo, check=True, capture_output=True)
@@ -1534,6 +1563,16 @@ class ExecutionBindingTests(HuddleTestCase):
         self.assertEqual(binding["repository"], board_api.repository_binding(self.repo))
         self.assertNotIn(str(self.repo), json.dumps(binding))
 
+    def test_scoped_commit_qualifies_with_a_mature_reflog(self):
+        for index in range(shadow_host.HEAD_REFLOG_ANCHOR_LIMIT + 1):
+            git(self.repo, "commit", "--allow-empty", "-qm", f"prior {index}")
+
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(payload["execution_binding"]["execution_candidate"])
+
     def test_distinct_worktrees_sharing_a_base_have_distinct_opaque_identities(self):
         other = self.home / "other-worktree"
         git(self.repo, "worktree", "add", "-qb", "other", str(other))
@@ -1547,10 +1586,10 @@ class ExecutionBindingTests(HuddleTestCase):
         self.output = other / ".shadow/evidence/host.json"
         self.binary.with_suffix(".mode").write_text("commit", encoding="utf-8")
         second = self.invoke(other)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         second_payload = json.loads(self.output.read_text(encoding="utf-8"))
 
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         self.assertNotEqual(
             first_payload["execution_binding"]["worktree_sha256"],
             second_payload["execution_binding"]["worktree_sha256"],
@@ -1573,6 +1612,30 @@ class ExecutionBindingTests(HuddleTestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(payload["execution_binding"]["execution_candidate"])
         self.assertEqual(payload["status"], "ok")
+
+    def assert_unqualified_mode(self, mode):
+        self.binary.with_suffix(".mode").write_text(mode, encoding="utf-8")
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(payload["status"], "ok")
+        self.assertFalse(payload["execution_binding"]["execution_candidate"])
+
+    def test_branch_round_trip_is_not_a_candidate(self):
+        self.assert_unqualified_mode("branch-round-trip")
+
+    def test_reset_then_advance_is_not_a_candidate(self):
+        self.assert_unqualified_mode("reset-then-advance")
+
+    def test_assume_unchanged_source_is_not_a_candidate(self):
+        self.assert_unqualified_mode("assume-unchanged")
+
+    def test_skip_worktree_source_is_not_a_candidate(self):
+        self.assert_unqualified_mode("skip-worktree")
+
+    def test_preexisting_suppressed_index_entry_is_not_a_candidate(self):
+        git(self.repo, "update-index", "--assume-unchanged", ".gitignore")
+        self.assert_unqualified_mode("commit")
 
     def test_forged_model_binding_cannot_overwrite_runner_observations(self):
         self.binary.with_suffix(".mode").write_text("forged-binding", encoding="utf-8")
