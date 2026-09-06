@@ -92,6 +92,44 @@ variables are unset. The routing gauntlet requires the v4 variables on any
 current sink. `SHADOW_LANGFUSE_EVENTS` optionally forwards a local event
 file as spans on the observed path.
 
+## Huddle lifecycle observation
+
+An owner can opt into one local, disposable Huddle lifecycle check with:
+
+```sh
+scripts/shadow-python.sh scripts/dev/shadow-observed-gauntlet.py --jobs huddle-lifecycle
+```
+
+This selection is deliberately not part of the observed gauntlet's default
+job list, so existing generic and v3 invocations retain their current
+contract. It cannot be mixed with generic jobs and requires at least one
+round. It requires the three sink values above plus a loopback, credential-
+free OTLP HTTP endpoint and a loopback
+`SHADOW_LANGFUSE_READBACK_URL` and a safely shaped
+`SHADOW_LANGFUSE_PROJECT_ID`; it refuses before the lifecycle or network work
+begins if those predicates are absent. It also refuses
+`SHADOW_LANGFUSE_EVENTS`: forwarded generic events are not Huddle evidence.
+
+The job builds and discards a real local Git repository and board. It opens a
+two-claim shared-scope Huddle, records the selected `own` and held
+`stand_down` bids, settles it, proves the held host write is refused without a
+durable change, returns the held plan as blocked with a Deferred wake, and
+returns the remaining disposable claim. The five emitted `huddle.lifecycle`
+spans have only these attributes: `shadow.huddle_id`,
+`shadow.huddle_generation`, `shadow.lifecycle_step`, `shadow.huddle_state`,
+`shadow.opened_revision`, `shadow.settled_revision`, and
+`shadow.compliance_revision`. Their closed steps are `hold_observed`,
+`bids_recorded`, `settled`, `held_write_refused`, and
+`compliance_satisfied`.
+
+Green means the exact five JSONEachRow rows were read back from the named
+local ClickHouse project and trace; accepted OTLP alone remains red. This is
+source-only owner-tool proof, not a claim that a host is installed, that a
+service is live, or that any customer-facing runtime used the result. A later
+owner can reproduce it without this chat by setting the documented local
+variables and running the command above; use the local sink's own health and
+deployment receipts for those separate claims.
+
 ## Scheduled owner loop
 
 The sinks earn their keep on a schedule, not by hand. The owner-machine loop

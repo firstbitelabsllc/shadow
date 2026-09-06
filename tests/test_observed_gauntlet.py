@@ -29,6 +29,9 @@ class FakeLangfuse(http.server.BaseHTTPRequestHandler):
     traces: set[str] = set()
     accept_otel = True
     clickhouse_queries: list[str] = []
+    otel_spans: list[dict] = []
+    huddle_rows_override: object | None = None
+    huddle_project = "huddle-test"
 
     def log_message(self, *args: object) -> None:
         return
@@ -38,6 +41,31 @@ class FakeLangfuse(http.server.BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             query = self.rfile.read(length).decode()
             self.clickhouse_queries.append(query)
+            if "name = 'huddle.lifecycle'" in query:
+                trace_id = query.split("trace_id = '")[1].split("'")[0] if "trace_id = '" in query else ""
+                project_id = query.split("project_id = '")[1].split("'")[0] if "project_id = '" in query else ""
+                response = self.huddle_rows_override
+                if project_id != self.huddle_project or trace_id not in self.traces:
+                    response = ""
+                elif response is None:
+                    rows = []
+                    for span in self.otel_spans:
+                        if span.get("name") != "huddle.lifecycle" or span.get("traceId") != trace_id:
+                            continue
+                        values = {}
+                        for attribute in span.get("attributes", []):
+                            value = attribute.get("value", {})
+                            raw = next(iter(value.values()), None)
+                            if "intValue" in value:
+                                raw = int(raw)
+                            values[attribute["key"].removeprefix("shadow.")] = raw
+                        rows.append(values)
+                    response = "".join(json.dumps(row) + "\n" for row in rows)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(response.encode() if isinstance(response, str) else response)
+                return
             trace_id = query.split("trace_id = '")[1].split("'")[0] if "trace_id = '" in query else ""
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
@@ -56,6 +84,7 @@ class FakeLangfuse(http.server.BaseHTTPRequestHandler):
             for scope in resource.get("scopeSpans", []):
                 for span in scope.get("spans", []):
                     self.traces.add(span["traceId"])
+                    self.otel_spans.append(span)
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -77,6 +106,8 @@ class ReadbackGateTests(unittest.TestCase):
         FakeLangfuse.traces = set()
         FakeLangfuse.accept_otel = True
         FakeLangfuse.clickhouse_queries = []
+        FakeLangfuse.otel_spans = []
+        FakeLangfuse.huddle_rows_override = None
         self.server = http.server.HTTPServer(("127.0.0.1", 0), FakeLangfuse)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -175,6 +206,139 @@ class ReadbackGateTests(unittest.TestCase):
 
             with mock.patch.object(gauntlet.Sink, "send_spans", fail_events):
                 self.assertEqual(self.run_gauntlet(), 1)
+
+
+class HuddleLifecycleObservedTests(unittest.TestCase):
+    """The owner-local Huddle journey is real; only its network boundary is fake."""
+
+    def setUp(self) -> None:
+        FakeLangfuse.traces = set()
+        FakeLangfuse.accept_otel = True
+        FakeLangfuse.clickhouse_queries = []
+        FakeLangfuse.otel_spans = []
+        FakeLangfuse.huddle_rows_override = None
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), FakeLangfuse)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.env = {
+            "SHADOW_LANGFUSE_HOST": f"http://127.0.0.1:{self.server.server_port}",
+            "SHADOW_LANGFUSE_PUBLIC_KEY": "pk-test",
+            "SHADOW_LANGFUSE_SECRET_KEY": "sk-test",
+        }
+        self.env.update({
+            "SHADOW_LANGFUSE_READBACK_URL": self.env["SHADOW_LANGFUSE_HOST"],
+            "SHADOW_LANGFUSE_PROJECT_ID": "huddle-test",
+        })
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+    @staticmethod
+    def expected_rows() -> list[dict]:
+        return [
+            {"huddle_id": "hdl_00000001", "huddle_generation": 1,
+             "lifecycle_step": "hold_observed", "huddle_state": "open_round_1",
+             "opened_revision": 7, "settled_revision": 0, "compliance_revision": 0},
+            {"huddle_id": "hdl_00000001", "huddle_generation": 1,
+             "lifecycle_step": "bids_recorded", "huddle_state": "open_round_1",
+             "opened_revision": 7, "settled_revision": 0, "compliance_revision": 0},
+            {"huddle_id": "hdl_00000001", "huddle_generation": 2,
+             "lifecycle_step": "settled", "huddle_state": "awaiting_compliance",
+             "opened_revision": 7, "settled_revision": 10, "compliance_revision": 0},
+            {"huddle_id": "hdl_00000001", "huddle_generation": 2,
+             "lifecycle_step": "held_write_refused", "huddle_state": "awaiting_compliance",
+             "opened_revision": 7, "settled_revision": 10, "compliance_revision": 0},
+            {"huddle_id": "hdl_00000001", "huddle_generation": 3,
+             "lifecycle_step": "compliance_satisfied", "huddle_state": "resolved",
+             "opened_revision": 7, "settled_revision": 10, "compliance_revision": 11},
+        ]
+
+    def test_huddle_lifecycle_drives_real_disposable_board_and_reads_exact_spans(self) -> None:
+        self.assertEqual(self.run_gauntlet_job("huddle-lifecycle"), 0)
+        huddle_spans = [span for span in FakeLangfuse.otel_spans if span["name"] == "huddle.lifecycle"]
+        self.assertEqual(len(huddle_spans), 5)
+        observed = []
+        for span in huddle_spans:
+            self.assertEqual(
+                {attribute["key"] for attribute in span["attributes"]},
+                {
+                    "shadow.huddle_id", "shadow.huddle_generation", "shadow.lifecycle_step",
+                    "shadow.huddle_state", "shadow.opened_revision", "shadow.settled_revision",
+                    "shadow.compliance_revision",
+                },
+            )
+            values = {
+                attribute["key"].removeprefix("shadow."): next(iter(attribute["value"].values()))
+                for attribute in span["attributes"]
+            }
+            observed.append(values)
+        self.assertEqual(
+            [row["lifecycle_step"] for row in observed],
+            ["hold_observed", "bids_recorded", "settled", "held_write_refused", "compliance_satisfied"],
+        )
+        self.assertEqual(
+            [row["huddle_state"] for row in observed],
+            ["open_round_1", "open_round_1", "awaiting_compliance", "awaiting_compliance", "resolved"],
+        )
+        self.assertEqual([row["huddle_generation"] for row in observed], ["1", "1", "2", "2", "3"])
+        self.assertEqual([row["settled_revision"] for row in observed[:2]], ["0", "0"])
+        self.assertEqual([row["compliance_revision"] for row in observed[:-1]], ["0", "0", "0", "0"])
+        query = next(query for query in FakeLangfuse.clickhouse_queries if "huddle.lifecycle" in query)
+        self.assertIn("project_id = 'huddle-test'", query)
+        self.assertIn("name = 'huddle.lifecycle'", query)
+        self.assertIn("output_format_json_quote_64bit_integers = 0", query)
+        self.assertIn("FORMAT JSONEachRow", query)
+
+    def test_huddle_readback_refuses_every_inexact_projection(self) -> None:
+        trace_id = "a" * 32
+        expected = self.expected_rows()
+        cases = (
+            ("missing", expected[:-1], trace_id, "huddle-test"),
+            ("partial", [{"huddle_id": expected[0]["huddle_id"]}], trace_id, "huddle-test"),
+            ("duplicate", [*expected, expected[-1]], trace_id, "huddle-test"),
+            ("wrong scalar", [*expected[:-1], {**expected[-1], "compliance_revision": 12}], trace_id, "huddle-test"),
+            ("wrong project", expected, trace_id, "other-test"),
+            ("wrong trace", expected, "b" * 32, "huddle-test"),
+            ("malformed", "not-json\n", trace_id, "huddle-test"),
+        )
+        scrubbed = {key: value for key, value in os.environ.items() if not key.startswith("SHADOW_LANGFUSE")}
+        with mock.patch.dict(os.environ, {**scrubbed, **self.env}, clear=True):
+            sink = gauntlet.Sink()
+            FakeLangfuse.traces.add(trace_id)
+            for name, response, checked_trace, project_id in cases:
+                with self.subTest(name=name):
+                    FakeLangfuse.huddle_rows_override = (
+                        response if isinstance(response, str)
+                        else "".join(json.dumps(row) + "\n" for row in response)
+                    )
+                    sink.project_id = project_id
+                    self.assertFalse(sink.verify_huddle_trace(checked_trace, expected, attempts=1, delay_s=0))
+        FakeLangfuse.huddle_rows_override = None
+
+    def test_huddle_refuses_unsafe_or_ambiguous_selection_before_lifecycle_or_send(self) -> None:
+        cases = (
+            ("remote OTLP", {**self.env, "SHADOW_LANGFUSE_HOST": "https://example.invalid"}, ["--jobs", "huddle-lifecycle"]),
+            ("credentialed OTLP", {**self.env, "SHADOW_LANGFUSE_HOST": "http://user:pass@127.0.0.1:4318"}, ["--jobs", "huddle-lifecycle"]),
+            ("zero rounds", self.env, ["--jobs", "huddle-lifecycle", "--rounds", "0"]),
+            ("mixed jobs", self.env, ["--jobs", "huddle-lifecycle,accept"]),
+        )
+        for name, env, argv in cases:
+            with self.subTest(name=name), mock.patch.object(gauntlet, "huddle_lifecycle_rows") as lifecycle:
+                with mock.patch.dict(os.environ, env, clear=True):
+                    self.assertEqual(gauntlet.main(argv), 2)
+                lifecycle.assert_not_called()
+        self.assertEqual(FakeLangfuse.otel_spans, [])
+
+    def test_huddle_spans_are_provisional_until_exact_readback(self) -> None:
+        self.assertEqual(self.run_gauntlet_job("huddle-lifecycle"), 0)
+        huddle_spans = [span for span in FakeLangfuse.otel_spans if span["name"] == "huddle.lifecycle"]
+        self.assertEqual([span["status"] for span in huddle_spans], [{"code": 2}] * 5)
+
+    def run_gauntlet_job(self, name: str) -> int:
+        scrubbed = {key: value for key, value in os.environ.items() if not key.startswith("SHADOW_LANGFUSE")}
+        with mock.patch.dict(os.environ, {**scrubbed, **self.env}, clear=True):
+            return gauntlet.main(["--jobs", name])
 
 
 class EventForwardingTests(unittest.TestCase):
