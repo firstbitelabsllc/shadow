@@ -40,16 +40,40 @@ class AuditTests(unittest.TestCase):
         self.assertIsNone(result["real_work_allocation"])
         self.assertIsNone(session["cost_usd"])
 
+    def test_missing_native_session_identity_leaves_usage_unknown(self):
+        digest = "0" * 64
+        codex_meta = {"type": "session_meta", "payload": {"id": "session-a"}}
+        valid_codex = audit.parse("codex", [codex_meta, self.codex(10)], digest, None, None)
+        missing_codex = audit.parse("codex", [self.codex(10)], digest, None, None)
+        claude = {"type": "assistant", "sessionId": "session-a",
+                  "message": {"id": "message-a", "model": "claude-fable-5",
+                              "usage": {"input_tokens": 10, "output_tokens": 2}}}
+        missing_claude_record = {**claude, "sessionId": ""}
+        valid_claude = audit.parse("claude", [claude], digest, None, None)
+        missing_claude = audit.parse("claude", [missing_claude_record], digest, None, None)
+
+        self.assertEqual(valid_codex["usage"]["input_tokens"], 10)
+        self.assertEqual(valid_claude["usage"]["input_tokens"], 10)
+        for missing in (missing_codex, missing_claude):
+            self.assertIsNone(missing["usage"])
+            self.assertIn("session_identity_missing", missing["gaps"])
+            self.assertNotIn("multiple_session_ids", missing["gaps"])
+            self.assertEqual(missing["source_digests"], [digest])
+
     def test_counter_reset_is_unknown(self):
-        result = self.run_records("codex", [self.codex(16), self.codex(10)])
+        records = [{"type": "session_meta", "payload": {"id": "session-a"}},
+                   self.codex(16), self.codex(10)]
+        result = self.run_records("codex", records)
         self.assertIsNone(result["sessions"][0]["usage"])
         self.assertIn("cumulative_reset", result["sessions"][0]["gaps"])
 
     def test_window_needs_baseline_and_excludes_outside_usage(self):
-        records = [self.codex(10, "2026-09-04T23:00:00Z"), self.codex(16)]
+        records = [{"type": "session_meta", "payload": {"id": "session-a"}},
+                   self.codex(10, "2026-09-04T23:00:00Z"), self.codex(16)]
         r = self.run_records("codex", records, since="2026-09-05T00:00:00Z")
         self.assertEqual(r["sessions"][0]["usage"]["input_tokens"], 6)
-        r = self.run_records("codex", [self.codex(16)], since="2026-09-05T00:00:00Z")
+        records = [{"type": "session_meta", "payload": {"id": "session-a"}}, self.codex(16)]
+        r = self.run_records("codex", records, since="2026-09-05T00:00:00Z")
         self.assertIsNone(r["sessions"][0]["usage"])
         self.assertIn("window_baseline_missing", r["sessions"][0]["gaps"])
 
@@ -106,7 +130,8 @@ class AuditTests(unittest.TestCase):
 
     def test_empty_and_negative_usage_do_not_become_zero_success(self):
         with self.assertRaisesRegex(audit.Refusal, "sources_required"): audit.audit([])
-        r = self.run_records("codex", [self.codex(-1)])
+        records = [{"type": "session_meta", "payload": {"id": "session-a"}}, self.codex(-1)]
+        r = self.run_records("codex", records)
         self.assertIsNone(r["sessions"][0]["usage"])
         self.assertIn("invalid_usage", r["sessions"][0]["gaps"])
 

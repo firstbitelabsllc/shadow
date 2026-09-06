@@ -49,7 +49,10 @@ Identical source bytes under one declared harness are deduplicated. Different
 copies with the same native session identity are marked conflicting and usage
 becomes unknown. Counter resets, decreasing message usage, mixed session IDs,
 missing identities and unknown wire shapes also stay explicit. Child metadata
-is not proof of a canonical parent/child task join.
+is not proof of a canonical parent/child task join. An unidentified chunk stays
+explicit unknown usage; its digest does not establish session identity or make
+its counters safely aggregatable. `reported_sessions` counts inventory rows,
+including unknown identities; it is not an allocation denominator.
 
 Windows are inclusive `--since`, exclusive `--until`, and timezone-aware.
 An until-only query returns cumulative usage through that cutoff, not an interval delta.

@@ -162,6 +162,8 @@ def parse(host, records, digest, start, end):
             ignored += 1
     if len(ids) > 1:
         gaps.add("multiple_session_ids")
+    elif not ids:
+        gaps.add("session_identity_missing")
     result_usage = None
     if is_codex and snapshots:
         previous = baseline = final = None
