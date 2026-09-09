@@ -902,14 +902,19 @@ Frozen task:
 
 
 def _drain(stream: Any, state: dict[str, Any]) -> None:
+    usage = state.get('usage_stream')
     while True:
         chunk = stream.read(4096)
         if not chunk:
             break
+        if usage is not None:
+            usage.feed(chunk)
         state["bytes"] += len(chunk)
         state["tail"].extend(chunk)
         if len(state["tail"]) > MAX_CAPTURE_BYTES:
             del state["tail"][:-MAX_CAPTURE_BYTES]
+    if usage is not None:
+        usage.finish()
 
 
 def _stop(process: subprocess.Popen[bytes]) -> None:
@@ -955,7 +960,7 @@ def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int)
     except OSError as exc:
         return {"returncode": None, "timed_out": False, "launch_error": str(exc), "duration_s": 0.0, "stdout": b"", "stderr": b""}
     assert process.stdin is not None and process.stdout is not None and process.stderr is not None
-    stdout_state: dict[str, Any] = {"tail": bytearray(), "bytes": 0}
+    stdout_state: dict[str, Any] = {"tail": bytearray(), "bytes": 0, "usage_stream": _observation.UsageStream()}
     stderr_state: dict[str, Any] = {"tail": bytearray(), "bytes": 0}
     threads = [
         threading.Thread(target=_drain, args=(process.stdout, stdout_state), daemon=True),
@@ -988,6 +993,7 @@ def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int)
         thread.join(timeout=2)
     writer.join(timeout=2)
     _close_pipes(process)
+    usage_transport, usage_complete = stdout_state['usage_stream'].snapshot()
     if stdin_state["error"] and not timed_out:
         return {
             "returncode": process.returncode,
@@ -1006,6 +1012,8 @@ def run_bounded(command: list[str], task: str, repo: Path, timeout_seconds: int)
         "stderr": bytes(stderr_state["tail"]),
         "stdout_bytes": stdout_state["bytes"],
         "stderr_bytes": stderr_state["bytes"],
+        "usage_transport": usage_transport,
+        "usage_transport_complete": usage_complete,
     }
 
 

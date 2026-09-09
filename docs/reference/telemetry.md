@@ -102,8 +102,15 @@ actor credit or joining usage.
 ### Native usage and interpretation
 
 Usage comes only from top-level structured stdout of the launched CLI. The
-parser never recursively extracts usage from model or tool text. An incomplete
-process or a truncated capture leaves usage unknown; zero is not a substitute.
+parser never recursively extracts usage from model or tool text. It reads
+complete JSONL records as stdout arrives, discards message payloads and session
+IDs, and retains only the transport metadata needed by the usage parser. This
+allows the diagnostic stdout tail to truncate without discarding usage.
+The in-memory reader permits at most 1 MiB per line, 32 MiB per stream, 10,000
+nonempty records, and 64 KiB of selected metadata. Incomplete processes or
+streams, malformed or duplicate-key records, and exceeded bounds leave usage
+unknown; zero is not a substitute. Earlier attempts with truncated captures
+are not retroactively repaired by this reader.
 
 - Codex and codex-zai require one ordered thread/start/completed-turn sequence.
   The counters cover the native parent turn. Cached input and reasoning output

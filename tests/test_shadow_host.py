@@ -1851,5 +1851,78 @@ class AmbientGitRedirectPinTests(unittest.TestCase):
                 )
 
 
+class NativeUsageStreamTests(unittest.TestCase):
+    START = '{"type":"thread.started","thread_id":"PRIVATE_SESSION_CANARY"}\n{"type":"turn.started"}\n'
+    END = '{"type":"turn.completed","usage":{"input_tokens":123,"cached_input_tokens":40,"output_tokens":6}}\n'
+
+    def emit(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            return shadow_host.run_bounded(
+                [sys.executable, '-c', 'import sys; sys.stdout.write(sys.stdin.read())'],
+                text, Path(tmp), 10)
+
+    def test_verbose_native_transport_keeps_usage_without_payloads(self):
+        message = json.dumps(dict(type='item.completed', item=dict(type='agent_message',
+            text='PRIVATE_BODY_CANARY' + '\u00e9' * 4000)), ensure_ascii=False) + '\n'
+        process = self.emit(self.START + message * 24 + self.END)
+        self.assertGreater(process['stdout_bytes'], shadow_host.MAX_CAPTURE_BYTES)
+        self.assertLessEqual(len(process['stdout']), shadow_host.MAX_CAPTURE_BYTES)
+        usage = shadow_host._observation.native_usage('codex', process)
+        self.assertEqual(usage['state'], 'known')
+        self.assertEqual((usage['input_tokens'], usage['cached_input_tokens'], usage['output_tokens']), (123, 40, 6))
+        retained = process['usage_transport'].decode()
+        for canary in ('PRIVATE_SESSION_CANARY', 'PRIVATE_BODY_CANARY', 'agent_message'):
+            self.assertNotIn(canary, retained)
+
+    def test_invalid_or_partial_records_and_nested_usage_stay_unknown(self):
+        nested = json.dumps(dict(type='item.completed', item=dict(text=self.END))) + '\n'
+        for text in (self.START + nested, self.START + self.END + self.END,
+                     self.START + self.END + '{"partial":',
+                     self.START + '{"type":"item.completed","type":"turn.completed"}\n' + self.END,
+                     self.START + 'not-json\n' + self.END):
+            with self.subTest(text=text[:80]):
+                self.assertEqual(shadow_host._observation.native_usage('codex', self.emit(text))['state'], 'unknown')
+
+    def test_stream_bounds_fail_closed(self):
+        for middle in ('{}\n' * 10001,
+                       json.dumps(dict(type='item.completed', text='x' * (1024 * 1024))) + '\n'):
+            with self.subTest(size=len(middle)):
+                process = self.emit(self.START + middle + self.END)
+                self.assertEqual(shadow_host._observation.native_usage('codex', process)['state'], 'unknown')
+                self.assertLessEqual(len(process.get('usage_transport', b'')), shadow_host.MAX_CAPTURE_BYTES)
+
+    def test_claude_result_remains_whole_tree_after_verbose_messages(self):
+        result = dict(type='result', subtype='success', is_error=False, total_cost_usd=0.12,
+                      modelUsage={'claude-test': dict(inputTokens=20, outputTokens=8,
+                          cacheReadInputTokens=5, cacheCreationInputTokens=2,
+                          private='PRIVATE_USAGE_CANARY')})
+        process = self.emit((json.dumps(dict(type='assistant', message={'content':'PRIVATE_BODY_CANARY' * 2000})) + '\n') * 4
+                            + json.dumps(result))
+        usage = shadow_host._observation.native_usage('claude-code', process)
+        self.assertEqual(usage['state'], 'known')
+        self.assertEqual((usage['scope'], usage['input_tokens'], usage['native_cost_usd']), ('native_whole_tree', 20, 0.12))
+        self.assertNotIn('PRIVATE_BODY_CANARY', process['usage_transport'].decode())
+        self.assertNotIn('PRIVATE_USAGE_CANARY', process['usage_transport'].decode())
+        process['returncode'] = 1
+        self.assertEqual(shadow_host._observation.native_usage('claude-code', process)['state'], 'unknown')
+
+    def test_invalid_usage_values_are_not_retained_as_payloads(self):
+        terminal = self.END.replace('123', '{"private":"PRIVATE_USAGE_CANARY"}')
+        process = self.emit(self.START + terminal)
+        self.assertNotIn('PRIVATE_USAGE_CANARY', process['usage_transport'].decode())
+        self.assertEqual(shadow_host._observation.native_usage('codex', process)['state'], 'unknown')
+
+    def test_extreme_cost_is_unknown_without_interrupting_capture(self):
+        result = dict(type='result', subtype='success', is_error=False, total_cost_usd=10**1000,
+                      modelUsage={'claude-test': dict(inputTokens=20, outputTokens=8,
+                          cacheReadInputTokens=5, cacheCreationInputTokens=2)})
+        raw = (json.dumps(result) + '\n').encode()
+        legacy = dict(returncode=0, stdout=raw, stdout_bytes=len(raw))
+        self.assertEqual(shadow_host._observation.native_usage('claude-code', legacy)['state'], 'unknown')
+        process = self.emit(raw.decode())
+        self.assertTrue(process['usage_transport_complete'])
+        self.assertEqual(shadow_host._observation.native_usage('claude-code', process)['state'], 'unknown')
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -99,13 +99,110 @@ def unknown_usage(reason='transport_unavailable'):
                 provider_identity=None)
 
 
+class UsageStream:
+    """Discard payloads while reading bounded, complete native JSONL records."""
+    MAX_LINE = 1024 * 1024
+    MAX_BYTES = 32 * 1024 * 1024
+    MAX_RECORDS = 10000
+    MAX_RETAINED = 64 * 1024
+
+    def __init__(self):
+        self.pending = bytearray()
+        self.records = []
+        self.count = self.total = self.retained = 0
+        self.invalid = self.closed = False
+
+    def refuse(self):
+        self.invalid = True
+        self.pending.clear()
+        self.records.clear()
+
+    def feed(self, chunk):
+        if self.invalid or self.closed:
+            return
+        self.total += len(chunk)
+        if self.total > self.MAX_BYTES:
+            self.refuse(); return
+        self.pending.extend(chunk)
+        while (end := self.pending.find(b'\n')) >= 0:
+            if end > self.MAX_LINE:
+                self.refuse(); return
+            line = bytes(self.pending[:end])
+            del self.pending[:end + 1]
+            self.record(line)
+            if self.invalid:
+                return
+        if len(self.pending) > self.MAX_LINE:
+            self.refuse()
+
+    def record(self, line):
+        if not line.strip():
+            return
+        self.count += 1
+        try:
+            if self.count > self.MAX_RECORDS:
+                raise ValueError('too many records')
+            value = json.loads(line.decode('utf-8'), object_pairs_hook=unique_object)
+            if not isinstance(value, dict):
+                raise ValueError('non-object record')
+            kind = value.get('type')
+            if kind in ('thread.started', 'turn.started', 'turn.failed', 'error'):
+                selected = {'type': kind}
+            elif kind == 'turn.completed':
+                usage = value.get('usage')
+                if isinstance(usage, dict):
+                    usage = {k: usage[k] if integer(usage[k]) else None for k in ('input_tokens', 'cached_input_tokens',
+                        'output_tokens', 'reasoning_output_tokens') if k in usage}
+                else:
+                    usage = None
+                selected = {'type': kind, 'usage': usage}
+            elif kind == 'result':
+                models = value.get('modelUsage')
+                if (isinstance(models, dict) and 1 <= len(models) <= 16
+                        and all(isinstance(k, str) and re.fullmatch(r'claude-[a-z0-9.-]{1,64}', k)
+                                and isinstance(v, dict) for k, v in models.items())):
+                    models = {model: {k: counters.get(k) if integer(counters.get(k)) else None
+                        for k in ('inputTokens', 'outputTokens', 'cacheReadInputTokens',
+                                  'cacheCreationInputTokens')} for model, counters in models.items()}
+                else:
+                    models = None
+                cost = value.get('total_cost_usd')
+                cost = cost if type(cost) in (int, float) and 0 <= cost <= 10**6 and math.isfinite(cost) else None
+                selected = dict(type=kind, subtype='success' if value.get('subtype') == 'success' else None,
+                    is_error=value.get('is_error') if type(value.get('is_error')) is bool else None,
+                    total_cost_usd=cost, modelUsage=models)
+            else:
+                return
+            encoded = json.dumps(selected, separators=(',', ':')).encode() + b'\n'
+            self.retained += len(encoded)
+            if self.retained > self.MAX_RETAINED:
+                raise ValueError('usage metadata exceeds bound')
+            self.records.append(encoded)
+        except (ValueError, UnicodeError, RecursionError):
+            self.refuse()
+
+    def finish(self):
+        if not self.invalid and self.pending:
+            self.record(bytes(self.pending))
+        self.pending.clear()
+        self.closed = True
+
+    def snapshot(self):
+        complete = self.closed and not self.invalid
+        return (b''.join(self.records) if complete else b''), complete
+
+
 def native_usage(host, process):
     """No recursive traversal, text extraction, requested model or price lookup."""
     unknown = unknown_usage()
     raw = process.get('stdout', b'')
+    streamed = 'usage_transport' in process
+    if streamed:
+        raw = process['usage_transport']
     if (process.get('timed_out') or process.get('launch_error')
             or process.get('returncode') != 0
-            or process.get('stdout_bytes', len(raw)) != len(raw)):
+            or (not process.get('usage_transport_complete') if streamed
+                else process.get('stdout_bytes', len(raw)) != len(raw))):
         return unknown_usage('incomplete_process_or_capture')
     try:
         records = [json.loads(line, object_pairs_hook=unique_object)
@@ -151,7 +248,7 @@ def native_usage(host, process):
                         return unknown
                     totals[output] += usage[key]
             cost = result.get('total_cost_usd')
-            if type(cost) not in (int, float) or not math.isfinite(cost) or not 0 <= cost <= 10**6:
+            if type(cost) not in (int, float) or not 0 <= cost <= 10**6 or not math.isfinite(cost):
                 return unknown
             return dict(unknown, state='known', reason=None, scope='native_whole_tree', **totals,
                         native_cost_usd=cost, cost_basis='native_reported_estimate', observed_models=sorted(models))
