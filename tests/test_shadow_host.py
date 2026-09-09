@@ -519,7 +519,18 @@ class HuddleHostTests(HuddleTestCase):
                 self.assertEqual(self.authority(), before)
 
 
-class ShadowHostTests(unittest.TestCase):
+class UnclaimedHostTestCase(unittest.TestCase):
+    """Legacy transport fixtures never read the operator's current board."""
+
+    def setUp(self):
+        fixture_home = tempfile.TemporaryDirectory()
+        self.addCleanup(fixture_home.cleanup)
+        environment = mock.patch.dict(os.environ, {"HOME": fixture_home.name, "SHADOW_TELEMETRY": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+
+class ShadowHostTests(UnclaimedHostTestCase):
     def test_cursor_json_envelope_parses_receipt_after_prose(self) -> None:
         envelope = json.dumps(
             {
@@ -1739,7 +1750,7 @@ class ExecutionBindingTests(HuddleTestCase):
         self.assertFalse(payload["execution_binding"]["execution_candidate"])
 
 
-class AuditBlockRegressionTests(unittest.TestCase):
+class AuditBlockRegressionTests(UnclaimedHostTestCase):
     def test_existing_out_refuses_before_the_host_ever_runs(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

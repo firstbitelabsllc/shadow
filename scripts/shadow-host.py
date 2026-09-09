@@ -31,6 +31,8 @@ from typing import Any
 import shadow_plan_grammar as _grammar
 import shadow_git as _shadow_git
 import shadow_root_board as _board
+import shadow_host_observation as _observation
+import shadow_telemetry as _telemetry
 from shadow_durable_lib import durable_write
 from shadow_json_lib import json_text
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
@@ -1391,10 +1393,13 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "proposal_output_invalid",
             "authority proposal mode requires one sealed evidence output file",
         )
+    observe = _telemetry.local_enabled() and not authority_proposal
     # Refuse a would-be-clobbered receipt BEFORE the host runs: discovering it
     # only at write time throws away a completed, worktree-mutating attempt.
     if destination is not None and destination.exists() and not args.force:
         raise HostError("output_exists", "attempt output already exists; pass --force to replace it")
+    if observe and (destination is None or destination.relative_to(repo).as_posix() == _observation.LOG_PATH):
+        raise HostError("observation_output_required", "local observation needs a separate evidence output file")
     try:
         task, task_sha256 = frozen_task_sha256(Path(args.task_file).expanduser())
     except TaskError as exc:
@@ -1483,6 +1488,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 reflog_before,
                 index_has_suppressed_entries(repo),
             )
+        launch_event = None
+        launch_log_digest = None
+        if observe:
+            if binding_context is None:
+                raise HostError("observation_claim_required", "local observation requires v2 claim admission")
+            try:
+                launch_event = _observation.start(repo, binding_context[0], task_sha256, args.host, args.work_class)
+                launch_log_digest = local_state_snapshot(repo)[_observation.LOG_PATH]
+            except _telemetry.TelemetryError:
+                raise HostError("observation_incomplete", "controller launch observation could not be retained") from None
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
         output_texts = [result.get("stdout", b"").decode("utf-8", errors="replace")]
         output_texts.append(result.get("stderr", b"").decode("utf-8", errors="replace"))
@@ -1508,6 +1523,11 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             set(before).symmetric_difference(after)
             | {path for path in set(state_before) | set(state_after) if state_before.get(path) != state_after.get(path)}
         )
+        log_unchanged = launch_event is None or state_after.get(_observation.LOG_PATH) == launch_log_digest
+        if launch_event is not None and log_unchanged:
+            # The only new state excluded from scope is the exact controller
+            # append retained before execution. A worker append is not exempt.
+            changed = [path for path in changed if path != _observation.LOG_PATH]
         # Ignored files created during the run (interpreter caches, dependency
         # installs from the bounded proof) are recorded for review but cannot
         # reach a commit, a merge, or the clean lead re-proof checkout.
@@ -1519,6 +1539,8 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         range_observation: tuple[bool, bool, set[str]] | None = None
         binding: dict[str, Any] | None = None
         try:
+            if not log_unchanged:
+                raise HostError("observation_incomplete", "worker changed the controller observation stream")
             if result.get("timed_out"):
                 raise HostError("host_timeout", "host exceeded the bounded execution timeout")
             if result.get("launch_error"):
@@ -1588,13 +1610,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                 allowed_scope=allowed,
                 status=status,
                 final_clean=(
-                    not after
+                    not [path for path in after if path not in state_after]
                     and all(
                         path.rstrip("/") == ".shadow" or path.startswith(".shadow/evidence/")
                         for path in after_all
                     )
-                    and set(state_after).issubset(
-                        {destination.relative_to(repo).as_posix()} if destination is not None else set()
+                    and all(
+                        state_before.get(path) == digest
+                        or destination is not None and path == destination.relative_to(repo).as_posix()
+                        or launch_event is not None and path == _observation.LOG_PATH and log_unchanged
+                        for path, digest in state_after.items()
                     )
                 ),
                 reflog_continuous=reflog_continuity(
@@ -1620,6 +1645,9 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             },
             "task_id": task_id,
             "task_sha256": task_sha256,
+            "native_usage": _observation.native_usage(args.host, result),
+            "controller_observation": {"state": "retained" if launch_event and log_unchanged else "disabled" if not observe else "incomplete",
+                                       "run_id": launch_event["run_id"] if launch_event else None},
             "status": status,
             "summary": (host_receipt or {}).get("summary"),
             "proof_ref": (host_receipt or {}).get("proof_ref"),
@@ -1649,6 +1677,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         payload = bound_successful_proposal_attempt(payload)
         status = payload["status"]
     write_json("-" if destination is None else str(destination), payload, force=args.force)
+    if launch_event is not None and log_unchanged:
+        try:
+            _observation.finish(repo, launch_event, destination, payload)
+        except (OSError, _telemetry.TelemetryError):
+            payload["status"] = status = "blocked"
+            payload["blocked"] = {"kind": "observation_incomplete", "detail": "controller terminal observation could not be retained"}
+            payload["controller_observation"]["state"] = "incomplete"
+            if "execution_binding" in payload:
+                payload["execution_binding"]["execution_candidate"] = False
+            write_json(str(destination), payload, force=True)
     return payload, 0 if status == "ok" else 1
 
 
