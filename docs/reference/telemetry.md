@@ -33,6 +33,99 @@ The closed field vocabulary is:
 | `duration_ms` | Bounded elapsed milliseconds. |
 | `outcome` | Lifecycle outcome. |
 
+## Observe native delegation
+
+The same `SHADOW_TELEMETRY=local` opt-in makes an ordinary `shadow host run`
+retain controller observations in that repository's existing event file.
+The run needs an admitted v2 claim and a separate `--out` file beneath
+`.shadow/evidence/`. Authority-proposal runs are outside this observation
+path. With telemetry unset, host execution creates no observation stream.
+
+After admission, the controller appends `host_start` immediately before the
+launch attempt. After the host returns and the controller checks its source
+changes, it writes the existing attempt receipt and appends `host_finish`
+with the digest of those exact bytes. A process that fails or times out is
+still an attempt. Pre-admission refusals do not enter this stream.
+
+These records use the closed `shadow.host-observation.v1` schema:
+
+- Both phases contain schema, recorded_at, event, run_id, entity, row,
+  claim_revision, owner_sha256, worktree_sha256, task_sha256, host and
+  work_class. The random run identity and opaque hashes distinguish launches,
+  owners, source worktrees and frozen tasks without retaining their text.
+- The finish phase additionally contains receipt_sha256,
+  receipt_path_sha256, status and duration_ms. The receipt locator is hashed;
+  the record contains no absolute path. Duration is total runner elapsed time,
+  including its checks, and does not measure a person's attention.
+
+Each host event is limited to 2 KiB and uses the same mode-0600, locked,
+non-symlink append path as the legacy event. No prompt, model message, tool
+payload, source content, session ID, credential or account value enters these
+records. The controller excludes only its exact pre-launch log append from
+the source-change check: a worker append, even a valid event, invalidates the
+execution candidate. A launch-observation failure prevents execution. A
+terminal-write failure leaves the start visible, marks the attempt
+`observation_incomplete`, and grants no contribution credit.
+
+This evidence trusts the local controller, its selected executable and its
+storage, within the same cooperative single-user boundary as the board. It
+does not authenticate a provider or protect against a hostile process running
+as the same user. Host names describe the selected adapter; requested model
+labels are separate from native observations.
+
+Read the selected repository's retained observations against current
+canonical acceptance:
+
+```sh
+scripts/shadow-python.sh scripts/dev/shadow-efficiency-acceptance.py \
+  --observed-repo /path/to/worktree
+```
+
+Repeat `--observed-repo` for up to 16 worktrees. Each stream is bounded to
+4 MiB and 4,096 records; receipt discovery stays within that worktree's
+evidence directory and refuses more than 256 JSON files. The read checks the
+board, plan and stream again before returning, so concurrent movement requires
+a new read. Exact duplicate records count once. Conflicting identities,
+missing terminals, modified receipts, copied worktree evidence, partial logs
+and reopened acceptances cannot retain successful contribution credit.
+Malformed records make attribution and usage totals unavailable for the
+selected report, rather than silently dropping data.
+
+One root means one entity/checkpoint pair. Retries and failures remain visible
+in the attempt denominator. An observed committed candidate earns credit only
+when its repository and final source head exactly match that root's current
+command acceptance. A review-only attempt, an uncommitted change, or a later
+lead-modified head does not establish that code contribution. The legacy
+`--attempt FILE` mode still compares supplied receipts without ever granting
+actor credit or joining usage.
+
+### Native usage and interpretation
+
+Usage comes only from top-level structured stdout of the launched CLI. The
+parser never recursively extracts usage from model or tool text. An incomplete
+process or a truncated capture leaves usage unknown; zero is not a substitute.
+
+- Codex and codex-zai require one ordered thread/start/completed-turn sequence.
+  The counters cover the native parent turn. Cached input and reasoning output
+  are optional; absent fields remain null. Model and provider identities,
+  child usage and monetary cost remain unknown.
+- Claude Code requires one successful result with valid `modelUsage` and
+  `total_cost_usd`. The model-usage totals cover the native whole tree,
+  including helpers; the separate parent `usage` field is not substituted.
+  The cost is a native estimate, not billed subscription spend. Native model
+  labels do not establish which provider served the request.
+- Other adapters retain unknown usage until their transport has its own
+  verified parser. A parser fixture alone does not prove a live host works.
+
+The report separates resource totals by work class and usage scope and shows
+known-usage and known-cost coverage. It excludes unobserved work, including
+this caller's lead/review work. Therefore overall worker share, cost per
+accepted task and attention per accepted task remain null. Allocation counts
+alone do not establish benefit: a comparable direct/delegated sample with the
+same starting source, independent acceptance and complete effort coverage is
+required. Routing remains unchanged. No daemon, sink forwarding, scheduler or
+second task store is introduced by this read path.
+
 ## Local sink — the owner's endpoint decision (2026-08-11)
 
 The owner decided the endpoint: a **Langfuse instance on the owner's own
