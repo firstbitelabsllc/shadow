@@ -54,6 +54,101 @@ capture.write_text(json.dumps(sys.argv), encoding="utf-8")
 if mode == "ok":
     pathlib.Path.cwd().joinpath("result.txt").write_text("changed\n", encoding="utf-8")
     changed = ["result.txt"]
+elif mode == "commit":
+    repo = pathlib.Path.cwd()
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "bounded change"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "commit-iso-8859-1":
+    repo = pathlib.Path.cwd()
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run([b"git", b"add", b"result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        [b"git", b"-c", b"i18n.commitEncoding=ISO-8859-1", b"commit", b"-qm", b"caf\xe9"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    changed = ["result.txt"]
+elif mode == "out-of-scope-then-revert":
+    repo = pathlib.Path.cwd()
+    repo.joinpath("outside.txt").write_text("escape\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "outside.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "out of scope"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("outside.txt").unlink()
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "outside.txt", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "revert out of scope"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "branch-switch":
+    repo = pathlib.Path.cwd()
+    subprocess.run(["git", "checkout", "-qb", "switched"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "wrong branch"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "branch-round-trip":
+    repo = pathlib.Path.cwd()
+    original = subprocess.run(["git", "branch", "--show-current"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "checkout", "-qb", "transit"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "transit change"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-q", original], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "merge", "--ff-only", "transit"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "reset-then-advance":
+    repo = pathlib.Path.cwd()
+    repo.joinpath("outside.txt").write_text("escape\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "outside.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "discard out of scope"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "reset", "--hard", "HEAD~1"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "bounded change"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode in {"assume-unchanged", "skip-worktree"}:
+    repo = pathlib.Path.cwd()
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "bounded change"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath(".gitignore").write_text(".env\\nprivate\\n", encoding="utf-8")
+    flag = "--assume-unchanged" if mode == "assume-unchanged" else "--skip-worktree"
+    subprocess.run(["git", "update-index", flag, ".gitignore"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "detach":
+    repo = pathlib.Path.cwd()
+    subprocess.run(["git", "checkout", "--detach"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "detached change"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "merge":
+    repo = pathlib.Path.cwd()
+    original = subprocess.run(["git", "branch", "--show-current"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "checkout", "-qb", "host-merge"], cwd=repo, check=True, capture_output=True)
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "feature change"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-q", original], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "merge", "--no-ff", "--no-edit", "host-merge"], cwd=repo, check=True, capture_output=True)
+    changed = ["result.txt"]
+elif mode == "rename-outside":
+    repo = pathlib.Path.cwd()
+    subprocess.run(["git", "mv", "result.txt", "outside.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "rename outside scope"], cwd=repo, check=True, capture_output=True)
+    changed = ["outside.txt"]
+elif mode == "reset":
+    repo = pathlib.Path.cwd()
+    repo.joinpath("result.txt").write_text("committed\\n", encoding="utf-8")
+    subprocess.run(["git", "add", "result.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "discarded change"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "reset", "--hard", "HEAD~1"], cwd=repo, check=True, capture_output=True)
+    changed = []
+elif mode == "forged-binding":
+    pathlib.Path.cwd().joinpath("result.txt").write_text("changed\\n", encoding="utf-8")
+    changed = ["result.txt"]
 elif mode == "scope":
     pathlib.Path.cwd().joinpath("outside.txt").write_text("escape\n", encoding="utf-8")
     changed = ["outside.txt"]
@@ -76,6 +171,8 @@ if mode != "missing":
     }
     if mode == "private-summary":
         receipt["summary"] = "private-model-marker was used"
+    elif mode == "forged-binding":
+        receipt["execution_binding"] = {"execution_candidate": True, "head_after": "f" * 40}
     elif mode == "private-test":
         receipt["tests"] = [{"name": "private-model-marker", "status": "pass"}]
     elif mode == "unsafe-test":
@@ -422,7 +519,18 @@ class HuddleHostTests(HuddleTestCase):
                 self.assertEqual(self.authority(), before)
 
 
-class ShadowHostTests(unittest.TestCase):
+class UnclaimedHostTestCase(unittest.TestCase):
+    """Legacy transport fixtures never read the operator's current board."""
+
+    def setUp(self):
+        fixture_home = tempfile.TemporaryDirectory()
+        self.addCleanup(fixture_home.cleanup)
+        environment = mock.patch.dict(os.environ, {"HOME": fixture_home.name, "SHADOW_TELEMETRY": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+
+class ShadowHostTests(UnclaimedHostTestCase):
     def test_cursor_json_envelope_parses_receipt_after_prose(self) -> None:
         envelope = json.dumps(
             {
@@ -1130,6 +1238,9 @@ class ShadowHostTests(unittest.TestCase):
                         str(output),
                         "--json",
                     ],
+                    # This adapter fixture owns no live claim. Keep the
+                    # operator's v2 board out; HuddleHostTests exercises v2.
+                    env={**os.environ, "HOME": str(root)},
                     capture_output=True,
                     text=True,
                     check=False,
@@ -1417,7 +1528,229 @@ class ShadowHostTests(unittest.TestCase):
                 self.assertEqual(payload["tests"], [])
 
 
-class AuditBlockRegressionTests(unittest.TestCase):
+class ExecutionBindingTests(HuddleTestCase):
+    """Runner-owned source attribution uses real Git worktrees."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = make_repo(self.home)
+        self.binary = make_host(self.home, "commit")
+        self.task = self.home / "task.txt"
+        self.task.write_text("Commit only the assigned result file.\n", encoding="utf-8")
+        self.output = self.repo / ".shadow/evidence/host.json"
+        payload = self.v2_board()
+        self.claim = payload["claims"][0]
+        self.claim.update(
+            claim_revision=1,
+            access="unscoped",
+            repository_binding=board_api.repository_binding(self.repo),
+        )
+        self.seed_v2(payload)
+
+    def context(self):
+        return {
+            key: self.claim[key]
+            for key in ("entity", "row", "owner", "claim_revision")
+        } | {"board_revision": board_api.snapshot(home=self.home)["revision"]}
+
+    def invoke(self, repo=None, *, paths=()):
+        repo = repo or self.repo
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            return run_host(
+                repo,
+                self.binary,
+                self.task,
+                repo / ".shadow/evidence/host.json",
+                force=True,
+                extra=("--claim-context", json.dumps(self.context()))
+                + tuple(part for path in paths for part in ("--allowed-path", path)),
+            )
+
+    def test_scoped_fast_forward_commit_records_runner_owned_candidate(self):
+        before = git(self.repo, "rev-parse", "HEAD")
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        binding = payload["execution_binding"]
+        self.assertTrue(binding["execution_candidate"])
+        self.assertEqual(binding["head_before"], before)
+        self.assertEqual(binding["head_after"], git(self.repo, "rev-parse", "HEAD"))
+        self.assertEqual(binding["admitted_claim"]["entity"], self.claim["entity"])
+        self.assertEqual(binding["admitted_claim"]["row"], self.claim["row"])
+        self.assertEqual(binding["admitted_claim"]["owner"], self.claim["owner"])
+        self.assertEqual(binding["admitted_claim"]["claim_revision"], self.claim["claim_revision"])
+        self.assertEqual(binding["task_sha256"], hashlib.sha256(self.task.read_bytes()).hexdigest())
+        self.assertEqual(binding["allowed_scope"], ["result.txt"])
+        self.assertEqual(binding["repository"], board_api.repository_binding(self.repo))
+        self.assertNotIn(str(self.repo), json.dumps(binding))
+
+    def test_scoped_commit_qualifies_with_a_mature_reflog(self):
+        for index in range(shadow_host.HEAD_REFLOG_ANCHOR_LIMIT + 1):
+            git(self.repo, "commit", "--allow-empty", "-qm", f"prior {index}")
+
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(payload["execution_binding"]["execution_candidate"])
+
+    def test_preexisting_iso_8859_1_reflog_subject_preserves_normal_receipt(self):
+        subprocess.run(
+            [b"git", b"-C", os.fsencode(self.repo), b"-c", b"i18n.commitEncoding=ISO-8859-1", b"commit", b"--allow-empty", b"-qm", b"caf\xe9"],
+            check=True,
+            capture_output=True,
+        )
+
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["execution_binding"]["execution_candidate"])
+        self.assertNotIn("café", json.dumps(payload, ensure_ascii=False))
+
+    def test_during_host_iso_8859_1_reflog_subject_preserves_normal_receipt(self):
+        self.binary.with_suffix(".mode").write_text("commit-iso-8859-1", encoding="utf-8")
+
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["execution_binding"]["execution_candidate"])
+        self.assertNotIn("café", json.dumps(payload, ensure_ascii=False))
+
+    def test_malformed_reflog_object_id_is_classified(self):
+        malformed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=(b"\xff" * 40) + b"\tcommit: subject\0", stderr=b""
+        )
+        with mock.patch.object(shadow_host.subprocess, "run", return_value=malformed):
+            with self.assertRaisesRegex(shadow_host.HostError, "worktree reflog head is malformed") as caught:
+                shadow_host.head_reflog_snapshot(self.repo)
+        self.assertEqual(caught.exception.kind, "git_unavailable")
+
+    def test_distinct_worktrees_sharing_a_base_have_distinct_opaque_identities(self):
+        other = self.home / "other-worktree"
+        git(self.repo, "worktree", "add", "-qb", "other", str(other))
+        self.assertEqual(
+            git(self.repo, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+            git(other, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+        )
+
+        first = self.invoke()
+        first_payload = json.loads(self.output.read_text(encoding="utf-8"))
+        self.output = other / ".shadow/evidence/host.json"
+        self.binary.with_suffix(".mode").write_text("commit", encoding="utf-8")
+        second = self.invoke(other)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        second_payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertNotEqual(
+            first_payload["execution_binding"]["worktree_sha256"],
+            second_payload["execution_binding"]["worktree_sha256"],
+        )
+
+    def test_out_of_scope_commit_reverted_before_terminal_diff_is_not_a_candidate(self):
+        self.binary.with_suffix(".mode").write_text("out-of-scope-then-revert", encoding="utf-8")
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(payload["execution_binding"]["execution_candidate"])
+        self.assertEqual(payload["status"], "ok")
+
+    def test_branch_switch_is_not_a_candidate_without_reclassifying_attempt_status(self):
+        self.binary.with_suffix(".mode").write_text("branch-switch", encoding="utf-8")
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(payload["execution_binding"]["execution_candidate"])
+        self.assertEqual(payload["status"], "ok")
+
+    def assert_unqualified_mode(self, mode):
+        self.binary.with_suffix(".mode").write_text(mode, encoding="utf-8")
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(payload["status"], "ok")
+        self.assertFalse(payload["execution_binding"]["execution_candidate"])
+
+    def test_branch_round_trip_is_not_a_candidate(self):
+        self.assert_unqualified_mode("branch-round-trip")
+
+    def test_reset_then_advance_is_not_a_candidate(self):
+        self.assert_unqualified_mode("reset-then-advance")
+
+    def test_assume_unchanged_source_is_not_a_candidate(self):
+        self.assert_unqualified_mode("assume-unchanged")
+
+    def test_skip_worktree_source_is_not_a_candidate(self):
+        self.assert_unqualified_mode("skip-worktree")
+
+    def test_preexisting_suppressed_index_entry_is_not_a_candidate(self):
+        git(self.repo, "update-index", "--assume-unchanged", ".gitignore")
+        self.assert_unqualified_mode("commit")
+
+    def test_forged_model_binding_cannot_overwrite_runner_observations(self):
+        self.binary.with_suffix(".mode").write_text("forged-binding", encoding="utf-8")
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(payload["blocked"]["kind"], "host_receipt_invalid")
+        binding = payload["execution_binding"]
+        self.assertFalse(binding["execution_candidate"])
+        self.assertNotEqual(binding["head_after"], "f" * 40)
+
+    def test_detached_head_and_merge_commit_are_not_candidates(self):
+        for mode in ("detach", "merge"):
+            with self.subTest(mode=mode):
+                self.binary.with_suffix(".mode").write_text(mode, encoding="utf-8")
+                result = self.invoke()
+                payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(payload["status"], "ok")
+                self.assertFalse(payload["execution_binding"]["execution_candidate"])
+                git(self.repo, "reset", "--hard", "HEAD")
+                (self.repo / ".env").unlink(missing_ok=True)
+                if mode == "detach":
+                    git(self.repo, "checkout", "-q", "master")
+
+    def test_rename_outside_scope_is_refused_and_not_a_candidate(self):
+        self.binary.with_suffix(".mode").write_text("rename-outside", encoding="utf-8")
+        result = self.invoke()
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(payload["blocked"]["kind"], "scope_violation")
+        self.assertFalse(payload["execution_binding"]["execution_candidate"])
+
+    def test_reset_and_dirty_or_ignored_terminal_source_are_not_candidates(self):
+        for mode in ("reset", "ok", "ignored"):
+            with self.subTest(mode=mode):
+                self.binary.with_suffix(".mode").write_text(mode, encoding="utf-8")
+                result = self.invoke()
+                payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(payload["status"], "ok")
+                self.assertFalse(payload["execution_binding"]["execution_candidate"])
+                git(self.repo, "reset", "--hard", "HEAD")
+                (self.repo / ".env").unlink(missing_ok=True)
+
+    def test_preexisting_ignored_source_in_scope_is_not_a_candidate(self):
+        (self.repo / ".env").write_text("already here\n", encoding="utf-8")
+        result = self.invoke(paths=(".env",))
+        payload = json.loads(self.output.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(payload["status"], "ok")
+        self.assertFalse(payload["execution_binding"]["execution_candidate"])
+
+
+class AuditBlockRegressionTests(UnclaimedHostTestCase):
     def test_existing_out_refuses_before_the_host_ever_runs(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

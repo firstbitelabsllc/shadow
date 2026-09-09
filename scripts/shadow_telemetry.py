@@ -110,6 +110,11 @@ def _open_directory(parent: int, name: str) -> int:
 
 def emit_local(repo: Path, candidate: Mapping[str, object]) -> Path:
     """Append one bounded event beneath the exact canonical repository root."""
+    return append_record(repo, _validated_record(candidate), max_bytes=MAX_EVENT_BYTES)
+
+
+def append_record(repo: Path, record: Mapping[str, object], *, max_bytes: int) -> Path:
+    """Shared safe append for already validated closed local event schemas."""
     root = Path(repo)
     try:
         canonical = root.resolve(strict=True)
@@ -117,9 +122,8 @@ def emit_local(repo: Path, candidate: Mapping[str, object]) -> Path:
         raise TelemetryError("repository root is unavailable") from exc
     if not root.is_absolute() or root != canonical or not root.is_dir():
         raise TelemetryError("repository root is not canonical")
-    record = _validated_record(candidate)
     encoded = (json.dumps(record, separators=(",", ":")) + "\n").encode("utf-8")
-    if len(encoded) > MAX_EVENT_BYTES:
+    if len(encoded) > max_bytes:
         raise TelemetryError("local event exceeds its byte budget")
 
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)

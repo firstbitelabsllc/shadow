@@ -31,6 +31,8 @@ from typing import Any
 import shadow_plan_grammar as _grammar
 import shadow_git as _shadow_git
 import shadow_root_board as _board
+import shadow_host_observation as _observation
+import shadow_telemetry as _telemetry
 from shadow_durable_lib import durable_write
 from shadow_json_lib import json_text
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
@@ -65,6 +67,8 @@ MAX_RECEIPT_BYTES = 64 * 1024
 MAX_ATTEMPT_BYTES = 64 * 1024
 MAX_SUMMARY_CHARS = 280
 MAX_TEST_NAME_CHARS = 160
+HEAD_REFLOG_LIMIT = 128
+HEAD_REFLOG_ANCHOR_LIMIT = 64
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 # Known-private markers match anywhere: a mid-string `/Users/...` behind a
 # backtick or parenthesis is still a private path.
@@ -220,6 +224,236 @@ def exact_git_root(repo: Path) -> Path:
     if root != repo.resolve():
         raise HostError("worktree_invalid", "--repo must be an exact Git worktree root")
     return root
+
+
+def git_branch(repo: Path) -> str | None:
+    """Return the attached branch name, or None for a detached HEAD."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect worktree branch: {exc}") from exc
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        raise HostError("git_unavailable", "cannot inspect worktree branch")
+    branch = result.stdout.strip()
+    if not branch or CONTROL_RE.search(branch) or PRIVATE_PATH_RE.search(branch) or SECRET_SHAPE_RE.search(branch):
+        raise HostError("git_unavailable", "worktree branch identity is unsafe")
+    return branch
+
+
+def head_reflog_snapshot(repo: Path, *, limit: int = HEAD_REFLOG_LIMIT) -> tuple[tuple[str, str], ...]:
+    """Read one bounded, redacted-in-memory HEAD transition witness."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "reflog", "show", "--format=%H%x09%gs", "-z", "-n", str(limit), "HEAD"],
+            capture_output=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect worktree reflog: {exc}") from exc
+    if result.returncode:
+        raise HostError("git_unavailable", "cannot inspect worktree reflog")
+    records = [record for record in result.stdout.split(b"\0") if record]
+    if not records:
+        return ()
+    entries: list[tuple[str, str]] = []
+    for record in records:
+        if b"\t" not in record:
+            raise HostError("git_unavailable", "worktree reflog is malformed")
+        raw_head, raw_message = record.split(b"\t", 1)
+        try:
+            head = raw_head.decode("ascii", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise HostError("git_unavailable", "worktree reflog head is malformed") from exc
+        if GIT_SHA1_RE.fullmatch(head) is None:
+            raise HostError("git_unavailable", "worktree reflog head is malformed")
+        action = {
+            b"commit": "commit",
+            b"checkout": "checkout",
+            b"reset": "reset",
+        }.get(raw_message.partition(b":")[0], "other")
+        entries.append((head, action))
+    return tuple(entries)
+
+
+def reflog_continuity(
+    repo: Path,
+    before: tuple[tuple[str, str], ...],
+    after: tuple[tuple[str, str], ...],
+    allowed: list[str],
+    head_after: str,
+) -> bool:
+    """Accept only one unambiguous run of scoped forward commit transitions."""
+    if not before or not after or after[0][0] != head_after or len(after) < len(before):
+        return False
+    starts = [index for index in range(len(after) - len(before) + 1) if after[index:index + len(before)] == before]
+    if len(starts) != 1:
+        return False
+    transitions = tuple(reversed(after[:starts[0]]))
+    previous = before[0][0]
+    for head, action in transitions:
+        if action != "commit" or head == previous:
+            return False
+        ancestry, has_merge, paths = git_commit_paths(repo, previous, head)
+        if not ancestry or has_merge or not all(path_allowed(path, allowed) for path in paths):
+            return False
+        previous = head
+    return bool(transitions)
+
+
+def index_has_suppressed_entries(repo: Path) -> bool:
+    """Fail closed when Git flags can hide tracked worktree source changes."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-v", "-t", "-z"],
+            capture_output=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect worktree index flags: {exc}") from exc
+    if result.returncode:
+        raise HostError("git_unavailable", "cannot inspect worktree index flags")
+    for record in (item for item in result.stdout.split(b"\0") if item):
+        if len(record) < 3 or record[1:2] != b" ":
+            raise HostError("git_unavailable", "worktree index flags are malformed")
+        tag = chr(record[0])
+        if tag == "S" or tag.islower():
+            return True
+    return False
+
+
+def git_commit_paths(repo: Path, before: str, after: str) -> tuple[bool, bool, set[str]]:
+    """Return ancestry, merge presence, and every path touched in a commit range.
+
+    Git's NUL-delimited name-status output keeps spaces and rename endpoints
+    unambiguous. This is source observation, never host-reported metadata.
+    """
+    try:
+        ancestor = subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", before, after],
+            capture_output=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+        if ancestor.returncode not in {0, 1}:
+            raise HostError("git_unavailable", "cannot compare source revisions")
+        if ancestor.returncode:
+            return False, False, set()
+        commits = subprocess.run(
+            ["git", "-C", str(repo), "rev-list", "--parents", f"{before}..{after}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+        if commits.returncode:
+            raise HostError("git_unavailable", "cannot inspect source commit range")
+        commit_ids: list[str] = []
+        has_merge = False
+        for line in commits.stdout.splitlines():
+            fields = line.split()
+            if not fields or GIT_SHA1_RE.fullmatch(fields[0]) is None:
+                raise HostError("git_unavailable", "source commit range is malformed")
+            if len(fields) != 2:
+                has_merge = True
+            commit_ids.append(fields[0])
+        paths: set[str] = set()
+        for commit in commit_ids:
+            diff = subprocess.run(
+                ["git", "-C", str(repo), "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", commit],
+                capture_output=True,
+                timeout=5,
+                env=_shadow_git.sanitized_git_env(),
+                check=False,
+            )
+            if diff.returncode:
+                raise HostError("git_unavailable", "cannot inspect source commit paths")
+            records = [item for item in diff.stdout.split(b"\0") if item]
+            index = 0
+            while index < len(records):
+                status = records[index].decode("ascii", errors="strict")
+                index += 1
+                if not status or status[0] not in {"A", "C", "D", "M", "R", "T", "U", "X", "B"}:
+                    raise HostError("git_unavailable", "source commit path status is malformed")
+                names = 2 if status[0] in {"R", "C"} else 1
+                if index + names > len(records):
+                    raise HostError("git_unavailable", "source commit path record is malformed")
+                for raw_path in records[index:index + names]:
+                    path = raw_path.decode("utf-8", errors="strict")
+                    if not path or CONTROL_RE.search(path):
+                        raise HostError("git_unavailable", "source commit path is malformed")
+                    paths.add(path)
+                index += names
+        return True, has_merge, paths
+    except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+        raise HostError("git_unavailable", f"cannot inspect source commit range: {exc}") from exc
+
+
+def execution_binding(
+    *,
+    admitted_claim: dict[str, Any],
+    authorized_revision: int,
+    authorized_at: datetime,
+    repository: dict[str, Any],
+    repo: Path,
+    branch_before: str | None,
+    head_before: str,
+    branch_after: str | None,
+    head_after: str,
+    task_sha256: str,
+    allowed_scope: list[str],
+    status: str,
+    final_clean: bool,
+    reflog_continuous: bool,
+    index_suppressed: bool,
+    observation: tuple[bool, bool, set[str]] | None = None,
+) -> tuple[dict[str, Any], set[str]]:
+    """Build a runner-owned candidate receipt after one native execution."""
+    ancestry, has_merge, committed_paths = observation or git_commit_paths(repo, head_before, head_after)
+    candidate = (
+        status == "ok"
+        and branch_before is not None
+        and branch_after == branch_before
+        and head_after != head_before
+        and ancestry
+        and not has_merge
+        and all(path_allowed(path, allowed_scope) for path in committed_paths)
+        and final_clean
+        and reflog_continuous
+        and not index_suppressed
+    )
+    claim = {
+        key: admitted_claim[key]
+        for key in ("entity", "row", "owner", "claim_revision", "claimed_at")
+    }
+    return {
+        "admitted_claim": claim,
+        "authorized_board_revision": authorized_revision,
+        "authorized_at": authorized_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "repository": repository,
+        "worktree_sha256": hashlib.sha256(str(repo.resolve()).encode("utf-8")).hexdigest(),
+        "branch_before": branch_before,
+        "branch_after": branch_after,
+        "head_before": head_before,
+        "head_after": head_after,
+        "task_sha256": task_sha256,
+        "allowed_scope": allowed_scope,
+        "execution_candidate": candidate,
+    }, committed_paths
 
 
 def status_paths(repo: Path, *, include_ignored: bool = False) -> list[str]:
@@ -1159,10 +1393,13 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "proposal_output_invalid",
             "authority proposal mode requires one sealed evidence output file",
         )
+    observe = _telemetry.local_enabled() and not authority_proposal
     # Refuse a would-be-clobbered receipt BEFORE the host runs: discovering it
     # only at write time throws away a completed, worktree-mutating attempt.
     if destination is not None and destination.exists() and not args.force:
         raise HostError("output_exists", "attempt output already exists; pass --force to replace it")
+    if observe and (destination is None or destination.relative_to(repo).as_posix() == _observation.LOG_PATH):
+        raise HostError("observation_output_required", "local observation needs a separate evidence output file")
     try:
         task, task_sha256 = frozen_task_sha256(Path(args.task_file).expanduser())
     except TaskError as exc:
@@ -1219,11 +1456,48 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             delegation=args.delegation,
         )
         try:
-            _board.authorize_host_attempt(
+            authorized_at = datetime.now(timezone.utc)
+            authorization = _board.authorize_host_attempt(
                 context=context, repo=repo, write_scope=args.allowed_path,
-                authority_proposal=authority_proposal, now=datetime.now(timezone.utc))
+                authority_proposal=authority_proposal, now=authorized_at)
         except _board.BoardError as exc:
             raise HostError("claim_access_refused", str(exc)) from None
+        binding_context: tuple[
+            dict[str, Any], int, datetime, dict[str, Any], str | None, str,
+            tuple[tuple[str, str], ...], bool,
+        ] | None = None
+        if not authority_proposal and authorization is not None:
+            admitted_claim = next(
+                (
+                    claim for claim in authorization.payload["claims"]
+                    if all(claim[key] == context[key] for key in ("entity", "row", "owner", "claim_revision"))
+                ),
+                None,
+            )
+            if admitted_claim is None:
+                raise HostError("claim_access_refused", "authorized claim disappeared before launch")
+            head_before = git_value(repo, "rev-parse", "--verify", "HEAD^{commit}")
+            reflog_before = head_reflog_snapshot(repo, limit=HEAD_REFLOG_ANCHOR_LIMIT)
+            binding_context = (
+                admitted_claim,
+                authorization.payload["revision"],
+                authorized_at,
+                admitted_claim["repository_binding"],
+                git_branch(repo),
+                head_before,
+                reflog_before,
+                index_has_suppressed_entries(repo),
+            )
+        launch_event = None
+        launch_log_digest = None
+        if observe:
+            if binding_context is None:
+                raise HostError("observation_claim_required", "local observation requires v2 claim admission")
+            try:
+                launch_event = _observation.start(repo, binding_context[0], task_sha256, args.host, args.work_class)
+                launch_log_digest = local_state_snapshot(repo)[_observation.LOG_PATH]
+            except _telemetry.TelemetryError:
+                raise HostError("observation_incomplete", "controller launch observation could not be retained") from None
         result = run_bounded(command, prompt, repo, args.timeout_seconds)
         output_texts = [result.get("stdout", b"").decode("utf-8", errors="replace")]
         output_texts.append(result.get("stderr", b"").decode("utf-8", errors="replace"))
@@ -1234,7 +1508,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         state_after = local_state_snapshot(repo)
         source_head_after = (
             git_value(repo, "rev-parse", "--verify", "HEAD^{commit}")
-            if authority_proposal
+            if authority_proposal or binding_context is not None
             else None
         )
         git_control_after = (
@@ -1242,10 +1516,18 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             if authority_proposal
             else None
         )
+        branch_after = git_branch(repo) if binding_context is not None else None
+        reflog_after = head_reflog_snapshot(repo, limit=HEAD_REFLOG_LIMIT) if binding_context is not None else None
+        index_suppressed_after = index_has_suppressed_entries(repo) if binding_context is not None else False
         changed = sorted(
             set(before).symmetric_difference(after)
             | {path for path in set(state_before) | set(state_after) if state_before.get(path) != state_after.get(path)}
         )
+        log_unchanged = launch_event is None or state_after.get(_observation.LOG_PATH) == launch_log_digest
+        if launch_event is not None and log_unchanged:
+            # The only new state excluded from scope is the exact controller
+            # append retained before execution. A worker append is not exempt.
+            changed = [path for path in changed if path != _observation.LOG_PATH]
         # Ignored files created during the run (interpreter caches, dependency
         # installs from the bounded proof) are recorded for review but cannot
         # reach a commit, a merge, or the clean lead re-proof checkout.
@@ -1253,13 +1535,23 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         status = "failed"
         blocked_reason: dict[str, str] | None = None
         host_receipt: dict[str, Any] | None = None
+        committed_paths: set[str] = set()
+        range_observation: tuple[bool, bool, set[str]] | None = None
+        binding: dict[str, Any] | None = None
         try:
+            if not log_unchanged:
+                raise HostError("observation_incomplete", "worker changed the controller observation stream")
             if result.get("timed_out"):
                 raise HostError("host_timeout", "host exceeded the bounded execution timeout")
             if result.get("launch_error"):
                 raise HostError("host_launch_failed", str(result["launch_error"]))
             if result.get("returncode") != 0:
                 raise HostError("host_failed", "host exited non-zero")
+            if binding_context is not None:
+                range_observation = git_commit_paths(
+                    repo, binding_context[5], source_head_after or binding_context[5]
+                )
+                committed_paths = range_observation[2]
             if authority_proposal and source_head_after != source_head_before:
                 raise HostError(
                     "source_head_changed",
@@ -1288,7 +1580,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             reported_missing = [
                 path
                 for path in host_receipt["changed_paths"]
-                if path not in changed and path not in before_ignored
+                if path not in changed and path not in committed_paths and path not in before_ignored
             ]
             if reported_missing:
                 raise HostError("host_receipt_invalid", "host receipt reports a path Git did not change")
@@ -1299,6 +1591,44 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         except HostError as exc:
             blocked_reason = _blocked_reason(exc)
             status = _refusal_status(exc.kind)
+        if binding_context is not None:
+            (
+                admitted_claim, authorized_revision, binding_authorized_at, repository,
+                branch_before, head_before, reflog_before, index_suppressed_before,
+            ) = binding_context
+            binding, _ = execution_binding(
+                admitted_claim=admitted_claim,
+                authorized_revision=authorized_revision,
+                authorized_at=binding_authorized_at,
+                repository=repository,
+                repo=repo,
+                branch_before=branch_before,
+                head_before=head_before,
+                branch_after=branch_after,
+                head_after=source_head_after or git_value(repo, "rev-parse", "--verify", "HEAD^{commit}"),
+                task_sha256=task_sha256,
+                allowed_scope=allowed,
+                status=status,
+                final_clean=(
+                    not [path for path in after if path not in state_after]
+                    and all(
+                        path.rstrip("/") == ".shadow" or path.startswith(".shadow/evidence/")
+                        for path in after_all
+                    )
+                    and all(
+                        state_before.get(path) == digest
+                        or destination is not None and path == destination.relative_to(repo).as_posix()
+                        or launch_event is not None and path == _observation.LOG_PATH and log_unchanged
+                        for path, digest in state_after.items()
+                    )
+                ),
+                reflog_continuous=reflog_continuity(
+                    repo, reflog_before, reflog_after or (), allowed,
+                    source_head_after or head_before,
+                ),
+                index_suppressed=index_suppressed_before or index_suppressed_after,
+                observation=range_observation,
+            )
         payload = {
             "schema": ATTEMPT_SCHEMA,
             "revision": 1,
@@ -1315,6 +1645,9 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             },
             "task_id": task_id,
             "task_sha256": task_sha256,
+            "native_usage": _observation.native_usage(args.host, result),
+            "controller_observation": {"state": "retained" if launch_event and log_unchanged else "disabled" if not observe else "incomplete",
+                                       "run_id": launch_event["run_id"] if launch_event else None},
             "status": status,
             "summary": (host_receipt or {}).get("summary"),
             "proof_ref": (host_receipt or {}).get("proof_ref"),
@@ -1333,6 +1666,8 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "projection_is_usage": False,
             "authority_proposal_mode": authority_proposal,
         }
+        if binding is not None:
+            payload["execution_binding"] = binding
         if (
             status == "ok"
             and host_receipt is not None
@@ -1342,6 +1677,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         payload = bound_successful_proposal_attempt(payload)
         status = payload["status"]
     write_json("-" if destination is None else str(destination), payload, force=args.force)
+    if launch_event is not None and log_unchanged:
+        try:
+            _observation.finish(repo, launch_event, destination, payload)
+        except (OSError, _telemetry.TelemetryError):
+            payload["status"] = status = "blocked"
+            payload["blocked"] = {"kind": "observation_incomplete", "detail": "controller terminal observation could not be retained"}
+            payload["controller_observation"]["state"] = "incomplete"
+            if "execution_binding" in payload:
+                payload["execution_binding"]["execution_candidate"] = False
+            write_json(str(destination), payload, force=True)
     return payload, 0 if status == "ok" else 1
 
 
