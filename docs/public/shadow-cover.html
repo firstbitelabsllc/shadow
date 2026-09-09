@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>Shadow cover</title>
+  <style>
+    @font-face {
+      font-family: Space;
+      src: url(space-grotesk.ttf);
+      font-weight: 300 700;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      width: 1280px;
+      height: 640px;
+      margin: 0;
+      padding: 48px 64px;
+      background: #f4f2eb;
+      color: #27372c;
+      font-family: Space, sans-serif;
+    }
+    .brand {
+      font-size: 26px;
+      font-weight: 600;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 1.65fr 1fr;
+      gap: 32px;
+      align-items: center;
+    }
+    h1 {
+      font-size: 80px;
+      font-weight: 500;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      margin: 64px 0 24px;
+    }
+    p {
+      font-size: 24px;
+      line-height: 1.5;
+      color: #56634f;
+      margin: 0;
+    }
+    img {
+      width: 100%;
+    }
+    footer {
+      font-size: 16px;
+      color: #56634f;
+      margin-top: 48px;
+    }
+  </style>
+  <div class="brand">Shadow</div>
+  <div class="layout">
+    <div>
+      <h1>Pick up where<br />you left off.</h1>
+      <p>Your next coding session<br />knows the next step.</p>
+    </div>
+    <img src="shadow-icon.png" alt="Folded ribbon mark" />
+  </div>
+  <footer>Local plans. Clear ownership. Checked work.</footer>
+</html>
