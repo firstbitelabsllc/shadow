@@ -37,3 +37,9 @@ docs/package.json export-ignore
 docs/package-lock.json export-ignore
 docs/postcss.config.js export-ignore
 docs/vite.config.js export-ignore
+# Website artwork and recordings stay in the full clone and GitHub Pages.
+# The CLI archive contains the Markdown reference, not the website media.
+docs/public/ export-ignore
+docs/assets/ export-ignore
+# This walkthrough uses the development test fixture excluded above.
+examples/demo.py export-ignore
