@@ -269,6 +269,7 @@ def run_host(
     force: bool = False,
     authority_proposal: bool = False,
     extra: tuple[str, ...] = (),
+    test_home: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -291,6 +292,9 @@ def run_host(
         "--json",
     ]
     environment = os.environ.copy()
+    # Test transports must not admit work against the operator's board. V2
+    # admission fixtures opt in to their synthetic board below.
+    environment["HOME"] = str(test_home or binary.parent)
     if authority_proposal:
         bin_dir = binary.parent / ".proposal-bin"
         bin_dir.mkdir(exist_ok=True)
@@ -351,7 +355,8 @@ class HuddleHostTests(HuddleTestCase):
         with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
             return run_host(self.repo, self.binary, self.task, self.output,
                             host="codex" if proposal else "cursor", force=True,
-                            authority_proposal=proposal, extra=extra)
+                            authority_proposal=proposal, extra=extra,
+                            test_home=self.home)
 
     def assert_not_launched(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -531,6 +536,38 @@ class UnclaimedHostTestCase(unittest.TestCase):
 
 
 class ShadowHostTests(UnclaimedHostTestCase):
+    def test_run_host_uses_its_synthetic_home_when_outer_home_has_a_v2_board(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            outer_home = root / "outer-home"
+            outer_home.mkdir()
+            board_api.ensure(home=outer_home)
+            with board_api._transaction(outer_home) as (board_root, board_path, payload):
+                board_api._write_and_commit(
+                    board_root,
+                    board_path,
+                    board_api.migrate_v1_to_v2(payload),
+                    "test: seed outer v2 board",
+                )
+            self.assertEqual(
+                board_api.snapshot(home=outer_home)["schema"],
+                board_api.V2_SCHEMA,
+            )
+            repo = make_repo(root)
+            binary = make_host(root)
+            task = root / "task.txt"
+            task.write_text("Do the bounded task.\n", encoding="utf-8")
+            output = repo / ".shadow/evidence/attempt.json"
+
+            with mock.patch.dict(
+                os.environ,
+                {"HOME": str(outer_home), "SHADOW_TELEMETRY": ""},
+            ):
+                result = run_host(repo, binary, task, output)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(output.exists())
+
     def test_cursor_json_envelope_parses_receipt_after_prose(self) -> None:
         envelope = json.dumps(
             {
@@ -1667,6 +1704,7 @@ class ExecutionBindingTests(HuddleTestCase):
                 force=True,
                 extra=("--claim-context", json.dumps(self.context()))
                 + tuple(part for path in paths for part in ("--allowed-path", path)),
+                test_home=self.home,
             )
 
     def test_scoped_fast_forward_commit_records_runner_owned_candidate(self):

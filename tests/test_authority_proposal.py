@@ -395,6 +395,8 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
     )
     state = board.entity_state(plan_path, home=home)
     assert state is not None and state["entity"] is not None
+    board_snapshot = board.snapshot(home=home)
+    claim = board_snapshot["claims"][0]
     source_head = git(source_repo, "rev-parse", "HEAD")
     plan_root_sha256 = plan_store.PlanSnapshot.open(plan_path).root_sha256
     exact_proposal = {
@@ -425,6 +427,17 @@ def make_proposal_acceptance(root: Path) -> ProposalWorld:
         attempt_path,
         host="codex",
         authority_proposal=True,
+        test_home=home,
+        extra=(
+            "--claim-context",
+            json.dumps(
+                {
+                    key: claim[key]
+                    for key in ("entity", "row", "owner", "claim_revision")
+                }
+                | {"board_revision": board_snapshot["revision"]}
+            ),
+        ),
     )
     if host_result.returncode:
         raise AssertionError(host_result.stderr)
@@ -625,26 +638,27 @@ class AuthorityProposalContract(unittest.TestCase):
             task.write_text("Do the bounded task.\n", encoding="utf-8")
             proposal_output = proposal_repo / ".shadow" / "evidence" / "attempt.json"
 
-            proposal_result = run_host(
-                proposal_repo,
-                proposal_host,
-                task,
-                proposal_output,
-                host="codex",
-                authority_proposal=True,
-            )
+            with mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": ""}):
+                proposal_result = run_host(
+                    proposal_repo,
+                    proposal_host,
+                    task,
+                    proposal_output,
+                    host="codex",
+                    authority_proposal=True,
+                )
 
-            legacy_root = root / "legacy"
-            legacy_root.mkdir()
-            legacy_repo = make_repo(legacy_root)
-            legacy_host = make_host(legacy_root)
-            legacy_output = legacy_repo / ".shadow" / "evidence" / "attempt.json"
-            legacy_result = run_host(
-                legacy_repo,
-                legacy_host,
-                task,
-                legacy_output,
-            )
+                legacy_root = root / "legacy"
+                legacy_root.mkdir()
+                legacy_repo = make_repo(legacy_root)
+                legacy_host = make_host(legacy_root)
+                legacy_output = legacy_repo / ".shadow" / "evidence" / "attempt.json"
+                legacy_result = run_host(
+                    legacy_repo,
+                    legacy_host,
+                    task,
+                    legacy_output,
+                )
 
             proposal_attempt = json.loads(proposal_output.read_text(encoding="utf-8"))
             legacy_attempt = json.loads(legacy_output.read_text(encoding="utf-8"))
