@@ -2,11 +2,13 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Shadow',
+  appearance: false,
   description:
-    'One durable workboard per computer, authoritative PLAN.md per entity, project maps, atomic claims, and proof receipts — stop any AI coding chat and resume without losing the work',
+    'Resume AI coding work from one local board, with an authoritative PLAN.md per entity, clear ownership, and checks before tasks are completed.',
   base: process.env.DOCS_BASE || '/',
   srcExclude: ['plan-archive/**', 'superpowers/**', 'findings-*.md', 'requests-*.md'],
   themeConfig: {
+    logo: '/shadow-icon.png',
     outline: { level: [2, 3], label: 'On this page' },
     nav: [
       { text: 'Guide', link: '/guide/installation' },
