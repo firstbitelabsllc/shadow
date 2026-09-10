@@ -8,8 +8,9 @@ commands against a temporary repository, and verifies three results:
 - committing the fix allows acceptance;
 - a fresh status command finds the next task with no abandoned claim.
 
-No coding agent runs, and no model account is needed. This demonstrates the
-local command workflow, not a live conversation between two AI tools.
+The published terminal recording shows Claude Code asking to run this local
+example. The script performs the demonstrated lifecycle; the recording does
+not simulate terminal output or claim that the agent made the fix itself.
 
 To rebuild the screenshots, video, and cover, install ttyd, FFmpeg, Node.js 20+,
 and the Playwright capture dependency:
@@ -22,8 +23,9 @@ PLAYWRIGHT_MODULE="$capture_tools/node_modules/playwright/index.mjs" node docs/c
 ```
 
 The recorder uses local port 8832 and saves the result under `docs/public`.
-It waits for the terminal's actual completion output before taking the still.
-Its browser and terminal server close afterward. Rebuild the site with
+It starts the locally authenticated Claude Code CLI with a constrained local
+prompt, waits for its actual completion output before taking the still, and
+closes its browser and terminal server afterward. Rebuild the site with
 `cd docs && npm ci && npm run docs:build:pages`.
 
 The ribbon mark is a generated illustration made with OpenAI's built-in image
