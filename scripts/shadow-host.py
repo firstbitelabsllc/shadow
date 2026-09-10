@@ -58,6 +58,7 @@ HOSTS = set(POLICY_HOSTS)
 # points CODEX_HOME at the isolated Z.AI home. Authority proposals stay
 # codex-only: that pass is trusted, and the volume host is not.
 CODEX_HOSTS = frozenset({"codex", "codex-zai"})
+GIT_ESCALATIONS = frozenset({"approve-for-me"})
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{2,63}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -618,7 +619,23 @@ def path_allowed(path: str, allowed: list[str]) -> bool:
     return any(path == item or path.startswith(item.rstrip("/") + "/") for item in allowed)
 
 
-def public_command_shape(host: str, *, delegation: str) -> list[str]:
+def validate_git_escalation(host: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value not in GIT_ESCALATIONS or host not in CODEX_HOSTS:
+        raise HostError(
+            "escalation_unsupported",
+            "--git-escalation approve-for-me supports only codex and codex-zai",
+        )
+    return value
+
+
+def public_command_shape(
+    host: str,
+    *,
+    delegation: str,
+    git_escalation: str | None = None,
+) -> list[str]:
     """Return the static, non-secret shape that may enter an attempt receipt.
 
     The actual native argv is built separately below. The public shape records
@@ -627,13 +644,18 @@ def public_command_shape(host: str, *, delegation: str) -> list[str]:
     """
 
     if host in CODEX_HOSTS:
+        validate_git_escalation(host, git_escalation)
+        sandbox_shape = (
+            ["--approve-for-me"]
+            if git_escalation is not None
+            else ["--sandbox", "workspace-write"]
+        )
         shape = [
             "exec",
             "--model",
             "--json",
             "--ephemeral",
-            "--sandbox",
-            "workspace-write",
+            *sandbox_shape,
             "-C",
             "--output-last-message",
         ]
@@ -699,6 +721,7 @@ def launch_command(
     *,
     work_class: str,
     delegation: str,
+    git_escalation: str | None = None,
 ) -> list[str]:
     """Build the private native argv for one frozen task.
 
@@ -713,6 +736,7 @@ def launch_command(
     try:
         model_argv = native_model_argv(host, work_class)
         delegation_capability(host, delegation)
+        validate_git_escalation(host, git_escalation)
     except ExecutionPolicyError as exc:
         raise HostError("execution_policy_invalid", str(exc)) from None
 
@@ -739,6 +763,11 @@ def launch_command(
         }[host]
 
     if host in CODEX_HOSTS:
+        sandbox_argv = (
+            ["--approve-for-me"]
+            if git_escalation is not None
+            else ["--sandbox", "workspace-write"]
+        )
         command = [binary, "exec"]
         command.extend(delegation_argv)
         command.extend(model_argv)
@@ -746,8 +775,7 @@ def launch_command(
             [
                 "--json",
                 "--ephemeral",
-                "--sandbox",
-                "workspace-write",
+                *sandbox_argv,
                 "-C",
                 str(repo),
                 "--output-last-message",
@@ -831,6 +859,7 @@ def command_shape(
     *,
     work_class: str,
     delegation: str,
+    git_escalation: str | None = None,
 ) -> list[str]:
     """Compatibility helper for tests of the native argv."""
 
@@ -842,6 +871,7 @@ def command_shape(
         prompt_file,
         work_class=work_class,
         delegation=delegation,
+        git_escalation=git_escalation,
     )
 
 
@@ -1349,7 +1379,15 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         requested_capability = delegation_capability(args.host, args.delegation)
     except ExecutionPolicyError as exc:
         raise HostError("execution_policy_invalid", str(exc)) from None
+    git_escalation = validate_git_escalation(
+        args.host, getattr(args, "git_escalation", None)
+    )
     authority_proposal = bool(args.authority_proposal)
+    if git_escalation is not None and authority_proposal:
+        raise HostError(
+            "escalation_unsupported",
+            "authority proposal mode seals Git control state and refuses escalation",
+        )
     if authority_proposal:
         if args.host != "codex":
             raise HostError(
@@ -1462,6 +1500,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             prompt_file,
             work_class=args.work_class,
             delegation=args.delegation,
+            git_escalation=git_escalation,
         )
         try:
             authorized_at = datetime.now(timezone.utc)
@@ -1667,12 +1706,17 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             "duration_s": round(time.monotonic() - started, 3),
             "stdout_bytes": result.get("stdout_bytes", 0),
             "stderr_bytes": result.get("stderr_bytes", 0),
-            "command_shape": public_command_shape(args.host, delegation=args.delegation),
+            "command_shape": public_command_shape(
+                args.host,
+                delegation=args.delegation,
+                git_escalation=git_escalation,
+            ),
             "blocked": blocked_reason,
             "unreviewed_claim": True,
             "accepted_by_lead": False,
             "projection_is_usage": False,
             "authority_proposal_mode": authority_proposal,
+            "git_escalation": git_escalation,
         }
         if binding is not None:
             payload["execution_binding"] = binding
@@ -1727,6 +1771,11 @@ def parser() -> argparse.ArgumentParser:
         default=defaults.get("delegation"),
     )
     run_parser.add_argument("--binary")
+    run_parser.add_argument(
+        "--git-escalation",
+        choices=sorted(GIT_ESCALATIONS),
+        default=None,
+    )
     run_parser.add_argument("--authority-proposal", action="store_true")
     run_parser.add_argument("--repo", default=os.getcwd())
     run_parser.add_argument("--task-file", required=True)

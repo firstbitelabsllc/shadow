@@ -826,6 +826,108 @@ class ShadowHostTests(UnclaimedHostTestCase):
             )
             self.assertNotIn("frozen task", zai)
 
+    def test_git_escalation_replaces_only_the_codex_sandbox_pair(self) -> None:
+        repo = Path("/workspace/repo")
+        final_message = Path("/tmp/final-message.txt")
+        for host, binary in (("codex", "codex"), ("codex-zai", "codexz")):
+            with self.subTest(host=host):
+                unescalated = shadow_host.command_shape(
+                    host, binary, repo, final_message,
+                    work_class="coding", delegation="direct",
+                )
+                escalated = shadow_host.command_shape(
+                    host, binary, repo, final_message,
+                    work_class="coding", delegation="direct",
+                    git_escalation="approve-for-me",
+                )
+                self.assertEqual(
+                    unescalated[7:10], ["--ephemeral", "--sandbox", "workspace-write"]
+                )
+                self.assertEqual(escalated[7:9], ["--ephemeral", "--approve-for-me"])
+                self.assertEqual(escalated[:7], unescalated[:7])
+                self.assertEqual(escalated[9:], unescalated[10:])
+                self.assertEqual(
+                    shadow_host.public_command_shape(
+                        host, delegation="direct", git_escalation="approve-for-me"
+                    ),
+                    shadow_host.public_command_shape(host, delegation="direct")[:6]
+                    + ["--approve-for-me"]
+                    + shadow_host.public_command_shape(host, delegation="direct")[8:],
+                )
+
+    def test_git_escalation_receipt_and_native_argv_stay_truthful(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root)
+            binary = make_host(root)
+            task = root / "task.txt"
+            task.write_text("Add the proof marker and run the bounded test.\n", encoding="utf-8")
+            output = repo / ".shadow/evidence/attempt.json"
+            result = run_host(
+                repo, binary, task, output, host="codex",
+                extra=("--git-escalation", "approve-for-me"),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["git_escalation"], "approve-for-me")
+            self.assertEqual(
+                payload["command_shape"],
+                shadow_host.public_command_shape(
+                    "codex", delegation="direct", git_escalation="approve-for-me"
+                ),
+            )
+            argv = json.loads(binary.with_suffix(".argv.json").read_text(encoding="utf-8"))
+            self.assertIn("--approve-for-me", argv)
+            self.assertNotIn("--sandbox", argv)
+            self.assertNotIn("workspace-write", argv)
+
+    def test_git_escalation_is_refused_for_non_codex_hosts_before_launch(self) -> None:
+        for host in ("claude-code", "cursor", "grok", "zai"):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                repo = make_repo(root)
+                binary = make_host(root)
+                task = root / "task.txt"
+                task.write_text("Do the bounded task.\n", encoding="utf-8")
+                output = repo / ".shadow/evidence/attempt.json"
+                result = run_host(
+                    repo, binary, task, output, host=host,
+                    extra=("--git-escalation", "approve-for-me"),
+                )
+
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(
+                    json.loads(result.stdout)["blocked"]["kind"],
+                    "escalation_unsupported",
+                )
+                self.assertFalse(binary.with_suffix(".argv.json").exists())
+                self.assertFalse(output.exists())
+
+    def test_authority_proposal_mode_refuses_git_escalation_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = make_repo(root, ignore_evidence=False)
+            binary = make_host(root, mode="proposal")
+            task = root / "task.txt"
+            task.write_text("Return the bounded proposal.\n", encoding="utf-8")
+            output = repo / ".shadow/evidence/attempt.json"
+            result = run_host(
+                repo, binary, task, output, host="codex",
+                authority_proposal=True,
+                extra=("--git-escalation", "approve-for-me"),
+            )
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout)["blocked"]["kind"],
+                "escalation_unsupported",
+            )
+            self.assertFalse(
+                (binary.parent / ".proposal-bin/codex.argv.json").exists()
+            )
+            self.assertFalse(output.exists())
+
     def test_codex_zai_receives_the_task_on_stdin_then_stdin_closes(self) -> None:
         # `codex exec` with no positional prompt reads instructions from stdin
         # and waits for EOF. The runner must write the frozen task and close
@@ -1250,6 +1352,7 @@ class ShadowHostTests(UnclaimedHostTestCase):
                 self.assertEqual(payload["schema"], "shadow.host-attempt.v1")
                 self.assertEqual(payload["status"], "ok")
                 self.assertEqual(payload["host"], host)
+                self.assertIsNone(payload["git_escalation"])
                 self.assertEqual(
                     payload["task_sha256"],
                     hashlib.sha256(task.read_text(encoding="utf-8").encode("utf-8")).hexdigest(),
