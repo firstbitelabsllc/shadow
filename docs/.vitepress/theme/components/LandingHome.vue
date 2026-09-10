@@ -11,7 +11,7 @@ import { withBase } from "vitepress";
           Keep the plan, who owns the work, and the next step on your computer.
           Open a new coding session and continue.
         </p>
-        <a class="action" href="#try-it">Run the local demo</a>
+        <a class="action" href="#try-it">Ask your agent to try it</a>
       </div>
       <img
         class="mark"
@@ -30,27 +30,30 @@ import { withBase } from "vitepress";
         <a :href="withBase('/shadow-demo.mp4')">Watch the demo</a>
       </video>
       <figcaption>
-        A real CLI run in a scratch repository: reject a failing check, accept
-        the committed fix, then find the next task. No model calls.
+        A real Claude Code session runs Shadow’s isolated example. The script
+        rejects a failing check, accepts its committed fix, then finds the next
+        task in a scratch repository.
       </figcaption>
     </figure>
     <section class="try" id="try-it">
       <div>
-        <h2>A small task.<br />The complete loop.</h2>
+        <h2>Ask your agent.<br />See the complete loop.</h2>
         <p>
-          The example uses a failing greeting test. It creates its own
-          repository and board, then removes them when it finishes.
+          Open this repository in Claude Code and paste the prompt. The example
+          uses a failing greeting test, creates its own repository and board,
+          then removes them when it finishes.
         </p>
-        <p>Python 3.10+, Git, and Bash. macOS or Linux.</p>
+        <p>Python 3.10+, Git, and Bash. macOS or Linux. Your agent can install local dependencies.</p>
       </div>
       <div>
         <pre>
-git clone https://github.com/firstbitelabsllc/shadow.git
-cd shadow
-python3 examples/demo.py</pre
+Show me how Shadow handles a failing check and finds the next task. Run the local example and explain the result.</pre
         >
+        <p class="codex-prompt">
+          In Codex: “Run the local Shadow example, then show me how it handles a failing check and finds the next task. Explain what happened.”
+        </p>
         <a :href="withBase('/guide/quickstart')"
-          >Use Shadow with your project ↗</a
+          >Use the command-line reference ↗</a
         >
       </div>
     </section>
@@ -172,6 +175,11 @@ pre {
   font: 14px/1.9 monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  margin: 0 0 24px;
+}
+.codex-prompt {
+  color: #56634f;
+  max-width: 48ch;
   margin: 0 0 24px;
 }
 .explain {
