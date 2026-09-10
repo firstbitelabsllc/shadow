@@ -34,7 +34,11 @@ CANONICAL_ORIGIN = "github.com/firstbitelabsllc/shadow"
 MAX_FILE_COUNT = 160
 # The combined Huddle/worktree-lifecycle release measured 2,067,333 bytes on
 # 2026-09-05; this reviewed 2.1 MB ceiling admits that artifact with headroom.
-MAX_UNPACKED_BYTES = 2_100_000
+# Raised 2026-09-10 from 2_100_000: PR #680 ships the first-use demo media
+# (docs/public font, icon, cover, webm/mp4 ~1.6 MB) inside the tracked tree,
+# which the clone-is-the-install model packages; the observation-core source
+# then crossed the old line. Receipt: takeoff-pass 20260910T055554Z (F2).
+MAX_UNPACKED_BYTES = 2_400_000
 STRANGER_CLEANUP_PROOF = {
     "preview_zero_write": True,
     "auto_round_trip": True,
