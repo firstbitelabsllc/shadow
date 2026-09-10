@@ -31,15 +31,19 @@ const server = spawn(
     "fontFamily=Menlo",
     "-t",
     'theme={"background":"#f4f2eb","foreground":"#212920","cursor":"#b6532a"}',
-    "bash",
-    "--noprofile",
-    "--norc",
+    "claude",
+    "--safe-mode",
+    "--setting-sources", "",
+    "--strict-mcp-config",
+    "--mcp-config", '{"mcpServers":{}}',
+    "--model", "sonnet",
+    "--effort", "low",
+    "--tools", "Bash,Read",
+    "--allowedTools", "Bash(python3 examples/demo.py)",
   ],
   {
     env: {
       ...process.env,
-      PS1: "$ ",
-      BASH_ENV: "/dev/null",
       BASH_SILENCE_DEPRECATION_WARNING: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -75,16 +79,28 @@ try {
   await page.locator(".xterm-helper-textarea").waitFor({ state: "attached" });
   await page.addStyleTag({
     content:
-      "body{background:#e6e4dd!important;padding:40px;box-sizing:border-box}#terminal-container{height:calc(100vh - 80px)!important;border-radius:12px;overflow:hidden;padding:28px;background:#f4f2eb;box-sizing:border-box}.xterm{height:100%}",
+      "body{background:#e6e4dd!important;margin:0!important;padding:0!important}#terminal-container{position:fixed!important;inset:60px!important;width:auto!important;height:auto!important;border-radius:12px;overflow:hidden;padding:0!important;background:#f4f2eb;box-sizing:border-box!important;box-shadow:0 0 0 20px #f4f2eb}.xterm{height:100%!important;padding:0!important}",
   });
-  await page.waitForTimeout(500);
+  // ttyd fits xterm before the inset frame lands. Resize twice after the frame
+  // is present so the terminal recalculates its full visible grid.
+  await page.setViewportSize({ width: 1439, height: 820 });
+  await page.setViewportSize({ width: 1440, height: 820 });
+  await page.waitForTimeout(800);
+  await page.waitForFunction(
+    () => document.body.textContent.includes("Claude Code"),
+    null,
+    { timeout: 15000 },
+  );
   await page.locator(".xterm-helper-textarea").focus();
-  await page.keyboard.type("python3 examples/demo.py", { delay: 60 });
+  await page.keyboard.type(
+    "Show me how Shadow handles a failing check and finds the next task. Run python3 examples/demo.py and summarize the result in three bullets, 60 words total.",
+    { delay: 25 },
+  );
   await page.keyboard.press("Enter");
   await page.waitForFunction(
-    () => document.body.textContent.includes("Demo passed."),
+    () => /done \d+:\d+ [AP]M/.test(document.body.textContent),
     null,
-    { timeout: 90000 },
+    { timeout: 120000 },
   );
   await page.screenshot({ path: path.join(output, "shadow-demo.png") });
   await page.waitForTimeout(2200);
@@ -100,7 +116,7 @@ try {
     path.join(output, "capture-result.json"),
     JSON.stringify(
       {
-        commands: ["python3 examples/demo.py"],
+        commands: ["Claude Code runs python3 examples/demo.py"],
         browser: browser.version(),
         recordedAt: new Date().toISOString(),
       },
@@ -125,13 +141,7 @@ try {
     ],
     { stdio: "ignore" },
   );
-  const cover = await browser.newPage({
-    viewport: { width: 1280, height: 640 },
-  });
-  await cover.goto(pathToFileURL(path.join(output, "shadow-cover.html")).href);
-  await cover.evaluate(() => document.fonts.ready);
-  await cover.screenshot({ path: path.join(output, "shadow-cover.png") });
-  console.log("Verified screenshot, video, and cover exist.");
+  console.log("Verified native Claude Code screenshot and recording exist.");
 } finally {
   if (browser) await browser.close();
   server.kill("SIGTERM");

@@ -7,13 +7,32 @@
 Keep the plan, who owns the work, and the next step on your computer.
 Open a new coding session and continue.
 
-![A fresh Shadow command finds the next task after accepting a tested fix](docs/public/shadow-demo.png)
+![Claude Code runs Shadow's isolated failing-check and next-task example](docs/public/shadow-demo.png)
 
 [Watch the demo](docs/public/shadow-demo.mp4) · [Documentation](https://firstbitelabsllc.github.io/shadow/) · [MIT license](LICENSE)
 
-## Try it first
+## Ask your coding agent to try it
 
 Python 3.10+, Git, and Bash on macOS or Linux.
+
+Open this repository in Claude Code and paste:
+
+```text
+Show me how Shadow handles a failing check and finds the next task. Run the local example and explain the result.
+```
+
+Or open this repository in Codex and ask:
+
+```text
+Run the local Shadow example, then show me how it handles a failing check and finds the next task. Explain what happened.
+```
+
+`examples/demo.py` creates a scratch repository with a failing greeting test.
+The script makes the demonstrated fix, Shadow reruns the check, and a fresh
+command finds the next task. It uses no model account and removes its temporary
+repository and board when it finishes.
+
+### Run it yourself
 
 ```sh
 git clone https://github.com/firstbitelabsllc/shadow.git
@@ -21,12 +40,11 @@ cd shadow
 python3 examples/demo.py
 ```
 
-The demo creates a scratch repository with a failing greeting test. Shadow
-refuses to complete the task. The script commits a fix, Shadow reruns the check,
-and a fresh command finds the next task. It uses no model account and removes
-its temporary repository and board when it finishes.
-
 ## Use it with your project
+
+Ask your coding agent to set up Shadow from the
+[installation guide](docs/guide/installation.md), then use the command-line
+reference below when you need the exact commands.
 
 From the clone:
 
