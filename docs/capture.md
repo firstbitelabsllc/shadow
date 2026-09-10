@@ -12,7 +12,7 @@ The published terminal recording shows Claude Code asking to run this local
 example. The script performs the demonstrated lifecycle; the recording does
 not simulate terminal output or claim that the agent made the fix itself.
 
-To rebuild the screenshots, video, and cover, install ttyd, FFmpeg, Node.js 20+,
+To rebuild the screenshots and video, install ttyd, FFmpeg, Node.js 20+,
 and the Playwright capture dependency:
 
 ```sh
