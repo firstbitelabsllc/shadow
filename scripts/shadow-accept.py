@@ -150,6 +150,9 @@ PROPOSAL_ATTEMPT_FIELDS = {
     "unreviewed_claim",
     "accepted_by_lead",
     "projection_is_usage",
+    "native_usage",
+    "controller_observation",
+    "git_escalation",
     "authority_proposal",
 }
 
