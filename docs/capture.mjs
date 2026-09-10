@@ -79,10 +79,10 @@ try {
   await page.locator(".xterm-helper-textarea").waitFor({ state: "attached" });
   await page.addStyleTag({
     content:
-      "body{background:#e6e4dd!important;padding:40px;box-sizing:border-box}#terminal-container{height:calc(100vh - 80px)!important;border-radius:12px;overflow:hidden;padding:28px;background:#f4f2eb;box-sizing:border-box}.xterm{height:100%}",
+      "body{background:#e6e4dd!important;margin:0!important;padding:0!important}#terminal-container{position:fixed!important;inset:60px!important;width:auto!important;height:auto!important;border-radius:12px;overflow:hidden;padding:0!important;background:#f4f2eb;box-sizing:border-box!important;box-shadow:0 0 0 20px #f4f2eb}.xterm{height:100%!important;padding:0!important}",
   });
-  // ttyd fits xterm before the injected frame padding lands. Resize twice after
-  // the frame is present so the terminal recalculates its full visible grid.
+  // ttyd fits xterm before the inset frame lands. Resize twice after the frame
+  // is present so the terminal recalculates its full visible grid.
   await page.setViewportSize({ width: 1439, height: 820 });
   await page.setViewportSize({ width: 1440, height: 820 });
   await page.waitForTimeout(800);
@@ -93,7 +93,7 @@ try {
   );
   await page.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type(
-    "Show me how Shadow handles a failing check and finds the next task. Run the local example and explain the result in three short bullets.",
+    "Show me how Shadow handles a failing check and finds the next task. Run python3 examples/demo.py and summarize the result in three bullets, 60 words total.",
     { delay: 25 },
   );
   await page.keyboard.press("Enter");
