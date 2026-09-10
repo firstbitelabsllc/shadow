@@ -14,7 +14,7 @@ DOCUMENTS = (
     ROOT / "SKILL.md",
     ROOT / "AGENT.md",
     ROOT / "CONTRIBUTING.md",
-    *sorted((ROOT / "docs").rglob("*.md")),
+    *sorted(path for path in (ROOT / "docs").rglob("*.md") if "node_modules" not in path.parts),
     *sorted((ROOT / "guides").rglob("*.md")),
 )
 TARGET = re.compile(
@@ -84,7 +84,6 @@ class DocumentedTargetTests(unittest.TestCase):
         privacy = (ROOT / "docs" / "reference" / "privacy.md").read_text(
             encoding="utf-8"
         )
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
         agent = (ROOT / "AGENT.md").read_text(encoding="utf-8")
         help_text = "\n".join(
             subprocess.run(
@@ -97,7 +96,7 @@ class DocumentedTargetTests(unittest.TestCase):
             for verb in ("status", "throw")
         )
 
-        for text in (grammar, readme, agent):
+        for text in (grammar, agent):
             self.assertIn("refs/heads/shadow/claims/v1/", text)
             self.assertIn("local-only", text)
         self.assertRegex(help_text, r"track(?:s|ed)[ -](?:remote|upstream)")

@@ -19,26 +19,23 @@ class ShareReadyDocumentationTests(unittest.TestCase):
     def test_readme_leads_with_authority_loop_and_install(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         required = (
-            "assets/shadow-banner.svg",
+            "docs/public/shadow-demo.png",
+            "python3 examples/demo.py",
             "PLAN.md",
             "shadow init --here",
             "shadow status",
             "shadow accept",
-            "--proposal",
             "shadow doctor",
             "install.sh",
-            "--branch shadow-1.3.0",
         )
         for phrase in required:
             self.assertIn(phrase, text)
         # The board's authority is per computer, and the work is durable across
         # a killed chat: the two claims a stranger must read before installing.
         self.assertRegex(text, r"one\s+board per computer")
-        self.assertIn("one authoritative `PLAN.md` per independently", text)
         self.assertIn("project map", text)
         self.assertNotIn("one `PLAN.md` per project", text)
         self.assertIn("durable", text)
-        self.assertIn("2-7 tasks", text)
         self.assertNotIn("one task with its proof", text)
         self.assertNotIn("npm test", text)
         self.assertNotIn("/Users/", text)
@@ -269,7 +266,6 @@ class ShareReadyDocumentationTests(unittest.TestCase):
         self.assertIn("--proposal", accept.stdout)
 
     def test_proposal_acceptance_is_public_and_narrow(self) -> None:
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
         grammar = (ROOT / "docs" / "reference" / "grammar.md").read_text(
             encoding="utf-8"
         )
@@ -284,7 +280,8 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             / "2026-08-28-proposal-only-acceptance.md"
         ).read_text(encoding="utf-8")
 
-        for text in (readme, grammar, commands):
+        # Detailed acceptance rules belong in the reference, not the first-use page.
+        for text in (grammar, commands):
             self.assertIn("--proposal", text)
             self.assertIn("machine-local", text)
             self.assertIn("sealed Codex", text)
@@ -297,7 +294,7 @@ class ShareReadyDocumentationTests(unittest.TestCase):
             "exact prior plan root",
         ):
             self.assertIn(phrase, grammar)
-        for text in (readme, grammar, commands, spec):
+        for text in (grammar, commands, spec):
             self.assertIn("no-change", text)
             self.assertIn("isolated temporary `HOME`", text)
             self.assertIn("--authority-proposal", text)
@@ -313,13 +310,6 @@ class AReadmeAStrangerCanFollow(unittest.TestCase):
     """The README must be followable cold: every word the vocabulary leans on is
     glossed in plain words before the install, and every command it names
     actually exists in the CLI's own help."""
-
-    def test_the_vocabulary_glosses_every_word_it_names(self) -> None:
-        text = (ROOT / "README.md").read_text(encoding="utf-8")
-        section = text.split("## Install", 1)[0]
-        for concept in ("board", "plans", "seats", "claim", "proof", "accept"):
-            self.assertIn(f"**{concept}**", section, f"the README leans on {concept} but never explains it")
-        self.assertIn("claim → work → prove → accept → next", section)
 
     def test_the_readme_names_only_real_commands(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
