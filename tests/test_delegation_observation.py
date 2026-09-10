@@ -40,17 +40,29 @@ if mode in {'tamper', 'tamper-valid'}:
         else:
             source = json.loads((repo / '.shadow/evidence/shadow-events.jsonl').read_text().splitlines()[0])
             f.write(json.dumps(dict(schema='shadow.telemetry.event.v1', recorded_at=source['recorded_at'], project='observation', entity=source['entity'], row=source['row'], verb='throw', duration_ms=0, outcome='claimed')) + '\n')
-repo.joinpath('result.txt').write_text('useful\n')
+repo.joinpath('result.txt').write_text('useful\n' if mode == 'ok' else 'useful ' + mode + '\n')
 subprocess.run(['git','add','result.txt'], check=True, capture_output=True)
 subprocess.run(['git','commit','-qm','useful bounded work'], check=True, capture_output=True)
 receipt = dict(schema='shadow.host-receipt.v1', task_id='add-proof', status='ok',
                summary='bounded result', proof_ref='check-passed', changed_paths=['result.txt'],
                tests=[dict(name='check',status='pass')])
-pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1]).write_text(json.dumps(receipt))
+if '--output-last-message' in sys.argv:
+    pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1]).write_text(json.dumps(receipt))
+else:
+    print(json.dumps(receipt))
+if mode == 'claude-zero':
+    print(json.dumps(dict(type='result', subtype='success', is_error=False, total_cost_usd=0.01,
+        modelUsage={'claude-sonnet-4-6': dict(inputTokens=2, outputTokens=3,
+            cacheReadInputTokens=0, cacheCreationInputTokens=4)})))
+    raise SystemExit()
+usage = dict(input_tokens=100, cached_input_tokens=20, output_tokens=30)
+if mode == 'usage-partial':
+    usage.update(input_tokens=5, cached_input_tokens=0, cache_creation_input_tokens=7,
+                 output_tokens=6, reasoning_output_tokens=8)
 for event in [dict(type='thread.started',thread_id='PRIVATE_SESSION_CANARY'),
               dict(type='turn.started'),
               dict(type='item.completed',item=dict(type='agent_message',text=json.dumps(receipt))),
-              dict(type='turn.completed',usage=dict(input_tokens=100, cached_input_tokens=20, output_tokens=30))]:
+              dict(type='turn.completed',usage=usage)]:
     print(json.dumps(event))
 '''
 
@@ -85,11 +97,11 @@ class DelegationLifecycle(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
-    def invoke(self, name='attempt.json'):
+    def invoke(self, name='attempt.json', *, host='codex'):
         context = {k: self.claim[k] for k in ('entity','row','owner','claim_revision')}
         context['board_revision'] = board_api.snapshot()['revision']
         self.output = self.repo / '.shadow/evidence' / name
-        return run_host(self.repo, self.binary, self.task, self.output, host='codex',
+        return run_host(self.repo, self.binary, self.task, self.output, host=host,
                         extra=('--claim-context', json.dumps(context)))
 
     def report(self):
@@ -128,6 +140,48 @@ class DelegationLifecycle(unittest.TestCase):
         transaction = plan_store.PlanTransaction.begin(self.plan)
         transaction.replace_content(transaction.original_content.replace(b'[completed]', b'[pending]', 1)).publish()
         self.assertEqual(self.report()['accepted_worker_tasks'], 0)
+
+    def test_optional_token_coverage_zero_and_scope_groups(self):
+        self.binary.with_suffix('.mode').write_text('fail')
+        self.assertNotEqual(self.invoke('failed.json').returncode, 0)
+        self.binary.with_suffix('.mode').write_text('ok')
+        self.assertEqual(self.invoke('cached-only.json').returncode, 0)
+        self.binary.with_suffix('.mode').write_text('usage-partial')
+        self.assertEqual(self.invoke('mixed.json').returncode, 0)
+        self.binary.with_suffix('.mode').write_text('claude-zero')
+        tree = self.invoke('tree.json', host='claude-code')
+        self.assertEqual(tree.returncode, 0, tree.stdout + tree.stderr)
+
+        report = self.report()
+        self.assertEqual(report['failed_attempts'], 1)
+        groups = {group['usage_scope']: group for group in report['resource_totals']}
+        unknown = groups['unknown']
+        self.assertEqual((unknown['attempts'], unknown['known_usage_attempts']), (1, 0))
+        self.assertEqual(unknown['token_field_coverage'], {
+            'input_tokens': 0, 'cached_input_tokens': 0,
+            'cache_creation_input_tokens': 0, 'output_tokens': 0,
+            'reasoning_output_tokens': 0})
+        self.assertIsNone(unknown['input_tokens'])
+        self.assertIsNone(unknown['reasoning_output_tokens'])
+
+        parent = groups['native_parent_turn']
+        self.assertEqual(parent['known_usage_attempts'], 2)
+        self.assertEqual(parent['token_field_coverage'], {
+            'input_tokens': 2, 'cached_input_tokens': 2,
+            'cache_creation_input_tokens': 0, 'output_tokens': 2,
+            'reasoning_output_tokens': 1})
+        self.assertEqual((parent['input_tokens'], parent['cached_input_tokens']), (105, 20))
+        self.assertIsNone(parent['cache_creation_input_tokens'])
+        self.assertEqual((parent['output_tokens'], parent['reasoning_output_tokens']), (36, 8))
+
+        tree = groups['native_whole_tree']
+        self.assertEqual(tree['token_field_coverage'], {
+            'input_tokens': 1, 'cached_input_tokens': 1,
+            'cache_creation_input_tokens': 1, 'output_tokens': 1,
+            'reasoning_output_tokens': 0})
+        self.assertEqual((tree['input_tokens'], tree['cached_input_tokens']), (2, 0))
+        self.assertEqual((tree['cache_creation_input_tokens'], tree['output_tokens']), (4, 3))
+        self.assertIsNone(tree['reasoning_output_tokens'])
 
     def test_copied_receipt_cannot_acquire_observed_credit(self):
         self.assertEqual(self.invoke().returncode, 0)

@@ -268,27 +268,36 @@ def audit_observed(repos):
             item.update(accepted_worker_contribution=None, usage_join=None)
         for root in rows.values():
             root["observed_contribution"] = None
+    token_fields = ("input_tokens", "cached_input_tokens", "cache_creation_input_tokens",
+                    "output_tokens", "reasoning_output_tokens")
     aggregates = {}
     for item in attempts:
         usage = item["usage_join"]
         key = (item.get("work_class", "unknown"), usage["scope"] if usage else "unknown")
         group = aggregates.setdefault(key, dict(work_class=key[0], usage_scope=key[1], attempts=0,
              known_usage_attempts=0, observed_duration_ms=0, known_duration_attempts=0,
-             input_tokens=0, output_tokens=0, native_cost_usd=0, known_cost_attempts=0))
+             input_tokens=0, cached_input_tokens=0, cache_creation_input_tokens=0,
+             output_tokens=0, reasoning_output_tokens=0,
+             token_field_coverage={name: 0 for name in token_fields},
+             native_cost_usd=0, known_cost_attempts=0))
         group["attempts"] += 1
         if item["duration_ms"] is not None:
             group["observed_duration_ms"] += item["duration_ms"]
             group["known_duration_attempts"] += 1
         if usage:
             group["known_usage_attempts"] += 1
-            for name in ("input_tokens", "output_tokens"):
-                group[name] += usage[name]
+            for name in token_fields:
+                value = usage[name]
+                if value is not None:
+                    group[name] += value
+                    group["token_field_coverage"][name] += 1
             if usage["native_cost_usd"] is not None:
                 group["native_cost_usd"] += usage["native_cost_usd"]
                 group["known_cost_attempts"] += 1
     for group in aggregates.values():
-        if not group["known_usage_attempts"]:
-            group["input_tokens"] = group["output_tokens"] = None
+        for name in token_fields:
+            if not group["token_field_coverage"][name]:
+                group[name] = None
         if not group["known_cost_attempts"]:
             group["native_cost_usd"] = None
         if not group["known_duration_attempts"]:
