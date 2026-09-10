@@ -1,11 +1,11 @@
-<img src="docs/public/shadow-cover.png" width="1280" alt="Shadow — Pick up where your last coding session stopped.">
+<img src="docs/public/shadow-cover.png" width="1280" alt="Shadow — Pick up where you left off.">
 
 # Shadow
 
-**Pick up where your last coding session stopped.**
+**Pick up where you left off.**
 
-Shadow keeps the plan, who owns the work, and the next step on your computer.
-Open a new session in your coding tool, read the board, and continue.
+Keep the plan, who owns the work, and the next step on your computer.
+Open a new coding session and continue.
 
 ![A fresh Shadow command finds the next task after accepting a tested fix](docs/public/shadow-demo.png)
 

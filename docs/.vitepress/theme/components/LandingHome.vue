@@ -16,7 +16,7 @@ import { withBase } from "vitepress";
       <img
         class="mark"
         :src="withBase('/shadow-icon.png')"
-        alt="Folded ribbon with a second ribbon behind it"
+        alt="A person with their shadow cast beside them"
       />
     </section>
     <figure>
