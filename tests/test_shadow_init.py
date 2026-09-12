@@ -65,6 +65,7 @@ class InitTests(unittest.TestCase):
         self,
         repo: Path,
         home: Path,
+        *args: str,
     ) -> tuple[int, str, str]:
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -76,7 +77,7 @@ class InitTests(unittest.TestCase):
                 redirect_stdout(stdout),
                 redirect_stderr(stderr),
             ):
-                result = shadow_init.main(["--here"])
+                result = shadow_init.main(list(args) if args else ["--here"])
         finally:
             os.chdir(previous)
         return result, stdout.getvalue(), stderr.getvalue()
@@ -329,6 +330,267 @@ class InitTests(unittest.TestCase):
             self.assertEqual(destination.read_text(encoding="utf-8"), "keep me\n")
         self.assertEqual(result.returncode, 1)
         self.assertIn("refusing to overwrite", result.stderr)
+
+    def test_init_refuses_symlink_components_before_mkdir_or_chmod(self) -> None:
+        cases = [(args, component)
+                 for args in (("--here",), ("--local", "useful-project"))
+                 for component in (".shadow", "plans", "useful-project", "PLAN.md")]
+        for args, component in cases:
+            with self.subTest(args=args, component=component), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                repo = self.make_repo(root)
+                home = root / "home"
+                destination = home / ".shadow" / "plans" / "useful-project" / "PLAN.md"
+                pointer = next(path for path in (destination, *destination.parents)
+                               if path.name == component)
+                pointer.parent.mkdir(parents=True)
+                pointer.parent.chmod(0o755)
+                target = root / "untouched"
+                if component == "PLAN.md":
+                    target.write_text("unrelated plan\n", encoding="utf-8")
+                else:
+                    target.mkdir(mode=0o755)
+                pointer.symlink_to(target)
+                before = (pointer.parent.stat().st_mode, target.stat().st_mode,
+                          list(target.rglob("*")), target.read_bytes() if target.is_file() else None)
+
+                result = run(*args, cwd=repo, home=home)
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual((pointer.parent.stat().st_mode, target.stat().st_mode,
+                                  list(target.rglob("*")), target.read_bytes() if target.is_file() else None),
+                                 before)
+                self.assertFalse((home / ".shadow" / "board.json").exists())
+
+    def test_local_init_registers_a_non_git_entity_visible_to_cold_status(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            destination = home / ".shadow" / "plans" / "personal-admin" / "PLAN.md"
+
+            result = run("--local", "personal-admin", cwd=root, home=home)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, f"created local PLAN.md: {destination}\n")
+            self.assertFalse((root / ".git").exists())
+            self.assertFalse((destination.parent / ".git").exists())
+            self.assertIsNone(plan_record(destination, home)["contract_error"])
+            board = self.read_board(home)
+            self.assertEqual(len(board["entities"]), 1)
+            self.assertEqual(board["entities"][0]["project"], "personal-admin")
+            self.assertEqual(board["entities"][0]["plan"], str(destination.resolve()))
+            self.assertEqual(board["claims"], [])
+            self.assertNotIn("- Origin:", destination.read_text(encoding="utf-8"))
+            for args in (("lint", str(destination)), ("status", "--by", "cold-local-seat")):
+                observed = subprocess.run(
+                    [str(ROOT / "bin" / "shadow"), *args], cwd=root,
+                    env={**os.environ, "HOME": str(home)}, capture_output=True,
+                    text=True, check=False,
+                )
+                self.assertEqual(observed.returncode, 0, observed.stderr)
+                if args[0] == "status":
+                    self.assertIn("personal-admin", observed.stdout)
+            self.assertEqual(self.read_board(home)["claims"], [])
+
+    def test_local_init_refuses_a_parent_replaced_after_receipt_preparation(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            destination = home / ".shadow" / "plans" / "personal-admin" / "PLAN.md"
+            target = root / "untouched"
+            target.mkdir(mode=0o755)
+            target_mode = target.stat().st_mode
+            original_prepare = shadow_init.board.prepare_init_registration
+            authority = None
+
+            def replace_parent(*args, **kwargs):
+                nonlocal authority
+                receipt = original_prepare(*args, **kwargs)
+                destination.parent.parent.mkdir()
+                destination.parent.symlink_to(target)
+                authority = self.authority_state(destination, home)
+                return receipt
+
+            with mock.patch.object(shadow_init.board, "prepare_init_registration", side_effect=replace_parent):
+                try:
+                    result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+                except shadow_init.board.BoardError as exc:
+                    self.fail(f"unsafe locator escaped as an unhandled error: {exc}")
+
+            self.assertEqual(result, 1, stderr)
+            self.assertEqual(list(target.iterdir()), [])
+            self.assertEqual(target.stat().st_mode, target_mode)
+            self.assertEqual(self.authority_state(destination, home), authority)
+
+    def test_local_init_requires_an_exact_slug_before_creating_anything(self) -> None:
+        invalid = ("", ".", "..", "../escape", "/escape", "a/b", "a", "ab", "Upper",
+                   "white space", "bad--slug", "bad-", "-bad", "0bad", "a" * 33)
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            for slug in invalid:
+                with self.subTest(slug=slug):
+                    result = run("--local", slug, cwd=root, home=home)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(home.exists())
+            conflict = run("--here", "--local", "personal-admin", cwd=root, home=home)
+            self.assertEqual(conflict.returncode, 2)
+            self.assertFalse(home.exists())
+
+    def test_local_registration_retry_preserves_bytes_and_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            destination = home / ".shadow" / "plans" / "personal-admin" / "PLAN.md"
+            with mock.patch.object(
+                shadow_init.board, "complete_init_registration",
+                side_effect=shadow_init.board.BoardError("injected registration failure"),
+            ):
+                result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+            self.assertEqual(result, 1, stderr)
+            self.assertIn("could not register", stderr)
+            before = self.locator_state(destination)
+            pending = shadow_init.board.read_init_registration(destination, home=home)
+            self.assertIsNotNone(pending)
+            self.assertEqual(self.read_board(home)["entities"], [])
+            elsewhere = root / "elsewhere"
+            elsewhere.mkdir()
+
+            recovered, stdout, stderr = self.call_main(elsewhere, home, "--local", "personal-admin")
+
+            self.assertEqual(recovered, 0, stderr)
+            self.assertIn("recognized local PLAN.md", stdout)
+            self.assertEqual(self.locator_state(destination), before)
+            board = self.read_board(home)
+            self.assertEqual(len(board["entities"]), 1)
+            self.assertEqual(board["entities"][0]["project"], "personal-admin")
+            self.assertEqual(board["entities"][0]["plan"], str(destination.resolve()))
+            self.assertEqual(board["claims"], [])
+            self.assertIsNone(self.journal_oid(destination, home))
+            authority = self.authority_state(destination, home)
+
+            repeated, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+
+            self.assertEqual(repeated, 1, stderr)
+            self.assertIn("refusing to overwrite", stderr)
+            self.assertEqual(self.locator_state(destination), before)
+            self.assertEqual(self.authority_state(destination, home), authority)
+
+    def test_local_pending_receipt_cannot_resume_a_different_slug_or_path(self) -> None:
+        for change in ("slug", "home"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                home = root / "home"
+                first = home / ".shadow" / "plans" / "personal-admin" / "PLAN.md"
+                with mock.patch.object(shadow_init, "write_exclusive", side_effect=OSError("interrupted")):
+                    result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+                self.assertEqual(result, 1, stderr)
+                self.assertIn("could not write", stderr)
+                receipt = shadow_init.board.read_init_registration(first, home=home)
+                self.assertIsNotNone(receipt)
+                target_home = home if change == "slug" else root / "other-home"
+                target_slug = "other-admin" if change == "slug" else "personal-admin"
+                target = target_home / ".shadow" / "plans" / target_slug / "PLAN.md"
+                shadow_init.board.prepare_init_registration(target, receipt, home=target_home)
+                before = self.authority_state(target, target_home)
+
+                result, _, stderr = self.call_main(root, target_home, "--local", target_slug)
+
+                self.assertEqual(result, 1, stderr)
+                self.assertIn("belongs to another", stderr)
+                self.assertFalse(target.exists())
+                self.assertEqual(self.authority_state(target, target_home), before)
+
+                recovered, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+                self.assertEqual(recovered, 0, stderr)
+
+    def test_local_init_refuses_git_receipt_and_unrelated_existing_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            repo = self.make_repo(root)
+            home = root / "home"
+            destination = self.strand_generated_plan(repo, home)
+            before = self.locator_state(destination)
+            authority = self.authority_state(destination, home)
+
+            result, _, stderr = self.call_main(root, home, "--local", "useful-project")
+
+            self.assertEqual(result, 1, stderr)
+            self.assertIn("belongs to another", stderr)
+            self.assertEqual(self.locator_state(destination), before)
+            self.assertEqual(self.authority_state(destination, home), authority)
+            recovered, _, stderr = self.call_main(repo, home)
+            self.assertEqual(recovered, 0, stderr)
+
+            unrelated = home / ".shadow" / "plans" / "other-admin" / "PLAN.md"
+            unrelated.parent.mkdir(mode=0o755)
+            unrelated.write_text("owned elsewhere\n", encoding="utf-8")
+            before = self.locator_state(unrelated)
+            mode = unrelated.parent.stat().st_mode
+            authority = self.authority_state(unrelated, home)
+            result, _, stderr = self.call_main(root, home, "--local", "other-admin")
+            self.assertEqual(result, 1, stderr)
+            self.assertIn("refusing to overwrite", stderr)
+            self.assertEqual(self.locator_state(unrelated), before)
+            self.assertEqual(unrelated.parent.stat().st_mode, mode)
+            self.assertEqual(self.authority_state(unrelated, home), authority)
+
+    def test_local_registration_refuses_stored_identity_or_project_collision(self) -> None:
+        for field, replacement in (("id", "f" * 64), ("project", "another-project")):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                home = root / "home"
+                destination = home / ".shadow" / "plans" / "personal-admin" / "PLAN.md"
+                with mock.patch.object(
+                    shadow_init.board, "complete_init_registration",
+                    side_effect=shadow_init.board.BoardError("interrupted"),
+                ):
+                    result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+                self.assertEqual(result, 1, stderr)
+                state, content = shadow_init.generated_plan_snapshot(destination, destination.read_bytes())
+                with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                    seed = shadow_init.registration_seed(destination, Path("personal-admin"), state, content)
+                    shadow_init.board.reconcile([seed], [], home=home)
+                    with shadow_init.board._transaction(home) as (board_root, board_path, payload):
+                        payload["entities"][0][field] = replacement
+                        if field == "project":
+                            payload["projects"].append({"id": replacement, "priority": 3})
+                            payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+                        payload["revision"] += 1
+                        shadow_init.board._write_and_commit(board_root, board_path, payload, "fixture collision")
+                before = self.locator_state(destination)
+                authority = self.authority_state(destination, home)
+
+                result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+
+                self.assertEqual(result, 1, stderr)
+                self.assertIn("different identity or project", stderr)
+                self.assertEqual(self.locator_state(destination), before)
+                self.assertEqual(self.authority_state(destination, home), authority)
+
+    def test_local_init_allows_another_entity_in_the_same_project(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            home = root / "home"
+            companion = home / ".shadow" / "plans" / "companion" / "PLAN.md"
+            companion.parent.mkdir(parents=True)
+            companion.write_text(
+                shadow_init.plan_text(Path("personal-admin"), "2026-01-01T00:00:00Z"),
+                encoding="utf-8",
+            )
+            state, content = shadow_init.generated_plan_snapshot(companion, companion.read_bytes())
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                seed = shadow_init.registration_seed(companion, Path("personal-admin"), state, content)
+                shadow_init.board.reconcile([seed], [], home=home)
+            existing = self.read_board(home)["entities"][0]
+
+            result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+
+            self.assertEqual(result, 0, stderr)
+            board = self.read_board(home)
+            self.assertEqual(board["projects"], [{"id": "personal-admin", "priority": 3}])
+            self.assertEqual(len(board["entities"]), 2)
+            self.assertIn(existing, board["entities"])
 
     def test_retry_after_catchable_registration_failure_registers_untouched_plan_once(
         self,

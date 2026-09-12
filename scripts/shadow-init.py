@@ -21,6 +21,19 @@ from shadow_durable_lib import durable_write
 UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
+def local_slug(value: str) -> str:
+    if not 3 <= len(value) <= 32 or re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", value) is None:
+        raise argparse.ArgumentTypeError(
+            "local slug must be 3-32 lowercase letters/digits with single internal hyphens, starting with a letter"
+        )
+    return value
+
+
+def local_recovery_identity(path: Path, slug: str) -> str:
+    source = f"local-plan-init\0{slug}\0{os.path.abspath(path)}"
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
 def repository_root(path: Path) -> Path:
     result = subprocess.run(
         ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
@@ -128,6 +141,19 @@ def write_exclusive(path: Path, text: str) -> None:
         durable_write(path, text.encode("utf-8"), exclusive=True)
     except FileExistsError:
         raise FileExistsError(path) from None
+
+
+def validate_destination(path: Path, home: Path) -> None:
+    """Reject unsafe locators before init creates or chmods any directory."""
+    board.local_plans_root(home)
+    root = home / ".shadow"
+    for candidate in (root, root / "plans", path.parent, path):
+        if candidate.is_symlink():
+            raise board.BoardError("init path crosses a symlink; refusing to overwrite")
+        if candidate.exists() and not (
+            candidate.is_file() if candidate == path else candidate.is_dir()
+        ):
+            raise board.BoardError("init path is not a regular file or directory")
 
 
 def stable_plain_plan_snapshot(path: Path) -> tuple[str, bytes]:
@@ -242,36 +268,49 @@ def parser() -> argparse.ArgumentParser:
         prog="shadow init",
         description="Create a local PLAN.md under ~/.shadow/plans without overwriting.",
     )
-    result.add_argument("--here", action="store_true", help="initialize the current Git project")
+    mode = result.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--here", action="store_true", help="initialize the current Git project")
+    mode.add_argument(
+        "--local", type=local_slug, metavar="SLUG",
+        help="create and register a non-Git local entity (3-32 character lowercase slug)",
+    )
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    if not args.here:
-        parser().error("--here is required")
-    current = Path.cwd().resolve()
-    try:
-        repo = repository_root(current)
-    except ValueError as exc:
-        print(f"shadow init: {exc}", file=sys.stderr)
-        return 2
-    if current != repo:
-        print("shadow init: run --here from the Git project root", file=sys.stderr)
-        return 2
+    home = Path.home()
+    if args.local is not None:
+        repo = Path(args.local)
+    else:
+        current = Path.cwd().resolve()
+        try:
+            repo = repository_root(current)
+        except ValueError as exc:
+            print(f"shadow init: {exc}", file=sys.stderr)
+            return 2
+        if current != repo:
+            print("shadow init: run --here from the Git project root", file=sys.stderr)
+            return 2
     destination = (
-        Path.home()
+        home
         / ".shadow"
         / "plans"
         / board.local_plan_slug(repo.name)
         / "PLAN.md"
     )
-    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    os.chmod(destination.parent, 0o700)
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    origin = proof_source_origin(repo)
     try:
-        repository_identity = repository_recovery_identity(repo, origin)
+        validate_destination(destination, home)
+    except (OSError, board.BoardError) as exc:
+        print(f"shadow init: {exc}", file=sys.stderr)
+        return 1
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    origin = None if args.local is not None else proof_source_origin(repo)
+    try:
+        repository_identity = (
+            local_recovery_identity(destination, args.local)
+            if args.local is not None else repository_recovery_identity(repo, origin)
+        )
     except board.BoardError as exc:
         print(f"shadow init: {exc}", file=sys.stderr)
         return 1
@@ -280,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
         if destination_exists:
             pending = board.read_init_registration(
                 destination,
-                home=Path.home(),
+                home=home,
             )
             if pending is None:
                 print(
@@ -297,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                     now,
                     proposed_content,
                 ),
-                home=Path.home(),
+                home=home,
             )
         receipt = parse_registration_receipt(pending)
         if receipt["repository_identity"] != repository_identity:
@@ -309,11 +348,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shadow init: {exc}", file=sys.stderr)
         return 1
     try:
+        validate_destination(destination, home)
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(destination.parent, 0o700)
         write_exclusive(destination, content.decode("utf-8"))
         created = True
     except FileExistsError:
         created = False
-    except OSError as exc:
+    except (OSError, board.BoardError) as exc:
         print(f"shadow init: could not write {destination}: {exc}", file=sys.stderr)
         return 1
     action = "created" if created else "recognized"
@@ -332,6 +374,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 1
     def repository_witness() -> bool:
+        if args.local is not None:
+            try:
+                validate_destination(destination, home)
+            except (OSError, board.BoardError):
+                return False
+            return local_recovery_identity(destination, args.local) == repository_identity
         current_origin = proof_source_origin(repo)
         if current_origin != origin:
             return False
@@ -346,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
             registration_seed(destination, repo, state, frozen),
             pending,
             repository_witness,
-            home=Path.home(),
+            home=home,
         )
     except board.BoardError as exc:
         print(
