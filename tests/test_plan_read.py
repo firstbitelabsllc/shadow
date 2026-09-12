@@ -169,11 +169,13 @@ class PlanReadCliTests(unittest.TestCase):
         self.assertEqual(payload["selection_budget"]["verification_passes"], 2)
         self.assertEqual(
             payload["selection_budget"]["aggregate_file_reads"],
-            2 * sum(item["provenance"]["file_reads"] for item in payload["results"]),
+            2 * (sum(item["provenance"]["file_reads"] for item in payload["results"])
+                 - len(payload["results"]) + 1),
         )
         self.assertEqual(
             payload["selection_budget"]["aggregate_source_bytes"],
-            2 * sum(item["provenance"]["source_bytes"] for item in payload["results"]),
+            2 * (sum(item["provenance"]["source_bytes"] for item in payload["results"])
+                 - (len(payload["results"]) - 1) * len(self.plan.read_bytes())),
         )
         claimed_projection_sha = payload.pop("projection_sha256")
         encoded = store.canonical_json(payload)
@@ -534,6 +536,146 @@ class PlanReadCliTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertIn("object digest mismatch", result.stderr)
         self.assertNotIn(str(self.root), result.stderr)
+
+    def test_find_batch_shares_each_scan_and_reports_actual_physical_io(self) -> None:
+        queries = ["Assistant", "digest", "CAFÉ", "no such text", "obligation",
+                   "Deferred", "S053", "gk13"]
+        real_read = store._safe_read
+        real_scan = store.PlanSnapshot.materialize_with_metrics
+        physical_reads: list[int] = []
+        materializations: list[str] = []
+
+        def counted_read(path: Path, limit: int) -> bytes:
+            content = real_read(path, limit)
+            if path.resolve() == self.plan.resolve() or (self.authority / "PLAN.d").resolve() in path.resolve().parents:
+                physical_reads.append(len(content))
+            return content
+
+        def counted_scan(snapshot: store.PlanSnapshot) -> tuple[bytes, int, int]:
+            materializations.append(snapshot.root_sha256)
+            return real_scan(snapshot)
+
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(self.home)}),
+            mock.patch.object(store, "_safe_read", side_effect=counted_read),
+            mock.patch.object(store.PlanSnapshot, "materialize_with_metrics", new=counted_scan),
+        ):
+            payload = read.project(entity=self.entity, rows=[], receipts=[],
+                                   finds=queries, expect_root=self.root_sha256)
+
+        self.assertEqual(len(materializations), 2)
+        self.assertEqual(payload["selection_budget"]["aggregate_file_reads"], len(physical_reads))
+        self.assertEqual(payload["selection_budget"]["aggregate_source_bytes"], sum(physical_reads))
+        results = payload["results"]
+        self.assertEqual([item["query"] for item in results], queries)
+        self.assertEqual(results[2]["match_count"], 10)
+        self.assertEqual(results[3]["match_count"], 0)
+        self.assertEqual(results[3]["content"], "")
+        for item in results:
+            self.assertEqual(item["provenance"]["shared_scan_selector"], "find:assistant")
+            self.assertEqual(item["provenance"]["scan_bytes"], len(source()))
+            self.assertTrue(item["complete_scan"])
+        self.assertGreater(results[0]["provenance"]["file_reads"], 0)
+        self.assertTrue(all(item["provenance"]["file_reads"] == 0 for item in results[1:]))
+        self.assertTrue(all(item["provenance"]["source_bytes"] == 0 for item in results[1:]))
+
+    def test_mixed_selectors_keep_order_byte_limit_and_actual_io(self) -> None:
+        real_read = store._safe_read
+        physical_reads: list[int] = []
+
+        def counted_read(path: Path, limit: int) -> bytes:
+            content = real_read(path, limit)
+            if path.resolve() == self.plan.resolve() or (self.authority / "PLAN.d").resolve() in path.resolve().parents:
+                physical_reads.append(len(content))
+            return content
+
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(self.home)}),
+            mock.patch.object(store, "_safe_read", side_effect=counted_read),
+        ):
+            payload = read.project(entity=self.entity, rows=["~gk12"],
+                                   receipts=["progress:10"], finds=["CAFÉ", "no such text"],
+                                   expect_root=self.root_sha256)
+        self.assertEqual([item["selector"] for item in payload["results"]],
+                         ["row:~gk12", "tag:progress:10", "find:café", "find:no such text"])
+        self.assertEqual(payload["selection_budget"]["aggregate_file_reads"], len(physical_reads))
+        self.assertEqual(payload["selection_budget"]["aggregate_source_bytes"], sum(physical_reads))
+        self.assertIn("disposition native non-passes", payload["results"][0]["content"])
+        self.assertIn("S044 PASS", payload["results"][1]["content"])
+        limit = len(payload["results"][0]["content"].encode("utf-8"))
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(self.home)}),
+            mock.patch.object(read, "MAX_RESULT_BYTES", limit),
+            self.assertRaisesRegex(ValueError, "projection limit"),
+        ):
+            read.project(entity=self.entity, rows=["~gk12"], receipts=["progress:10"],
+                         finds=["CAFÉ"], expect_root=self.root_sha256)
+
+    def test_find_batch_preserves_unicode_casefold_and_clipping(self) -> None:
+        repeated = "".join(f"- Straße occurrence {index:02d} " + "🧊" * 1100 + "\n"
+                           for index in range(30))
+        content = source().replace(b"## Tasks\n", (repeated + "## Tasks\n").encode("utf-8"))
+        self.plan, self.build = install_plan_tree(self.authority, content, return_build=True)
+
+        result = self.cli("--find", "STRASSE", "--find", "CAFÉ")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        street, cafe = json.loads(result.stdout)["results"]
+        self.assertEqual(street["match_count"], 30)
+        self.assertEqual(street["returned_match_count"], read.MAX_FIND_MATCHES)
+        self.assertTrue(street["truncated"])
+        self.assertIn("occurrence 00", street["content"])
+        self.assertNotIn("occurrence 29", street["content"])
+        for line in street["content"].splitlines():
+            self.assertLessEqual(len(line.split(":", 1)[1].encode("utf-8")), read.MAX_FIND_LINE_BYTES)
+            self.assertTrue(line.endswith("..."))
+        self.assertEqual(cafe["match_count"], 10)
+        self.assertFalse(cafe["truncated"])
+
+    def test_find_batch_rechecks_unmatched_shards_between_passes(self) -> None:
+        real_scan = store.PlanSnapshot.materialize_with_metrics
+        digest = store.lookup_build(self.build, tag="progress", tag_sequence=11).object_sha256
+        target = shard_path(self.authority, digest)
+        scanned = 0
+
+        def scan_then_tamper(snapshot: store.PlanSnapshot) -> tuple[bytes, int, int]:
+            nonlocal scanned
+            result = real_scan(snapshot)
+            scanned += 1
+            if scanned == 1:
+                target.write_bytes(target.read_bytes() + b"tamper")
+            return result
+
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(self.home)}),
+            mock.patch.object(store.PlanSnapshot, "materialize_with_metrics", new=scan_then_tamper),
+            self.assertRaisesRegex(ValueError, "object digest mismatch"),
+        ):
+            read.project(entity=self.entity, rows=[], receipts=[], finds=["Assistant", "CAFÉ"],
+                         expect_root=self.root_sha256)
+
+    def test_find_batch_rechecks_registered_pointer_between_passes(self) -> None:
+        other = self.root / "other-authority"
+        other.mkdir()
+        other_plan = install_plan_tree(other, source())
+        real_scan = store.PlanSnapshot.materialize_with_metrics
+        scanned = 0
+
+        def scan_then_redirect(snapshot: store.PlanSnapshot) -> tuple[bytes, int, int]:
+            nonlocal scanned
+            result = real_scan(snapshot)
+            scanned += 1
+            if scanned == 1:
+                self.write_board([(self.entity, other_plan)])
+            return result
+
+        with (
+            mock.patch.dict(os.environ, {"HOME": str(self.home)}),
+            mock.patch.object(store.PlanSnapshot, "materialize_with_metrics", new=scan_then_redirect),
+            self.assertRaisesRegex(ValueError, "entity id is stale|registered entity pointer changed"),
+        ):
+            read.project(entity=self.entity, rows=[], receipts=[], finds=["Assistant", "CAFÉ"],
+                         expect_root=self.root_sha256)
 
     def test_literal_find_validation_is_bounded_and_private(self) -> None:
         empty = self.cli("--find", "")

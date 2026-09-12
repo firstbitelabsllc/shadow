@@ -1130,6 +1130,20 @@ def _apply(plan: Path, board: Path | None, expected: str) -> dict[str, object]:
     report = store.dry_run_migration(plan, board=board)
     if report.source_sha256 != expected:
         raise PlanStoreError("migration source digest changed; rerun the dry run")
+    if report.action == "already_current":
+        snapshot = store.PlanSnapshot.open(plan)
+        if not snapshot.is_tree or snapshot.root_sha256 != expected:
+            raise PlanStoreError("migration source digest changed; rerun the dry run")
+        if board is not None and _read(board, "board") != board_before:
+            raise PlanStoreError("board changed during migration")
+        result = report.as_dict()
+        result.update({
+            "root_sha256": snapshot.root_sha256,
+            "generation": snapshot.root["generation"],
+            "commit": None,
+            "board_preserved": True,
+        })
+        return result
     git_context = _git_context(plan)
     snapshot = store.PlanSnapshot.open(plan)
     # Codex (PR #469, P1): the dry run's digest only names the bytes it read.

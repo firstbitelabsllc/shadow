@@ -147,22 +147,22 @@ def _bounded_line(line: str) -> tuple[str, bool]:
 def _find_result(
     snapshot: store.PlanSnapshot,
     *,
+    lines: list[tuple[str, str]],
+    scan_bytes: int,
+    file_reads: int,
+    source_bytes: int,
+    shared_scan_selector: str,
     entity: str,
     entity_locator: str,
     selector: str,
     query: str,
 ) -> dict[str, Any]:
-    content, file_reads, source_bytes = snapshot.materialize_with_metrics()
-    try:
-        text_content = content.decode("utf-8")
-    except UnicodeError as exc:
-        raise store.PlanStoreError("canonical logical plan is not valid UTF-8") from exc
     needle = query.casefold()
     match_count = 0
     returned: list[str] = []
     line_was_clipped = False
-    for line_number, line in enumerate(text_content.splitlines(), start=1):
-        if needle not in line.casefold():
+    for line_number, (line, folded) in enumerate(lines, start=1):
+        if needle not in folded:
             continue
         match_count += 1
         if len(returned) >= MAX_FIND_MATCHES:
@@ -192,7 +192,8 @@ def _find_result(
             "selector": selector,
             "root_sha256": snapshot.root_sha256,
             "logical_sha256": snapshot.root["logical_sha256"],
-            "scan_bytes": len(content),
+            "scan_bytes": scan_bytes,
+            "shared_scan_selector": shared_scan_selector,
             "file_reads": file_reads,
             "source_bytes": source_bytes,
         },
@@ -262,15 +263,38 @@ def _select(
     *,
     entity: str,
     entity_locator: str,
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int, int, int]:
     """Read and verify one bounded selector set against one root snapshot."""
     results: list[dict[str, Any]] = []
     result_bytes = 0
+    # Every selector uses this already-open root. Its physical read belongs
+    # to the pass once, even though individual lookup provenance includes it.
+    file_reads, source_bytes = 1, len(snapshot.root_bytes)
+    find_lines: list[tuple[str, str]] | None = None
+    scan_bytes = 0
+    shared_scan_selector = ""
     for selector, value, sequence in selectors:
         if sequence == -1:
             try:
+                scan_reads, scan_source_bytes = 0, 0
+                if find_lines is None:
+                    content, scan_reads, scan_source_bytes = snapshot.materialize_with_metrics()
+                    try:
+                        text_content = content.decode("utf-8")
+                    except UnicodeError as exc:
+                        raise store.PlanStoreError("canonical logical plan is not valid UTF-8") from exc
+                    find_lines = [(line, line.casefold()) for line in text_content.splitlines()]
+                    scan_bytes = len(content)
+                    shared_scan_selector = selector
+                    file_reads += scan_reads - 1
+                    source_bytes += scan_source_bytes - len(snapshot.root_bytes)
                 selected_find = _find_result(
                     snapshot,
+                    lines=find_lines,
+                    scan_bytes=scan_bytes,
+                    file_reads=scan_reads,
+                    source_bytes=scan_source_bytes,
+                    shared_scan_selector=shared_scan_selector,
                     entity=entity,
                     entity_locator=entity_locator,
                     selector=selector,
@@ -295,6 +319,8 @@ def _select(
             raise ReadError(_safe_error(exc, entity_locator)) from None
         if selected.provenance.selector != selector:
             raise store.PlanStoreError("selected result provenance does not match request")
+        file_reads += selected.provenance.file_reads - 1
+        source_bytes += selected.provenance.source_bytes - len(snapshot.root_bytes)
         result_bytes += len(selected.content)
         if result_bytes > MAX_RESULT_BYTES:
             raise store.PlanStoreError(
@@ -315,7 +341,7 @@ def _select(
                 ),
             }
         )
-    return results, result_bytes
+    return results, result_bytes, file_reads, source_bytes
 
 
 def project(
@@ -342,7 +368,7 @@ def project(
     if expect_root is not None and snapshot.root_sha256 != expect_root:
         raise store.PlanStoreError("plan root changed; read the new root and retry")
 
-    initial_results, result_bytes = _select(
+    initial_results, result_bytes, initial_reads, initial_source_bytes = _select(
         snapshot,
         selectors,
         entity=entity,
@@ -368,7 +394,7 @@ def project(
     # Re-run the bounded selectors against the re-opened root and return only
     # that verified pass; the comparison also refuses any nondeterministic
     # projection under identical canonical bytes.
-    results, verified_result_bytes = _select(
+    results, verified_result_bytes, verified_reads, verified_source_bytes = _select(
         current,
         selectors,
         entity=entity,
@@ -394,16 +420,8 @@ def project(
             "result_byte_limit": MAX_RESULT_BYTES,
             "result_bytes": result_bytes,
             "verification_passes": 2,
-            "aggregate_file_reads": sum(
-                item["provenance"]["file_reads"]
-                for pass_results in (initial_results, results)
-                for item in pass_results
-            ),
-            "aggregate_source_bytes": sum(
-                item["provenance"]["source_bytes"]
-                for pass_results in (initial_results, results)
-                for item in pass_results
-            ),
+            "aggregate_file_reads": initial_reads + verified_reads,
+            "aggregate_source_bytes": initial_source_bytes + verified_source_bytes,
         },
         "results": results,
     }

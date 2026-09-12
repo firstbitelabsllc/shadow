@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -330,6 +331,267 @@ class DryRunMigrationTests(unittest.TestCase):
         self.assertEqual(payload["plan"], "PLAN.md")
         self.assertNotIn(str(self.root), result.stdout + result.stderr)
         self.assertNotIn("first result", result.stdout + result.stderr)
+
+
+class CurrentTreeMigrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        spec = importlib.util.spec_from_file_location("shadow_plan_store_cli_test", ROOT / "scripts" / "shadow-plan.py")
+        assert spec and spec.loader
+        cls.cli_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.cli_module)
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.content = plan()
+        self.plan_path = self.root / "PLAN.md"
+        self.plan_path.write_bytes(self.content)
+        store.PlanTransaction.begin(self.plan_path).publish()
+        self.build = store.build_tree(self.content)
+        self.board = self.root / "board.json"
+        self.board.write_text(json.dumps({
+            "revision": 7,
+            "entities": [{"id": "a" * 64, "plan": str(self.plan_path), "resume": "~bb22"}],
+            "claims": [{"entity": "a" * 64, "row": "~bb22", "owner": "worker"}],
+        }), encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def snapshot(self) -> dict[str, tuple[bytes, int, int]]:
+        return {
+            path.relative_to(self.root).as_posix():
+                (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_mode)
+            for path in sorted(self.root.rglob("*")) if path.is_file()
+        }
+
+    def object_path(self, digest: str) -> Path:
+        return self.root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+
+    def write_objects(self, objects: dict[str, bytes]) -> None:
+        for digest, body in objects.items():
+            target = self.object_path(digest)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(body)
+
+    def cli(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "shadow-plan.py"), "migrate",
+             str(self.plan_path), "--board", str(self.board), *args],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+
+    def test_verified_current_tree_dry_run_and_apply_are_repeatable_zero_write_noops(self) -> None:
+        before = self.snapshot()
+        root = store.PlanSnapshot.open(self.plan_path)
+        for _ in range(2):
+            for args in (("--dry-run",), ("--apply", "--expect", root.root_sha256)):
+                with self.subTest(args=args):
+                    result = self.cli(*args)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    payload = json.loads(result.stdout)
+                    self.assertEqual(payload["action"], "already_current")
+                    self.assertEqual(payload["writes"], 0)
+                    self.assertEqual(payload["source_sha256"], root.root_sha256)
+                    self.assertEqual(payload["candidate_root_sha256"], root.root_sha256)
+                    self.assertEqual(payload["materialized_sha256"], store.digest_bytes(self.content))
+                    self.assertTrue(payload["exact_materialization"])
+                    self.assertTrue(payload["routes_rebuilt"])
+                    self.assertEqual(payload["query_mismatches"], [])
+                    self.assertEqual(payload["board_revision"], 7)
+                    if args[0] == "--apply":
+                        self.assertEqual(payload["root_sha256"], root.root_sha256)
+                        self.assertEqual(payload["generation"], root.root["generation"])
+                        self.assertIsNone(payload["commit"])
+                        self.assertTrue(payload["board_preserved"])
+                    self.assertEqual(self.snapshot(), before)
+
+    def test_current_tree_missing_or_tampered_objects_refuse_without_writes(self) -> None:
+        targets = {tree: self.build.root[f"{tree}_root"] for tree in ("catalog", "row", "tag")}
+        targets["data"] = store.lookup_build(self.build, row_id="~aa11").object_sha256
+        for kind, digest in targets.items():
+            for damage in ("missing", "tampered"):
+                with self.subTest(kind=kind, damage=damage):
+                    target = self.object_path(digest)
+                    original = target.read_bytes()
+                    if damage == "missing":
+                        target.unlink()
+                    else:
+                        target.write_bytes(original + b"tampered")
+                    before = self.snapshot()
+                    expected = store.digest_bytes(self.plan_path.read_bytes())
+                    for args in (("--dry-run",), ("--apply", "--expect", expected)):
+                        result = self.cli(*args)
+                        self.assertEqual(result.returncode, 2, result.stdout)
+                        self.assertEqual(result.stdout, "")
+                        self.assertRegex(result.stderr, "referenced object is missing|object digest mismatch")
+                        self.assertEqual(self.snapshot(), before)
+                    target.write_bytes(original)
+
+    def test_current_tree_rejects_missing_wrong_and_unexpected_routes(self) -> None:
+        original_root = self.plan_path.read_bytes()
+        for tree in ("row", "tag"):
+            old_indices: set[str] = set()
+
+            def visit(digest: str) -> None:
+                old_indices.add(digest)
+                page = json.loads(self.build.objects[digest])
+                if page["kind"] == "branch":
+                    for entry in page["entries"]:
+                        visit(entry["object"])
+
+            visit(self.build.root[f"{tree}_root"])
+            original_pairs = list(store._iter_tree(self.build, tree, self.build.root[f"{tree}_root"]))
+            for damage in ("missing", "wrong", "unexpected"):
+                with self.subTest(tree=tree, damage=damage):
+                    pairs = list(original_pairs)
+                    if damage == "missing":
+                        pairs.pop(0)
+                    elif damage == "wrong":
+                        pairs[0] = (pairs[0][0], "00000000000000000000")
+                    else:
+                        key = "~xxxx" if tree == "row" else "receipt/unexpected/00000000000000000000"
+                        pairs.append((key, pairs[0][1]))
+                    objects: dict[str, bytes] = {}
+                    changed_index = store._build_index(tree, pairs, objects, store.DEFAULT_LIMITS)
+                    self.write_objects(objects)
+                    root = store._parse_root(original_root)
+                    root[f"{tree}_root"] = changed_index
+                    root["object_count"] += len(objects) - len(old_indices)
+                    self.plan_path.write_bytes(store._root_bytes(root, store.DEFAULT_LIMITS))
+                    before = self.snapshot()
+                    with self.assertRaisesRegex(store.PlanStoreError, "route|canonical"):
+                        store.dry_run_migration(self.plan_path, board=self.board)
+                    self.assertEqual(self.snapshot(), before)
+                    self.plan_path.write_bytes(original_root)
+
+    def test_current_tree_rejects_valid_leaf_routes_behind_wrong_branch_bounds(self) -> None:
+        root = store._parse_root(self.plan_path.read_bytes())
+        page = json.loads(self.build.objects[root["tag_root"]])
+        self.assertEqual(page["kind"], "branch")
+        page["entries"][0]["max"] = "!"
+        body = store.canonical_json(page)
+        digest = store.digest_bytes(body)
+        self.write_objects({digest: body})
+        root["tag_root"] = digest
+        self.plan_path.write_bytes(store._root_bytes(root, store.DEFAULT_LIMITS))
+        before = self.snapshot()
+
+        with self.assertRaisesRegex(store.PlanStoreError, "route|canonical"):
+            store.dry_run_migration(self.plan_path, board=self.board)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_current_tree_rejects_catalog_and_routes_that_hide_a_logical_tag(self) -> None:
+        catalog = []
+        for key, descriptor in store.catalog_entries(self.build):
+            catalog.append((key, {
+                **descriptor, "tags": [tag for tag in descriptor["tags"] if tag != "proof"],
+            }))
+        tags = [
+            (key, value)
+            for key, value in store._iter_tree(self.build, "tag", self.build.root["tag_root"])
+            if key != "latest/proof" and not key.startswith("receipt/proof/")
+        ]
+        objects: dict[str, bytes] = {}
+        root = store._parse_root(self.plan_path.read_bytes())
+        root["catalog_root"] = store._build_index("catalog", catalog, objects, store.DEFAULT_LIMITS)
+        root["tag_root"] = store._build_index("tag", tags, objects, store.DEFAULT_LIMITS)
+        self.write_objects(objects)
+        candidate = store.snapshot_of_root(self.plan_path, store._root_bytes(root, store.DEFAULT_LIMITS))
+        root["object_count"] = len(store._reachable_objects(candidate) - {root["previous_root"]})
+        self.plan_path.write_bytes(store._root_bytes(root, store.DEFAULT_LIMITS))
+        self.assertEqual(store.PlanSnapshot.open(self.plan_path).materialize(), self.content)
+        before = self.snapshot()
+
+        with self.assertRaisesRegex(store.PlanStoreError, "canonical"):
+            store.dry_run_migration(self.plan_path, board=self.board)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_current_tree_object_change_during_verification_refuses(self) -> None:
+        original = store._validate_archives
+        digest = store.lookup_build(self.build, row_id="~aa11").object_sha256
+
+        def validate_then_change_object(path: Path, content: bytes) -> int:
+            count = original(path, content)
+            target = self.object_path(digest)
+            target.write_bytes(target.read_bytes() + b"tampered")
+            return count
+
+        with (
+            mock.patch.object(store, "_validate_archives", side_effect=validate_then_change_object),
+            self.assertRaisesRegex(store.PlanStoreError, "object digest mismatch"),
+        ):
+            store.dry_run_migration(self.plan_path, board=self.board)
+
+    def test_current_tree_root_change_during_verification_refuses(self) -> None:
+        original = store._validate_archives
+
+        def validate_then_replace(path: Path, content: bytes) -> int:
+            count = original(path, content)
+            root = store._parse_root(path.read_bytes())
+            root["generation"] += 1
+            path.write_bytes(store._root_bytes(root, store.DEFAULT_LIMITS))
+            return count
+
+        with (
+            mock.patch.object(store, "_validate_archives", side_effect=validate_then_replace),
+            self.assertRaisesRegex(store.PlanStoreError, "plan changed during dry run"),
+        ):
+            store.dry_run_migration(self.plan_path, board=self.board)
+
+    def test_current_tree_board_change_during_verification_refuses(self) -> None:
+        original = store._validate_archives
+
+        def validate_then_change_board(path: Path, content: bytes) -> int:
+            count = original(path, content)
+            payload = json.loads(self.board.read_bytes())
+            payload["revision"] += 1
+            self.board.write_text(json.dumps(payload), encoding="utf-8")
+            return count
+
+        with (
+            mock.patch.object(store, "_validate_archives", side_effect=validate_then_change_board),
+            self.assertRaisesRegex(store.PlanStoreError, "board changed during dry run"),
+        ):
+            store.dry_run_migration(self.plan_path, board=self.board)
+
+    def test_current_tree_apply_refuses_wrong_expected_root_without_writes(self) -> None:
+        before = self.snapshot()
+
+        result = self.cli("--apply", "--expect", "0" * 64)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("migration source digest changed", result.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_current_tree_apply_rechecks_root_and_board_after_verification(self) -> None:
+        original = store.dry_run_migration
+        for target in ("root", "board"):
+            with self.subTest(target=target):
+                expected = store.digest_bytes(self.plan_path.read_bytes())
+                after_race: dict = {}
+
+                def verify_then_mutate(path: Path, *, board: Path | None) -> store.MigrationReport:
+                    report = original(path, board=board)
+                    if target == "root":
+                        root = store._parse_root(path.read_bytes())
+                        root["generation"] += 1
+                        path.write_bytes(store._root_bytes(root, store.DEFAULT_LIMITS))
+                    else:
+                        payload = json.loads(self.board.read_bytes())
+                        payload["revision"] += 1
+                        self.board.write_text(json.dumps(payload), encoding="utf-8")
+                    after_race.update(self.snapshot())
+                    return report
+
+                with (
+                    mock.patch.object(store, "dry_run_migration", side_effect=verify_then_mutate),
+                    self.assertRaisesRegex(store.PlanStoreError, "changed"),
+                ):
+                    self.cli_module._apply(self.plan_path, self.board, expected)
+                self.assertEqual(self.snapshot(), after_race)
 
 
 class PlanTransactionTests(unittest.TestCase):

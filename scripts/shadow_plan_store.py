@@ -137,9 +137,10 @@ class MigrationReport:
     routes_rebuilt: bool
     query_mismatches: tuple[str, ...]
     writes: int = 0
+    action: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "schema": self.schema,
             "plan": self.plan,
             "board_revision": self.board_revision,
@@ -161,6 +162,9 @@ class MigrationReport:
             "query_mismatches": list(self.query_mismatches),
             "writes": self.writes,
         }
+        if self.action is not None:
+            result["action"] = self.action
+        return result
 
 
 def structural_lookup_budget(shard_count: int) -> dict[str, int]:
@@ -1533,16 +1537,75 @@ def _board_context(board: Path | None, plan: Path) -> tuple[bytes | None, int | 
     return content, payload["revision"], public
 
 
+def _verified_current_tree(snapshot: PlanSnapshot) -> PlanTreeBuild:
+    """Verify every live object and route against the canonical logical plan."""
+    assert snapshot.root is not None
+    objects: dict[str, bytes] = {}
+
+    def read(digest: str, limit: int) -> bytes:
+        content = snapshot._read_object(digest, limit, [0, 0])
+        objects[digest] = content
+        return content
+
+    def collect(tree: str, digest: str, ancestors: frozenset[str]) -> None:
+        if digest in ancestors:
+            raise PlanStoreError("index cycle detected")
+        if len(ancestors) >= MAX_TREE_DEPTH:
+            raise PlanStoreError("index exceeds the maximum tree depth")
+        page = _decode_page(read(digest, INDEX_MAX_BYTES), tree)
+        if page["kind"] == "branch":
+            for entry in page["entries"]:
+                if not isinstance(entry, dict) or not isinstance(entry.get("object"), str):
+                    raise PlanStoreError("branch entry is malformed")
+                collect(tree, entry["object"], ancestors | {digest})
+
+    for tree in ("catalog", "row", "tag"):
+        collect(tree, snapshot.root[f"{tree}_root"], frozenset())
+    current = PlanTreeBuild(snapshot.root_bytes, snapshot.root, objects, {}, {})
+    for _, descriptor in catalog_entries(current):
+        if not isinstance(descriptor.get("object"), str):
+            raise PlanStoreError("catalog descriptor is malformed")
+        read(descriptor["object"], DATA_MAX_BYTES)
+    logical = materialize_build(current)
+    canonical = build_tree(logical)
+    captured = snapshot_of_root(
+        snapshot.plan, snapshot.root_bytes,
+        object_reader=lambda digest, limit: _verified_object(current, digest),
+    )
+    for tree in ("catalog", "row", "tag"):
+        actual = tuple(_iter_tree(current, tree, current.root[f"{tree}_root"]))
+        expected = tuple(_iter_tree(canonical, tree, canonical.root[f"{tree}_root"]))
+        if actual != expected:
+            raise PlanStoreError(f"{tree} routes do not match the canonical logical plan")
+        # Iteration alone ignores branch bounds. Exercise the same bounded
+        # navigation that row/latest/receipt readers use for every live key.
+        for key, value in expected:
+            routed = captured._tree_lookup(
+                tree, current.root[f"{tree}_root"], key, [0, 0], []
+            )
+            if routed != value:
+                raise PlanStoreError(f"{tree} route does not match the canonical logical plan")
+    if (
+        current.root.get("row_count") != len(canonical.row_routes)
+        or current.root.get("object_count") != len(objects)
+    ):
+        raise PlanStoreError("plan-tree counts do not match the canonical logical plan")
+    return PlanTreeBuild(
+        snapshot.root_bytes, snapshot.root, objects,
+        canonical.row_routes, canonical.tag_routes,
+    )
+
+
 def dry_run_migration(plan: Path, *, board: Path | None) -> MigrationReport:
-    """Build and verify a candidate tree in memory, performing zero writes."""
+    """Verify a candidate or already-current tree, performing zero writes."""
     candidate = Path(os.path.abspath(plan))
     source = _safe_read(candidate, 1_000_000)
-    if _parse_root(source) is not None:
-        raise PlanStoreError("plan is already a plan tree")
+    snapshot = snapshot_of_root(candidate, source)
     board_before, revision, public = _board_context(board, candidate)
-    archive_count = _validate_archives(candidate, source)
-    build = build_tree(source)
+    build = _verified_current_tree(snapshot) if snapshot.is_tree else build_tree(source)
     materialized = materialize_build(build)
+    logical_source = materialized if snapshot.is_tree else source
+    archive_count = _validate_archives(candidate, logical_source)
     rebuilt = rebuild_routes(build)
     routes_rebuilt = (
         rebuilt.row_routes == build.row_routes
@@ -1564,6 +1627,12 @@ def dry_run_migration(plan: Path, *, board: Path | None) -> MigrationReport:
         )
         if tag not in descriptor.get("tags", []):
             mismatches.append(f"tag:{tag}")
+    if snapshot.is_tree:
+        # Recheck the live objects after all validation, just before the root
+        # and board checks. Captured bytes cannot hide a mid-verification edit.
+        for digest, body in build.objects.items():
+            if snapshot._read_object(digest, DATA_MAX_BYTES, [0, 0]) != body:
+                raise PlanStoreError("plan-tree object changed during dry run")
     source_after = _safe_read(candidate, 1_000_000)
     if source_after != source:
         raise PlanStoreError("plan changed during dry run")
@@ -1603,8 +1672,9 @@ def dry_run_migration(plan: Path, *, board: Path | None) -> MigrationReport:
         max_data_bytes=max(data_sizes, default=0),
         max_index_depth=max(depths),
         archive_count=archive_count,
-        exact_materialization=materialized == source,
+        exact_materialization=materialized == logical_source,
         materialized_sha256=digest_bytes(materialized),
         routes_rebuilt=routes_rebuilt,
         query_mismatches=tuple(mismatches),
+        action="already_current" if snapshot.is_tree else None,
     )
