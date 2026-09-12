@@ -360,11 +360,24 @@ def lint_plan(
     def _walk(node: str) -> None:
         color[node] = 1
         path.append(node)
-        for nxt in graph.get(node, ()):
+        # Invalid, oversized plans still need their named findings. An
+        # explicit DFS stack keeps their depth out of Python's call stack,
+        # while retaining recursive traversal order and cycle anchors.
+        stack = [(node, iter(graph.get(node, ())))]
+        while stack:
+            try:
+                nxt = next(stack[-1][1])
+            except StopIteration:
+                finished, _ = stack.pop()
+                path.pop()
+                color[finished] = 2
+                continue
             if nxt not in ids:
                 continue  # a dangling target is NEEDS-DANGLE's finding
             if color.get(nxt, 0) == 0:
-                _walk(nxt)
+                color[nxt] = 1
+                path.append(nxt)
+                stack.append((nxt, iter(graph.get(nxt, ()))))
             elif color.get(nxt) == 1:
                 cycle = path[path.index(nxt):]
                 first = min(range(len(cycle)), key=lambda i: cycle[i])
@@ -377,8 +390,6 @@ def lint_plan(
                         "NEEDS-CYCLE", line, "blocking",
                         f"needs cycle deadlocks these rows: {loop}",
                     ))
-        path.pop()
-        color[node] = 2
 
     for node in list(graph):
         if color.get(node, 0) == 0:

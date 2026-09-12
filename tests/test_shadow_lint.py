@@ -196,6 +196,68 @@ class ANeedsCycleIsNamedNotSilent(unittest.TestCase):
         self.assertNotIn("NEEDS-CYCLE", _checks(CLEAN_PLAN))
 
 
+class OversizedDependencyGraphsStillExplainTheirRefusal(unittest.TestCase):
+    @staticmethod
+    def _chain(*, cycle: bool = False) -> str:
+        tasks = []
+        for index in range(1100):
+            target = index + 1 if index < 1099 else (1000 if cycle else None)
+            needs = f" | needs: ~q{target:03x}" if target is not None else ""
+            tasks.append(f"- [pending] step {index} ~q{index:03x} | proof: cmd true{needs}")
+        tasks.append("- [pending] finish ~done (DoD) | proof: cmd true")
+        return ANeedsCycleIsNamedNotSilent._plan("\n".join(tasks) + "\n")
+
+    def test_deep_chain_returns_the_budget_refusal_without_a_traceback(self) -> None:
+        findings = lint.lint_plan(self._chain())
+        checks = {finding["check"] for finding in findings}
+        self.assertIn("HOT-PLAN-ROWS", checks)
+        self.assertNotIn("NEEDS-CYCLE", checks)
+
+    def test_deep_tail_cycle_retains_both_budget_and_cycle_findings(self) -> None:
+        plan = self._chain(cycle=True)
+        findings = lint.lint_plan(plan)
+        self.assertIn("HOT-PLAN-ROWS", {finding["check"] for finding in findings})
+        cycles = [finding for finding in findings if finding["check"] == "NEEDS-CYCLE"]
+        self.assertEqual(len(cycles), 1)
+        self.assertIn("~q3e8 -> ~q3e9", cycles[0]["detail"])
+        self.assertTrue(cycles[0]["detail"].endswith("~q44b -> ~q3e8"))
+        self.assertEqual(cycles[0]["line"], next(
+            number for number, line in enumerate(plan.splitlines(), 1)
+            if line.startswith("- [pending] step 1000 ")
+        ))
+
+    def test_shared_finished_nodes_and_dangling_targets_keep_their_diagnostics(self) -> None:
+        tasks = "\n".join(
+            f"- [pending] caller {index} ~q{index:03x} | proof: cmd true | needs: ~sink"
+            for index in range(1100)
+        )
+        tasks += (
+            "\n- [pending] sink ~sink | proof: cmd true | needs: ~lost\n"
+            "- [pending] finish ~done (DoD) | proof: cmd true\n"
+        )
+        findings = lint.lint_plan(ANeedsCycleIsNamedNotSilent._plan(tasks))
+        self.assertIn("HOT-PLAN-ROWS", {finding["check"] for finding in findings})
+        self.assertEqual(len([f for f in findings if f["check"] == "NEEDS-DANGLE"]), 1)
+        self.assertNotIn("NEEDS-CYCLE", {finding["check"] for finding in findings})
+
+    def test_cycles_keep_canonical_names_file_anchors_and_traversal_order(self) -> None:
+        plan = ANeedsCycleIsNamedNotSilent._plan(
+            "- [pending] first ~zz99 | proof: cmd true | needs: ~yy88\n"
+            "- [pending] second ~yy88 | proof: cmd true | needs: ~zz99\n"
+            "- [pending] self ~aa11 | proof: cmd true | needs: ~aa11\n"
+            "- [pending] finish ~done (DoD) | proof: cmd true\n"
+        )
+        cycles = [f for f in lint.lint_plan(plan) if f["check"] == "NEEDS-CYCLE"]
+        self.assertEqual([f["detail"] for f in cycles], [
+            "needs cycle deadlocks these rows: ~yy88 -> ~zz99 -> ~yy88",
+            "needs cycle deadlocks these rows: ~aa11 -> ~aa11",
+        ])
+        self.assertEqual(cycles[0]["line"], next(
+            number for number, line in enumerate(plan.splitlines(), 1)
+            if line.startswith("- [pending] first ")
+        ))
+
+
 class TheIdGrammarMatchesTheDecisionRecordedInGrammarMd(unittest.TestCase):
     def test_legacy_mnemonic_is_text_and_the_canonical_tail_is_the_id(self) -> None:
         migrated = CLEAN_PLAN.replace(
