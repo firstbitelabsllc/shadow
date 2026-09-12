@@ -404,6 +404,124 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
         self.assertEqual(reads, [owned], reads)
         self.assertEqual(remotes, [payload["entities"][1]["id"]], remotes)
 
+    def test_cold_seat_skips_unhealthy_work_and_stops_at_the_healthy_choice(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, broken, healthy = self.fixture(root)
+            payload["claims"] = []
+            broken.write_text(
+                broken.read_text().replace("- Mode: ship", "- Mode: invalid"),
+                encoding="utf-8",
+            )
+            later = root / "later" / "PLAN.md"
+            later.parent.mkdir()
+            later.write_text(plan("later", "~cc33", "must stay unread"), encoding="utf-8")
+            payload["projects"].append({"id": "later", "priority": 3})
+            payload["entities"].append({
+                "id": status._board.entity_id(later), "project": "later",
+                "plan": str(later), "resume": "~cc33",
+            })
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(status, "projected_claims", side_effect=(
+                    lambda entity, project, path, parsed, local: (list(local), None)
+                )),
+            ):
+                exhaustive = status.seat_focus(status.board_records(payload), "cold-seat")
+                with mock.patch.object(
+                    status._board, "read_plan_text", wraps=status._board.read_plan_text
+                ) as read:
+                    code, stdout, stderr = self.invoke(root, "--by", "cold-seat")
+
+            self.assertEqual(exhaustive[0]["entity"], payload["entities"][1]["id"])
+            self.assertEqual(code, 0, stderr)
+            self.assertIn("--task '~bb22' --by cold-seat", stdout)
+            self.assertIn("Skipped unhealthy: 1", stdout)
+            self.assertIn(status._board.public_plan_locator(broken), stdout)
+            self.assertIn("blocking lint finding", stdout)
+            self.assertNotIn("continue the owned row", stdout)
+            self.assertNotIn("must stay unread", stdout)
+            self.assertEqual([call.args[0] for call in read.call_args_list], [broken, healthy])
+
+    def test_all_unhealthy_keeps_the_first_recovery_target(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, first, second = self.fixture(root)
+            payload["claims"] = []
+            for path in (first, second):
+                path.write_text(path.read_text().replace("Mode: ship", "Mode: invalid"))
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(status, "projected_claims", side_effect=(
+                    lambda entity, project, path, parsed, local: (list(local), None)
+                )),
+                mock.patch.object(
+                    status._board, "read_plan_text", wraps=status._board.read_plan_text
+                ) as read,
+            ):
+                code, stdout, stderr = self.invoke(root, "--by", "cold-seat")
+
+            self.assertEqual(code, 1, (stdout, stderr))
+            self.assertIn("owned —", stdout)
+            self.assertIn("Plan health:", stdout)
+            self.assertIn("Skipped unhealthy: 1", stdout)
+            self.assertNotIn("Claim: shadow throw", stdout)
+            self.assertEqual([call.args[0] for call in read.call_args_list], [first, second])
+
+    def test_healthy_unclaimable_first_record_remains_the_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, first, second = self.fixture(root)
+            payload["claims"][0]["owner"] = "other-seat"
+            second.write_text(second.read_text().replace("Mode: ship", "Mode: invalid"))
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(status, "projected_claims", side_effect=(
+                    lambda entity, project, path, parsed, local: (list(local), None)
+                )),
+            ):
+                exhaustive = status.seat_focus(status.board_records(payload), "cold-seat")
+                code, stdout, stderr = self.invoke(root, "--by", "cold-seat")
+
+            self.assertEqual(exhaustive[0]["entity"], payload["entities"][0]["id"])
+            self.assertEqual(code, 0, stderr)
+            self.assertIn("owned —", stdout)
+            self.assertIn("Owner: other-seat", stdout)
+            self.assertIn("Skipped unhealthy: 1", stdout)
+            self.assertNotIn("Claim: shadow throw", stdout)
+            self.assertNotIn("unrelated —", stdout)
+
+    def test_discovered_remote_owned_failure_remains_this_seats_recovery_target(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            payload, owned, _ = self.fixture(root)
+            remote_claim = {**payload["claims"][0], "remote": True}
+            payload["claims"] = []
+            owned.write_text(owned.read_text().replace("Mode: ship", "Mode: invalid"))
+
+            def project(entity, project, plan_path, parsed, local_claims):
+                if entity["id"] == remote_claim["entity"]:
+                    return [remote_claim], None
+                return list(local_claims), None
+
+            with (
+                mock.patch.object(status._board, "snapshot", return_value=payload),
+                mock.patch.object(status, "projected_claims", side_effect=project),
+                mock.patch.object(
+                    status._board, "read_plan_text", wraps=status._board.read_plan_text
+                ) as read,
+            ):
+                code, stdout, stderr = self.invoke(root, "--by", "codex")
+
+            self.assertEqual(code, 1, (stdout, stderr))
+            self.assertIn("owned —", stdout)
+            self.assertIn("Owned: 1", stdout)
+            self.assertIn("Owner: codex", stdout)
+            self.assertIn("Plan health:", stdout)
+            self.assertNotIn("unrelated —", stdout)
+            self.assertEqual([call.args[0] for call in read.call_args_list], [owned])
+            self.assertEqual(payload["claims"], [])
+
     def test_unowned_seat_skips_a_remotely_owned_board_resume(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -659,15 +777,19 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
                 calls["lint"] += 1
                 return real_lint(text)
 
-            def counting_unclean(parsed):
+            def counting_unclean(parsed, **kwargs):
                 calls["unclean"] += 1
-                return real_unclean(parsed)
+                return real_unclean(parsed, **kwargs)
 
             def counting_candidates(parsed):
                 calls["candidates"] += 1
                 return real_candidates(parsed)
 
             with (
+                # Both callers must reach the same observed real linter;
+                # otherwise amp's lazy module hides the duplicate pass.
+                mock.patch.object(status._amp, "_LINT", status._lint),
+                mock.patch.object(status._amp, "_LINT_TRIED", True),
                 mock.patch.object(status._lint, "lint_plan", side_effect=counting_lint),
                 mock.patch.object(status._amp, "unclean_note", side_effect=counting_unclean),
                 mock.patch.object(status._amp, "_candidate_ids", side_effect=counting_candidates),
@@ -677,6 +799,37 @@ class StatusOwnedSeatFastPath(unittest.TestCase):
             self.assertEqual(calls, {"lint": 1, "unclean": 1, "candidates": 1}, calls)
             self.assertFalse(records[0].get("broken", False), records[0])
             self.assertEqual(records[0]["next_unclaimed"], "~aa11")
+
+    def test_stalled_brief_reuses_lint_and_preserves_invalid_plan_evidence(self) -> None:
+        complete = (
+            plan("demo", "~aa11", "done")
+            .replace("[in_progress]", "[completed]").replace("[pending]", "[completed]")
+            + "\n## Progress\n"
+            + "- 2026-08-26T00:00:00Z ~aa11 PROOF true -> pass\n"
+            + "- 2026-08-26T00:00:01Z ~zz99 PROOF true -> pass\n"
+        )
+        cases = (
+            (complete, False),
+            (complete.replace("Mode: ship", "Mode: invalid"), True),
+            (complete.replace("## Progress", "- [pending] unreadable task\n\n## Progress"), True),
+        )
+        for text, broken in cases:
+            with (
+                self.subTest(broken=broken, text=text),
+                mock.patch.object(status._amp, "_LINT", status._lint),
+                mock.patch.object(status._amp, "_LINT_TRIED", True),
+                mock.patch.object(status._lint, "lint_plan", wraps=status._lint.lint_plan) as lint,
+            ):
+                record = status.v4_brief(Path("PLAN.md"), plan_text=text)
+
+            self.assertEqual(lint.call_count, 1)
+            self.assertEqual(bool(record["lint_blocking"]), broken, record)
+            self.assertEqual("unclean" in record, broken, record)
+            if broken:
+                self.assertNotIn("every task complete", record["resume"])
+                self.assertIn("blocking lint finding", record["unclean"])
+            else:
+                self.assertIn("every task complete", record["resume"])
 
     def test_one_repo_resolves_one_upstream_binding_per_status_pass(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

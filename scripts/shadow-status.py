@@ -104,9 +104,10 @@ def v4_brief(
     # render as "every task complete; mint the successor" — hiding real work.
     # Lint is additive here: the brief still renders (an operator needs it),
     # but a blocking finding is stated and completion is never claimed.
+    findings = lint_findings if lint_findings is not None else _lint.lint_plan(plan_text)
     blocking = [
         f
-        for f in (lint_findings if lint_findings is not None else _lint.lint_plan(plan_text))
+        for f in findings
         if f.get("severity") == "blocking"
     ]
     record: dict = {
@@ -169,12 +170,12 @@ def v4_brief(
         # skips malformed rows, so the real work may simply be unreadable.
         record["resume"] = (
             "UNKNOWN — blocking lint findings mean 'complete' cannot be trusted; fix them first"
-            if blocking else f"none — {_amp.stall_reason(plan)}"
+            if blocking else f"none — {_amp.stall_reason(plan, lint_findings=findings)}"
         )
     # A v4 Brief is not a promise that the plan reads clean: parsing is
     # tolerant, so illegal modes and malformed rows would otherwise be
     # invisible on the board. Surface them beside the resume line.
-    note = _amp.unclean_note(plan) if unclean is _ANALYZE else unclean
+    note = _amp.unclean_note(plan, lint_findings=findings) if unclean is _ANALYZE else unclean
     if note:
         record["unclean"] = note
     return record
@@ -249,6 +250,8 @@ def milestone_rotation(
 
 
 def claimable_row(record: dict) -> str | None:
+    if not record.get("entity") or record.get("broken"):
+        return None
     claimable = record.get("next_unclaimed")
     if not claimable and not record.get("owner"):
         claimable = record.get("board_resume")
@@ -301,7 +304,7 @@ def append_live_work(lines: list[str], record: dict, seat: str | None) -> None:
                 f"--row {shlex.quote(claim['row'])} --by {shlex.quote(claim['owner'])}"
             )
     claimable = claimable_row(record)
-    if record.get("entity") and claimable and not record.get("broken"):
+    if claimable:
         owner = shlex.quote(seat) if seat else "YOUR-STABLE-SEAT"
         lines.append(
             f"  Claim: shadow throw --entity {record['entity']} "
@@ -378,9 +381,7 @@ def seat_focus(records: list[dict], seat: str) -> list[dict]:
         (
             record
             for record in records
-            if record.get("entity")
-            and not record.get("broken")
-            and claimable_row(record)
+            if claimable_row(record)
         ),
         None,
     )
@@ -776,7 +777,7 @@ def board_records(
             # One analysis per entity per pass: the same lint findings, unclean
             # note, and candidate set serve the brief and the board record.
             analysis_findings = _lint.lint_plan(text)
-            analysis_unclean = _amp.unclean_note(parsed)
+            analysis_unclean = _amp.unclean_note(parsed, lint_findings=analysis_findings)
             analysis_candidates = _amp._candidate_ids(parsed)
             record = v4_brief(
                 plan_path,
@@ -1142,6 +1143,7 @@ def main(argv: list[str] | None = None) -> int:
             inspected: set[str] = set()
             fallback: list[dict] = []
             focused: list[dict] = []
+            unhealthy_inspected: list[dict] = []
             owned = 0
             while True:
                 selected, owned = _board.seat_board_entities(
@@ -1157,23 +1159,37 @@ def main(argv: list[str] | None = None) -> int:
                     entity_ids=selected,
                     verify_identity=True,
                 )
-                if owned or any(
-                    record.get("broken") or claimable_row(record)
+                # Authenticated remote ownership discovered in this read has
+                # the same recovery precedence as a claim on the local board.
+                owned = owned or sum(
+                    any(claim["owner"] == args.by for claim in record.get("live_claims", []))
                     for record in candidate
-                ):
-                    focused = candidate
-                    break
+                )
                 if not fallback:
                     fallback = candidate
+                if owned or any(claimable_row(record) for record in candidate):
+                    focused = candidate
+                    break
+                unhealthy_inspected.extend(record for record in candidate if record.get("broken"))
                 inspected.update(selected)
             if focused:
                 unhealthy = sum(bool(record.get("broken")) for record in focused)
+                focused_ids = {record["entity"] for record in focused}
+                skipped = [record for record in unhealthy_inspected if record["entity"] not in focused_ids]
                 blocks = [
                     f"This computer — root board revision {board_snapshot['revision']}",
                     f"Portfolio: {len(board_snapshot['entities'])} entities | "
                     f"Seat: {args.by} | Focused: {len(focused)} | "
-                    f"Owned: {owned} | Unhealthy: {unhealthy}",
+                    f"Owned: {owned} | Focused unhealthy: {unhealthy}",
                 ]
+                if skipped:
+                    first = skipped[0]
+                    blocks.append(
+                        f"Skipped unhealthy: {len(skipped)} inspected entity(s); first: "
+                        f"{_amp._clean(first['path'])}\n"
+                        f"  {_amp._clean(first.get('unclean') or first['resume'])}\n"
+                        "  Read all entity health: shadow status --json"
+                    )
                 legacy = render_seat_legacy_claims(board_snapshot, args.by)
                 if legacy is not None:
                     blocks.append(legacy)

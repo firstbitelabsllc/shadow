@@ -197,6 +197,52 @@ class AmpSelection(unittest.TestCase):
     def test_clean_plan_reports_no_health_note(self) -> None:
         self.assertIsNone(amp.unclean_note(amp._parse(PLAN)))
 
+    def test_supplied_empty_lint_findings_do_not_trigger_a_second_analysis(self) -> None:
+        with mock.patch.object(amp, "_lint_blocking", wraps=amp._lint_blocking) as lint:
+            note = amp.unclean_note(amp._parse(PLAN), lint_findings=[])
+        self.assertIsNone(note)
+        self.assertEqual(lint.call_count, 0)
+
+    def test_absent_lint_findings_still_observe_blocking_plan_errors(self) -> None:
+        parsed = amp._parse(PLAN.replace("Mode: ship", "Mode: invalid"))
+        for kwargs in ({}, {"lint_findings": None}):
+            with self.subTest(kwargs=kwargs), mock.patch.object(
+                amp, "_lint_blocking", wraps=amp._lint_blocking
+            ) as lint:
+                note = amp.unclean_note(parsed, **kwargs)
+            self.assertIn("blocking lint finding", note)
+            self.assertEqual(lint.call_count, 1)
+
+    def test_missing_or_failing_linter_reports_uncertainty_without_blocking_parse(self) -> None:
+        failing_linter = mock.Mock()
+        failing_linter.lint_plan.side_effect = RuntimeError("lint unavailable")
+        for name, linter in (("missing", None), ("failing", failing_linter)):
+            with self.subTest(linter=name), mock.patch.object(
+                amp, "_LINT", linter
+            ), mock.patch.object(amp, "_LINT_TRIED", True):
+                parsed = amp._parse(PLAN)
+                note = amp.unclean_note(parsed)
+                _, selected = amp._select(parsed, None)
+                self.assertEqual(selected["id"], "~dd44")
+                self.assertIsNone(amp.unclean_note(parsed, lint_findings=[]))
+                self.assertIsInstance(note, str)
+                self.assertIn("lint analysis unavailable", note)
+
+    def test_supplied_findings_preserve_the_standalone_health_reason(self) -> None:
+        text = PLAN.replace("Mode: ship", "Mode: invalid").replace(
+            "- [pending] the ready row ~dd44 | proof: cmd npm run gate",
+            "- [doing] the ready row ~dd44 proof cmd npm run gate",
+        )
+        parsed = amp._parse(text)
+        expected = amp.unclean_note(parsed)
+        findings = amp._LINT.lint_plan(text)
+        with mock.patch.object(amp, "_lint_blocking", wraps=amp._lint_blocking) as lint:
+            observed = amp.unclean_note(parsed, lint_findings=findings)
+        self.assertEqual(observed, expected)
+        self.assertIn("row-shaped line", observed)
+        self.assertIn("blocking lint finding", observed)
+        self.assertEqual(lint.call_count, 0)
+
 
 class AmpPointer(unittest.TestCase):
     def test_repo_metadata_cannot_inject_lines(self) -> None:
@@ -359,6 +405,65 @@ class GoalMintingReadsThePlansOwnLessonRows(unittest.TestCase):
         self.assertNotIn("old retry advice", block)
         self.assertNotIn("old branch dies", block)
         self.assertEqual(after, before)
+
+    def test_append_order_breaks_same_second_lead_ties_but_not_newer_timestamps(self) -> None:
+        text = PLAN + (
+            "- 2026-08-07T00:04:00Z LESSON first lesson\n"
+            "- 2026-08-07T00:04:00Z DECISION first decision\n"
+            "- 2026-08-07T00:04:00Z LESSON later lesson\n"
+            "- 2026-08-07T00:04:00Z DECISION later decision\n"
+            "- 2026-08-07T00:03:00Z LESSON appended older lesson\n"
+            "- 2026-08-07T00:03:00Z DECISION appended older decision\n"
+        )
+        self.assertEqual(amp._parse(text)["leads"], [
+            "LESSON later lesson", "DECISION later decision",
+        ])
+
+    def test_latest_correction_is_context_beside_the_unchanged_decision(self) -> None:
+        text = PLAN + (
+            "- 2026-08-07T00:04:00Z DECISION keep the current build\n"
+            "- 2026-08-07T00:05:00Z CORRECTION first correction\n"
+            "- 2026-08-07T00:05:00Z CORRECTION another lane still needs the owner's decision\n"
+            "- 2026-08-07T00:03:00Z CORRECTION appended older correction\n"
+        )
+        original = amp._parse(PLAN)
+        parsed = amp._parse(text)
+        parsed["claimed"] = {"~dd44"}
+        claims_before = set(parsed["claimed"])
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            path = _write(repo, text)
+            before = path.read_bytes()
+            block, _ = amp.build_block(parsed, repo, path, "~ff66", 4_000)
+            self.assertEqual(path.read_bytes(), before)
+
+        self.assertIn("DECISION keep the current build", block)
+        self.assertIn("CORRECTION another lane still needs the owner's decision", block)
+        self.assertNotIn("first correction", block)
+        self.assertNotIn("appended older correction", block)
+        self.assertIn("PERSON-GATED (do not take): owner clicks release ~ee55", block)
+        self.assertEqual(parsed["milestones"], original["milestones"])
+        self.assertEqual(parsed["contradictions"], original["contradictions"])
+        self.assertEqual(parsed["claimed"], claims_before)
+        self.assertEqual(amp._select(parsed, None)[1]["id"], "~ff66")
+
+    def test_large_combined_leads_keep_the_existing_packet_bound(self) -> None:
+        text = PLAN + "".join(
+            f"- 2026-08-07T00:04:00Z {kind} {kind.lower() * 1_000}\n"
+            for kind in ("LESSON", "DECISION", "CORRECTION")
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            path = _write(repo, text)
+            block, _ = amp.build_block(amp._parse(text), repo, path, None, 4_000)
+            self.assertIn("CORRECTION", block)
+            self.assertLessEqual(len(block), 4_000)
+            bounded, dropped = amp.build_block(amp._parse(text), repo, path, None, 760)
+            self.assertLessEqual(len(bounded), 760)
+            self.assertIn("LEADS", dropped)
+            self.assertIn("RESUME: [pending] the ready row ~dd44", bounded)
+            with self.assertRaises(ValueError):
+                amp.build_block(amp._parse(text), repo, path, None, 120)
 
 
 class CapabilitySelectionIsDeterministicAndRecorded(unittest.TestCase):

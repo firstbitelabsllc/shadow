@@ -48,7 +48,7 @@ BRIEF_KEY_RE: Final = re.compile(r"^- (?P<key>Project|Mode|Priority|Loop): (?P<v
 TOOLS_RE: Final = re.compile(r"^- tools: (?P<value>.+)$")
 PLAN_LEAD_RE: Final = re.compile(
     r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "
-    r"(?P<kind>LESSON|DECISION) (?P<value>.+)$"
+    r"(?P<kind>LESSON|DECISION|CORRECTION) (?P<value>.+)$"
 )
 HASH_RE = _grammar.HASH_RE
 ROW_SHAPE_RE: Final = _grammar.ROW_LOOSE_RE
@@ -169,13 +169,15 @@ def _parse(text: str) -> dict:
     ]
     # Goal minting reuses the plan's append-only knowledge. Only the newest
     # entry of each kind is projected; the plan remains the authority and no
-    # parallel dossier, cache, or memory record is created.
+    # parallel dossier, cache, or memory record is created. Append order breaks
+    # same-second ties. A correction is separate context, never an inferred
+    # replacement decision or authorization.
     latest_leads: dict[str, tuple[str, str]] = {}
     for line in sections.get("Progress", []):
         match = PLAN_LEAD_RE.match(line)
         if match and (
             match.group("kind") not in latest_leads
-            or match.group("ts") > latest_leads[match.group("kind")][0]
+            or match.group("ts") >= latest_leads[match.group("kind")][0]
         ):
             latest_leads[match.group("kind")] = (
                 match.group("ts"),
@@ -183,7 +185,7 @@ def _parse(text: str) -> dict:
             )
     leads = [
         f"{kind} {latest_leads[kind][1]}"
-        for kind in ("LESSON", "DECISION")
+        for kind in ("LESSON", "DECISION", "CORRECTION")
         if kind in latest_leads
     ]
     return {
@@ -279,9 +281,10 @@ def _lint_blocking(text: str) -> int | None:
         return None
 
 
-def unclean_note(plan: dict) -> str | None:
+def unclean_note(plan: dict, *, lint_findings: list[dict] | None = None) -> str | None:
     """One sentence naming why this plan may not be readable as written, or
-    None when it parses clean and lints clean."""
+    None when it parses clean and lints clean. Reuse supplied current findings;
+    an empty list is a completed analysis, while None still runs the linter."""
     parts = []
     if plan.get("unparsed"):
         parts.append(f"{len(plan['unparsed'])} row-shaped line(s) the grammar rejects")
@@ -293,15 +296,21 @@ def unclean_note(plan: dict) -> str | None:
         parts.append(
             "hot plan budget exceeded (" + ", ".join(budget["exceeded"]) + ")"
         )
-    blocking = _lint_blocking(plan.get("text", ""))
-    if blocking:
+    blocking = (
+        sum(finding.get("severity") == "blocking" for finding in lint_findings)
+        if lint_findings is not None
+        else _lint_blocking(plan.get("text", ""))
+    )
+    if blocking is None:
+        parts.append("lint analysis unavailable")
+    elif blocking:
         parts.append(f"{blocking} blocking lint finding(s)")
     if not parts:
         return None
     return f"the plan does not read clean — {' and '.join(parts)}; run `shadow lint`"
 
 
-def stall_reason(plan: dict) -> str:
+def stall_reason(plan: dict, *, lint_findings: list[dict] | None = None) -> str:
     """Why auto-resume selected nothing — never 'all complete' while open rows
     remain, and never 'all complete' for a plan whose rows may not all have
     parsed. A plan can stall with work left: every open row person-gated,
@@ -314,7 +323,7 @@ def stall_reason(plan: dict) -> str:
         for row in milestone["rows"]
         if row["state"] != "completed"
     ]
-    unclean = unclean_note(plan)
+    unclean = unclean_note(plan, lint_findings=lint_findings)
     if not open_rows:
         if unclean:
             return f"{unclean} before chaining a successor over unread work"
