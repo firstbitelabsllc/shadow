@@ -3065,6 +3065,30 @@ def claim(
         return result
 
 
+def _assert_init_registration_locator(
+    payload: dict, plan: str, identity: str, project: str,
+) -> None:
+    for stored in payload["entities"]:
+        if stored["plan"] == plan and (
+            stored["id"] != identity or stored["project"] != project
+        ):
+            raise BoardError(
+                "init registration locator is already registered with a different identity or project"
+            )
+
+
+def preflight_init_registration(
+    plan: Path, project: str, *, home: Path | None = None,
+) -> None:
+    """Refuse an existing pointer conflict before reserving or scaffolding."""
+    path = _safe_root(home) / "board.json"
+    if not path.exists() and not path.is_symlink():
+        return
+    plan = plan.resolve()
+    identity = logical_entity_id(*plan_identity_parts(plan))
+    _assert_init_registration_locator(_read(path), str(plan), identity, project)
+
+
 def complete_init_registration(
     entity: dict,
     receipt: bytes,
@@ -3594,13 +3618,7 @@ def reconcile(
         original_payload = json.loads(json.dumps(payload))
         if registration_reference is not None:
             seed = prepared[0]
-            for stored in payload["entities"]:
-                if stored["plan"] == seed["plan"] and (
-                    stored["id"] != seed["id"] or stored["project"] != seed["project"]
-                ):
-                    raise BoardError(
-                        "init registration locator is already registered with a different identity or project"
-                    )
+            _assert_init_registration_locator(payload, seed["plan"], seed["id"], seed["project"])
         identity_index = _identity_index(payload)
         if registration_reference is not None and prepared[0]["id"] in identity_index:
             exact = [

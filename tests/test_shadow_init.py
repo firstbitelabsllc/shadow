@@ -568,6 +568,45 @@ class InitTests(unittest.TestCase):
                 self.assertEqual(self.locator_state(destination), before)
                 self.assertEqual(self.authority_state(destination, home), authority)
 
+    def test_local_missing_registered_plan_collision_refuses_before_any_write(self) -> None:
+        for field, replacement in (("id", "f" * 64), ("project", "another-project")):
+            for missing_parent in (False, True):
+                with self.subTest(field=field, missing_parent=missing_parent), tempfile.TemporaryDirectory() as dirname:
+                    root = Path(dirname)
+                    home = root / "home"
+                    destination = home / ".shadow" / "plans" / "personal-admin" / "PLAN.md"
+                    result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+                    self.assertEqual(result, 0, stderr)
+                    with shadow_init.board._transaction(home) as (board_root, board_path, payload):
+                        payload["entities"][0][field] = replacement
+                        if field == "project":
+                            payload["projects"].append({"id": replacement, "priority": 3})
+                            payload["projects"].sort(key=lambda item: (item["priority"], item["id"]))
+                        payload["revision"] += 1
+                        shadow_init.board._write_and_commit(board_root, board_path, payload, "fixture missing collision")
+                    if missing_parent:
+                        destination.parent.rename(root / "preserved-authority")
+                        parent_before = None
+                    else:
+                        destination.rename(root / "preserved-PLAN.md")
+                        destination.parent.chmod(0o755)
+                        parent_before = destination.parent.stat()
+                    authority_before = self.authority_state(destination, home)
+
+                    result, _, stderr = self.call_main(root, home, "--local", "personal-admin")
+
+                    self.assertEqual(result, 1, stderr)
+                    self.assertIn("different identity or project", stderr)
+                    self.assertFalse(destination.exists(), "refusal must precede plan creation")
+                    if missing_parent:
+                        self.assertFalse(destination.parent.exists())
+                    else:
+                        parent_after = destination.parent.stat()
+                        self.assertEqual(parent_after.st_mode, parent_before.st_mode)
+                        self.assertEqual(parent_after.st_mtime_ns, parent_before.st_mtime_ns)
+                    self.assertEqual(self.authority_state(destination, home), authority_before)
+                    self.assertIsNone(shadow_init.board.read_init_registration(destination, home=home))
+
     def test_local_init_allows_another_entity_in_the_same_project(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

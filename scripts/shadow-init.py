@@ -316,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     destination_exists = destination.exists() or destination.is_symlink()
     try:
+        board.preflight_init_registration(destination, public_identifier(repo.name), home=home)
         if destination_exists:
             pending = board.read_init_registration(
                 destination,
