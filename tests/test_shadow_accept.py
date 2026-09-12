@@ -5566,5 +5566,123 @@ class AProvenReadRowFlipsOnAPlanTree(unittest.TestCase):
         )
 
 
+class JudgmentObservationFreshness(unittest.TestCase):
+    """An earlier pass must not authorize completion after contrary evidence."""
+
+    def _fixture(self, local: bool, completed: bool, progress: str):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name).resolve()
+        repo = make_repo(root)
+        home = root / "home"
+        home.mkdir()
+        text = READ_PLAN.replace(
+            "[in_progress] review", "[completed] review" if completed else "[pending] review"
+        ) + progress
+        if local:
+            plan_root = home / ".shadow" / "plans" / "demo"
+            plan_root.mkdir(parents=True)
+            plan = install_plan_tree(plan_root, text.encode("utf-8"))
+        else:
+            plan = repo / "PLAN.md"
+            plan.write_text(text, encoding="utf-8")
+            git(repo, "add", "PLAN.md")
+            git(repo, "commit", "-qm", "record observations")
+        accept._board.reconcile(
+            [{"plan": str(plan), "project": "demo", "priority": 3, "candidates": ["~jr01"]}],
+            [], home=home,
+        )
+        acquired = accept._board.claim(
+            plan, "~jr01", "seat-a", project="demo", priority=3,
+            home=home, repo=None if local else repo,
+            access="read_only" if local else "unscoped",
+        )
+        selector = ["--entity", acquired["entity"]["id"]] if local else []
+        args = [*selector, "--repo", str(repo), "--row", "~jr01", "--by", "seat-a", "--no-push"]
+        return repo, home, plan, args
+
+    @staticmethod
+    def _observations(*lines: str) -> str:
+        return "".join(f"- 2026-09-12T10:{index:02}:00Z ~jr01 {line}\n"
+                       for index, line in enumerate(lines))
+
+    def _run(self, home: Path, args: list[str]) -> tuple[int, str]:
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+             redirect_stdout(output), redirect_stderr(output):
+            result = accept.main(args)
+        return result, output.getvalue()
+
+    def _authority_bytes(self, repo: Path, home: Path, plan: Path):
+        objects = plan.parent / "PLAN.d"
+        return (
+            plan.read_bytes(),
+            {str(path.relative_to(objects)): path.read_bytes()
+             for path in objects.rglob("*") if path.is_file()},
+            (home / ".shadow" / "board.json").read_bytes(),
+            git(repo, "rev-parse", "HEAD"),
+        )
+
+    def test_newer_failed_unknown_malformed_or_reshaped_observation_refuses_every_door(self) -> None:
+        for local in (False, True):
+            for completed in (False, True):
+                for newest in (
+                    "PROOF dashboard reports errors -> fail (manual)",
+                    "PROOF dashboard unavailable -> unknown",
+                    "PROOF dashboard commentary -> passive review only",
+                    "PROOF approval was retracted -> pass withdrawn",
+                    "PROOF observation was interrupted",
+                    "RESHAPE proof was `read old dashboard`; now `read deploy dashboard` (by seat-a)",
+                ):
+                    with self.subTest(local=local, completed=completed, newest=newest):
+                        progress = self._observations("PROOF healthy earlier -> pass (manual)", newest)
+                        repo, home, plan, args = self._fixture(local, completed, progress)
+                        before = self._authority_bytes(repo, home, plan)
+                        result, output = self._run(home, args)
+                        self.assertEqual(result, 1, output)
+                        self.assertIn("observation", output)
+                        self.assertEqual(self._authority_bytes(repo, home, plan), before)
+
+    def test_freeform_fresh_observation_after_same_second_reshape_accepts_every_door(self) -> None:
+        progress = (
+            "- 2026-09-12T10:00:00Z ~jr01 PROOF earlier check -> fail\n"
+            "- 2026-09-12T10:01:00Z ~jr01 RESHAPE proof was `read old dashboard`; now `read deploy dashboard` (by seat-a)\n"
+            "- 2026-09-12T10:01:00Z ~jr01 PROOF dashboard shows no errors -> pass (manual)\n"
+        )
+        for local in (False, True):
+            for completed in (False, True):
+                with self.subTest(local=local, completed=completed):
+                    repo, home, plan, args = self._fixture(local, completed, progress)
+                    result, output = self._run(home, args)
+                    self.assertEqual(result, 0, output)
+                    self.assertIn("[completed] review", accept._board.read_plan_text(plan))
+                    self.assertEqual(accept._board.snapshot(home=home)["claims"], [])
+                    self.assertIn("dashboard shows no errors -> pass (manual)",
+                                  accept._board.read_plan_text(plan))
+
+    def test_completion_match_requires_an_exact_success_result(self) -> None:
+        for result, expected in (
+            ("pass", True), ("pass (manual)", True), ("pass (observed)", True),
+            ("passive review only", False), ("pass withdrawn", False),
+            ("pass (manual) withdrawn", False), ("pass ()", False),
+        ):
+            with self.subTest(result=result):
+                text = READ_PLAN.replace("[in_progress]", "[completed]", 1)
+                text += self._observations(f"PROOF independent dashboard observation -> {result}")
+                self.assertEqual(
+                    accept.completion_matches(text, "~jr01", "read deploy dashboard"), expected
+                )
+
+    def test_completion_match_does_not_reveal_an_older_success(self) -> None:
+        text = READ_PLAN.replace("[in_progress]", "[completed]", 1)
+        for latest in (
+            "PROOF new observation -> fail", "PROOF malformed observation",
+            "RESHAPE proof was `read old dashboard`; now `read deploy dashboard` (by seat-a)",
+        ):
+            with self.subTest(latest=latest):
+                observed = text + self._observations("PROOF old observation -> pass", latest)
+                self.assertFalse(accept.completion_matches(observed, "~jr01", "read deploy dashboard"))
+
+
 if __name__ == "__main__":
     unittest.main()

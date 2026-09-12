@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from contextlib import redirect_stderr, redirect_stdout
 import fcntl
 import importlib.util
@@ -2004,7 +2004,7 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
                 second,
                 home_b,
                 "seat-b",
-                extra_args=("--adopt-expired",),
+                extra_args=("--adopt-expired", "--lease-minutes", "60"),
             )
             stdout, stderr = adopted.communicate(timeout=30)
 
@@ -2021,7 +2021,11 @@ class AProtectedTrunkStillTakesAClaim(unittest.TestCase):
                 ("unscoped", None),
             )
             self.assertEqual(local_claim["claim_revision"], before["revision"] + 1)
-            self.assertEqual(receipt["claim"]["claim_revision"], local_claim["claim_revision"])
+            claimed = datetime.fromisoformat(local_claim["claimed_at"].replace("Z", "+00:00"))
+            deadline = datetime.fromisoformat(local_claim["return_by"].replace("Z", "+00:00"))
+            self.assertEqual(deadline - claimed, timedelta(minutes=60))
+            for key in ("claimed_at", "return_by", "claim_revision"):
+                self.assertEqual(receipt["claim"][key], local_claim[key])
             self.assertEqual(
                 json.loads(self.git(bare, "show", f"{receipt['ref']}:claim.json"))["claim"],
                 receipt["claim"],
@@ -2266,6 +2270,114 @@ class AClaimOnAnUnmergedBranchIsNotCalledDurable(unittest.TestCase):
             self.assertEqual(len(recovery["rows"]), 1)
             self.assertTrue(recovery["rows"][0]["broken"])
             self.assertEqual(recovery["root_board"]["claims"], [])
+
+
+class ClaimCadenceTests(unittest.TestCase):
+    """A claim deadline is explicit evidence, never a renewal or death signal."""
+
+    def test_public_short_default_and_long_claims_store_exact_duration(self) -> None:
+        for minutes in (5, None, 10080):
+            with self.subTest(minutes=minutes), tempfile.TemporaryDirectory() as tmp:
+                repo, home, env = fixture(Path(tmp).resolve())
+                args = () if minutes is None else ("--lease-minutes", str(minutes))
+                result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a", *args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                claim = board.snapshot(home=home)["claims"][0]
+                claimed = datetime.fromisoformat(claim["claimed_at"].replace("Z", "+00:00"))
+                deadline = datetime.fromisoformat(claim["return_by"].replace("Z", "+00:00"))
+                self.assertEqual(deadline - claimed, timedelta(minutes=480 if minutes is None else minutes))
+                before = (home / ".shadow" / "board.json").read_bytes()
+                self.assertFalse(board.claim_is_stale(claim, now=deadline - timedelta(microseconds=1)))
+                self.assertTrue(board.claim_is_stale(claim, now=deadline))
+                self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+                self.assertEqual(board.snapshot(home=home)["claims"][0]["owner"], "seat-a")
+
+    def test_invalid_public_duration_refuses_before_any_board_or_plan_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp).resolve())
+            before = (repo / "PLAN.md").read_bytes()
+            for value in ("0", "-1", "10081", "1.5", "nan", "inf", "true"):
+                with self.subTest(value=value):
+                    result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a",
+                                 "--lease-minutes", value)
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertFalse((home / ".shadow").exists())
+                    self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+
+    def test_direct_callers_cannot_bypass_duration_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, _env = fixture(Path(tmp).resolve())
+            before = (repo / "PLAN.md").read_bytes()
+            for value in (True, False, "5", None, 0, -1, 10081, 1.5, float("nan"), float("inf")):
+                with self.subTest(value=value):
+                    with self.assertRaises(board.BoardError):
+                        board.claim(repo / "PLAN.md", "~bb22", "seat-a", project="demo", priority=2,
+                                    home=home, repo=repo, lease_minutes=value)
+                    self.assertFalse((home / ".shadow").exists())
+                    self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+
+    def test_duplicate_does_not_renew_and_explicit_adoption_keeps_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, _env = fixture(Path(tmp).resolve())
+            plan = repo / "PLAN.md"
+            start = datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc)
+            first = board.claim(plan, "~bb22", "seat-a", project="demo", priority=2,
+                                home=home, repo=repo, now=start, lease_minutes=5)
+            before = (home / ".shadow" / "board.json").read_bytes()
+            with self.assertRaises(board.AlreadyClaimed):
+                board.claim(plan, "~bb22", "seat-a", project="demo", priority=2,
+                            home=home, repo=repo, now=start + timedelta(minutes=1), lease_minutes=60)
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+            with self.assertRaises(board.AlreadyClaimed):
+                board.claim(plan, "~bb22", "seat-b", project="demo", priority=2,
+                            home=home, repo=repo, now=start + timedelta(minutes=5), lease_minutes=60)
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+            with self.assertRaisesRegex(board.BoardError, "preserve access"):
+                board.claim(plan, "~bb22", "seat-b", project="demo", priority=2,
+                            home=home, repo=repo, now=start + timedelta(minutes=5),
+                            lease_minutes=60, adopt_expired=True, access="read_only")
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), before)
+            second = board.claim(plan, "~bb22", "seat-b", project="demo", priority=2,
+                                 home=home, repo=repo, now=start + timedelta(minutes=5),
+                                 lease_minutes=60, adopt_expired=True)
+            self.assertEqual(second["claim"]["claimed_at"], "2026-09-12T10:05:00Z")
+            self.assertEqual(second["claim"]["return_by"], "2026-09-12T11:05:00Z")
+            self.assertEqual(second["claim"]["owner"], "seat-b")
+            for key in ("access", "repository_binding", "write_scope"):
+                self.assertEqual(second["claim"][key], first["claim"][key])
+
+    def test_remote_witness_uses_exact_committed_local_times(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, home, env = fixture(root)
+            bare = root / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(bare)], check=True)
+            configure_public_fixture_ssh_remote(repo, bare)
+            subprocess.run(["git", "-C", str(repo), "push", "-qu", "origin", "HEAD:main"], check=True)
+            subprocess.run(["git", "-C", str(bare), "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+            plan_before = (repo / "PLAN.md").read_bytes()
+            remote_before = {str(path.relative_to(bare)): path.read_bytes()
+                             for path in bare.rglob("*") if path.is_file()}
+            for invalid in ("0", "10081"):
+                refused = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a",
+                              "--lease-minutes", invalid)
+                self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+                self.assertFalse((home / ".shadow").exists())
+                self.assertEqual((repo / "PLAN.md").read_bytes(), plan_before)
+                self.assertEqual({str(path.relative_to(bare)): path.read_bytes()
+                                  for path in bare.rglob("*") if path.is_file()}, remote_before)
+            result = run(THROW, repo, env, "--task", "~bb22", "--by", "seat-a", "--lease-minutes", "5")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            receipt = next(json.loads(line) for line in result.stderr.splitlines()
+                           if line.startswith('{"') and json.loads(line).get("schema") == "shadow.remote-claim.v1")
+            local = board.snapshot(home=home)["claims"][0]
+            for key in ("claimed_at", "return_by", "claim_revision"):
+                self.assertEqual(receipt["claim"][key], local[key])
+            stored = json.loads(subprocess.check_output(
+                ["git", "-C", str(bare), "show", f"{receipt['ref']}:claim.json"], text=True
+            ))
+            self.assertEqual(stored["claim"], receipt["claim"])
 
 
 if __name__ == "__main__":

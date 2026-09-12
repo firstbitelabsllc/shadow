@@ -1495,6 +1495,24 @@ def stranded_receipt_detail(plan_text: str, row_id: str) -> str:
     )
 
 
+def has_current_judgment_observation(plan_text: str, row_id: str) -> bool:
+    """Read the last appended PROOF/RESHAPE for this row, never an older pass.
+
+    Progress is append-only. A malformed row-specific PROOF or a proof
+    RESHAPE invalidates prior observations, including within the same second.
+    Observation prose is freeform; success is exactly ``pass`` with at most
+    one nonempty parenthesized annotation, such as ``pass (manual)``.
+    """
+    latest = None
+    for line in _board.section_lines(plan_text, "Progress"):
+        marker = re.match(
+            r"^- \S+ (?P<id>~[0-9a-z]{4}) (?P<kind>PROOF|RESHAPE)\b", line
+        )
+        if marker is not None and marker.group("id") == row_id:
+            latest = _grammar.progress_proof_receipt(line)
+    return latest is not None and re.fullmatch(r"pass(?: \([^()\r\n]+\))?", latest[2]) is not None
+
+
 def require_accept_ready_judgment_row(
     plan_path: Path,
     plan_text: str,
@@ -1516,8 +1534,7 @@ def require_accept_ready_judgment_row(
         raise AcceptError(
             f"only read/gate proofs flip from a recorded observation; this row is {kind}-classed"
         )
-    receipts = _board.progress_proof_receipts(plan_text, row_id)
-    if not any(result.startswith("pass") for _, result in receipts):
+    if not has_current_judgment_observation(plan_text, row_id):
         raise AcceptError(
             f"{row_id} is {kind}-classed — record the observation as a passing "
             f"PROOF line in Progress, then accept{stranded_receipt_detail(plan_text, row_id)}"
@@ -1854,10 +1871,7 @@ def accept_local_plan(
         if proof.startswith(("read ", "gate ")):
             # A completed judgment row needs no rerun: authenticate the
             # recorded passing observation, then reconcile the held claim.
-            if not any(
-                result.startswith("pass")
-                for _, result in _board.progress_proof_receipts(plan_text, row_id)
-            ):
+            if not has_current_judgment_observation(plan_text, row_id):
                 raise AcceptError(
                     "the completed local row has no recorded passing observation"
                 )
@@ -2666,10 +2680,7 @@ def completion_matches(
         return (
             state == "completed"
             and proof == local_proof
-            and any(
-                result.startswith("pass")
-                for _, result in _board.progress_proof_receipts(text, row_id)
-            )
+            and has_current_judgment_observation(text, row_id)
         )
     if not proof.startswith("cmd "):
         raise AcceptError("published completion proof is not command-classed")
@@ -3126,10 +3137,7 @@ def main(argv: list[str] | None = None) -> int:
                 # recorded passing observation, then reconcile exactly as
                 # the cmd retry does — held local claim first, remote-only
                 # state through the publish-only path.
-                if not any(
-                    result.startswith("pass")
-                    for _, result in _board.progress_proof_receipts(plan_text, row_id)
-                ):
+                if not has_current_judgment_observation(plan_text, row_id):
                     raise AcceptError(
                         "the completed row has no recorded passing observation"
                     )

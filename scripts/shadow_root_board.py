@@ -39,6 +39,7 @@ V1_SCHEMA = _schema.V1_SCHEMA
 SCHEMA = V1_SCHEMA
 V2_SCHEMA = _schema.V2_SCHEMA
 DEFAULT_CLAIM_HOURS = 8
+MAX_CLAIM_MINUTES = 7 * 24 * 60
 COMPLETION_RESERVATION_MINUTES = 10
 RECOVERY_ACTION = _schema.RECOVERY_ACTION
 ROW_ID = _schema.ROW_ID
@@ -2855,6 +2856,13 @@ def _adopt_settled_huddle_participant(payload: dict, old: dict, new: dict) -> di
     return h
 
 
+def validate_lease_minutes(value: int) -> int:
+    """Bound explicit acquisition duration before any board or remote write."""
+    if type(value) is not int or not 1 <= value <= MAX_CLAIM_MINUTES:
+        raise BoardError(f"lease minutes must be an integer from 1 to {MAX_CLAIM_MINUTES}")
+    return value
+
+
 def claim(
     plan: Path,
     row: str,
@@ -2870,7 +2878,9 @@ def claim(
     repo: Path | None = None,
     access: str = "unscoped",
     write_scope: list[str] | None = None,
+    lease_minutes: int = DEFAULT_CLAIM_HOURS * 60,
 ) -> dict:
+    lease_minutes = validate_lease_minutes(lease_minutes)
     if not regular_plan(plan):
         raise BoardError("claim target must be a regular, non-symlink PLAN.md")
     plan = plan.resolve()
@@ -2882,7 +2892,7 @@ def claim(
         raise BoardError("project priority must be 1-5")
     owner = validate_owner(owner)
     claimed = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    returned = claimed + timedelta(hours=DEFAULT_CLAIM_HOURS)
+    returned = claimed + timedelta(minutes=lease_minutes)
     if expected_plan is not None:
         preflight_plan, preflight_content = frozen_plan_snapshot(plan, home=home)
         if preflight_plan != expected_plan:
@@ -3582,6 +3592,15 @@ def reconcile(
         assert_seed_witnesses()
         assert_retired_content()
         original_payload = json.loads(json.dumps(payload))
+        if registration_reference is not None:
+            seed = prepared[0]
+            for stored in payload["entities"]:
+                if stored["plan"] == seed["plan"] and (
+                    stored["id"] != seed["id"] or stored["project"] != seed["project"]
+                ):
+                    raise BoardError(
+                        "init registration locator is already registered with a different identity or project"
+                    )
         identity_index = _identity_index(payload)
         if registration_reference is not None and prepared[0]["id"] in identity_index:
             exact = [

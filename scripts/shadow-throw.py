@@ -205,7 +205,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="after probing proof, atomically replace an overdue owner claim",
     )
+    parser.add_argument(
+        "--lease-minutes", type=int, default=_board.DEFAULT_CLAIM_HOURS * 60,
+        help=f"acquisition deadline in whole minutes (1-{_board.MAX_CLAIM_MINUTES}; default: 480)",
+    )
     args = parser.parse_args(argv)
+    try:
+        _board.validate_lease_minutes(args.lease_minutes)
+    except _board.BoardError as exc:
+        parser.error(str(exc))
 
     # Keep source identity separate from the repository holding PLAN.md: a
     # machine-local authority lives in the private board journal, not the source.
@@ -363,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_board_revision=state["revision"],
                 repo=claim_repo,
                 access=claim_access,
+                lease_minutes=args.lease_minutes,
             )
             _huddle_event.post_commit_mutation(
                 _board.BoardMutation(receipt["payload"], True, receipt.get("event")),
