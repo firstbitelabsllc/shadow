@@ -126,7 +126,11 @@ file or the complete new file.
 Every claim records `claimed_at`, `return_by`, and the fixed recovery action:
 probe its proof, then adopt, park with one wake, or close it. Staleness is
 derived when the board is read; no heartbeat, daemon, or automatic reassignment
-exists.
+exists. `throw --lease-minutes N` sets a fresh or explicitly adopted claim's
+duration to 1–10080 whole minutes, with eight hours as the default. At
+`now == return_by` the claim is stale, but its owner is unchanged. Duplicate
+acquisition refuses instead of extending the deadline; remote acquisition
+receives the same committed timestamps.
 
 Lifecycle changes are explicit transactions. `throw --adopt-expired` may
 replace an overdue claim only after its proof was probed. `return --by` closes
@@ -232,9 +236,16 @@ plan.
 - A Contradictions bullet remains unresolved even when it says `winner:` or
   `provisional winner:`. Only an explicit leading `RESOLVED` marker closes it;
   every projector and the acceptance gate use that same grammar predicate.
-- A task flips completed only in the same commit as its PROOF line;
-  `shadow accept --row ... --by <seat>` reruns a `cmd` proof in a clean detached checkout
-  and is the only code path that flips a task.
+- `shadow accept --row ... --by <seat>` is the completion path. It reruns a
+  `cmd` proof in a clean detached checkout and publishes the paired PROOF
+  receipt with completion. Machine-local plans use an atomic local write;
+  product plans use a commit. For `read` or `gate`, the owner first records
+  the observed evidence in Progress, through `plan amend --observation` for
+  a local plan or a committed plan edit for a product plan. Acceptance uses
+  the latest row-specific observation after any `RESHAPE`. Its result must
+  be `pass` or `pass (annotation)`; later failure or malformed proof refuses
+  instead of falling back to older success. The evidence prose is freeform,
+  and a recorded observation cannot grant human authorization.
 
 ## Proposal-only acceptance
 

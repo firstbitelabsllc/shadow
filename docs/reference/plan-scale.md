@@ -414,10 +414,13 @@ after every selector verifies and the same entity pointer and root are re-read.
 That final re-read is the projection's linearization point; later changes belong
 to the next projection. A legacy monolith, missing/tampered object, changed root,
 duplicate selector, or exceeded cap emits no partial content. Exact row and
-receipt routes do not materialize the plan. A literal find materializes and
-verifies only that one logical plan, returns at most 24 matching lines, and
-reports both the complete match count and truncation. Neither mode resolves
-archive tombstones or spill paths.
+receipt routes do not materialize the plan. Literal finds share one verified
+materialization of that logical plan within each of the two independent
+selection passes. Every query returns at most 24 matching lines and reports
+its complete match count and truncation. Aggregate physical IO counts the
+shared scan once per pass; it does not charge the same reads to every query.
+Source bytes are never shared across the independent verification passes.
+Neither mode resolves archive tombstones or spill paths.
 
 Every exact-route item carries: public entity locator, root digest, visited index
 page digests, selected shard digest and byte count, selector, logical catalog
@@ -463,6 +466,15 @@ byte-exact materialization, runs current lint and lifecycle validation, executes
 the frozen query corpus against both layouts, and emits only public locators,
 counts, budgets, and digests. It MUST perform zero writes to the plan, board, or
 Git index.
+
+For an already-current tree, migration verifies the logical content and every
+catalog, row and tag route, including missing or unexpected routes. A valid
+tree returns `action: already_current`, with its unchanged root and logical
+digests and `writes: 0`. Apply still requires that current root digest in
+`--expect`, rechecks root and optional board stability, and returns no commit
+or new migration receipt. Materialization alone cannot establish this
+disposition because it does not visit every lookup index. A no-op neither
+rewrites identity nor enables an active-tree split.
 
 Apply requires the dry-run root digest, the unchanged source token, a clean
 owning checkout or private journal transaction, and no conflicting claim. The

@@ -124,9 +124,19 @@ proof and immediately before the private plan write. This freezes source state
 but does not confine the trusted proof process to that directory. Only on a
 pass does it rewrite the plan and append the paired PROOF line; a private plan
 also records a path-free source identity and full SHA. Infrastructure plans
-remain local under `~/.shadow/plans/` and are never committed. `read` and
-`gate` proofs are person judgments — re-observe them yourself and append the
-PROOF line with the flip.
+remain local under `~/.shadow/plans/` and are never committed.
+
+For `read` or `gate`, observe the declared evidence before completion. On a
+machine-local plan, the claim owner records it with
+`shadow plan amend --entity ID --row '~hash' --by <seat> --observation '<what was observed> -> pass'`,
+then calls `shadow accept` with that entity, source checkout, row, and seat.
+On a Git-backed product plan, append and commit the observation's Progress
+PROOF line in the owning plan, leaving the row unfinished, then call
+`shadow accept --repo <project> --row '~hash' --by <seat>`. `plan amend` does
+not edit committed product plans. The latest row-specific observation must
+succeed after any proof `RESHAPE`; an older pass cannot override a later
+failure or malformed observation. Freeform evidence describes what was
+actually seen. It cannot substitute for required human authorization.
 
 ## Goal chaining
 

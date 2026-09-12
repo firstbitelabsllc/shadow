@@ -1,5 +1,22 @@
 # Source change requests — 2026-09-01 (claim liveness, churn signal)
 
+## Resolution readback — 2026-09-12
+
+The ordinary seat's stale marker shipped in
+[`ec9516b4`](https://github.com/firstbitelabsllc/shadow/commit/ec9516b4c264360641121af4405e1027d17eb258).
+The related explicit cadence is now `shadow throw --lease-minutes N`:
+1–10080 whole minutes, default 480. It sets the existing advisory deadline
+only on a new or explicitly adopted claim. It neither renews an existing
+claim nor transfers ownership at expiry. See the [command contract](reference/commands.md).
+
+The churn heuristic remains unimplemented for the evidence reasons below.
+Resume now preserves same-second append order and includes explicit
+CORRECTION context beside DECISION and LESSON; it does not infer which
+decision a correction supersedes. These changes reduce lost context without
+inventing activity telemetry. The original report is preserved below.
+
+## Original report
+
 Written, not implemented. Each item states the failure, the evidence, and the
 smallest remedy the owning seat should consider. Host- and model-agnostic: the
 patterns below come from heavy multi-week use of agent lanes coordinated

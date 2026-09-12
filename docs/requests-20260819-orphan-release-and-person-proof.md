@@ -1,5 +1,18 @@
 # Source change requests — 2026-08-19
 
+## Resolution readback — 2026-09-12
+
+All three original requests below have shipped. The historical report is
+preserved to explain the failures; it is not an open-work queue.
+
+| Original request | Resolving source receipt |
+|---|---|
+| Completed, proven orphan claim remains owned | [`34fbb87e`](https://github.com/firstbitelabsllc/shadow/commit/34fbb87ec84fccfcb2b8680e47d684d922eaf837) releases stale completed, proven claims during refresh. Missing or malformed rows still require their own recovery evidence. |
+| No owner completion path for read/gate observations | [`c81bc8fa`](https://github.com/firstbitelabsllc/shadow/commit/c81bc8faf01305d8fcd6147f705a58958ffe6976) added recorded-observation acceptance; [`436ab67f`](https://github.com/firstbitelabsllc/shadow/commit/436ab67f9aad4501e344c048a4d9b0c49c8494b3) added owner-only local plan amendment. |
+| Worktree creation ignores caller timeout | [`b3bd1b6d`](https://github.com/firstbitelabsllc/shadow/commit/b3bd1b6d71335ebf15a289c5f2192b5ff4b4c59e) passes the acceptance timeout into worktree creation. |
+
+## Original report
+
 Written, not implemented. This computer does not change Shadow's implementation,
 tests, or command surface. Each item below states the failure, the evidence, and
 the smallest remedy the owning seat should consider. No patch is attached and no
