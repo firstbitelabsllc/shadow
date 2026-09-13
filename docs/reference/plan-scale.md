@@ -669,3 +669,119 @@ Delivery states remain separate:
 The implementation is therefore source-proven, installed, and locally
 dogfooded, but it must not be described as merged or publicly released until
 `origin/main` contains the source and that state is read back independently.
+
+
+## Measured local portfolio and archive scaling — 2026-09-13
+
+The final comparison used upstream `b3dddfad` and that same base with this
+patch. It ran from 17:55:58.112600 to 18:00:20.151596 UTC on 2026-09-13, on an
+Apple M4 Pro with 48 GiB RAM. Each worker recorded its actual start/end time,
+five native source-file SHA-256 values, benchmark and fixture-manifest hashes,
+and native stdout/stderr as content-addressed files. Earlier all-local results
+were exploratory; the final comparison below uses the observed mix of local
+and repository authorities. No live plan content was copied into a fixture.
+
+The N portfolio has 7 entities, 5 projects, 3 claims, 352 rows, 77 milestones,
+and 643,395 logical bytes: four local authorities and three separately
+committed repository authorities. The tenfold portfolio has 70 entities,
+50 projects, 30 claims, 3,520 rows, 770 milestones, and 6,433,950 logical bytes:
+40 local and 30 repository authorities. Both have the same per-plan size and
+shape distribution, with four tree and three Markdown plans per group. The
+256 KiB, 128-row and 32-milestone hot-plan caps are unchanged. These portfolio
+fixtures contain 406/4,060 plan-store objects and no archives; history and
+archive population are separate dimensions below.
+
+| Native operation / fixture | Baseline p50 / p95 | Candidate p50 / p95 | Observed result |
+|---|---:|---:|---|
+| Full JSON status, 7 mixed authorities | 1,435 / 1,492 ms | 1,225 / 1,243 ms | Identical native JSON bytes |
+| Full JSON status, 70 mixed authorities | 13,946 / 14,062 ms | 11,570 / 11,721 ms | Identical native JSON bytes |
+| Oldest source, 14 linked roots | 315.65 / 317.00 ms | 28.16 / 30.03 ms | Exact source digest |
+| Oldest source, 127 linked roots | 2,885.54 / 2,991.41 ms | 33.79 / 36.78 ms | Exact source digest |
+| Oldest source, 2,030 linked roots | Refused in all five runs | 155.74 / 166.91 ms | Exact source digest in all five runs |
+
+Full-status Git subprocess counts fell from 110 to 80 at N and from 992 to
+602 at 10N. Median combined Python/child user and system CPU time fell from
+1,383 to 1,182 ms and from 13,362 to 11,119 ms respectively. Plan validation
+work stayed the same: 44/440 materializations and 3,070/30,700 verified file
+reads covering 5,355,824/53,558,240 bytes. The complete JSON bytes, including
+all 4/40 local and 3/30 repository public locators, matched before and after.
+The status repair extends the existing repository identity cache through each
+render. A native Git-origin mutation test proves the next render sees the
+new identity; no persistent identity cache is introduced.
+
+The old history reader checks the current root and 127 predecessors. Boundary
+fixtures recover the oldest source at 127 and 128 retained roots, then refuse
+at 129 roots despite intact source bytes. Separate actual archive replay
+succeeds at 127 predecessor links and refuses at 128 and 129 before the fix;
+the repaired replay authenticates all three with the same archive digest.
+Commit `426fbc72` / PR #535 introduced the 128-iteration loop; inspection of
+that change and its associated documentation did not find a stated rationale
+for the number. It was not a documented retention policy and did not delete
+stored history.
+
+The repaired reader authenticates each predecessor root, compares its logical
+digest, and materializes only the matching generation. At 2,030 roots it read
+164 verified plan-store files / 281,623 bytes plus 2,029 authenticated lineage
+roots / 1,319,707 bytes: **2,193 reads / 1,601,330 bytes in total**, with one
+materialization. Missing, corrupted and symlinked predecessors, a corrupted
+matching task shard, and an absent source digest all refuse. A separate
+30-milestone drain exposed a legacy Markdown predecessor larger than the
+8 KiB tree-root bound. The reader now uses the existing legacy-source bound
+for predecessor bytes, then retains the 8 KiB limit for actual tree roots.
+No source pruning, storage format change or new history index is introduced.
+
+Independent history fixtures contain 203/2,030 linked roots and were enlarged
+to 3,887/38,870 retained objects (23,017,677/237,536,794 bytes) plus 25/250
+adjacent synthetic archive files (702,175/7,021,750 bytes). The enlarged 2,030
+fixture is the one used in the final table. Additional retained blobs have
+valid content addresses but are unrelated to the current root. The adjacent
+archive files measure directory population; they are not 250 authenticated
+archive replays. Retrieval did not read those unrelated files. This is an
+exact-digest lookup measurement, not recall, ranking or semantic retrieval.
+
+A separate native ownership scenario launched 3 and 30 simultaneous CLI
+claimants for one scratch checkpoint. Each produced exactly one persisted
+winner, 2/29 explicit refusals, unchanged row IDs and unchanged plan bytes.
+Observed scenario times were 0.48 and 3.35 seconds, one run each. Automatic
+drains of 3 and 30 completed milestones wrote 3/30 authentic archives,
+preserved every proof receipt and source generation, and left the successor
+unclaimed. The 30-milestone drain took 2.81 seconds; replaying all 30 archives
+took 0.58 seconds. Active rows fell from 62 to 2 and milestones from 31 to 1.
+Retained tombstones increased this terse fixture from 12,086 to 16,720 bytes,
+so the proven gain is closing completed work and relieving active-row and
+milestone pressure without losing history, not universal byte reduction.
+
+Run the retained driver from the candidate checkout, selecting each measured
+source explicitly and keeping the same scratch fixture root:
+
+```sh
+export SHADOW_SCALE_FIXTURE_ROOT=/absolute/scratch/shadow-scale
+python3 scripts/dev/benchmark-shadow-scale.py build --mixed
+python3 scripts/dev/benchmark-shadow-scale.py retained
+SHADOW_SCALE_SOURCE=/absolute/source/baseline SHADOW_SCALE_LABEL=baseline \
+  python3 scripts/dev/benchmark-shadow-scale.py bench --mixed --repeats 5
+SHADOW_SCALE_SOURCE=/absolute/source/candidate SHADOW_SCALE_LABEL=after \
+  python3 scripts/dev/benchmark-shadow-scale.py bench --mixed --repeats 5
+```
+
+`bench` runs the reported full-status/history operations plus focused status,
+row-read and board diagnostics. A single operation can be inspected with
+`worker status-full /absolute/scratch/shadow-scale/portfolio-mixed-1n/fixture.json`
+or `worker history /absolute/scratch/shadow-scale/history-2030/fixture.json`.
+Result files use the selected label; profiles also include that label. Native
+stdout and stderr are retained once per digest under `outputs/sha256`.
+
+There is one warmup followed by five fresh Python processes per timing case,
+with a separate instrumented/profiled run. p95 is the nearest-rank maximum of
+five samples, not a service-level bound. Selected native entrypoint time
+excludes Python startup; raw records also retain whole-process timing, CPU
+and RSS. Native filesystem reads, parsers, Git, locks and journal remain
+real. Only `Path.home()` points at the synthetic root; HOME, USER and CODEX_HOME
+are not reassigned. Other cooperating agents paused tests during the final
+window; other host activity and OS caches were not controlled. Resource block
+counters were zero, and logical read bytes do not measure physical disk
+traffic. Valid v1 claim fixtures do not cover every live v2 Huddle shape or
+remote host. These results establish the named operations at the measured
+sizes, not a general tenfold throughput gain. Refused baseline lookups are
+correctness failures and are excluded from speed ratios. Source tests do not
+prove installation, live-plan archival, merge or deployment.
