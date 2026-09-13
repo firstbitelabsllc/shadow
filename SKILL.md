@@ -46,6 +46,14 @@ continue. Two additions apply in a skill session:
 Never overwrite unexplained work or create a second queue. A commit, worker
 message, or receipt is not acceptance proof by itself.
 
+A blocker belongs to one exact action and surface. Verify it in the requested
+live surface before parking; an unavailable alternate profile does not establish
+that the user's selected route is unavailable. Finish independent authorized
+preparation, then record the preserved result and one exact wake in the owning
+plan, return that claim, and continue reachable work. Carry settled corrections
+and consent forward. Ask again only when a material fact or protected operation
+has changed, after making that operation concrete enough to review.
+
 ## Shape a goal
 
 `plugins/shadow/skills/amplify/SKILL.md` owns goal shaping. The one standing Shadow goal remains
