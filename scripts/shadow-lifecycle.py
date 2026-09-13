@@ -783,18 +783,29 @@ def local_source_text(plan: Path, logical_sha256: str) -> str:
     """Recover one exact local source generation through the plan-tree lineage."""
     try:
         snapshot = _board.open_plan(plan)
-        for _ in range(128):
-            materialized = snapshot.materialize()
-            if hashlib.sha256(materialized).hexdigest() == logical_sha256:
-                return materialized.decode("utf-8")
+        visited: set[str] = set()
+        while True:
+            # Root metadata is authenticated by the incoming content-addressed
+            # link. Materialize only the matching generation, then verify its
+            # actual bytes before returning any historical content.
+            if snapshot.root is None or snapshot.root["logical_sha256"] == logical_sha256:
+                materialized = snapshot.materialize()
+                if hashlib.sha256(materialized).hexdigest() == logical_sha256:
+                    return materialized.decode("utf-8")
             if snapshot.root is None:
                 break
             previous = snapshot.root.get("previous_root")
             if not isinstance(previous, str):
                 break
+            if previous in visited:
+                raise LifecycleError("plan lineage contains a repeated root")
+            visited.add(previous)
             root_path = snapshot.object_path(previous)
             root_bytes = read_regular_bounded(
-                root_path, _plan_store.ROOT_MAX_BYTES, "plan lineage root"
+                # The first predecessor may be the exact legacy Markdown
+                # source. snapshot_of_root still enforces the smaller bound
+                # when these bytes describe an actual tree root.
+                root_path, _board.MAX_PLAN_BYTES, "plan lineage root"
             )
             if hashlib.sha256(root_bytes).hexdigest() != previous:
                 raise LifecycleError("plan lineage root digest mismatch")
@@ -2521,6 +2532,7 @@ def apply_locked(
     *,
     expected: str,
     owner: str,
+    claim_next: bool = True,
 ) -> dict:
     recovered_commit = recover_archive_half_state(repo_value, wanted, expected)
     report, candidate = inspect(repo_value, wanted)
@@ -2538,12 +2550,7 @@ def apply_locked(
                         "head": recovered_commit,
                     }
                 )
-            return attach_successor(
-                report,
-                plan,
-                owner,
-                report.get("successor_row"),
-            )
+            return attach_successor(report, plan, owner, report.get("successor_row")) if claim_next else report
         return report
     before = report["budget"]["before"]
     after = report["budget"]["after"]
@@ -2591,12 +2598,53 @@ def apply_locked(
             "ok": True,
         }
     )
-    return attach_successor(
-        report,
-        plan,
-        owner,
-        report.get("successor_row"),
-    )
+    return attach_successor(report, plan, owner, report.get("successor_row")) if claim_next else report
+
+
+def run_after_accept(plan: Path, owner: str) -> dict:
+    """Drain proven local milestones without acquiring another seat's work."""
+    result = {"action": "automatic_archive", "changed": False, "archives": []}
+    if not _board.is_local_plan(plan):
+        return {**result, "reason": "Git-backed plan requires explicit lifecycle"}
+    try:
+        with _board.project_lock(plan):
+            state = _board.entity_state(plan)
+            if not state or not state.get("entity"):
+                return {**result, "reason": "entity is not registered"}
+            if state.get("claims"):
+                return {**result, "reason": "outstanding entity claim"}
+            headings = eligible_milestones(_board.read_plan_text(plan))
+            for heading in headings:
+                preview, _ = inspect(plan.parent, heading)
+                archived = apply_locked(plan.parent, heading, plan,
+                                        expected=preview["cas"], owner=owner, claim_next=False)
+                result["archives"].append({"milestone": heading, "cas": archived["cas"],
+                                           "archive_sha256": archived["archive_sha256"]})
+                result["changed"] = result["changed"] or archived["changed"]
+    except Exception:
+        # Each earlier archive is already durable. Preserve its receipt even
+        # when a later optional archive fails unexpectedly.
+        result["reason"] = "archive refused; inspect the plan with shadow lifecycle"
+    return result
+
+
+def archived_local_source(plan: Path, row_id: str) -> str | None:
+    """Recover a row only from an immutable, replay-verified local archive."""
+    text = _board.read_plan_text(plan)
+    found = []
+    for marker in re.finditer(TOMBSTONE_RE_TEMPLATE.format(slug=r"(?P<slug>[a-z0-9-]+)"), text):
+        source = local_source_text(plan, marker.group("blob"))
+        selected = next((item for item in milestones(source.splitlines(keepends=True))
+                         if any(row.get("id") == row_id for row in item.rows)), None)
+        if selected is None or safe_slug(selected.heading) != marker.group("slug"):
+            continue
+        report, candidate = inspect(plan.parent, selected.heading)
+        if report["action"] != "already_archived" or candidate is not None:
+            raise LifecycleError("local completion archive cannot be authenticated")
+        found.append(source)
+    if len(found) > 1:
+        raise LifecycleError("local archives duplicate the completed row")
+    return found[0] if found else None
 
 
 def _rollback_archive_apply(

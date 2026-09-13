@@ -73,6 +73,14 @@ sys.modules.setdefault("shadow_accept_host", _host)
 _HOST_SPEC.loader.exec_module(_host)
 
 
+_LIFECYCLE_SPEC = importlib.util.spec_from_file_location(
+    "shadow_accept_lifecycle", ROOT / "scripts" / "shadow-lifecycle.py"
+)
+_lifecycle = importlib.util.module_from_spec(_LIFECYCLE_SPEC)
+sys.modules[_LIFECYCLE_SPEC.name] = _lifecycle
+_LIFECYCLE_SPEC.loader.exec_module(_lifecycle)
+
+
 ROW_ID_RE = _grammar.ROW_ID_RE
 NEEDS_REF_RE = _grammar.NEEDS_REF_RE
 FIELD_RE = _grammar.FIELD_RE
@@ -1860,12 +1868,27 @@ def accept_local_plan(
         plan_text = plan_bytes.decode("utf-8")
     except (_board.BoardError, OSError, UnicodeError) as exc:
         raise AcceptError(f"local plan cannot be frozen before proof: {exc}") from exc
+    archived = False
+    if not any(match.group("id") == row_id for line in plan_text.splitlines()
+               if (match := ROW_LINE_RE.match(line))):
+        try:
+            historical = _lifecycle.archived_local_source(plan_path, row_id)
+        except (ValueError, OSError) as exc:
+            raise AcceptError("local archived completion could not be authenticated") from exc
+        if historical is not None:
+            plan_text = historical
+            archived = True
     _, _, state, proof, needs = find_row(plan_text, row_id)
+    if archived and state != "completed":
+        raise AcceptError("archived row is not completed")
     if row_requires_proposal(plan_text, row_id):
         raise AcceptError(
             f"{row_id} declares proposal-only proof authority; rerun with --proposal"
         )
-    claim = owned_claim(_board.entity_state(plan_path), row_id, owner)
+    entity_state = _board.entity_state(plan_path)
+    claim = owned_claim(entity_state, row_id, owner)
+    if archived and any(item["row"] == row_id for item in (entity_state or {}).get("claims", [])):
+        raise AcceptError("archived completion has an outstanding claim; inspect ownership")
     require_huddle_accept(plan_path, claim)
     if state == "completed":
         if proof.startswith(("read ", "gate ")):
@@ -2891,10 +2914,20 @@ def finalize_completion(
 
 def _automatic_after_accept(
     repo: Path, plan_path: Path, row_id: str, result: int, *, released: bool,
+    owner: str | None = None,
 ) -> None:
     """Best-effort lifecycle boundary hook; never changes acceptance result."""
     if result != 0 or not released:
         return
+    try:
+        if owner is not None and _board.is_local_plan(plan_path):
+            report = _lifecycle.run_after_accept(plan_path, owner)
+            if report.get("changed") or report.get("reason"):
+                print("automatic archive: " + json.dumps(report, sort_keys=True))
+    except Exception:
+        # Acceptance is already durable. Keep optional archive failure isolated
+        # from both its result and the independent managed cleanup follow-up.
+        print('automatic archive: {"reason": "archive follow-up interrupted; inspect the plan with shadow lifecycle"}')
     try:
         entity = _board.entity_id(plan_path)
         report = _clean.run_automatic_cleanup(repo, entity=entity, checkpoint=row_id)
@@ -3052,7 +3085,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         _automatic_after_accept(
                             source_root, plan_path, row_id, result,
-                            released=released,
+                            released=released, owner=owner,
                         )
                         return result
                     result, released = accept_local_plan(
@@ -3064,7 +3097,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     _automatic_after_accept(
                         source_root, plan_path, row_id, result,
-                        released=released,
+                        released=released, owner=owner,
                     )
                     return result
                 if args.repo is not None:

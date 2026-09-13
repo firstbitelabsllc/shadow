@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest import mock
 
+from tests.proc_fixture import git
 
 ROOT = Path(__file__).resolve().parents[1]
 STATUS = ROOT / "scripts" / "shadow-status.py"
@@ -1014,6 +1015,68 @@ class InFlightLabelsAreHonest(unittest.TestCase):
         out = status.render_in_flight([dict(self.FAILURE), real])
         self.assertIn("1 row(s) in flight across 1 project(s)", out)
         self.assertIn("hand-claimed (no THROWN line)", out)
+
+
+class RepositoryIdentityRenderLifetime(unittest.TestCase):
+    def test_render_reuses_git_identity_but_next_render_observes_change(self) -> None:
+        """Native Git observes one repo once per render, never across renders."""
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = Path(dirname).resolve()
+            git(repo, "init", "--quiet")
+            entities = []
+            projects = []
+            for index in range(4):
+                name = f"fixture-{index}"
+                path = repo / name / "PLAN.md"
+                path.parent.mkdir()
+                path.write_text(plan(name, "~aa11", "continue work"), encoding="utf-8")
+                entities.append({
+                    "id": status._board.entity_id(path),
+                    "project": name,
+                    "plan": str(path),
+                    "resume": "~aa11",
+                })
+                projects.append({"id": name, "priority": 2})
+            payload = {
+                "schema": "shadow.root-board.v1", "revision": 42,
+                "projects": projects, "entities": entities, "claims": [],
+            }
+
+            for render_index, render in enumerate((status.board_records, status.root_board_view)):
+                with self.subTest(render=render.__name__):
+                    if render_index:
+                        git(repo, "remote", "remove", "origin")
+                    # Independently obtain expected locators from real Git,
+                    # outside a cache, then assert the complete render's paths.
+                    expected = {
+                        entity["id"]: status._board.public_plan_locator(Path(entity["plan"]))
+                        for entity in entities
+                    }
+                    with mock.patch.object(
+                        status._board, "_git", wraps=status._board._git,
+                    ) as native_git:
+                        rendered = render(payload)
+                    rows = rendered if isinstance(rendered, list) else rendered["entities"]
+                    self.assertEqual(
+                        {row["entity"]: row.get("path", row.get("plan")) for row in rows},
+                        expected,
+                    )
+                    toplevel_probes = [
+                        call for call in native_git.call_args_list
+                        if call.args[1:] == ("rev-parse", "--show-toplevel")
+                    ]
+                    self.assertEqual(len(toplevel_probes), 1)
+
+                    # No tracked upstream: this changes only local config;
+                    # the public identity lookup never contacts this URL.
+                    git(repo, "remote", "add", "origin", "https://fixture.invalid/changed.git")
+                    changed = render(payload)
+                    rows = changed if isinstance(changed, list) else changed["entities"]
+                    self.assertEqual(
+                        {row["entity"]: row.get("path", row.get("plan")) for row in rows},
+                        {entity["id"]: f"fixture.invalid/changed/{entity['project']}/PLAN.md"
+                         for entity in entities},
+                    )
 
 
 class SeatViewStaleTests(unittest.TestCase):
