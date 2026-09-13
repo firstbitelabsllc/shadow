@@ -1266,3 +1266,223 @@ class AmendRewritesAClaimedRowOnAPlanTree(unittest.TestCase):
             result = _amend(home, entity, "--by", "local-seat", "--proof", "cmd true")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("not claimed", result.stderr)
+
+
+class AutomaticLocalLifecycle(unittest.TestCase):
+    def test_automatic_archive_replays_plain_source_larger_than_tree_root_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "home"
+            plan = home / ".shadow/plans/widget/PLAN.md"
+            plan.parent.mkdir(parents=True)
+            text = ARCHIVABLE_PLAN.replace(
+                "- 2026-08-11T00:00:00Z ~aa11 PROOF true -> pass\n",
+                "- 2026-08-11T00:00:00Z ~aa11 PROOF true -> pass\n"
+                + "  exact legacy detail remains provenance\n" * 240,
+            )
+            plan.write_text(text)
+            self.assertGreater(plan.stat().st_size, lifecycle._plan_store.ROOT_MAX_BYTES)
+            self.assertTrue(lifecycle.measure(text)["within_limits"])
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~cc33"]}],
+                [], home=home,
+            )
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                result = lifecycle.run_after_accept(plan, "test-seat")
+                self.assertTrue(result["changed"])
+                replay, candidate = lifecycle.inspect(plan.parent, "Finished work")
+            self.assertEqual(replay["action"], "already_archived")
+            self.assertIsNone(candidate)
+            self.assertEqual(replay["archive_sha256"], result["archives"][0]["archive_sha256"])
+
+            # The larger legacy source read must not admit an oversized tree root.
+            store = lifecycle._plan_store
+            snapshot = store.PlanSnapshot.open(plan)
+            oversized = store.ROOT_PREFIX + store.canonical_json(
+                {**snapshot.root, "padding": "x" * store.ROOT_MAX_BYTES}
+            ) + store.ROOT_SUFFIX
+            digest = store.digest_bytes(oversized)
+            ancestor = snapshot.object_path(digest)
+            ancestor.parent.mkdir(parents=True, exist_ok=True)
+            ancestor.write_bytes(oversized)
+            current = {**snapshot.root, "previous_root": digest,
+                       "generation": snapshot.root["generation"] + 1}
+            plan.write_bytes(store.ROOT_PREFIX + store.canonical_json(current) + store.ROOT_SUFFIX)
+            with self.assertRaises(lifecycle.LifecycleError) as refusal:
+                lifecycle.local_source_text(plan, store.digest_bytes(text.encode()))
+            self.assertIsInstance(refusal.exception.__cause__, store.PlanStoreError)
+            self.assertIn("root exceeds the byte limit", str(refusal.exception.__cause__))
+
+    def test_partial_archive_failure_keeps_completed_receipt_and_can_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "home"
+            plan_root = home / ".shadow/plans/widget"
+            plan_root.mkdir(parents=True)
+            text = ARCHIVABLE_PLAN.replace(
+                "### Next work",
+                "### Also finished\n"
+                "- [completed] second result exists ~ee55 | proof: cmd true\n"
+                "- [completed] second result accepted ~ff66 (DoD) | proof: cmd true | needs: ~ee55\n\n"
+                "### Next work",
+            ) + (
+                "- 2026-08-11T00:03:00Z ~ee55 PROOF true -> pass\n"
+                "- 2026-08-11T00:04:00Z ~ff66 PROOF true -> pass\n"
+            )
+            plan = install_plan_tree(plan_root, text.encode())
+            board.reconcile(
+                [{"plan": str(plan), "project": "widget", "priority": 2, "candidates": ["~cc33"]}],
+                [], home=home,
+            )
+            original_apply = lifecycle.apply_locked
+
+            def fail_second(repo, heading, *args, **kwargs):
+                if heading == "Also finished":
+                    raise RuntimeError("unexpected later archive failure")
+                return original_apply(repo, heading, *args, **kwargs)
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                with mock.patch.object(lifecycle, "apply_locked", side_effect=fail_second):
+                    result = lifecycle.run_after_accept(plan, "test-seat")
+                self.assertTrue(result["changed"])
+                self.assertEqual([item["milestone"] for item in result["archives"]], ["Finished work"])
+                self.assertTrue(result.get("reason"))
+                first_archive = plan_root / "docs/plan-archive/finished-work.md"
+                second_archive = plan_root / "docs/plan-archive/also-finished.md"
+                self.assertTrue(first_archive.is_file())
+                self.assertFalse(second_archive.exists())
+                first_bytes = first_archive.read_bytes()
+                retry = lifecycle.run_after_accept(plan, "test-seat")
+            self.assertTrue(retry["changed"])
+            self.assertEqual([item["milestone"] for item in retry["archives"]], ["Also finished"])
+            self.assertEqual(first_archive.read_bytes(), first_bytes)
+            self.assertTrue(second_archive.is_file())
+            self.assertEqual(board.entity_state(plan, home=home)["claims"], [])
+
+    def test_unexpected_archive_failure_does_not_interrupt_cleanup(self):
+        spec = importlib.util.spec_from_file_location(
+            "shadow_accept_archive_failure_test", ROOT / "scripts/shadow-accept.py"
+        )
+        accept = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = accept
+        spec.loader.exec_module(accept)
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / "home"
+            plan = home / ".shadow/plans/widget/PLAN.md"
+            plan.parent.mkdir(parents=True)
+            plan.write_text(ARCHIVABLE_PLAN)
+            repo = Path(tmp) / "source"
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._lifecycle, "run_after_accept",
+                    side_effect=RuntimeError("unexpected optional archive failure"),
+                ),
+                mock.patch.object(
+                    accept._clean, "run_automatic_cleanup",
+                    return_value={"enabled": False},
+                ) as cleanup,
+                mock.patch("builtins.print"),
+            ):
+                accept._automatic_after_accept(
+                    repo, plan, "~bb22", 0, released=True, owner="test-seat"
+                )
+            cleanup.assert_called_once_with(
+                repo, entity=board.entity_id(plan), checkpoint="~bb22"
+            )
+
+    def test_accept_archives_and_retry_authenticates_without_claiming_successor(self):
+        for partitioned in (False, True):
+            with self.subTest(partitioned=partitioned), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                home, repo = root / 'home', root / 'repo'
+                repo.mkdir()
+                (repo / 'README.md').write_text('source\n')
+                for args in [('init', '-q'), ('config', 'user.email', 'test@example.invalid'),
+                             ('config', 'user.name', 'Test'), ('remote', 'add', 'origin', 'https://github.com/example/widget'),
+                             ('add', '.'), ('commit', '-qm', 'source')]:
+                    subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True)
+                plan_root = home / '.shadow/plans/widget'
+                plan_root.mkdir(parents=True)
+                text = ARCHIVABLE_PLAN.replace('- Priority: 2', '- Priority: 2\n- Origin: github.com/example/widget')
+                text = text.replace('[completed] finished local', '[pending] finished local')
+                text = text.replace('- 2026-08-11T00:01:00Z ~bb22 PROOF true -> pass\n', '')
+                if partitioned:
+                    plan = install_plan_tree(plan_root, text.encode())
+                else:
+                    plan = plan_root / 'PLAN.md'
+                    plan.write_text(text)
+                board.reconcile([{'plan': str(plan), 'project': 'widget', 'priority': 2, 'candidates': ['~bb22']}], [], home=home)
+                claim = board.claim(plan, '~bb22', 'test-seat', project='widget', priority=2, home=home, repo=repo)
+                command = [str(ROOT / 'bin/shadow'), 'accept', '--entity', claim['entity']['id'],
+                           '--repo', str(repo), '--row', '~bb22', '--by', 'test-seat']
+                result = subprocess.run(command, env={**os.environ, 'HOME': str(home)}, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                archive = plan_root / 'docs/plan-archive/finished-work.md'
+                self.assertTrue(archive.exists(), result.stdout)
+                self.assertIn('~bb22 PROOF true -> pass (accept)', archive.read_text())
+                logical = board.read_plan_text(plan)
+                self.assertNotIn('### Finished work', logical)
+                self.assertIn('[pending] next local result starts ~cc33', logical)
+                self.assertNotIn('needs: ~bb22', logical)
+                self.assertEqual(board.entity_state(plan, home=home)['claims'], [])
+                root_bytes, archive_bytes = plan.read_bytes(), archive.read_bytes()
+                retry = subprocess.run(command, env={**os.environ, 'HOME': str(home)}, capture_output=True, text=True)
+                self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+                self.assertEqual((plan.read_bytes(), archive.read_bytes()), (root_bytes, archive_bytes))
+
+    def test_automatic_archive_preserves_outstanding_claim_and_git_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp).resolve() / 'home'
+            plan_root = home / '.shadow/plans/widget'
+            plan_root.mkdir(parents=True)
+            plan = install_plan_tree(plan_root, ARCHIVABLE_PLAN.encode())
+            board.reconcile([{'plan': str(plan), 'project': 'widget', 'priority': 2, 'candidates': ['~cc33']}], [], home=home)
+            board.claim(plan, '~cc33', 'other-seat', project='widget', priority=2, home=home, access='read_only')
+            before = plan.read_bytes()
+            with mock.patch.dict(os.environ, {'HOME': str(home)}):
+                result = lifecycle.run_after_accept(plan, 'test-seat')
+                self.assertFalse(result['changed'])
+                self.assertEqual(result['reason'], 'outstanding entity claim')
+                git_plan = Path(tmp) / 'product/PLAN.md'
+                git_plan.parent.mkdir()
+                git_plan.write_text(ARCHIVABLE_PLAN)
+                self.assertFalse(lifecycle.run_after_accept(git_plan, 'test-seat')['changed'])
+            self.assertEqual(plan.read_bytes(), before)
+            self.assertEqual(board.entity_state(plan, home=home)['claims'][0]['owner'], 'other-seat')
+
+
+class LocalArchiveLineage(unittest.TestCase):
+    def test_deep_lineage_materializes_only_matching_generation_and_rejects_tamper(self):
+        store = lifecycle._plan_store
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original = PLAN.encode()
+            plan, initial = install_plan_tree(root, original, return_build=True)
+            previous = initial.root_bytes
+            newer = store.build_tree(PLAN.replace("Local demo", "Newer demo").encode())
+            for generation in range(1, 141):
+                digest = store.digest_bytes(previous)
+                path = root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(previous)
+                build = store.with_lineage(newer, generation=generation, previous_root=digest)
+                for key, body in build.objects.items():
+                    obj = root / "PLAN.d" / "objects" / "sha256" / key[:2] / key
+                    obj.parent.mkdir(parents=True, exist_ok=True)
+                    obj.write_bytes(body)
+                previous = build.root_bytes
+            plan.write_bytes(previous)
+            materialized = []
+            native = store.PlanSnapshot.materialize
+            def counted(snapshot):
+                materialized.append(snapshot.root_sha256)
+                return native(snapshot)
+            with mock.patch.object(store.PlanSnapshot, "materialize", counted):
+                self.assertEqual(lifecycle.local_source_text(plan, store.digest_bytes(original)), PLAN)
+            self.assertEqual(len(materialized), 1)
+            with self.assertRaises(lifecycle.LifecycleError):
+                lifecycle.local_source_text(plan, "0" * 64)
+            digest = store.digest_bytes(initial.root_bytes)
+            ancestor = root / "PLAN.d" / "objects" / "sha256" / digest[:2] / digest
+            ancestor.write_bytes(initial.root_bytes + b"tamper")
+            with self.assertRaisesRegex(lifecycle.LifecycleError, "digest mismatch"):
+                lifecycle.local_source_text(plan, store.digest_bytes(original))

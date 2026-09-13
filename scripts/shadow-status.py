@@ -415,6 +415,7 @@ def render_seat_v4(record: dict, seat: str) -> str:
     return "\n".join(lines)
 
 
+@_board.repository_identity_cache()
 def root_board_view(payload: dict) -> dict:
     """A bounded, path-free rendering of the local authority for JSON output."""
     entities = {entity["id"]: entity for entity in payload["entities"]}
@@ -734,6 +735,7 @@ def ordered_entities(payload: dict) -> list[dict]:
     )
 
 
+@_board.repository_identity_cache()
 def board_records(
     payload: dict,
     *,
