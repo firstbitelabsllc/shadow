@@ -3363,6 +3363,7 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
         journal = {"source_repo": str(self.repo)}
         with (
             mock.patch.object(clean, "_valid_records", return_value=[(receipt, journal)]),
+            mock.patch.object(clean, "_git", return_value=subprocess.CompletedProcess([], 0, "c" * 40 + "\n", "")),
             mock.patch.object(clean, "_preview_refusal", return_value=None) as preview,
             mock.patch.object(clean, "prepare_manifest", return_value={"id": "manifest@aaaaaaaaaaaa", "cas": "e" * 64}) as prepare,
             mock.patch.object(clean, "apply_manifest", return_value={"action": "trashed", "changed": True}) as apply,
@@ -3389,6 +3390,7 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
         }
         with (
             mock.patch.object(clean, "_valid_records", return_value=[(receipt, {"source_repo": str(self.repo)})]),
+            mock.patch.object(clean, "_git", return_value=subprocess.CompletedProcess([], 0, "c" * 40 + "\n", "")),
             mock.patch.object(clean, "_preview_refusal", return_value=None),
             mock.patch.object(clean, "prepare_manifest", return_value={"id": "manifest@aaaaaaaaaaaa", "cas": "e" * 64}),
             mock.patch.object(clean, "apply_manifest", side_effect=clean.CleanError("recovery required at /private/path")) as apply,

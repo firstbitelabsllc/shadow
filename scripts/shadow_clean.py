@@ -780,8 +780,7 @@ def run_automatic_cleanup(
     source = _real_absolute(Path(repo), "repository")
     candidates: list[dict[str, Any]] = []
     for receipt, journal in _valid_records(home):
-        if Path(journal["source_repo"]).resolve() != source:
-            continue
+        registered_source = Path(journal["source_repo"]).resolve()
         claim = receipt.get("claim") or {}
         if entity is not None and claim.get("entity") != entity:
             continue
@@ -794,6 +793,14 @@ def run_automatic_cleanup(
             "checkpoint": claim.get("checkpoint"),
         }
         try:
+            # Acceptance normally runs from the linked proof/work checkout.
+            # Match the shared local Git database, never only a remote URL:
+            # independent clones must keep independent cleanup authority.
+            if registered_source != source:
+                source_common = _git(source, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+                registered_common = _git(registered_source, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+                if Path(source_common).resolve() != Path(registered_common).resolve():
+                    continue
             refusal = _preview_refusal(receipt, journal, (home or Path.home()).resolve())
             if refusal is not None:
                 candidates.append({**base, "state": "refused", "reason": refusal})
@@ -803,7 +810,7 @@ def run_automatic_cleanup(
                 {
                     "worktree": {
                         "path": target["path"],
-                        "head": receipt["initial"]["head"],
+                        "head": _git(Path(target["path"]), "rev-parse", "HEAD").stdout.strip(),
                         "landed_ref": receipt["landed_ref"],
                     },
                     "entity": claim["entity"],

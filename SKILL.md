@@ -81,6 +81,24 @@ test, and the rule that every mechanism gets a proof that can refuse it.
 `shadow goal` prints the static standing goal for a host's instruction file.
 That text never changes; only what the plans point at does.
 
+## Own the artifacts you create
+
+Follow `AGENT.md`'s workspace closeout in the same task as the source work.
+Before creating a temporary checkout, use the existing managed creation door:
+
+```bash
+shadow clean --create --repo <canonical-repo> --worktree <task-work-directory> \
+  --entity <entity> --row '~id' --by <seat> --ref HEAD \
+  --landed-ref refs/heads/main
+```
+
+The source must be the freshly verified base. Keep output under this task's
+work/evidence directories; preserve one durable copy of referenced proof.
+After landing and terminal acceptance, inspect the automatic-cleanup report
+and `shadow clean --worktree <task-work-directory>`. Preserve refusals with an
+owner and wake. Automatic cleanup is a guarded recoverable Trash move, not
+physical disk reclamation. Takeoff uses its own pass teardown contract.
+
 ## Delegate claimed work
 
 Use the active host directly for normal work. For each claimed handoff, use:

@@ -56,6 +56,26 @@ These are the two questions before a new checkpoint: ask “why now, and what ch
 Defer is a write: it records what, why not now, and one `wake:` predicate.
 Blocked work returns its claim before the seat continues elsewhere.
 
+## Workspace closeout
+
+Create temporary source checkouts through `shadow clean --create`, bound to
+this seat's live entity/checkpoint. Use one task-owned work directory or the
+repository's existing worktrees directory; do not scatter dated siblings in
+Development. Reuse an owned checkout when its source and scope still fit.
+Takeoff pass checkouts use Takeoff's own prepare/finish contract.
+
+Keep scratch files and logs inside the task's work directory. Keep durable
+proof once in the owning evidence directory, and link it from the plan.
+Approval records and unique source are evidence, not disposable caches.
+
+Finishing work includes artifact closeout: drain owned processes, preserve
+referenced proof, land source, return the claim, then inspect the existing
+cleanup result. An enabled automatic cleanup can move only a proven clean,
+landed, inactive managed checkout to recoverable Trash. A refusal is a retained
+artifact with an exact owner/wake; do not make another checkout to evade it.
+Never describe Trash staging as disk space reclaimed. Use the existing cleanup
+owner for historical or unregistered artifacts; do not mint provenance for them.
+
 ## Safety and recovery
 
 `shadow throw` is the claim boundary; nothing executable leaves the seat before it succeeds. Fan out only path-disjoint work with an allowed path, expected proof, return time, and recovery action.

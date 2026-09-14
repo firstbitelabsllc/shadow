@@ -486,6 +486,61 @@ class CleanApplyTests(unittest.TestCase):
         manifest, digest, manifest_path = self.clean.resolve_manifest(prepared["id"], home=self.home)
         return destination, prepared, manifest_path, digest
 
+    def test_automatic_cleanup_from_linked_checkout_after_landed_commit(self):
+        destination, _, _, _ = self._terminal_managed()
+        (destination / "finished.txt").write_text("completed source\n")
+        git(destination, "add", "finished.txt")
+        git(destination, "commit", "-qm", "finished work")
+        completed = git(destination, "rev-parse", "HEAD")
+        git(self.repo, "update-ref", "refs/heads/master", completed)
+        self.clean._write_automatic(True, home=self.home)
+        trash = self.repo.parent / "trash"
+        trash.mkdir()
+        report = self.clean.run_automatic_cleanup(
+            destination, home=self.home, trash_root=trash,
+            entity=self.entity, checkpoint="~aa11",
+        )
+        self.assertTrue(report["changed"], report)
+        self.assertFalse(destination.exists())
+        self.assertEqual(report["candidates"][0]["state"], "trashed")
+
+    def test_automatic_cleanup_from_source_after_landed_commit(self):
+        destination, _, _, _ = self._terminal_managed()
+        (destination / "finished.txt").write_text("completed source\n")
+        git(destination, "add", "finished.txt")
+        git(destination, "commit", "-qm", "finished work")
+        git(self.repo, "update-ref", "refs/heads/master", git(destination, "rev-parse", "HEAD"))
+        self.clean._write_automatic(True, home=self.home)
+        trash = self.repo.parent / "trash"
+        trash.mkdir()
+        report = self.clean.run_automatic_cleanup(self.repo, home=self.home, trash_root=trash)
+        self.assertTrue(report["changed"], report)
+        self.assertFalse(destination.exists())
+
+    def test_automatic_cleanup_does_not_cross_independent_clone(self):
+        destination, _, _, _ = self._terminal_managed()
+        other = self.repo.parent / "independent"
+        git(self.repo, "clone", "--quiet", str(self.repo), str(other))
+        self.clean._write_automatic(True, home=self.home)
+        report = self.clean.run_automatic_cleanup(other, home=self.home)
+        self.assertEqual(report["candidates"], [])
+        self.assertTrue(destination.exists())
+
+    def test_automatic_cleanup_preserves_unlanded_and_dirty_work(self):
+        destination, _, _, _ = self._terminal_managed()
+        (destination / "unique.txt").write_text("unlanded source\n")
+        git(destination, "add", "unique.txt")
+        git(destination, "commit", "-qm", "unlanded")
+        self.clean._write_automatic(True, home=self.home)
+        report = self.clean.run_automatic_cleanup(destination, home=self.home)
+        self.assertFalse(report["changed"])
+        self.assertEqual(report["candidates"][0]["reason"], "work is not landed")
+        git(self.repo, "update-ref", "refs/heads/master", git(destination, "rev-parse", "HEAD"))
+        (destination / "unique.txt").write_text("new unsaved source\n")
+        report = self.clean.run_automatic_cleanup(destination, home=self.home)
+        self.assertFalse(report["changed"])
+        self.assertEqual((destination / "unique.txt").read_text(), "new unsaved source\n")
+
     def _prepare_current(self, destination):
         receipt_path = next((self.home / ".shadow" / "clean" / "receipts").glob("*.json"))
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
