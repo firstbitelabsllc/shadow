@@ -56,6 +56,69 @@ PLAN = """# Release notes
 """
 
 
+class DanglingWorktreeDiscoveryTests(unittest.TestCase):
+    def fixture(self, root):
+        healthy = root / "healthy"
+        healthy.mkdir()
+        (healthy / "PLAN.md").write_text(PLAN)
+        git(healthy, "init", "-q")
+        git(healthy, "config", "user.email", "test@example.invalid")
+        git(healthy, "config", "user.name", "Test")
+        git(healthy, "add", "PLAN.md")
+        git(healthy, "commit", "-qm", "fixture")
+        broken = root / "recovery"
+        broken.mkdir()
+        (broken / "PLAN.md").write_text(PLAN)
+        target = healthy / ".git" / "worktrees" / "recovery"
+        target.parent.mkdir()
+        (broken / ".git").write_text(f"gitdir: {target}\n")
+        return healthy, broken, target
+
+    def test_strict_discovery_reports_unregistered_dangling_copy_and_preserves_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            healthy, broken, target = self.fixture(root)
+            original = {p.name: p.read_bytes() for p in broken.iterdir()}
+            records = server.discover_plans(root, fail_on_skipped=True)
+            self.assertEqual([r["path"] for r in records], ["healthy/PLAN.md"])
+            inspected = server.discover_plans(root, include_shadowed=True, fail_on_skipped=True)
+            withheld = [r for r in inspected if r.get("unavailable_checkout")]
+            self.assertEqual(len(withheld), 1)
+            self.assertIn("missing linked-worktree Git metadata", withheld[0]["shadow_reason"])
+            self.assertFalse(server.is_live(withheld[0]))
+            self.assertFalse(target.exists())
+            self.assertEqual({p.name: p.read_bytes() for p in broken.iterdir()}, original)
+            home = root / "home"
+            home.mkdir()
+            receipts = server._board_import.suppression_receipts(root, server.shadow_amp, home=home)
+            self.assertTrue(any("missing linked-worktree Git metadata" in r.reason for r in receipts))
+            self.assertTrue(all(str(root) not in r.path for r in receipts))
+
+    def test_registered_or_explicit_dangling_checkout_still_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            _, broken, _ = self.fixture(root)
+            for key in ("registered_plans", "repairable_plans"):
+                with self.subTest(key=key), self.assertRaisesRegex(server.BrowserError, "registered"):
+                    server.discover_plans(root, fail_on_skipped=True,
+                        **{key: {"a" * 64: broken / "plans" / "work" / "PLAN.md"}})
+            with self.assertRaisesRegex(server.BrowserError, "requested"):
+                server.discover_plans(broken, fail_on_skipped=True)
+
+    def test_other_git_identity_failures_are_not_suppressed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            _, broken, target = self.fixture(root)
+            for content in ("malformed\n", f"gitdir: {target}\nextra\n"):
+                (broken / ".git").write_text(content)
+                with self.assertRaises(server._root_board.BoardError):
+                    server.discover_plans(root, fail_on_skipped=True)
+            (broken / ".git").write_text(f"gitdir: {target}\n")
+            target.mkdir()
+            with self.assertRaises(server._root_board.BoardError):
+                server.discover_plans(root, fail_on_skipped=True)
+
+
 class BrowserTests(unittest.TestCase):
     def make_repo(self, root: Path) -> tuple[Path, Path]:
         repo = root / "repo"

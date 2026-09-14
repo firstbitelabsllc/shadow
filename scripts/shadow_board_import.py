@@ -720,7 +720,10 @@ def suppression_receipts(
         identity = record.get("_logical_entity")
         if identity:
             observed_identities.add(identity)
-        if record.get("shadowed_by"):
+        if record.get("unavailable_checkout"):
+            receipts.append(SuppressionReceipt(path=record["public_locator"],
+                shadowed_by=None, reason=record["shadow_reason"]))
+        elif record.get("shadowed_by"):
             receipts.append(SuppressionReceipt(
                 path=board.public_copy_locator(identity, record["path"]),
                 shadowed_by=board.public_entity_locator(identity),

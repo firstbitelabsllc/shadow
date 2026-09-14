@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1112,6 +1113,29 @@ def is_portfolio_child(child: Path, root: Path) -> bool:
         return False
 
 
+def dangling_worktree(repo: Path) -> bool:
+    """Recognize missing linked-worktree metadata, never general Git failure."""
+    marker = repo / ".git"
+    try:
+        info = marker.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 4096:
+            return False
+        match = re.fullmatch(r"gitdir: ([^\x00-\x1f\x7f]+)\n?", marker.read_text(encoding="utf-8"))
+        if match is None:
+            return False
+        target = Path(os.path.abspath(repo / match[1]))
+        if (target.parent.name != "worktrees" or target.parent.parent.name != ".git"
+            or target.resolve() != target or not target.parent.parent.is_dir()):
+            return False
+        try:
+            target.lstat()
+        except FileNotFoundError:
+            return True
+    except (OSError, UnicodeError, RuntimeError):
+        pass
+    return False
+
+
 def discover_plans(
     root: Path,
     *,
@@ -1141,6 +1165,23 @@ def discover_plans(
         identity: Path(os.path.abspath(path))
         for identity, path in (repairable_plans or {}).items()
     }
+    def eligible(repo: Path) -> bool:
+        if not dangling_worktree(repo):
+            return True
+        if any(pointer.is_relative_to(repo.resolve())
+               for pointer in (*registered.values(), *repairable.values())):
+            raise BrowserError("registered plan has missing linked-worktree Git metadata; preserve and repair its locator")
+        if repo.resolve() == root.resolve():
+            raise BrowserError("requested checkout has missing linked-worktree Git metadata; source preserved")
+        display = (repo / "PLAN.md").relative_to(root).as_posix()
+        reason = "missing linked-worktree Git metadata; unregistered source preserved, excluded from authority"
+        locator = "copy@" + hashlib.sha256(display.encode()).hexdigest()[:12] + "/PLAN.md"
+        print(f"shadow discovery: {display}: {reason}", file=sys.stderr)
+        if include_shadowed:
+            shadowed.append(dict(path=display, unavailable_checkout=True,
+                                 public_locator=locator, shadow_reason=reason))
+        return False
+
     # key -> the root-relative path that won it, so a suppressed record can
     # name its winner instead of just vanishing.
     seen: dict[tuple[str, str], str] = {}
@@ -1155,7 +1196,7 @@ def discover_plans(
     # be judged as new content against the older cached date.
     commit_dates: dict[str, tuple[str, int | None]] = {}
     if is_plan_root(root):
-        candidates = [root]
+        candidates = [root] if eligible(root) else []
     elif root.is_dir():
         try:
             children = list(root.iterdir())
@@ -1209,7 +1250,7 @@ def discover_plans(
                 repo.name,
             )
 
-        candidates = sorted(found, key=_election_key)
+        candidates = sorted((repo for repo in found if eligible(repo)), key=_election_key)
     else:
         candidates = []
     # Every instance of every key, gathered BEFORE election. A plan's own
@@ -1414,7 +1455,7 @@ def is_live(record: dict[str, Any]) -> bool:
     the browser wire and `shadow status`. A second surface re-spelling
     `not record["archived"]` is how the two drift back apart.
     """
-    return not record.get("archived")
+    return not (record.get("archived") or record.get("unavailable_checkout"))
 
 
 def live_plans(root: Path, *, fail_on_skipped: bool = False) -> list[dict[str, Any]]:
