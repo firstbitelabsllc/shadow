@@ -51,6 +51,24 @@ the exact source/target claim and canonical-plan content. Unavailable delivery
 does not count as acceptance or release a hold. Required returns are completed
 through the owner's existing plan-update and return path.
 
+When the source paths are known, claim them in the same transaction:
+`shadow throw --entity ID --task '~hash' --by SEAT --access write --path PREFIX`.
+Repeat `--path` for each prefix; a machine-local entity also needs `--repo PATH`.
+Use `--access read_only` for source-free reading. Omitting access preserves the
+unscoped default for source-backed work, which can overlap any peer in that
+repository. Declared disjoint scopes avoid that unnecessary negotiation; they
+cannot bypass a held peer whose scope is still unknown.
+
+An `awaiting_compliance` Huddle has already settled. Do not settle it again or
+retry an overlapping claim. Its named held owner returns that exact claim. An
+unfinished handback preserves the pending/in-progress canonical row and records
+the release in the board transaction; it needs no product-plan edit or new
+worktree. A blocked return still requires a canonical blocker and wake, and
+completion still requires its proof. Refusals name the Huddle and this
+owner action; status withholds the default claim recommendation until recovery.
+The selected writer may launch jobs within its already-declared paths without
+changing the Huddle or its claim scope. Expanding scope still requires preflight.
+
 The first successful new claim migrates v1 and creates its v2 claim in one
 board journal commit. Reads do not migrate; refusal or journal failure leaves
 the original board intact. Existing claims retain revision zero and unknown

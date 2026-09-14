@@ -502,7 +502,7 @@ class HuddleHostTests(HuddleTestCase):
         with mock.patch.object(board_api, "preflight_access", side_effect=board_raced):
             with self.assertRaisesRegex(board_api.BoardError, "board changed"):
                 board_api.authorize_host_attempt(
-                    context=self.context(), repo=self.repo, write_scope=["newdir/result.txt"],
+                    context=self.context(), repo=self.repo, write_scope=["newdir/another.txt"],
                     authority_proposal=False, now=datetime.now(timezone.utc), home=self.home)
 
     def test_selected_writer_continues_without_reopening_expired_or_compliance_state(self):

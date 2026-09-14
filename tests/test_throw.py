@@ -241,6 +241,62 @@ class StagedV2Throw(unittest.TestCase):
                              {"A": ["src"], "B": ["docs"]})
             self.assertTrue(all(c["access"] == "write" for c in state["claims"]))
 
+    def test_settled_huddle_names_recovery_but_admits_proven_disjoint_claim(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            nested = repo / "plans" / "work"
+            nested.mkdir(parents=True)
+            (repo / "PLAN.md").rename(nested / "PLAN.md")
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "nested authority"], check=True)
+            for row, seat in (("~bb22", "A"), ("~dd44", "B")):
+                result = run(THROW, nested, env, "--task", row, "--by", seat,
+                             "--access", "write", "--path", "src")
+                self.assertEqual(result.returncode, 0, result.stderr)
+            state = board.snapshot(home=home)
+            h = state["huddles"][0]
+            for claim in h["claims"]:
+                board.submit_huddle_bid(huddle_id=h["id"], seat=claim["owner"], claim=claim,
+                    role="own" if claim["owner"] == "A" else "stand_down", scope=["src"],
+                    reason="existing_claim", target=None, support_claim=None,
+                    evidence={"kind": "claim", "value": "self"}, round=1,
+                    expected_huddle_generation=h["generation"],
+                    now=datetime.now(timezone.utc), home=home)
+            state = board.snapshot(home=home)
+            state = board.settle_huddle(huddle_id=h["id"], actor_claim=h["claims"][0],
+                expected_generation=h["generation"], expected_board_revision=state["revision"],
+                now=datetime.now(timezone.utc), home=home).payload
+            before = ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow"))
+            refused = run(THROW, nested, env, "--task", "~ee55", "--by", "C")
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn(h["id"], refused.stderr)
+            self.assertIn("B must return its unfinished claim", refused.stderr)
+            self.assertIn("--row ~dd44 --by B", refused.stderr)
+            status = subprocess.run([sys.executable, str(STATUS), "--by", "C"],
+                                    cwd=repo, env=env, capture_output=True, text=True)
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertIn("Claim waits:", status.stdout)
+            self.assertIn(h["id"], status.stdout)
+            self.assertNotIn("Claim: shadow throw", status.stdout)
+            self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow")))
+            admitted = run(THROW, nested, env, "--task", "~ee55", "--by", "C",
+                           "--access", "write", "--path", "docs")
+            self.assertEqual(admitted.returncode, 0, admitted.stderr)
+            after = board.snapshot(home=home)
+            self.assertEqual(after["huddles"], state["huddles"])
+            self.assertEqual(next(c for c in after["claims"] if c["owner"] == "C")["write_scope"], ["docs"])
+            plan_before = (nested / "PLAN.md").read_bytes()
+            returned = subprocess.run([sys.executable, str(ROOT / "scripts/shadow-return.py"),
+                "--repo", str(nested), "--row", "~dd44", "--by", "B"],
+                cwd=repo, env=env, capture_output=True, text=True)
+            self.assertEqual(returned.returncode, 0, returned.stderr)
+            self.assertIn("(handback)", returned.stdout)
+            self.assertEqual((nested / "PLAN.md").read_bytes(), plan_before)
+            final = board.snapshot(home=home)
+            self.assertEqual(final["huddles"][0]["state"], "resolved")
+            self.assertEqual({c["owner"] for c in final["claims"]}, {"A", "C"})
+
     def test_machine_local_entity_binds_explicit_source_not_private_journal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))

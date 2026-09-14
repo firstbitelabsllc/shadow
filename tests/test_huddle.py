@@ -855,13 +855,40 @@ class HuddleLifecycleTests(HuddleTestCase):
                 "event": "huddle_changed", "huddle_id": huddle["id"],
                 "generation": huddle["generation"]}, repo_root=ROOT, home=self.home)
 
-    def test_required_return_needs_changed_canonical_plan_and_clears_compliance(self):
+    def test_required_pending_handback_preserves_plan_and_clears_compliance(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        plan = self.plans["B"]
+        original = plan.read_bytes()
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "owned by"):
+            board_api.release(plan, self.b["row"], owner="A", reason="handback", home=self.home)
+        self.assertEqual(self.authority(), before)
+        with self.assertRaisesRegex(board_api.BoardError, "selected owner"):
+            self.release(self.a)
+        self.assertEqual(self.authority(), before)
+        result, changed = self.release(self.b)
+        self.assertTrue(changed)
+        self.assertEqual(plan.read_bytes(), original)
+        self.assertEqual(result["claims"], [self.a])
+        h = result["huddles"][0]
+        self.assertEqual(h["state"], "resolved")
+        self.assertEqual(h["holds"], [])
+        self.assertEqual(h["compliance"][0]["status"], "satisfied")
+        self.assertEqual(h["compliance"][0]["completion"]["kind"], "return")
+        self.assertEqual(h["compliance"][0]["completion"]["board_revision"], result["revision"])
+        _, changed = board_api.release(plan, self.b["row"], owner="B",
+                                       reason="handback", now=NOW, home=self.home)
+        self.assertFalse(changed)
+
+    def test_required_blocked_return_needs_canonical_wake_and_clears_compliance(self):
         self.submit()
         self.submit(self.b, role="stand_down")
         self.settle()
         before = self.authority()
-        with self.assertRaisesRegex(board_api.BoardError, "canonical"):
-            self.release(self.b)
+        with self.assertRaisesRegex(board_api.BoardError, "Deferred"):
+            self.release(self.b, reason="blocked")
         self.assertEqual(self.authority(), before)
         plan = self.plans["B"]
         plan.write_text(plan.read_text().replace("[pending] Work", "[blocked] Work")
@@ -1098,15 +1125,15 @@ class HuddleLifecycleTests(HuddleTestCase):
         self.assertEqual(plan.read_bytes(), plan_before)
         self.assertEqual(self.authority(), before)
 
-    def test_cosmetic_plan_change_cannot_satisfy_required_return(self):
+    def test_cosmetic_plan_change_cannot_claim_blocked_return(self):
         self.submit()
         self.submit(self.b, role="stand_down")
         self.settle()
         plan = self.plans["B"]
         plan.write_text(plan.read_text() + "\n- 2026-09-04T16:00:00Z NOTE formatting only\n")
         before = self.authority()
-        with self.assertRaisesRegex(board_api.BoardError, "canonical"):
-            self.release(self.b)
+        with self.assertRaisesRegex(board_api.BoardError, "Deferred"):
+            self.release(self.b, reason="blocked")
         self.assertEqual(self.authority(), before)
 
     def test_new_canonical_contradiction_allows_pending_required_handback(self):

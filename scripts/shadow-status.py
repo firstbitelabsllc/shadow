@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shlex
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
@@ -255,6 +256,8 @@ def milestone_rotation(
 
 
 def claimable_row(record: dict) -> str | None:
+    if record.get("huddle_blocker"):
+        return None
     claimable = record.get("next_unclaimed")
     if not claimable and not record.get("owner"):
         claimable = record.get("board_resume")
@@ -263,6 +266,9 @@ def claimable_row(record: dict) -> str | None:
 
 def append_live_work(lines: list[str], record: dict, seat: str | None) -> None:
     """Append the claims and exact executable move for one entity."""
+    if record.get("huddle_blocker"):
+        lines.append("  Claim waits: " + record["huddle_blocker"])
+        lines.append("  Scoped claims: shadow throw --access write --path <prefix> avoids known disjoint overlaps; unknown held scopes still wait. Use --access read_only for reads.")
     live_claims = sorted(
         record.get("live_claims", []),
         key=lambda claim: (
@@ -859,6 +865,23 @@ def board_records(
             (row for row in candidates if row not in entity_claims),
             None,
         )
+        source_repo = None if _board.is_local_plan(plan_path) else plan_path.parent
+        if source_repo is not None and any(h["state"] != "resolved" for h in payload.get("huddles", [])):
+            try:
+                top = _board._optional_git_value(_board._git(source_repo, "rev-parse", "--show-toplevel"))
+                if top is None:
+                    raise _board.BoardError("source worktree root unavailable")
+                blocker = _board.unscoped_admission_issue(payload, _board.repository_binding(Path(top)),
+                                                        now=datetime.now(timezone.utc))
+            except _board.BoardError:
+                blocker = "source identity unavailable; retry when Git is readable"
+            if blocker:
+                record["huddle_blocker"] = blocker
+                record["next_unclaimed"] = None
+                for milestone in record.get("milestones", []):
+                    for checkpoint in milestone["checkpoints"]:
+                        if checkpoint["availability"] == "reachable":
+                            checkpoint["availability"] = "waiting"
         issue = issue or remote_issue
         if issue:
             record["resume"] = f"UNKNOWN — {issue}"

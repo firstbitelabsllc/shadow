@@ -190,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--repo", default=None, help="source repository root; may accompany a machine-local --entity")
     parser.add_argument("--entity", default=None, help="computer-board entity id")
+    parser.add_argument("--access", choices=("unscoped", "read_only", "write"),
+                        help="declare source access atomically with the claim")
+    parser.add_argument("--path", action="append", default=[],
+                        help="repo-relative write prefix; repeat with --access write")
     parser.add_argument(
         "--task",
         required=True,
@@ -206,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
         help="after probing proof, atomically replace an overdue owner claim",
     )
     args = parser.parse_args(argv)
+    if (args.access == "write") != bool(args.path):
+        parser.error("--access write requires --path; paths require --access write")
 
     # Keep source identity separate from the repository holding PLAN.md: a
     # machine-local authority lives in the private board journal, not the source.
@@ -328,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
                 "owner": args.by, "claim_revision": next_revision,
                 "board_revision": next_revision,
             }
-            claim_access = "read_only" if claim_repo is None else "unscoped"
+            claim_access = args.access or ("read_only" if claim_repo is None else "unscoped")
             # A source-free invocation normally receives read-only authority.
             # Adoption is different: preserve the exact current legacy lease's
             # unscoped/null binding rather than inventing a source repository or
@@ -347,7 +353,8 @@ def main(argv: list[str] | None = None) -> int:
                     and current.get("access", "unscoped") == "unscoped"
                     and current.get("repository_binding") is None
                 ):
-                    claim_access = "unscoped"
+                    if args.access is None:
+                        claim_access = "unscoped"
             plan["claim_access"] = claim_access
             # Prove the final block fits before taking a claim. A concurrent board
             # write invalidates the preview and refuses before claiming.
@@ -363,6 +370,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_board_revision=state["revision"],
                 repo=claim_repo,
                 access=claim_access,
+                write_scope=args.path if args.access is not None else None,
             )
             _huddle_event.post_commit_mutation(
                 _board.BoardMutation(receipt["payload"], True, receipt.get("event")),

@@ -1654,6 +1654,42 @@ def _huddle_id(opened_revision: int, claim_keys: list[tuple], edges: list[dict],
     return "hdl_" + hashlib.sha256(encoded).hexdigest()[:8]
 
 
+def huddle_recovery(huddle: dict) -> str:
+    """Name the persisted recovery action without granting another seat authority."""
+    actions = []
+    for item in huddle.get("compliance", []):
+        if item["status"] == "pending":
+            ref = _terminal_ref(huddle, item["claim"])
+            actions.append(f"{ref['owner']} must return its unfinished claim using "
+                           f"shadow return --entity {ref['entity']} --row {ref['row']} "
+                           f"--by {shlex.quote(ref['owner'])}")
+    return (f"{huddle['id']} ({huddle['state']}): "
+            + ("; ".join(actions) + "; " if actions else "")
+            + f"inspect shadow huddle show --id {huddle['id']}")
+
+
+def _huddle_membership_issue(existing: list[dict], now: datetime) -> str | None:
+    if len(existing) > 1:
+        return "huddle_bridge: settle the earlier live Huddle before retrying; " + huddle_recovery(existing[0])
+    if not existing:
+        return None
+    old = existing[0]
+    if old["state"] not in ("awaiting_scope", "open_round_1", "open_round_2"):
+        return "Huddle requires lifecycle recovery before changing membership; " + huddle_recovery(old)
+    if now >= _timestamp(old["reply_by"], "Huddle deadline"):
+        return "Huddle deadline reached; settle before changing membership; " + huddle_recovery(old)
+    return None
+
+
+def unscoped_admission_issue(payload: dict, binding: dict, *, now: datetime) -> str | None:
+    """Read-only prediction for the default source claim, not a write permit."""
+    candidate = dict(access="unscoped", repository_binding=binding, write_scope=[])
+    peers = {_claim_key(c) for c in payload["claims"] if _scope_edge(candidate, c)}
+    existing = [h for h in payload.get("huddles", []) if h["state"] != "resolved"
+                and any(_claim_key(_terminal_ref(h, ref)) in peers for ref in h["claims"])]
+    return _huddle_membership_issue(existing, now)
+
+
 def _open_huddle(payload: dict, claim: dict, overlap: list[dict], reason: str, now: datetime,
                  *, scope_changed: bool = False) -> dict | None:
     if payload["schema"] != V2_SCHEMA:
@@ -1679,14 +1715,11 @@ def _open_huddle(payload: dict, claim: dict, overlap: list[dict], reason: str, n
         if candidate is not claim and _scope_edge(claim, candidate):
             keys.add(_claim_key(candidate))
     existing = [h for h in payload["huddles"] if h["state"] != "resolved" and any(_claim_key(c) in keys for c in h["claims"])]
-    if len(existing) > 1:
-        raise BoardError("huddle_bridge: settle the earlier live Huddle before retrying")
+    issue = _huddle_membership_issue(existing, now)
+    if issue:
+        raise BoardError(issue)
     old = existing[0] if existing else None
     if old is not None:
-        if old["state"] not in ("awaiting_scope", "open_round_1", "open_round_2"):
-            raise BoardError("Huddle requires lifecycle recovery before changing membership")
-        if now >= _timestamp(old["reply_by"], "Huddle deadline"):
-            raise BoardError("Huddle deadline reached; settle before changing membership")
         keys.update(_claim_key(c) for c in old["claims"])
     elif sum(h["state"] != "resolved" for h in payload["huddles"]) >= 16:
         raise BoardError("live Huddle cap exceeded")
@@ -2348,7 +2381,7 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
             h = involved[0]
             terminal = _terminal_ref(h, _claim_ref(claim))
             if h["state"] not in ("awaiting_scope", "open_round_1", "open_round_2"):
-                raise BoardError("Huddle requires lifecycle recovery before scope changes")
+                raise BoardError("Huddle requires lifecycle recovery before scope changes; " + huddle_recovery(h))
             if now >= _timestamp(h["reply_by"], "Huddle deadline"):
                 raise BoardError("Huddle deadline reached; settle before scope changes")
             if h["state"] == "awaiting_scope" and claim["access"] != "unscoped":
@@ -2419,7 +2452,10 @@ def authorize_host_attempt(*, context: dict | None, repo: Path, write_scope: lis
     binding = repository_binding(repo)
     result = None
     revision = context["board_revision"]
-    if not authority_proposal:
+    # A job may use less than its existing authority without renegotiating the
+    # claim. Scope mutation belongs to preflight, not every worker launch.
+    reuses_scope = bool(scope) and admitted["access"] == "write" and _scope_subset(scope, admitted["write_scope"])
+    if not authority_proposal and not reuses_scope:
         result = preflight_access(
             entity=context["entity"], row=context["row"], owner=context["owner"],
             repo=repo, access="write", write_scope=write_scope,
@@ -2440,6 +2476,8 @@ def authorize_host_attempt(*, context: dict | None, repo: Path, write_scope: lis
             raise BoardError("host claim instance changed")
         if claim["repository_binding"] is None or not _same_repository(binding, claim["repository_binding"]):
             raise BoardError("host repository does not match the bound claim")
+        if not authority_proposal and not _scope_subset(scope, claim["write_scope"]):
+            raise BoardError("host scope exceeds the current claim; repeat preflight")
         if any(any(_terminal_ref(h, held) == _terminal_ref(h, _claim_ref(claim)) for held in h["holds"])
                for h in payload["huddles"] if h["state"] != "resolved"):
             raise BoardError("host claim is held; settle or return before launch")
@@ -4029,12 +4067,15 @@ def _check_huddle_release(payload: dict, claim: dict, *, reason: str,
                           and e["status"] == "pending"), None)
             if entry is None:
                 raise BoardError("Huddle selected owner must wait for pending canonical returns")
-            contradiction = any(_grammar.contradiction_is_open(line)
-                and claim["row"] in _grammar.NEEDS_REF_RE.findall(line)
-                for line in section_lines(text, "Contradictions"))
-            if (plan_root is None or plan_root == entry["plan_root_at_settlement"]
-                or not (reason == "blocked" or reason == "handback" and contradiction)):
-                raise BoardError("Huddle required return needs a newer canonical blocker or contradiction")
+            # The existing handback path preserves the unfinished canonical row
+            # and journals the exact owner's release. Requiring a product-plan
+            # edit just to relinquish ownership deadlocks held source writers.
+            # A claimed blocker still needs its separate canonical disposition.
+            if reason != "handback" and (
+                reason != "blocked" or plan_root is None
+                or plan_root == entry["plan_root_at_settlement"]
+            ):
+                raise BoardError("Huddle blocked return needs a newer canonical blocker")
     # A support bid binds this exact independent claim until the participant
     # returns. Closing it first would strand the live resolution's evidence.
     if any(b["support_claim"] == ref and b["round"] == h["round"]
