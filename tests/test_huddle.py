@@ -1691,6 +1691,30 @@ class HuddleGraphTests(HuddleTestCase):
 
 
 class HuddleScopeTransitionTests(HuddleTestCase):
+    def test_selected_writer_runs_subset_after_settlement_without_changing_authority(self):
+        repo, (a, b) = self.seed([["src", "tests"], ["src"]])
+        h = self.open(a, [b])
+        for entity in board_api.snapshot(home=self.home)["entities"]:
+            plan = Path(entity["plan"])
+            plan.parent.mkdir(parents=True, exist_ok=True)
+            plan.write_text("## Tasks\n- [pending] Work ~aa11 | proof: cmd true\n")
+        current = board_api.snapshot(home=self.home)
+        settled = board_api.settle_huddle(huddle_id=h["id"], actor_claim=board_api._claim_ref(a),
+            expected_generation=h["generation"], expected_board_revision=current["revision"],
+            now=NOW + timedelta(minutes=3), home=self.home).payload
+        self.assertEqual(settled["huddles"][0]["state"], "awaiting_compliance")
+        before = self.authority()
+        def launch(claim, paths):
+            return board_api.authorize_host_attempt(context={
+                **{k: claim[k] for k in ("entity", "row", "owner", "claim_revision")},
+                "board_revision": settled["revision"]}, repo=repo, write_scope=paths,
+                authority_proposal=False, now=NOW + timedelta(minutes=3), home=self.home)
+        self.assertFalse(launch(a, ["src/one.py"]).changed)
+        for claim, paths in ((a, ["outside"]), (b, ["src/one.py"])):
+            with self.assertRaises(board_api.BoardError):
+                launch(claim, paths)
+        self.assertEqual(self.authority(), before)
+
     def seed(self, scopes, *, unscoped=()):
         repo = self.home / "source"
         repo.mkdir()

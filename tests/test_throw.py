@@ -226,6 +226,21 @@ class StagedV2Throw(unittest.TestCase):
             self.assertIn("seat-a", duplicate.stderr)
             self.assertEqual(before, ((home / ".shadow" / "board.json").read_bytes(), board._journal_head(home / ".shadow")))
 
+    def test_public_throw_declares_disjoint_scope_before_overlap_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            first = run(THROW, repo, env, "--task", "~bb22", "--by", "A",
+                        "--access", "write", "--path", "src")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            second = run(THROW, repo, env, "--task", "~dd44", "--by", "B",
+                         "--access", "write", "--path", "docs")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            state = board.snapshot(home=home)
+            self.assertEqual(state["huddles"], [])
+            self.assertEqual({c["owner"]: c["write_scope"] for c in state["claims"]},
+                             {"A": ["src"], "B": ["docs"]})
+            self.assertTrue(all(c["access"] == "write" for c in state["claims"]))
+
     def test_machine_local_entity_binds_explicit_source_not_private_journal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))
