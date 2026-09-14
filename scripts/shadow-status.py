@@ -125,6 +125,12 @@ def v4_brief(
             brief["Project"].replace("-", " "),
         ),
         "mode": brief["Mode"],
+        # Report the owner's words independently of task availability. A
+        # stopped project and an ordinary blocked project can have the same
+        # counts; neither counts nor Mode establish the intended outcome.
+        "outcome_state": _amp._clean(brief.get("Outcome State", ""), 63) or None,
+        "outcome": _amp._clean(brief.get("Outcome", ""), 239) or None,
+        "outcome_next": _amp._clean(brief.get("Next", ""), 239) or None,
         "priority": brief.get("Priority"),
         "contradictions_open": len(plan["contradictions"]),
     }

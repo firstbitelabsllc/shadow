@@ -44,7 +44,7 @@ class HuddleHeldError(_board.BoardError):
 
 ROW_RE = _grammar.ROW_RE
 FIELD_RE = _grammar.FIELD_RE
-BRIEF_KEY_RE: Final = re.compile(r"^- (?P<key>Project|Mode|Priority|Loop): (?P<value>.+)$")
+BRIEF_KEY_RE: Final = re.compile(r"^- (?P<key>Project|Mode|Priority|Loop|Outcome State|Outcome|Next): (?P<value>.+)$")
 TOOLS_RE: Final = re.compile(r"^- tools: (?P<value>.+)$")
 PLAN_LEAD_RE: Final = re.compile(
     r"^- (?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) "

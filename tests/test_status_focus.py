@@ -258,6 +258,56 @@ class OmittedRowsAreCounted(StatusTests):
 
 
 class StatusV4Tests(StatusTests):
+    def test_explicit_outcome_is_preserved_without_inferring_from_work_counts(self) -> None:
+        for state, outcome in (("not_delivered", "Stopped by the owner; reopen only on request."),
+                               ("blocked", "Waiting for an external dependency.")):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as dirname:
+                root = Path(dirname)
+                text = V4_PLAN.replace("## Brief\n", "## Brief\n\n"
+                    f"- Outcome State: {state}\n- Outcome: {outcome}\n- Next: Owner decision.\n")
+                (root / "PLAN.md").write_text(text, encoding="utf-8")
+                result = self.run_status(root, "--json")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                row = json.loads(result.stdout)["v4_plans"][0]
+                self.assertEqual(row["outcome_state"], state)
+                self.assertEqual(row["outcome"], outcome)
+                self.assertEqual(row["outcome_next"], "Owner decision.")
+
+    def test_missing_outcome_stays_unknown_and_long_text_is_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            (root / "PLAN.md").write_text(V4_PLAN, encoding="utf-8")
+            row = json.loads(self.run_status(root, "--json").stdout)["v4_plans"][0]
+            self.assertIsNone(row["outcome_state"])
+            self.assertIsNone(row["outcome"])
+            self.assertIsNone(row["outcome_next"])
+            text = V4_PLAN.replace("## Brief\n", "## Brief\n\n- Outcome: " + "x" * 1000 + "\n")
+            (root / "PLAN.md").write_text(text, encoding="utf-8")
+            row = json.loads(self.run_status(root, "--json").stdout)["v4_plans"][0]
+            self.assertEqual(row["outcome"], "x" * 239 + "…")
+
+    def test_outcome_controls_are_flattened_and_unrelated_lint_does_not_hide_it(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            text = V4_PLAN.replace("## Brief\n", "## Brief\n\n- Outcome: Review\tthis.\n")
+            (root / "PLAN.md").write_text(text, encoding="utf-8")
+            row = json.loads(self.run_status(root, "--json").stdout)["v4_plans"][0]
+            self.assertEqual(row["outcome"], "Review this.")
+            (root / "PLAN.md").write_text(text.replace("- Mode: ship", "- Mode: invalid"), encoding="utf-8")
+            row = json.loads(self.run_status(root, "--json").stdout)["v4_plans"][0]
+            self.assertGreater(row["lint_blocking"], 0)
+            self.assertEqual(row["outcome"], "Review this.")
+
+    def test_secret_shaped_outcome_is_not_exported(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            synthetic = "ghp_" + "a" * 24
+            text = V4_PLAN.replace("## Brief\n", "## Brief\n\n- Outcome: " + synthetic + "\n")
+            (root / "PLAN.md").write_text(text, encoding="utf-8")
+            result = self.run_status(root, "--json")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn(synthetic, result.stdout + result.stderr)
+
     def test_by_focuses_the_human_view_on_the_seats_next_entity(self) -> None:
         # A cold seat needs every claim it owns or one exact next claim, not a
         # transcript-sized rendering of every open checkpoint on the machine.
