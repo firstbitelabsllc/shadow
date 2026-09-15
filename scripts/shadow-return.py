@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -14,6 +15,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as board  # noqa: E402
+import shadow_clean as _clean  # noqa: E402
 import shadow_remote_claim as remote_claim  # noqa: E402
 import shadow_git  # noqa: E402
 
@@ -126,6 +128,43 @@ def _remote_only_manual_completion(
             "and its receipt; remote claim retained"
         )
     return _claim_from_remote_receipt(receipt)
+
+
+def _automatic_after_return(
+    repo: Path,
+    plan_path: Path,
+    row_id: str,
+    result: int,
+    *,
+    changed: bool,
+    reason: str,
+) -> None:
+    """Best-effort lifecycle boundary hook; never changes return result."""
+    if result != 0 or not changed or reason not in {"completed", "blocked"}:
+        return
+    try:
+        entity = board.entity_id(plan_path)
+        report = _clean.run_automatic_cleanup(
+            repo, entity=entity, checkpoint=row_id
+        )
+        if report.get("enabled"):
+            print(
+                "automatic cleanup: "
+                + json.dumps(report, sort_keys=True, separators=(",", ":"))
+            )
+    except Exception as exc:
+        report = {
+            "schema": _clean.AUTOMATIC_RUN_SCHEMA,
+            "action": "automatic_cleanup",
+            "enabled": False,
+            "changed": False,
+            "candidates": [],
+            "reason": _clean._public_reason(str(exc)),
+        }
+        print(
+            "automatic cleanup: "
+            + json.dumps(report, sort_keys=True, separators=(",", ":"))
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -271,6 +310,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(f"{args.row} already absent; root board unchanged at revision {payload['revision']}")
         return 0
+    _automatic_after_return(
+        Path(plan_token["repo"]),
+        plan_path,
+        args.row,
+        0,
+        changed=changed,
+        reason=reason,
+    )
     print(f"returned {args.row} ({reason}); root board revision {payload['revision']}")
     return 0
 

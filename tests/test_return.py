@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
@@ -824,6 +825,125 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
             self.assertEqual(recovered.returncode, 0, recovered.stderr)
             self.assertIn("returned ~aa11 (orphan)", recovered.stdout)
             self.assertEqual(payload(home)["claims"], [])
+
+
+class ReturnAutomaticCleanup(unittest.TestCase):
+    def _terminal_fixture(self, root: Path, reason: str) -> tuple[Path, Path, dict[str, str], str]:
+        repo, home, env = fixture(root)
+        claimed = run(
+            env, "throw", "--repo", str(repo), "--task", "~aa11", "--by", "seat-a"
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        plan = repo / "PLAN.md"
+        text = plan.read_text(encoding="utf-8")
+        if reason == "completed":
+            text = text.replace(
+                "- [pending] inspect the result ~aa11",
+                "- [completed] inspect the result ~aa11",
+            ) + "\n- 2026-08-22T17:00:00Z ~aa11 PROOF artifact -> pass\n"
+        else:
+            text = text.replace(
+                "- [pending] inspect the result ~aa11",
+                "- [blocked] inspect the result ~aa11",
+            ).replace(
+                "## Progress",
+                "## Deferred\n\n"
+                "- ~aa11 waits on artifact | artifact unavailable | wake: artifact exists\n\n"
+                "## Progress",
+            )
+        plan.write_text(text, encoding="utf-8")
+        git(repo, "add", "PLAN.md")
+        git(repo, "commit", "--quiet", "-m", f"record {reason} return")
+        entity = payload(home)["entities"][0]["id"]
+        return repo, home, env, entity
+
+    def test_completed_and_blocked_returns_cleanup_once_after_release_with_exact_scope(self) -> None:
+        report = {
+            "schema": "shadow.clean-automatic-run.v1",
+            "action": "automatic_cleanup",
+            "enabled": True,
+            "changed": False,
+            "candidates": [],
+        }
+        for reason in ("completed", "blocked"):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                repo, _home, env, entity = self._terminal_fixture(Path(tmp), reason)
+                events: list[str] = []
+                original_lock = return_mod.board.project_lock
+
+                @contextmanager
+                def tracked_lock(plan: Path):
+                    events.append("lock-enter")
+                    with original_lock(plan):
+                        yield
+                    events.append("lock-exit")
+
+                with (
+                    mock.patch.dict(os.environ, env),
+                    mock.patch.object(return_mod.board, "project_lock", tracked_lock),
+                    mock.patch.object(
+                        return_mod._clean,
+                        "run_automatic_cleanup",
+                        side_effect=lambda *args, **kwargs: events.append("cleanup") or report,
+                    ) as cleanup,
+                    mock.patch("builtins.print") as output,
+                ):
+                    result = return_mod.main(
+                        ["--repo", str(repo), "--row", "~aa11", "--by", "seat-a"]
+                    )
+
+                self.assertEqual(result, 0)
+                self.assertEqual(events, ["lock-enter", "lock-exit", "cleanup"])
+                cleanup.assert_called_once_with(
+                    repo.resolve(), entity=entity, checkpoint="~aa11"
+                )
+                rendered = "\n".join(call.args[0] for call in output.call_args_list)
+                self.assertIn("automatic cleanup:", rendered)
+                self.assertNotIn(str(repo), rendered)
+
+    def test_handback_failed_and_unchanged_returns_skip_cleanup(self) -> None:
+        for reason, result, changed in (
+            ("handback", 0, True),
+            ("completed", 1, True),
+            ("completed", 0, False),
+        ):
+            with self.subTest(reason=reason, result=result, changed=changed):
+                with mock.patch.object(return_mod._clean, "run_automatic_cleanup") as cleanup:
+                    return_mod._automatic_after_return(
+                        Path("/private/source/repo"),
+                        Path("/private/source/repo/PLAN.md"),
+                        "~aa11",
+                        result,
+                        changed=changed,
+                        reason=reason,
+                    )
+                cleanup.assert_not_called()
+
+    def test_cleanup_refusal_preserves_return_and_scrubs_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env, _entity = self._terminal_fixture(Path(tmp), "completed")
+            private_path = str(repo / "managed-child")
+            with (
+                mock.patch.dict(os.environ, env),
+                mock.patch.object(
+                    return_mod._clean,
+                    "run_automatic_cleanup",
+                    side_effect=return_mod._clean.CleanError(
+                        f"recovery required at {private_path}"
+                    ),
+                ) as cleanup,
+                mock.patch("builtins.print") as output,
+            ):
+                result = return_mod.main(
+                    ["--repo", str(repo), "--row", "~aa11", "--by", "seat-a"]
+                )
+
+            self.assertEqual(result, 0)
+            cleanup.assert_called_once()
+            self.assertEqual(payload(home)["claims"], [])
+            rendered = "\n".join(call.args[0] for call in output.call_args_list)
+            self.assertIn('"reason":"recovery required"', rendered)
+            self.assertNotIn(private_path, rendered)
 
 
 class BlockedReturnsNeedOneDurableWake(unittest.TestCase):
