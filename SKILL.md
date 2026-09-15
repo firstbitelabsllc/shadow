@@ -92,12 +92,17 @@ shadow clean --create --repo <canonical-repo> --worktree <task-work-directory> \
   --landed-ref refs/heads/main
 ```
 
-The source must be the freshly verified base. Keep output under this task's
-work/evidence directories; preserve one durable copy of referenced proof.
-After landing and terminal acceptance, inspect the automatic-cleanup report
-and `shadow clean --worktree <task-work-directory>`. Preserve refusals with an
+The source must be the freshly verified base. A managed child may retain only
+bounded, sealed regular files under `.shadow/evidence`; their inventory is
+hashed through the recoverable Trash move and restore. All other ignored,
+untracked, dirty, submodule, or symlinked material refuses cleanup. After a
+successful managed create, terminal accept or return, or changed lifecycle
+apply, inspect the same-local-Git-store automatic-cleanup report and
+`shadow clean --worktree <task-work-directory>`. Preserve refusals with an
 owner and wake. Automatic cleanup is a guarded recoverable Trash move, not
-physical disk reclamation. Takeoff uses its own pass teardown contract.
+physical disk reclamation. Its optional telemetry is local-only and primary
+checkout-owned, with no runtime networking. Takeoff uses its own pass teardown
+contract.
 
 ## Delegate claimed work
 
@@ -117,15 +122,18 @@ delegation triple, those three flags may be omitted. Explicit flags still win.
 Do not ask the person to type the defaulted flags.
 
 The task file is frozen, the worktree must be clean, allowed paths are exact,
-and the host must emit a scoped receipt with passing tests. The lead chooses
-the host, semantic work class, and explicit execution shape; Shadow
-deterministically supplies that pair's native model selector and enables or
-disables the verified native child door. `required` fails closed on Cursor and Z.AI
-until those headless CLIs expose observable child lineage. The host CLI still
-owns authentication, account choice, quota, and provider execution. Requested
-model and observed model are distinct: the private attempt records the former,
-while observed-model and child-lineage proof require the owner-local gauntlet
-documented in `docs/reference/execution-policy.md`.
+and the host must emit a scoped receipt with passing tests. A V2 claim-bound
+run from a linked checkout requires that exact checkout's issued Shadow
+creation record; a primary checkout and legacy/unclaimed transport keep their
+existing admission path. The lead chooses the host, semantic work class, and
+explicit execution shape; Shadow deterministically supplies that pair's native
+model selector and enables or disables the verified native child door.
+`required` fails closed on Cursor and Z.AI until those headless CLIs expose
+observable child lineage. The host CLI still owns authentication, account
+choice, quota, and provider execution. Requested model and observed model are
+distinct: the private attempt records the former, while observed-model and
+child-lineage proof require the owner-local gauntlet documented in
+`docs/reference/execution-policy.md`.
 
 Review the diff and reproduce important tests before accepting the result.
 

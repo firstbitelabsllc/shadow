@@ -67,6 +67,22 @@ for event in [dict(type='thread.started',thread_id='PRIVATE_SESSION_CANARY'),
 '''
 
 
+class MixedClosedTelemetryStream(unittest.TestCase):
+    def test_cleanup_observation_is_ignored_but_malformed_cleanup_stays_red(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve() / 'repo'
+            events = repo / observation.LOG_PATH
+            events.parent.mkdir(parents=True)
+            record = telemetry.cleanup_record(
+                repo, {'enabled': True, 'changed': False, 'candidates': []}, 'sweep'
+            )
+            events.write_text(json.dumps(record) + '\n', encoding='utf-8')
+            self.assertEqual(observation.read_log(repo)[0:2], ([], 0))
+            record.pop('report_sha256')
+            events.write_text(json.dumps(record) + '\n', encoding='utf-8')
+            self.assertEqual(observation.read_log(repo)[0:2], ([], 1))
+
+
 class DelegationLifecycle(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()

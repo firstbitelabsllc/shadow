@@ -30,6 +30,8 @@ SCRIPT = SKILL_DIR / "scripts" / "shadow-host.py"
 if str(SCRIPT.parent) not in sys.path:
     sys.path.insert(0, str(SCRIPT.parent))
 
+import shadow_clean
+
 SPEC = importlib.util.spec_from_file_location("shadow_host", SCRIPT)
 assert SPEC and SPEC.loader
 shadow_host = importlib.util.module_from_spec(SPEC)
@@ -1678,11 +1680,18 @@ class ExecutionBindingTests(HuddleTestCase):
         self.task = self.home / "task.txt"
         self.task.write_text("Commit only the assigned result file.\n", encoding="utf-8")
         self.output = self.repo / ".shadow/evidence/host.json"
+        plan = self.home / ".shadow/plans/shadow/PLAN.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text("# Shadow\n\n## Tasks\n\n- [pending] Dispatch ~aa11 | proof: cmd true\n", encoding="utf-8")
         payload = self.v2_board()
+        payload["entities"][0]["plan"] = str(plan)
         self.claim = payload["claims"][0]
+        now = datetime.now(timezone.utc)
         self.claim.update(
             claim_revision=1,
             access="unscoped",
+            claimed_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            return_by=(now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             repository_binding=board_api.repository_binding(self.repo),
         )
         self.seed_v2(payload)
@@ -1771,7 +1780,15 @@ class ExecutionBindingTests(HuddleTestCase):
 
     def test_distinct_worktrees_sharing_a_base_have_distinct_opaque_identities(self):
         other = self.home / "other-worktree"
-        git(self.repo, "worktree", "add", "-qb", "other", str(other))
+        shadow_clean.create_managed_worktree(
+            self.repo,
+            other,
+            entity=self.claim["entity"],
+            checkpoint=self.claim["row"],
+            seat=self.claim["owner"],
+            landed_ref="refs/heads/master",
+            home=self.home,
+        )
         self.assertEqual(
             git(self.repo, "rev-parse", "--path-format=absolute", "--git-common-dir"),
             git(other, "rev-parse", "--path-format=absolute", "--git-common-dir"),
@@ -1889,6 +1906,105 @@ class ExecutionBindingTests(HuddleTestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(payload["status"], "ok")
         self.assertFalse(payload["execution_binding"]["execution_candidate"])
+
+
+class ClaimBoundWorktreeProvenanceTests(HuddleTestCase):
+    """V2 host dispatch accepts only primary or issued linked checkouts."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = make_repo(self.home)
+        self.binary = make_host(self.home, "observe")
+        self.task = self.home / "task.txt"
+        self.task.write_text("Inspect the assigned checkout.\n", encoding="utf-8")
+        plan = self.home / ".shadow/plans/shadow/PLAN.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text("# Shadow\n\n## Tasks\n\n- [pending] Dispatch ~aa11 | proof: cmd true\n", encoding="utf-8")
+        payload = self.v2_board()
+        payload["entities"][0]["plan"] = str(plan)
+        self.claim = payload["claims"][0]
+        now = datetime.now(timezone.utc)
+        self.claim.update(
+            claim_revision=1,
+            access="unscoped",
+            claimed_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            return_by=(now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            repository_binding=board_api.repository_binding(self.repo),
+        )
+        self.seed_v2(payload)
+
+    def context(self):
+        return {
+            key: self.claim[key]
+            for key in ("entity", "row", "owner", "claim_revision")
+        } | {"board_revision": board_api.snapshot(home=self.home)["revision"]}
+
+    def invoke(self, repo: Path):
+        return run_host(
+            repo,
+            self.binary,
+            self.task,
+            repo / ".shadow/evidence/host.json",
+            force=True,
+            extra=("--claim-context", json.dumps(self.context())),
+            test_home=self.home,
+        )
+
+    def test_primary_checkout_keeps_claim_bound_admission(self):
+        result = self.invoke(self.repo)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.binary.with_suffix(".argv.json").exists())
+
+    def test_primary_with_a_gitdir_file_is_not_mistaken_for_a_linked_checkout(self):
+        primary = self.home / "separate-gitdir-primary"
+        admin = self.home / "separate-gitdir-admin"
+        subprocess.run(
+            ["git", "clone", "--separate-git-dir", str(admin), str(self.repo), str(primary)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        self.assertTrue((primary / ".git").is_file())
+        self.assertEqual(shadow_host.worktree_role(primary), "primary")
+
+    def test_worktree_listing_handles_unusual_linked_path_bytes(self):
+        child = self.home / 'linked "é\nname'
+        git(self.repo, "worktree", "add", "--detach", str(child), "HEAD")
+
+        self.assertEqual(shadow_host.worktree_role(child), "linked")
+
+    def test_manual_linked_checkout_refuses_before_host_launch(self):
+        child = self.home / "manual-linked"
+        git(self.repo, "worktree", "add", "--detach", str(child), "HEAD")
+        before = self.authority()
+
+        result = self.invoke(child)
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "worktree_unmanaged")
+        self.assertFalse(self.binary.with_suffix(".argv.json").exists())
+        self.assertEqual(self.authority(), before)
+
+    def test_issued_linked_checkout_keeps_claim_bound_admission(self):
+        child = self.home / "managed-linked"
+        issued = shadow_clean.create_managed_worktree(
+            self.repo,
+            child,
+            entity=self.claim["entity"],
+            checkpoint=self.claim["row"],
+            seat=self.claim["owner"],
+            landed_ref="refs/heads/master",
+            home=self.home,
+        )
+        self.assertEqual(issued["state"], "issued")
+        self.assertTrue(shadow_clean.is_authenticated_managed_worktree(child, home=self.home))
+
+        result = self.invoke(child)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.binary.with_suffix(".argv.json").exists())
 
 
 class AuditBlockRegressionTests(UnclaimedHostTestCase):

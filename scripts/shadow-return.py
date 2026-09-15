@@ -138,15 +138,18 @@ def _automatic_after_return(
     *,
     changed: bool,
     reason: str,
+    repository_binding: dict | None = None,
 ) -> None:
     """Best-effort lifecycle boundary hook; never changes return result."""
     if result != 0 or not changed or reason not in {"completed", "blocked"}:
         return
     try:
-        entity = board.entity_id(plan_path)
-        report = _clean.run_automatic_cleanup(
-            repo, entity=entity, checkpoint=row_id
-        )
+        # A terminal boundary is the durable retry point for every managed
+        # checkout sharing this local Git store.  Each candidate still proves
+        # its own terminal row, no active claim, landed clean source, and
+        # process boundary before the recoverable Trash transaction runs.
+        source = _clean.automatic_cleanup_source(repo, repository_binding)
+        report = _clean.run_automatic_cleanup(source, trigger="return")
         if report.get("enabled"):
             print(
                 "automatic cleanup: "
@@ -317,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         0,
         changed=changed,
         reason=reason,
+        repository_binding=claim.get("repository_binding") if claim else None,
     )
     print(f"returned {args.row} ({reason}); root board revision {payload['revision']}")
     return 0

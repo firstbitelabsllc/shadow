@@ -33,6 +33,7 @@ import shadow_git as _shadow_git
 import shadow_root_board as _board
 import shadow_host_observation as _observation
 import shadow_telemetry as _telemetry
+import shadow_clean as _clean
 from shadow_durable_lib import durable_write
 from shadow_json_lib import json_text
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE
@@ -225,6 +226,49 @@ def exact_git_root(repo: Path) -> Path:
     if root != repo.resolve():
         raise HostError("worktree_invalid", "--repo must be an exact Git worktree root")
     return root
+
+
+def worktree_role(repo: Path) -> str:
+    """Return whether an exact Git root is the primary or a linked worktree.
+
+    ``--git-dir`` cannot answer this: a primary checkout may itself use a
+    gitdir file.  Git's registered worktree list is the authority here, and
+    its first entry is the primary checkout.
+    """
+    target = repo.resolve()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "list", "--porcelain", "-z"],
+            capture_output=True,
+            timeout=5,
+            env=_shadow_git.sanitized_git_env(),
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HostError("git_unavailable", f"cannot inspect worktree registration: {exc}") from exc
+    if result.returncode != 0:
+        raise HostError("git_unavailable", "worktree registration cannot be read")
+    entries = [
+        Path(os.fsdecode(field.removeprefix(b"worktree "))).resolve()
+        for field in result.stdout.split(b"\0")
+        if field.startswith(b"worktree ")
+    ]
+    matches = entries.count(target)
+    if matches == 0:
+        # ``git clone --separate-git-dir`` uses a .git file but may report the
+        # common admin directory as the first porcelain entry rather than the
+        # checkout path.  It is still a primary checkout: unlike a linked
+        # worktree, its admin directory is the common directory.
+        admin = Path(git_value(repo, "rev-parse", "--path-format=absolute", "--git-dir")).resolve()
+        common = Path(git_value(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
+        if admin == common:
+            return "primary"
+    if not entries or matches != 1:
+        raise HostError(
+            "git_unavailable",
+            "worktree registration is missing or ambiguous for this checkout",
+        )
+    return "primary" if entries[0] == target else "linked"
 
 
 def git_branch(repo: Path) -> str | None:
@@ -1433,6 +1477,15 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                    normalize_allowed(repo, args.allowed_path))
     except _board.BoardError as exc:
         raise HostError("claim_access_refused", str(exc)) from None
+    # A claim-bound V2 attempt may use a linked checkout only when Shadow
+    # issued it and its immutable receipt still matches the Git registration.
+    # Primary roots retain their existing admission path; legacy/unclaimed
+    # transport does not opt into this new provenance requirement.
+    if staged_v2 and worktree_role(repo) == "linked" and not _clean.is_authenticated_managed_worktree(repo):
+        raise HostError(
+            "worktree_unmanaged",
+            "claim-bound host run requires a Shadow-managed linked worktree",
+        )
     destination = validate_output_path(repo, args.out)
     if authority_proposal and destination is None:
         raise HostError(

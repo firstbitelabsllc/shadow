@@ -3554,7 +3554,7 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
                 ]),
                 0,
             )
-        runner.assert_called_once_with(self.repo)
+        runner.assert_called_once_with(self.repo, trigger="lifecycle")
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["automatic_cleanup"]["schema"], "shadow.clean-automatic-run.v1")
 

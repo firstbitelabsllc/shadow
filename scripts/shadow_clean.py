@@ -35,12 +35,18 @@ if str(ROOT / "scripts") not in sys.path:
 
 import shadow_root_board as _board  # noqa: E402
 import shadow_git as _shadow_git  # noqa: E402
+import shadow_telemetry as _telemetry  # noqa: E402
 
 
 CREATION_SCHEMA = "shadow.worktree-creation.v1"
 ISSUANCE_SCHEMA = "shadow.worktree-issuance.v1"
 CLEAN_MANIFEST_SCHEMA = "shadow.clean-manifest.v1"
 MAX_BYTES = 64 * 1024
+MAX_EVIDENCE_FILES = 256
+MAX_EVIDENCE_FILE_BYTES = 1024 * 1024
+MAX_EVIDENCE_BYTES = 4 * 1024 * 1024
+MAX_EVIDENCE_NODES = 512
+MAX_EVIDENCE_DEPTH = 16
 REF_RE = re.compile(r"^refs/(?:heads|tags)/[-A-Za-z0-9._/]+$")
 OID_RE = re.compile(r"^[0-9a-f]{40,64}$")
 ROW_RE = re.compile(r"^~[0-9a-z]{4}$")
@@ -637,7 +643,16 @@ def create_managed_worktree(
             ref=ref, landed_ref=landed_ref, source_head=source_head, stamp=stamp,
             home=home,
         )
-        return _finish_creation_locked(pending["nonce"], home=home, destination=destination)
+        issued = _finish_creation_locked(pending["nonce"], home=home, destination=destination)
+    # Creation itself remains live and therefore cannot be retired.  Once its
+    # claim lock is released, though, it is a safe durable retry point for
+    # older terminal managed checkouts in the same local Git store.  Cleanup
+    # is optional and must never turn a successful issuance into a failure.
+    try:
+        run_automatic_cleanup(source, home=home, trigger="create")
+    except Exception:
+        pass
+    return issued
 
 
 def _valid_records(home: Path | None = None) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -668,6 +683,75 @@ def _valid_records(home: Path | None = None) -> list[tuple[dict[str, Any], dict[
         except (CleanError, OSError, json.JSONDecodeError, TypeError, KeyError):
             continue
     return records
+
+
+def is_authenticated_managed_worktree(path: Path, *, home: Path | None = None) -> bool:
+    """Return whether ``path`` is the unchanged linked checkout Shadow issued.
+
+    This is provenance-only: callers that need a cleanup decision still run
+    the terminal, landed, clean-tree, and process predicates separately.
+    """
+    try:
+        target = _real_absolute(Path(path), "worktree")
+        metadata = target.lstat()
+        for receipt, journal in _valid_records(home):
+            worktree = receipt.get("worktree")
+            git = receipt.get("git")
+            if not isinstance(worktree, dict) or not isinstance(git, dict):
+                continue
+            if Path(worktree.get("path", "")).resolve() != target:
+                continue
+            if (worktree.get("device"), worktree.get("inode")) != (metadata.st_dev, metadata.st_ino):
+                continue
+            common = _git(
+                target, "rev-parse", "--path-format=absolute", "--git-common-dir"
+            ).stdout.strip()
+            admin = _git(
+                target, "rev-parse", "--path-format=absolute", "--git-dir"
+            ).stdout.strip()
+            if Path(common).resolve() != Path(git.get("common_dir", "")).resolve():
+                continue
+            if Path(admin).resolve() != Path(git.get("admin_dir", "")).resolve():
+                continue
+            source = _real_absolute(Path(journal["source_repo"]), "repository")
+            source_common = _git(
+                source, "rev-parse", "--path-format=absolute", "--git-common-dir"
+            ).stdout.strip()
+            if Path(source_common).resolve() != Path(common).resolve():
+                continue
+            _listing, registered = _worktree_listing(source)
+            if target in registered:
+                return True
+    except (CleanError, OSError, KeyError, TypeError, ValueError):
+        pass
+    return False
+
+
+def automatic_cleanup_source(
+    fallback: Path, binding: dict[str, Any] | None, *, home: Path | None = None,
+) -> Path:
+    """Resolve a released claim's local source without treating its plan as code.
+
+    Machine plans live outside their source checkout. Only authenticated
+    issuance journals may supply an alternative, and both the local Git-store
+    digest and remote identity must match the board's existing claim binding.
+    """
+    if binding is None:
+        return fallback
+    sources = [fallback]
+    sources.extend(Path(journal["source_repo"]) for _receipt, journal in _valid_records(home))
+    seen: set[Path] = set()
+    for source in sources:
+        source = source.resolve()
+        if source in seen:
+            continue
+        seen.add(source)
+        try:
+            if _board.repository_binding(source) == binding:
+                return source
+        except (_board.BoardError, OSError, ValueError):
+            continue
+    raise CleanError("claim source repository is unavailable")
 
 
 def _preview_refusal(receipt: dict[str, Any], journal: dict[str, Any], home: Path) -> str | None:
@@ -753,6 +837,25 @@ def automatic_status(*, home: Path | None = None) -> dict[str, Any]:
     }
 
 
+def _emit_automatic_observation(
+    source: Path, report: dict[str, Any], trigger: str, owner: Path | None,
+) -> None:
+    """Bind one public report to optional local owner telemetry.
+
+    The aggregate is written only to the primary checkout captured before a
+    candidate can be retired.  Observation never changes cleanup or lifecycle
+    success, including when its optional owner path becomes unavailable.
+    """
+    try:
+        report["observation_sha256"] = _telemetry.cleanup_observation_sha256(report, trigger)
+        if owner is not None:
+            _telemetry.emit_cleanup_observation(
+                source, report, trigger, owner_repo=owner,
+            )
+    except _telemetry.TelemetryError:
+        pass
+
+
 def run_automatic_cleanup(
     repo: Path,
     *,
@@ -760,6 +863,7 @@ def run_automatic_cleanup(
     trash_root: Path | None = None,
     entity: str | None = None,
     checkpoint: str | None = None,
+    trigger: str = "sweep",
 ) -> dict[str, Any]:
     """Perform one lifecycle-bound cleanup pass when the computer opted in.
 
@@ -769,17 +873,40 @@ def run_automatic_cleanup(
     bounded reason labels; paths and provider/private records never cross the
     lifecycle boundary.
     """
+    source = _real_absolute(Path(repo), "repository")
     if not _automatic_value(home):
-        return {
+        report = {
             "schema": AUTOMATIC_RUN_SCHEMA,
             "action": "automatic_cleanup",
             "enabled": False,
             "changed": False,
             "candidates": [],
         }
-    source = _real_absolute(Path(repo), "repository")
+        # Disabled is a no-Git, zero-write preference read.  In particular it
+        # must be safe for lifecycle callers whose repository was already
+        # retired or whose fixture is not a Git checkout.
+        _emit_automatic_observation(source, report, trigger, None)
+        return report
+    observation_owner = None
+    if _telemetry.local_enabled():
+        try:
+            observation_owner = _telemetry.cleanup_observation_owner(source)
+        except _telemetry.TelemetryError:
+            pass
     candidates: list[dict[str, Any]] = []
-    for receipt, journal in _valid_records(home):
+    records = sorted(
+        _valid_records(home),
+        key=lambda item: Path(item[0]["worktree"]["path"]).resolve() == source,
+    )
+    # An empty receipt set is a valid no-op even for a machine plan directory.
+    # Capture store identity before any move, but only when there is a
+    # candidate to compare against it.
+    source_common = None
+    if records:
+        source_common = Path(_git(
+            source, "rev-parse", "--path-format=absolute", "--git-common-dir"
+        ).stdout.strip()).resolve()
+    for receipt, journal in records:
         registered_source = Path(journal["source_repo"]).resolve()
         claim = receipt.get("claim") or {}
         if entity is not None and claim.get("entity") != entity:
@@ -797,9 +924,8 @@ def run_automatic_cleanup(
             # Match the shared local Git database, never only a remote URL:
             # independent clones must keep independent cleanup authority.
             if registered_source != source:
-                source_common = _git(source, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
                 registered_common = _git(registered_source, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
-                if Path(source_common).resolve() != Path(registered_common).resolve():
+                if source_common != Path(registered_common).resolve():
                     continue
             refusal = _preview_refusal(receipt, journal, (home or Path.home()).resolve())
             if refusal is not None:
@@ -839,13 +965,15 @@ def run_automatic_cleanup(
                 "state": "refused",
                 "reason": _public_reason(str(exc)),
             })
-    return {
+    report = {
         "schema": AUTOMATIC_RUN_SCHEMA,
         "action": "automatic_cleanup",
         "enabled": True,
         "changed": any(item.get("changed", False) for item in candidates),
         "candidates": candidates,
     }
+    _emit_automatic_observation(source, report, trigger, observation_owner)
+    return report
 
 
 def lifecycle_summaries(*, home: Path | None = None) -> list[dict[str, Any]]:
@@ -1068,23 +1196,121 @@ def validate_manifest(manifest: dict[str, Any], *, expected_sha256: str | None =
     return digest
 
 
+def _sealed_evidence_inventory(target: Path) -> list[dict[str, Any]] | None:
+    """Authenticate the sole allowed ignored/untracked subtree for a managed child."""
+    state = target / ".shadow"
+    if not state.exists() and not state.is_symlink():
+        return None
+    state_metadata = state.lstat()
+    if stat.S_ISLNK(state_metadata.st_mode) or not stat.S_ISDIR(state_metadata.st_mode):
+        raise CleanError("worktree is dirty")
+    entries = list(state.iterdir())
+    evidence = state / "evidence"
+    if entries != [evidence]:
+        raise CleanError("worktree is dirty")
+    evidence_metadata = evidence.lstat()
+    if stat.S_ISLNK(evidence_metadata.st_mode) or not stat.S_ISDIR(evidence_metadata.st_mode):
+        raise CleanError("worktree is dirty")
+    inventory: list[dict[str, Any]] = []
+    total = 0
+    nodes = 1
+    stack: list[tuple[Path, int, os.stat_result]] = [(evidence, 0, evidence_metadata)]
+    while stack:
+        directory, depth, expected = stack.pop()
+        current = directory.lstat()
+        if (current.st_dev, current.st_ino, current.st_mode) != (
+            expected.st_dev, expected.st_ino, expected.st_mode,
+        ) or stat.S_ISLNK(current.st_mode) or not stat.S_ISDIR(current.st_mode):
+            raise CleanError("worktree is dirty")
+        relative_dir = directory.relative_to(evidence).as_posix()
+        inventory.append({"kind": "directory", "path": relative_dir})
+        for child in sorted(directory.iterdir(), key=lambda item: item.name, reverse=True):
+            relative = child.relative_to(evidence).as_posix()
+            metadata = child.lstat()
+            nodes += 1
+            if nodes > MAX_EVIDENCE_NODES or depth + 1 > MAX_EVIDENCE_DEPTH:
+                raise CleanError("worktree is dirty")
+            if stat.S_ISLNK(metadata.st_mode):
+                raise CleanError("worktree is dirty")
+            if stat.S_ISDIR(metadata.st_mode):
+                stack.append((child, depth + 1, metadata))
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise CleanError("worktree is dirty")
+            size = metadata.st_size
+            total += size
+            if size > MAX_EVIDENCE_FILE_BYTES or total > MAX_EVIDENCE_BYTES:
+                raise CleanError("worktree is dirty")
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+            descriptor = -1
+            try:
+                descriptor = os.open(child, flags)
+                opened = os.fstat(descriptor)
+                if not stat.S_ISREG(opened.st_mode) or (
+                    opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns
+                ) != (
+                    metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns
+                ):
+                    raise CleanError("worktree is dirty")
+                digest = hashlib.sha256()
+                remaining = size
+                while remaining:
+                    chunk = os.read(descriptor, min(64 * 1024, remaining))
+                    if not chunk:
+                        raise CleanError("worktree is dirty")
+                    digest.update(chunk)
+                    remaining -= len(chunk)
+                if os.read(descriptor, 1):
+                    raise CleanError("worktree is dirty")
+                after = os.fstat(descriptor)
+            except OSError as exc:
+                raise CleanError("worktree is dirty") from exc
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+            if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (
+                metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns
+            ):
+                raise CleanError("worktree is dirty")
+            inventory.append({"kind": "file", "path": relative, "size": size, "sha256": digest.hexdigest()})
+            if sum(item["kind"] == "file" for item in inventory) > MAX_EVIDENCE_FILES:
+                raise CleanError("worktree is dirty")
+    return sorted(inventory, key=lambda item: item["path"])
+
+
 def _status_snapshot(target: Path) -> tuple[str, str]:
     """Return the complete Git cleanliness proof for one target."""
     status = _git(
         target, "status", "--porcelain=v1", "--ignored=matching",
         "--untracked-files=all",
     ).stdout
+    lines = status.splitlines()
+    evidence = _sealed_evidence_inventory(target)
     if status:
-        lines = status.splitlines()
-        if any(line.startswith("!!") for line in lines):
-            raise CleanError("ignored files exist")
-        if any(line.startswith("??") for line in lines):
+        if any(not line.startswith(("!!", "??")) for line in lines):
+            raise CleanError("worktree is dirty")
+        paths = [line[3:].rstrip("/") for line in lines]
+        def evidence_status_path(path: str) -> bool:
+            if path in {".shadow", ".shadow/evidence"}:
+                return True
+            if not path.startswith(".shadow/evidence/"):
+                return False
+            return all(re.fullmatch(r"[-A-Za-z0-9._]+", part) for part in path.split("/")[2:])
+        if evidence is None or any(not evidence_status_path(path) for path in paths):
+            if any(line.startswith("!!") for line in lines):
+                raise CleanError("ignored files exist")
             raise CleanError("untracked files exist")
+    elif evidence is not None:
+        # A visible `.shadow` tree must be represented by Git status.  This
+        # prevents a hidden ignored sibling from becoming an unbound exception.
         raise CleanError("worktree is dirty")
     submodules = _git(target, "submodule", "status", "--recursive").stdout.strip()
     if submodules:
         raise CleanError("submodule state exists")
-    return status, hashlib.sha256(status.encode("utf-8")).hexdigest()
+    if evidence is None:
+        return status, hashlib.sha256(status.encode("utf-8")).hexdigest()
+    encoded = json.dumps({"evidence": evidence}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return status, hashlib.sha256(encoded).hexdigest()
 
 
 def _tree_snapshot(target: Path) -> str:

@@ -278,6 +278,10 @@ def read_log(repo):
                 if telemetry._validated_record(value) != value:
                     raise ValueError('invalid legacy event')
                 continue
+            if value.get('schema') == telemetry.CLEANUP_SCHEMA:
+                if telemetry.validate_cleanup_record(value) != value:
+                    raise ValueError('invalid cleanup event')
+                continue
             events.append(validate(value))
         except (ValueError, telemetry.TelemetryError, TypeError, KeyError):
             errors += 1

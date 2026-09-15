@@ -59,6 +59,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import shadow_root_board as board
+import shadow_telemetry as telemetry
+import shadow_host_observation as host_observation
 
 # Long jobs, heaviest last. Each runs in its own process from the repo root.
 JOBS: dict[str, list[str]] = {
@@ -522,8 +524,43 @@ def _event_start_ns(event: dict, fallback: int) -> int:
     return fallback
 
 
+def _validated_forward_event(candidate: object) -> dict:
+    """Admit only known closed local event schemas before owner export.
+
+    The event file is local input, not a trusted Langfuse attribute bag.  A
+    malformed or future schema stays red until its producer and explicit
+    validator are reviewed together.
+    """
+    if not isinstance(candidate, dict):
+        raise telemetry.TelemetryError("local event is not an object")
+    schema = candidate.get("schema")
+    if schema == telemetry.SCHEMA or schema == telemetry.CLEANUP_SCHEMA:
+        return telemetry.validate_export_record(candidate)
+    if schema == host_observation.SCHEMA:
+        return host_observation.validate(candidate)
+    raise telemetry.TelemetryError("unsupported local telemetry schema")
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict:
+    """Reject duplicate JSON keys before a local event reaches an exporter."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate event field")
+        result[key] = value
+    return result
+
+
+def _event_name(event: dict) -> str:
+    if event["schema"] == telemetry.CLEANUP_SCHEMA:
+        return f"cleanup:{event['trigger']}"
+    if event["schema"] == host_observation.SCHEMA:
+        return f"host:{event['event']}"
+    return f"event:{event['verb']}"
+
+
 def forward_events(sink: Sink, events_path: Path, trace_id: str, parent: str) -> tuple[int, bool]:
-    """Ship allowlisted local events as spans; the emitter already redacted them.
+    """Ship only validated closed local events as spans.
 
     Spans carry the event's own recorded_at and duration_ms — stamping every
     event with the upload instant collapses the timeline the trace exists to
@@ -539,11 +576,10 @@ def forward_events(sink: Sink, events_path: Path, trace_id: str, parent: str) ->
     now = _now_ns()
     for line in lines[-200:]:
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
+            event = _validated_forward_event(json.loads(line, object_pairs_hook=_unique_json_object))
+        except (json.JSONDecodeError, telemetry.TelemetryError, TypeError, ValueError, KeyError):
+            print("shadow-observed-gauntlet: event stream contains an unsupported record", file=sys.stderr)
+            return 0, False
         start = _event_start_ns(event, now)
         duration = event.get("duration_ms")
         if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0:
@@ -552,7 +588,7 @@ def forward_events(sink: Sink, events_path: Path, trace_id: str, parent: str) ->
             "traceId": trace_id,
             "spanId": secrets.token_hex(8),
             "parentSpanId": parent,
-            "name": f"event:{event.get('verb', 'unknown')}",
+            "name": _event_name(event),
             "kind": 1,
             "startTimeUnixNano": str(start),
             "endTimeUnixNano": str(start + duration * 1_000_000),

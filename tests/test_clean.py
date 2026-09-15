@@ -36,6 +36,7 @@ PLAN = """# Demo
 
 ### Work
 - [pending] managed worktree ~aa11 | proof: cmd true
+- [pending] older managed worktree ~bb22 | proof: cmd true
 
 ## Progress
 
@@ -517,6 +518,83 @@ class CleanApplyTests(unittest.TestCase):
         self.assertTrue(report["changed"], report)
         self.assertFalse(destination.exists())
 
+    def test_automatic_cleanup_preserves_sealed_host_evidence_through_restore(self):
+        destination, _, _, _ = self._terminal_managed()
+        evidence = destination / ".shadow" / "evidence" / "controller.json"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text('{"event":"host_finish"}\n', encoding="utf-8")
+        original = evidence.read_bytes()
+        self.clean._write_automatic(True, home=self.home)
+        trash = self.repo.parent / "trash-evidence"
+        trash.mkdir()
+        report = self.clean.run_automatic_cleanup(self.repo, home=self.home, trash_root=trash)
+        self.assertTrue(report["changed"], report)
+        receipt = report["candidates"][0]["id"]
+        restored = self.clean.restore_preview(receipt, home=self.home, trash_root=trash)
+        self.clean.restore_apply(receipt, expected=restored["cas"], home=self.home, trash_root=trash)
+        self.assertEqual((destination / ".shadow" / "evidence" / "controller.json").read_bytes(), original)
+
+    def test_enabled_telemetry_uses_primary_owner_and_does_not_dirty_managed_child(self):
+        # Creation performs its own best-effort automatic pass.  Keep this
+        # test's local observation to the terminal pass being asserted.
+        with mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": ""}, clear=False):
+            destination, _, _, _ = self._terminal_managed()
+        self.clean._write_automatic(True, home=self.home)
+        trash = self.repo.parent / "trash-telemetry-owner"
+        trash.mkdir()
+        with mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": "local"}, clear=False):
+            report = self.clean.run_automatic_cleanup(
+                destination, home=self.home, trash_root=trash, trigger="return",
+            )
+        self.assertTrue(report["changed"], report)
+        self.assertIn("observation_sha256", report)
+        self.assertFalse(destination.exists())
+        event_file = self.repo / ".shadow" / "evidence" / "shadow-events.jsonl"
+        self.assertTrue(event_file.is_file())
+        event = json.loads(event_file.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(event["schema"], "shadow.clean-observation.v1")
+        self.assertEqual(event["report_sha256"], report["observation_sha256"])
+
+    def test_sealed_evidence_refuses_tamper_symlink_extra_sibling_and_oversize(self):
+        for kind in ("tamper", "symlink", "sibling", "outside", "oversize"):
+            with self.subTest(kind=kind):
+                destination = self.repo.parent / f"sealed-evidence-{kind}"
+                git(self.repo, "worktree", "add", "--detach", str(destination), "HEAD")
+                evidence = destination / ".shadow" / "evidence" / "receipt.json"
+                evidence.parent.mkdir(parents=True)
+                evidence.write_text("first\n", encoding="utf-8")
+                self.clean._status_snapshot(destination)
+                if kind == "tamper":
+                    evidence.write_text("changed\n", encoding="utf-8")
+                    # The changed inventory will be caught by the manifest CAS.
+                    first = self.clean._status_snapshot(destination)[1]
+                    evidence.write_text("changed again\n", encoding="utf-8")
+                    self.assertNotEqual(first, self.clean._status_snapshot(destination)[1])
+                    (evidence.parent / "empty-directory").mkdir()
+                    self.assertNotEqual(first, self.clean._status_snapshot(destination)[1])
+                    continue
+                if kind == "symlink":
+                    evidence.unlink()
+                    evidence.symlink_to(destination / "PLAN.md")
+                elif kind == "sibling":
+                    (destination / ".shadow" / "other").write_text("no\n", encoding="utf-8")
+                elif kind == "outside":
+                    (destination / "untrusted.txt").write_text("no\n", encoding="utf-8")
+                else:
+                    evidence.write_bytes(b"x" * (self.clean.MAX_EVIDENCE_FILE_BYTES + 1))
+                with self.assertRaises(self.clean.CleanError):
+                    self.clean._status_snapshot(destination)
+
+    def test_sealed_evidence_never_exempts_tracked_shadow_changes(self):
+        destination = self.repo.parent / "sealed-evidence-tracked"
+        git(self.repo, "worktree", "add", "--detach", str(destination), "HEAD")
+        evidence = destination / ".shadow" / "evidence" / "controller.json"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text('{"event":"host_finish"}\n', encoding="utf-8")
+        git(destination, "add", ".shadow/evidence/controller.json")
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._status_snapshot(destination)
+
     def test_automatic_cleanup_does_not_cross_independent_clone(self):
         destination, _, _, _ = self._terminal_managed()
         other = self.repo.parent / "independent"
@@ -540,6 +618,117 @@ class CleanApplyTests(unittest.TestCase):
         report = self.clean.run_automatic_cleanup(destination, home=self.home)
         self.assertFalse(report["changed"])
         self.assertEqual((destination / "unique.txt").read_text(), "new unsaved source\n")
+
+    def test_unscoped_automatic_cleanup_retries_older_terminal_sibling_and_keeps_dirty_one(self):
+        older = self.repo.parent / "managed-older"
+        self.clean.create_managed_worktree(
+            self.repo, older, entity=self.entity, checkpoint="~aa11", seat="seat-a",
+            ref="HEAD", landed_ref="refs/heads/master", home=self.home,
+        )
+        plan = self.repo / "PLAN.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8")
+            .replace("[pending] managed worktree", "[completed] managed worktree")
+            + "\n- 2026-09-04T00:00:00Z ~aa11 PROOF cmd true -> pass\n",
+            encoding="utf-8",
+        )
+        git(self.repo, "add", "PLAN.md")
+        git(self.repo, "commit", "-qm", "complete older managed row")
+        board.release(plan, "~aa11", owner="seat-a", reason="completed", home=self.home)
+        board.claim(
+            plan, "~bb22", "seat-b", project="demo", priority=2,
+            home=self.home, repo=self.repo,
+        )
+        current = self.repo.parent / "managed-current"
+        self.clean.create_managed_worktree(
+            self.repo, current, entity=self.entity, checkpoint="~bb22", seat="seat-b",
+            ref="HEAD", landed_ref="refs/heads/master", home=self.home,
+        )
+        plan.write_text(
+            plan.read_text(encoding="utf-8")
+            .replace("[pending] older managed worktree", "[completed] older managed worktree")
+            + "- 2026-09-04T00:00:01Z ~bb22 PROOF cmd true -> pass\n",
+            encoding="utf-8",
+        )
+        git(self.repo, "add", "PLAN.md")
+        git(self.repo, "commit", "-qm", "complete current managed row")
+        board.release(plan, "~bb22", owner="seat-b", reason="completed", home=self.home)
+        (current / "still-active.txt").write_text("preserve me\n", encoding="utf-8")
+        self.clean._write_automatic(True, home=self.home)
+        trash = self.repo.parent / "trash-catch-up"
+        trash.mkdir()
+        report = self.clean.run_automatic_cleanup(self.repo, home=self.home, trash_root=trash)
+        self.assertTrue(report["changed"], report)
+        self.assertFalse(older.exists())
+        self.assertTrue(current.exists())
+        states = {item["checkpoint"]: item["state"] for item in report["candidates"]}
+        self.assertEqual(states["~aa11"], "trashed")
+        self.assertEqual(states["~bb22"], "refused")
+
+    def test_automatic_cleanup_from_an_eligible_child_retires_it_last_and_cleans_siblings(self):
+        source_child = self.repo.parent / "managed-source-child"
+        self.clean.create_managed_worktree(
+            self.repo, source_child, entity=self.entity, checkpoint="~aa11", seat="seat-a",
+            ref="HEAD", landed_ref="refs/heads/master", home=self.home,
+        )
+        plan = self.repo / "PLAN.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8")
+            .replace("[pending] managed worktree", "[completed] managed worktree")
+            + "\n- 2026-09-04T00:00:00Z ~aa11 PROOF cmd true -> pass\n",
+            encoding="utf-8",
+        )
+        git(self.repo, "add", "PLAN.md")
+        git(self.repo, "commit", "-qm", "complete source child")
+        board.release(plan, "~aa11", owner="seat-a", reason="completed", home=self.home)
+        board.claim(plan, "~bb22", "seat-b", project="demo", priority=2, home=self.home, repo=self.repo)
+        sibling = self.repo.parent / "managed-sibling"
+        self.clean.create_managed_worktree(
+            self.repo, sibling, entity=self.entity, checkpoint="~bb22", seat="seat-b",
+            ref="HEAD", landed_ref="refs/heads/master", home=self.home,
+        )
+        plan.write_text(
+            plan.read_text(encoding="utf-8").replace(
+                "[pending] older managed worktree", "[completed] older managed worktree"
+            ) + "\n- 2026-09-04T00:00:01Z ~bb22 PROOF cmd true -> pass\n",
+            encoding="utf-8",
+        )
+        git(self.repo, "add", "PLAN.md")
+        git(self.repo, "commit", "-qm", "complete sibling")
+        board.release(plan, "~bb22", owner="seat-b", reason="completed", home=self.home)
+        self.clean._write_automatic(True, home=self.home)
+        trash = self.repo.parent / "trash-source-child"
+        trash.mkdir()
+        report = self.clean.run_automatic_cleanup(source_child, home=self.home, trash_root=trash)
+        self.assertTrue(report["changed"], report)
+        self.assertFalse(source_child.exists())
+        self.assertFalse(sibling.exists())
+        self.assertEqual(
+            {item["checkpoint"]: item["state"] for item in report["candidates"]},
+            {"~aa11": "trashed", "~bb22": "trashed"},
+        )
+
+    def test_creation_retries_prior_terminal_checkout_but_keeps_new_checkout_live(self):
+        report = {"enabled": True, "changed": True, "candidates": []}
+        destination = self.repo.parent / "managed-creation-retry"
+        with mock.patch.object(self.clean, "run_automatic_cleanup", return_value=report) as runner:
+            created = self.clean.create_managed_worktree(
+                self.repo, destination, entity=self.entity, checkpoint="~aa11", seat="seat-a",
+                ref="HEAD", landed_ref="refs/heads/master", home=self.home,
+            )
+        self.assertEqual(created["state"], "issued")
+        self.assertTrue(destination.is_dir())
+        runner.assert_called_once_with(self.repo.resolve(), home=self.home, trigger="create")
+
+    def test_creation_keeps_issued_checkout_when_automatic_retry_fails(self):
+        destination = self.repo.parent / "managed-creation-refusal"
+        with mock.patch.object(self.clean, "run_automatic_cleanup", side_effect=self.clean.CleanError("recovery required")):
+            created = self.clean.create_managed_worktree(
+                self.repo, destination, entity=self.entity, checkpoint="~aa11", seat="seat-a",
+                ref="HEAD", landed_ref="refs/heads/master", home=self.home,
+            )
+        self.assertEqual(created["state"], "issued")
+        self.assertTrue(destination.is_dir())
 
     def _prepare_current(self, destination):
         receipt_path = next((self.home / ".shadow" / "clean" / "receipts").glob("*.json"))

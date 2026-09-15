@@ -13,10 +13,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "shadow_telemetry.py"
+OBSERVED = ROOT / "scripts" / "dev" / "shadow-observed-gauntlet.py"
 DOC = ROOT / "docs" / "reference" / "telemetry.md"
 EXPECTED_FIELDS = (
     "schema",
@@ -36,6 +38,17 @@ def load_telemetry():
     if not SCRIPT.is_file():
         raise AssertionError("the local event constructor does not exist")
     spec = importlib.util.spec_from_file_location("shadow_telemetry", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_observed():
+    if str(ROOT / "scripts") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location("shadow_observed_gauntlet_test", OBSERVED)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -384,6 +397,145 @@ class NothingSensitiveSurvivesTheEmitter(unittest.TestCase):
                 "proof_output",
             ):
                 self.assertNotIn(forbidden, serialized)
+
+
+class AutomaticCleanupObservations(unittest.TestCase):
+    def _record(self, report: dict, trigger: str = "return") -> dict:
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve() / "project"
+            repo.mkdir()
+            return telemetry.cleanup_record(repo, report, trigger)
+
+    def test_disabled_and_zero_passes_are_closed_and_distinct(self) -> None:
+        telemetry = load_telemetry()
+        disabled = self._record({"enabled": False, "candidates": []})
+        zero = self._record({"enabled": True, "candidates": []}, "accept")
+        self.assertEqual(tuple(disabled), telemetry.CLEANUP_FIELDS)
+        self.assertEqual(disabled["outcomes"]["disabled"], 1)
+        self.assertEqual(zero["outcomes"]["no_candidates"], 1)
+        self.assertEqual(disabled["candidate_count"], 0)
+        self.assertEqual(zero["candidate_count"], 0)
+        self.assertEqual(telemetry.validate_cleanup_record(disabled), disabled)
+        self.assertEqual(telemetry.validate_cleanup_record(zero), zero)
+
+    def test_refused_and_changed_passes_aggregate_without_candidate_identity(self) -> None:
+        telemetry = load_telemetry()
+        refused = self._record({
+            "enabled": True,
+            "candidates": [{"id": "worktree@a" * 8, "state": "refused", "reason": "/private/path"}],
+        })
+        changed = self._record({
+            "enabled": True,
+            "candidates": [{"id": "worktree@b" * 8, "state": "trashed", "changed": True}],
+        }, "lifecycle")
+        self.assertEqual(refused["outcomes"]["refused"], 1)
+        self.assertEqual(changed["outcomes"]["trashed"], 1)
+        self.assertEqual(changed["changed_count"], 1)
+        self.assertNotIn("worktree@", json.dumps(refused))
+        self.assertNotIn("/private/path", json.dumps(refused))
+
+    def test_write_failure_is_nonthrowing_and_never_changes_cleanup(self) -> None:
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve() / "project"
+            repo.mkdir()
+            with mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": "local"}, clear=False), \
+                 mock.patch.object(telemetry, "append_record", side_effect=telemetry.TelemetryError("write failed")):
+                self.assertFalse(telemetry.emit_cleanup_observation(
+                    repo, {"enabled": True, "candidates": []}, "sweep"
+                ))
+            self.assertFalse((repo / ".shadow" / "evidence" / "shadow-events.jsonl").exists())
+
+    def test_malformed_trigger_and_inconsistent_sentinels_are_refused_without_throwing(self) -> None:
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve() / "project"
+            repo.mkdir()
+            with mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": "local"}, clear=False):
+                self.assertFalse(telemetry.emit_cleanup_observation(
+                    repo, {"enabled": True, "candidates": []}, []  # type: ignore[arg-type]
+                ))
+            record = self._record({"enabled": False, "candidates": []})
+            record["candidate_count"] = 1
+            with self.assertRaises(telemetry.TelemetryError):
+                telemetry.validate_cleanup_record(record)
+
+    def test_owner_discovery_uses_nul_porcelain_and_cannot_escape_as_oserror(self) -> None:
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source = root / "source"
+            owner = root / "primary\ncheckout"
+            source.mkdir()
+            owner.mkdir()
+            porcelain = b"worktree " + os.fsencode(owner) + b"\0HEAD " + b"a" * 40 + b"\0\0"
+            result = subprocess.CompletedProcess([], 0, porcelain, b"")
+            with mock.patch.object(telemetry.subprocess, "run", return_value=result) as run:
+                self.assertEqual(telemetry.cleanup_observation_owner(source), owner)
+            self.assertIn("-z", run.call_args.args[0])
+            with mock.patch.object(telemetry.subprocess, "run", side_effect=OSError("private failure")):
+                with self.assertRaises(telemetry.TelemetryError):
+                    telemetry.cleanup_observation_owner(source)
+            record = self._record({"enabled": True, "candidates": [{"state": "trashed"}]})
+            record["changed_count"] = 0
+            with self.assertRaises(telemetry.TelemetryError):
+                telemetry.validate_cleanup_record(record)
+
+    def test_export_rejects_unknown_or_malformed_cleanup_records_before_send(self) -> None:
+        observed = load_observed()
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            events = Path(tmp) / "events.jsonl"
+            events.write_text('{"schema":"untrusted","absolute_path":"/private/path"}\n', encoding="utf-8")
+            sink = mock.Mock()
+            count, delivered = observed.forward_events(sink, events, "a" * 32, "b" * 16)
+            self.assertEqual((count, delivered), (0, False))
+            sink.send_spans.assert_not_called()
+
+            record = self._record({"enabled": True, "candidates": []})
+            record["outcomes"]["no_candidates"] = 2
+            events.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            count, delivered = observed.forward_events(sink, events, "a" * 32, "b" * 16)
+            self.assertEqual((count, delivered), (0, False))
+            sink.send_spans.assert_not_called()
+            self.assertEqual(record["schema"], telemetry.CLEANUP_SCHEMA)
+
+    def test_export_forwards_a_valid_cleanup_aggregate_only(self) -> None:
+        observed = load_observed()
+        telemetry = load_telemetry()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo, child = root / "repo", root / "child"
+            repo.mkdir()
+            for argv in (("init", "-q"), ("config", "user.email", "telemetry@example.invalid"),
+                         ("config", "user.name", "Telemetry")):
+                subprocess.run(["git", "-C", str(repo), *argv], check=True)
+            (repo / "tracked").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "tracked"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "seed"], check=True)
+            subprocess.run(["git", "-C", str(repo), "worktree", "add", "--detach", str(child), "HEAD"], check=True)
+            report = {
+                "enabled": True,
+                "candidates": [{"state": "trashed", "changed": True}],
+            }
+            with mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": "local"}, clear=False):
+                self.assertTrue(telemetry.emit_cleanup_observation(child, report, "create"))
+            events = repo / ".shadow" / "evidence" / "shadow-events.jsonl"
+            self.assertTrue(events.is_file())
+            self.assertFalse((child / ".shadow" / "evidence" / "shadow-events.jsonl").exists())
+            record = telemetry.validate_cleanup_record(json.loads(events.read_text(encoding="utf-8")))
+            self.assertEqual(record["report_sha256"], telemetry.cleanup_observation_sha256(report, "create"))
+            sink = mock.Mock()
+            sink.send_spans.return_value = True
+            count, delivered = observed.forward_events(sink, events, "a" * 32, "b" * 16)
+            self.assertEqual((count, delivered), (1, True))
+            span = sink.send_spans.call_args.args[0][0]
+            self.assertEqual(span["name"], "cleanup:create")
+            attributes = {entry["key"]: next(iter(entry["value"].values())) for entry in span["attributes"]}
+            self.assertEqual(attributes["shadow.schema"], "shadow.clean-observation.v1")
+            self.assertNotIn("shadow.absolute_path", attributes)
+            self.assertNotIn("shadow.id", attributes)
 
 
 class TheLocalSinkIsOwnerOptInOnly(unittest.TestCase):

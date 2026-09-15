@@ -828,6 +828,37 @@ class ReturnRequiresTheClaimOwner(unittest.TestCase):
 
 
 class ReturnAutomaticCleanup(unittest.TestCase):
+    def test_machine_plan_return_uses_issued_source_and_exact_local_binding(self) -> None:
+        from tests.plan_tree_fixture import install_plan_tree
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            git(repo, "remote", "add", "origin", "https://github.com/example/return-fixture.git")
+            plan = home / ".shadow/plans/return-fixture/PLAN.md"
+            plan.parent.mkdir(parents=True)
+            text = PLAN.replace("- Project: return-fixture", "- Project: return-fixture\n- Origin: github.com/example/return-fixture")
+            install_plan_tree(plan.parent, text.encode())
+            with mock.patch.dict(os.environ, env):
+                entity = board.entity_id(plan)
+                board.claim(plan, "~aa11", "seat-a", project="return-fixture", priority=2,
+                            home=home, repo=repo, access="write", write_scope=["README.md"])
+                return_mod._clean.create_managed_worktree(
+                    repo, Path(tmp) / "managed", entity=entity, checkpoint="~aa11", seat="seat-a",
+                    landed_ref="refs/heads/" + git(repo, "branch", "--show-current"), home=home,
+                )
+                complete = text.replace("- [pending] inspect the result", "- [completed] inspect the result")
+                complete += "\n- 2026-08-22T17:00:00Z ~aa11 PROOF artifact -> pass\n"
+                install_plan_tree(plan.parent, complete.encode())
+                with mock.patch.object(return_mod._clean, "run_automatic_cleanup",
+                                       return_value={"enabled": True, "candidates": []}) as cleanup:
+                    result = return_mod.main(["--entity", entity, "--row", "~aa11", "--by", "seat-a"])
+                self.assertEqual(result, 0)
+                cleanup.assert_called_once_with(repo.resolve(), trigger="return")
+                clone = Path(tmp) / "independent"
+                git(Path(tmp), "clone", "--quiet", str(repo), str(clone))
+                git(clone, "remote", "set-url", "origin", "https://github.com/example/return-fixture.git")
+                with self.assertRaises(return_mod._clean.CleanError):
+                    return_mod._clean.automatic_cleanup_source(plan.parent, board.repository_binding(clone), home=home)
+
     def _terminal_fixture(self, root: Path, reason: str) -> tuple[Path, Path, dict[str, str], str]:
         repo, home, env = fixture(root)
         claimed = run(
@@ -857,7 +888,7 @@ class ReturnAutomaticCleanup(unittest.TestCase):
         entity = payload(home)["entities"][0]["id"]
         return repo, home, env, entity
 
-    def test_completed_and_blocked_returns_cleanup_once_after_release_with_exact_scope(self) -> None:
+    def test_completed_and_blocked_returns_cleanup_once_after_release_for_the_repo(self) -> None:
         report = {
             "schema": "shadow.clean-automatic-run.v1",
             "action": "automatic_cleanup",
@@ -894,9 +925,7 @@ class ReturnAutomaticCleanup(unittest.TestCase):
 
                 self.assertEqual(result, 0)
                 self.assertEqual(events, ["lock-enter", "lock-exit", "cleanup"])
-                cleanup.assert_called_once_with(
-                    repo.resolve(), entity=entity, checkpoint="~aa11"
-                )
+                cleanup.assert_called_once_with(repo.resolve(), trigger="return")
                 rendered = "\n".join(call.args[0] for call in output.call_args_list)
                 self.assertIn("automatic cleanup:", rendered)
                 self.assertNotIn(str(repo), rendered)

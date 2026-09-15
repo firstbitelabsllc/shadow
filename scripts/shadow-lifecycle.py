@@ -2769,7 +2769,7 @@ def main(argv: list[str] | None = None) -> int:
         # operation above has fully unwound its plan lock before this call;
         # cleanup refusal/recovery can never change the lifecycle result.
         try:
-            report["automatic_cleanup"] = _clean.run_automatic_cleanup(repo)
+            report["automatic_cleanup"] = _clean.run_automatic_cleanup(repo, trigger="lifecycle")
         except Exception as exc:
             report["automatic_cleanup"] = {
                 "schema": _clean.AUTOMATIC_RUN_SCHEMA,

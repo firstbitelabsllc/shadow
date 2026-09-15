@@ -2885,8 +2885,11 @@ def _automatic_after_accept(
     if result != 0 or not released:
         return
     try:
-        entity = _board.entity_id(plan_path)
-        report = _clean.run_automatic_cleanup(repo, entity=entity, checkpoint=row_id)
+        # A terminal boundary is the durable retry point for every managed
+        # checkout sharing this local Git store.  Each candidate still proves
+        # its own terminal row, no active claim, landed clean source, and
+        # process boundary before the recoverable Trash transaction runs.
+        report = _clean.run_automatic_cleanup(repo, trigger="accept")
         if report.get("enabled"):
             # Keep the optional follow-up visible, bounded, and path-free.
             print(
