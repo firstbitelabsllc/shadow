@@ -5927,7 +5927,8 @@ class OneUnreadablePointerNeverBlanksThePortfolio(unittest.TestCase):
             )
             notice = stderr.getvalue()
             self.assertIn("quarantined", notice)
-            self.assertIn(blocked, notice)
+            self.assertIn(unreadable_id[:12], notice)
+            self.assertNotIn(str(blocked), notice)  # plan paths are never echoed
 
     def test_the_quarantine_notice_is_printed_once_per_pointer(self) -> None:
         # `_identity_index` is rebuilt by `_entity_aliases` on every lookup;
