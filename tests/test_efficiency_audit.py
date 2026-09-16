@@ -153,3 +153,132 @@ class AuditTests(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+PLAN_ENTITY = "a" * 64
+
+PLAN_TEXT = """# Fixture plan
+
+## Brief
+Mode: explore
+
+## Tasks
+### MFixture - join fixtures
+- [completed] Credited fixture row ~fx01 | proof: cmd bash -c 'true'
+- [completed] Second fixture row ~fx02 | proof: cmd bash -c 'true'
+- [pending] Open fixture row ~fx03 | proof: cmd bash -c 'true'
+
+## Progress
+
+- 2026-09-10T10:00:00Z ~fx01 PROOF evidence/x.md -> pass
+- 2026-09-10T11:00:00Z ~fx02 PROOF evidence/x.md -> pass
+"""
+
+CLAUDE_ACCEPT = {"type": "assistant", "timestamp": "2026-09-10T10:05:00Z", "sessionId": "s1",
+                 "message": {"id": "m1", "model": "claude-x", "usage": {"input_tokens": 10, "output_tokens": 5},
+                             "content": [{"type": "tool_use", "name": "Bash", "input": {"command":
+                                 "shadow accept --row '~fx01' --entity " + PLAN_ENTITY + " --by seat-a"}}]}}
+CLAUDE_PROSE = {"type": "assistant", "timestamp": "2026-09-10T10:06:00Z", "sessionId": "s1",
+                "message": {"id": "m2", "model": "claude-x", "usage": {"input_tokens": 10, "output_tokens": 5},
+                            "content": [{"type": "text", "text":
+                                "run: shadow accept --row '~fx02' --entity " + PLAN_ENTITY + " --by seat-a"}]}}
+CLAUDE_THROW = {"type": "assistant", "timestamp": "2026-09-10T09:00:00Z", "sessionId": "s2",
+                "message": {"id": "m3", "model": "claude-x", "usage": {"input_tokens": 7, "output_tokens": 1},
+                            "content": [{"type": "tool_use", "name": "Bash", "input": {"command":
+                                "shadow throw --entity " + PLAN_ENTITY + " --task '~fx01' --by seat-b"}}]}}
+
+
+class JoinTests(unittest.TestCase):
+    def joined(self, records, plan_text=PLAN_TEXT, since="2026-09-01T00:00:00Z", until="2026-09-30T00:00:00Z"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "native.jsonl"
+            source.write_text("".join(json.dumps(r) + "\n" for r in records))
+            plan = root / "PLAN.md"
+            plan.write_text(plan_text)
+            return audit.audit([( "claude", source)], since=since, until=until,
+                               plan_path=plan, entity=PLAN_ENTITY)
+
+    def test_accept_marker_credits_the_session_and_row(self):
+        result = self.joined([CLAUDE_ACCEPT])
+        join = result["join"]
+        self.assertEqual(join["eligible_root_tasks"], 2)
+        self.assertEqual(join["mapped_root_tasks"], 1)
+        self.assertEqual(join["mapped_rows"], ["~fx01"])
+        self.assertEqual(join["accepted_work_rate"], 0.5)
+        self.assertEqual(join["real_work_allocation"]["claude"]["credited_sessions"], 1)
+        self.assertEqual(join["plan_snapshot"]["entity"], PLAN_ENTITY)
+        self.assertIn("generation", join["plan_snapshot"])
+
+    def test_prose_mention_is_provenance_never_credit(self):
+        result = self.joined([CLAUDE_ACCEPT, CLAUDE_PROSE])
+        join = result["join"]
+        self.assertEqual(join["mapped_rows"], ["~fx01"])
+        self.assertTrue(any(m["row"] == "~fx02" and m["via"] == "text"
+                            for m in join["provenance_markers"]))
+        self.assertNotIn("~fx02", join["mapped_rows"])
+
+    def test_throw_marker_never_credits(self):
+        result = self.joined([CLAUDE_THROW])
+        join = result["join"]
+        self.assertEqual(join["mapped_root_tasks"], 0)
+        self.assertTrue(any(m["verb"] == "throw" for m in join["provenance_markers"]))
+
+    def test_wrong_entity_accept_is_refused_not_credited(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "native.jsonl"
+            source.write_text(json.dumps(CLAUDE_ACCEPT) + "\n")
+            plan = root / "PLAN.md"
+            plan.write_text(PLAN_TEXT)
+            result = audit.audit([("claude", source)], since="2026-09-01T00:00:00Z",
+                                 until="2026-09-30T00:00:00Z", plan_path=plan,
+                                 entity="b" * 64)
+            self.assertEqual(result["join"]["mapped_root_tasks"], 0)
+            self.assertEqual(result["join"]["unmatched_accepts"][0]["reason"], "entity_mismatch")
+
+    def test_row_outside_window_is_not_eligible(self):
+        result = self.joined([CLAUDE_ACCEPT], since="2026-09-11T00:00:00Z", until="2026-09-30T00:00:00Z")
+        self.assertEqual(result["join"]["eligible_root_tasks"], 0)  # both proofs are Sept 10
+        self.assertEqual(result["join"]["accepted_work_rate"], None)
+        self.assertEqual(result["join"]["unmatched_accepts"][0]["reason"], "row_not_eligible")
+
+    def test_inclusive_since_and_exclusive_until_boundaries(self):
+        result = self.joined([CLAUDE_ACCEPT], since="2026-09-10T10:00:00Z", until="2026-09-10T11:00:00Z")
+        self.assertEqual(result["join"]["eligible_root_tasks"], 1)  # ~fx01 at 10:00 in, ~fx02 at 11:00 out
+
+    def test_completed_row_without_dated_proof_is_undated(self):
+        text = PLAN_TEXT.replace("- 2026-09-10T11:00:00Z ~fx02 PROOF evidence/x.md -> pass\n", "")
+        result = self.joined([], plan_text=text)
+        join = result["join"]
+        self.assertEqual(join["eligible_root_tasks"], 1)
+        self.assertEqual(join["undated_completed_rows"], ["~fx02"])
+
+    def test_plan_without_entity_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "native.jsonl"
+            source.write_text("")
+            with self.assertRaises(audit.Refusal) as caught:
+                audit.audit([("claude", source)], plan_path=Path(directory) / "PLAN.md")
+            self.assertEqual(str(caught.exception), "plan_entity_unresolved")
+
+    def test_join_is_deterministic_across_reruns(self):
+        import subprocess, sys as sysmod
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "native.jsonl"
+            source.write_text(json.dumps(CLAUDE_ACCEPT) + "\n")
+            plan = root / "PLAN.md"
+            plan.write_text(PLAN_TEXT)
+            cmd = [sysmod.executable, "-B", str(audit.__file__ if hasattr(audit, '__file__') else
+                   Path(audit.__spec__.origin)), "--source", f"claude={source}",
+                   "--plan", str(plan), "--entity", PLAN_ENTITY]
+            first = subprocess.run(cmd, capture_output=True, text=True)
+            second = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0)
+            self.assertEqual(first.stdout, second.stdout)
+
+    def test_drift_flag_on_backdated_marker(self):
+        early = dict(CLAUDE_ACCEPT, timestamp="2026-09-01T10:05:00Z")
+        result = self.joined([early])
+        self.assertEqual(len(result["join"]["marker_disagreements"]), 1)
