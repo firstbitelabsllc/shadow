@@ -17,6 +17,17 @@ def read_json(relative: str) -> dict:
     return json.loads((ROOT / relative).read_text(encoding="utf-8"))
 
 
+def read_frontmatter_name(path: Path) -> str:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert lines and lines[0].strip() == "---", path
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip().strip('"').strip("'")
+    raise AssertionError(f"no frontmatter name in {path}")
+
+
 class DistributionContractTests(unittest.TestCase):
     def test_portable_manifests_share_one_identity_and_version(self) -> None:
         for relative in (
@@ -47,14 +58,31 @@ class DistributionContractTests(unittest.TestCase):
             path.relative_to(skills_root).as_posix()
             for path in skills_root.rglob("SKILL.md")
         )
-        self.assertEqual(skills, ["amplify/SKILL.md", "shadow/SKILL.md"])
+        self.assertEqual(skills, ["amplify/SKILL.md", "shadow-coach/SKILL.md"])
         self.assertTrue((skills_root / "amplify/references/amplify.md").is_file())
+
+    def test_the_packaged_front_door_never_shadows_the_operator_skill(self) -> None:
+        # The repo root ships the operator skill named `shadow`. An indexer
+        # that walks the mounted repo root sees the packaged skill too, so the
+        # packaged front door carries its own name and its folder matches it.
+        skills_root = ROOT / "plugins/shadow/skills"
+        self.assertEqual(
+            read_frontmatter_name(skills_root / "shadow-coach/SKILL.md"),
+            "shadow-coach",
+        )
+        self.assertFalse((skills_root / "shadow").exists())
+        self.assertEqual(read_frontmatter_name(ROOT / "SKILL.md"), "shadow")
+        packaged = {
+            read_frontmatter_name(path)
+            for path in skills_root.rglob("SKILL.md")
+        }
+        self.assertNotIn("shadow", packaged)
 
     def test_hosted_coach_never_claims_local_authority(self) -> None:
         coach = (ROOT / "distribution/custom-gpt/instructions.md").read_text(
             encoding="utf-8"
         ).lower()
-        portable = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
+        portable = (ROOT / "plugins/shadow/skills/shadow-coach/SKILL.md").read_text(
             encoding="utf-8"
         ).lower()
         self.assertIn("cannot see the person's local shadow board", coach)
@@ -63,7 +91,7 @@ class DistributionContractTests(unittest.TestCase):
         self.assertIn("do not create a parallel task list", portable)
 
     def test_portable_skill_keeps_cold_resume_on_the_bounded_seat_view(self) -> None:
-        portable = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
+        portable = (ROOT / "plugins/shadow/skills/shadow-coach/SKILL.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("`shadow status --by <seat>`", portable)
@@ -92,7 +120,7 @@ class DistributionContractTests(unittest.TestCase):
         # The portable skill talks like a teammate: machinery stays backstage,
         # no fixed response shape, protected moves pause conversationally,
         # and a done claim is separated from the next useful proof.
-        skill = (ROOT / "plugins/shadow/skills/shadow/SKILL.md").read_text(
+        skill = (ROOT / "plugins/shadow/skills/shadow-coach/SKILL.md").read_text(
             encoding="utf-8"
         )
         normalized = " ".join(skill.split())

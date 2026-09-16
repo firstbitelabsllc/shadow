@@ -205,7 +205,7 @@ class AWiredHostPasses(unittest.TestCase):
             canonical = home / "canonical-shadow-skill"
             canonical.mkdir()
             (canonical / "SKILL.md").write_text(
-                (ROOT / "plugins" / "shadow" / "skills" / "shadow" / "SKILL.md")
+                (ROOT / "plugins" / "shadow" / "skills" / "shadow-coach" / "SKILL.md")
                 .read_text(encoding="utf-8"),
                 encoding="utf-8",
             )

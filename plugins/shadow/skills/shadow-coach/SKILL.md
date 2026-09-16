@@ -1,5 +1,5 @@
 ---
-name: shadow
+name: shadow-coach
 description: Use when someone needs a clear, human view of work in motion, a hard decision made plainer, or a trustworthy next move without turning the conversation into project-management theater.
 ---
 

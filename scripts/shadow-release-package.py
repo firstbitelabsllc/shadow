@@ -136,7 +136,7 @@ REQUIRED_FILES = {
     "plugins/shadow/plugin.json",
     "plugins/shadow/.codex-plugin/plugin.json",
     "plugins/shadow/.claude-plugin/plugin.json",
-    "plugins/shadow/skills/shadow/SKILL.md",
+    "plugins/shadow/skills/shadow-coach/SKILL.md",
     "scripts/shadow-python.sh",
     "scripts/shadow-release-package.py",
     "scripts/shadow-status.py",
@@ -300,7 +300,7 @@ def validate_release_candidate(
     expected_skills = [
         "SKILL.md",
         "plugins/shadow/skills/amplify/SKILL.md",
-        "plugins/shadow/skills/shadow/SKILL.md",
+        "plugins/shadow/skills/shadow-coach/SKILL.md",
     ]
     if skills != expected_skills:
         errors.append("archived artifact must contain exactly the native, portable, and amplify skills")

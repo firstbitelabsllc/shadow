@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 — 2026-09-16 — the packaged front door is `shadow-coach`
+
+- The packaged front-door skill is renamed: `plugins/shadow/skills/shadow/`
+  becomes `plugins/shadow/skills/shadow-coach/` and its frontmatter `name`
+  follows. The public invocation changes from `shadow:shadow` to
+  `shadow:shadow-coach`. The bare name collided with the repo-root operator
+  skill also named `shadow`, so an indexer that walks the mounted repo root
+  saw two skills named `shadow` and could not resolve either. The repo-root
+  operator skill is unchanged. The sibling `amplify` skill is untouched: its
+  collision comes from the host skill mount, not from this package.
 
 - Public release tags are now `shadow-<version>` (for example `shadow-1.3.0`),
   not `shadow-v<version>`. On 2026-09-02 the repository history was rewritten
