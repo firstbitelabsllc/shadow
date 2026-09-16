@@ -129,7 +129,10 @@ def run(
     return subprocess.run(
         [str(CLI), *args],
         cwd=cwd or home,
-        env={**os.environ, "HOME": str(home), **(extra_env or {})},
+        # The operator's shell may export SHADOW_TELEMETRY=local; telemetry
+        # writes would dirty the scratch checkouts these tests require clean,
+        # so the harness disables it unless a test asks for it via extra_env.
+        env={**os.environ, "SHADOW_TELEMETRY": "", "HOME": str(home), **(extra_env or {})},
         capture_output=True,
         text=True,
         check=False,
