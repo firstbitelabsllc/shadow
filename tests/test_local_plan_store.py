@@ -1266,3 +1266,77 @@ class AmendRewritesAClaimedRowOnAPlanTree(unittest.TestCase):
             result = _amend(home, entity, "--by", "local-seat", "--proof", "cmd true")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("not claimed", result.stderr)
+
+
+class ReopenOpensABlockedRow(unittest.TestCase):
+    """shadow plan reopen: the sanctioned blocked->pending door (~ij02)."""
+
+    BLOCKED_PLAN = PLAN.replace(
+        "- [pending] prove local authority ~aa11 | proof: cmd true",
+        "- [blocked] prove local authority ~aa11 | proof: cmd true",
+    ).replace(
+        "## Progress\n\n- 2026-08-11T00:00:00Z NOTE seeded locally",
+        "## Progress\n\n- 2026-08-11T00:00:00Z NOTE seeded locally\n"
+        "- 2026-08-12T00:00:00Z BLOCKED ~aa11 by local-seat: source unavailable "
+        "| wake: the source checkout is restored\n"
+        "## Deferred\n- ~aa11 blocked work | wake: the source checkout is restored",
+    )
+
+    def _reopen(self, home, entity, *extra):
+        return subprocess.run(
+            [str(ROOT / "bin" / "shadow"), "plan", "reopen",
+             "--entity", entity, "--row", "~aa11", *extra],
+            env={**os.environ, "HOME": str(home)},
+            capture_output=True, text=True, check=False,
+        )
+
+    def test_reopen_flips_blocked_to_pending_and_moves_the_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home, plan, entity = _registered_local_tree(
+                root, self.BLOCKED_PLAN, owner=None)
+            result = self._reopen(home, entity, "--by", "local-seat",
+                                  "--reason", "the source checkout is restored and verified")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            text = board.read_plan_text(plan)
+            self.assertIn("[pending] prove local authority ~aa11", text)
+            self.assertIn("STRUCT ~aa11 reopen blocked->pending by local-seat", text)
+            self.assertIn("wake: the source checkout is restored and verified", text)
+            # and the row is claimable again
+            board.claim(plan, "~aa11", "next-seat", project="widget",
+                        priority=2, home=home, access="read_only")
+            claims = board.entity_state(plan, home=home)["claims"]
+            self.assertTrue(any(c["row"] == "~aa11" and c["owner"] == "next-seat"
+                                for c in claims))
+
+    def test_reopen_refuses_an_unchanged_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home, plan, entity = _registered_local_tree(
+                root, self.BLOCKED_PLAN, owner=None)
+            result = self._reopen(home, entity, "--by", "local-seat",
+                                  "--reason", "the source checkout is restored")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("equals the parked wake", result.stderr)
+            self.assertIn("[blocked] prove local authority ~aa11", board.read_plan_text(plan))
+
+    def test_reopen_refuses_non_blocked_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home, plan, entity = _registered_local_tree(root, PLAN, owner=None)
+            result = self._reopen(home, entity, "--by", "local-seat",
+                                  "--reason", "anything")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("reopen opens blocked rows only", result.stderr)
+
+    def test_reopen_refuses_a_claimed_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            home, plan, entity = _registered_local_tree(
+                root, self.BLOCKED_PLAN, owner=None)
+            board.claim(plan, "~aa11", "someone-else", project="widget",
+                        priority=2, home=home, access="read_only")
+            result = self._reopen(home, entity, "--by", "local-seat",
+                                  "--reason", "whatever")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("claimed by someone-else", result.stderr)
