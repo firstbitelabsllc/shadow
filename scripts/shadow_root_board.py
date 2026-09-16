@@ -2633,17 +2633,19 @@ def _identity_index(payload: dict) -> dict[str, list[dict]]:
         else:
             try:
                 identity = entity_id(pointer)
-            except BoardError as exc:
+            except BoardError:
                 # Quarantine, never blank the board: one pointer whose Git
                 # identity cannot be read (a TCC-protected directory) must not
                 # refuse the refresh for every healthy peer. The entity keeps
                 # its stored id this cycle and the operator is told why, once.
+                # The notice names the pointer and a fixed reason; the raw
+                # exception text (which may echo Git output) is not logged.
                 key = str(pointer)
                 if key not in _IDENTITY_QUARANTINE_NOTICED:
                     _IDENTITY_QUARANTINE_NOTICED.add(key)
                     print(
                         f"shadow: {pointer} quarantined from the identity "
-                        f"index: {exc}",
+                        "index: project Git identity could not be read",
                         file=sys.stderr,
                     )
                 identity = entity["id"]
