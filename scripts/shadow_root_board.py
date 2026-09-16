@@ -2640,12 +2640,12 @@ def _identity_index(payload: dict) -> dict[str, list[dict]]:
                 # its stored id this cycle and the operator is told why, once.
                 # The notice names the pointer and a fixed reason; the raw
                 # exception text (which may echo Git output) is not logged.
-                key = str(pointer)
-                if key not in _IDENTITY_QUARANTINE_NOTICED:
-                    _IDENTITY_QUARANTINE_NOTICED.add(key)
+                pointer_text = str(pointer)
+                if pointer_text not in _IDENTITY_QUARANTINE_NOTICED:
+                    _IDENTITY_QUARANTINE_NOTICED.add(pointer_text)
                     print(
-                        f"shadow: {pointer} quarantined from the identity "
-                        "index: project Git identity could not be read",
+                        "shadow: " + pointer_text + " quarantined from the "
+                        "identity index: project Git identity could not be read",
                         file=sys.stderr,
                     )
                 identity = entity["id"]
