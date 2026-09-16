@@ -779,6 +779,36 @@ class CleanApplyTests(unittest.TestCase):
         self.assertEqual(loaded["state"], "restored")
         self.assertTrue(loaded["restored_at"])
 
+    def test_preview_names_trashed_or_absent_worktrees_instead_of_refusing(self):
+        destination, _prepared, manifest_path, digest = self._terminal_managed()
+        trash = Path(self.tmp.name) / "Trash"
+        trash.mkdir()
+        result = self.clean.apply_manifest(
+            manifest_path, expected_sha256=digest, home=self.home,
+            trash_root=trash, by="seat-a",
+        )
+        self.assertEqual(result["action"], "trashed")
+
+        report = self.clean.preview(home=self.home)
+        [candidate] = report["candidates"]
+        self.assertEqual(candidate["id"], result["receipt"])
+        self.assertEqual((candidate["state"], candidate["reason"]), ("trashed", "Trash artifact"))
+        self.assertEqual(report["refusals"], [])
+
+        restored = self.clean.restore_apply(
+            result["receipt"],
+            expected=self.clean.restore_preview(result["receipt"], home=self.home, trash_root=trash)["cas"],
+            home=self.home, trash_root=trash,
+        )
+        self.assertEqual(restored["action"], "restored")
+        shutil.rmtree(destination)
+
+        report = self.clean.preview(home=self.home)
+        [candidate] = report["candidates"]
+        self.assertEqual((candidate["state"], candidate["reason"]), ("absent", "worktree absent"))
+        self.assertEqual(report["refusals"], [])
+        self.assertNotIn("operation refused", json.dumps(report))
+
     def test_apply_command_surface_never_removes_prunes_forces_or_copies(self):
         destination, prepared, manifest_path, digest = self._terminal_managed()
         trash = Path(self.tmp.name) / "Trash"

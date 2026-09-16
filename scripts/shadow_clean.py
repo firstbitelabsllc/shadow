@@ -789,9 +789,37 @@ def _preview_refusal(receipt: dict[str, Any], journal: dict[str, Any], home: Pat
         return _public_reason(str(exc))
 
 
+def _preview_state(receipt: dict[str, Any], journal: dict[str, Any], home: Path) -> tuple[str, str]:
+    """Name a managed worktree Shadow already trashed, or one that vanished, before the apply predicates.
+
+    On 2026-09-16 eleven of fifteen issued receipts on one computer pointed at
+    directories that no longer existed (seven moved to Trash by Shadow itself,
+    four removed by hand), and every one surfaced as "operation refused". A
+    dead worktree is a terminal fact, not a refusal to act.
+    """
+    worktree_id = f"worktree@{receipt['receipt_sha256'][:12]}"
+    try:
+        trashed, _path = _load_trash_receipt(worktree_id, home)
+    except (CleanError, KeyError, TypeError):
+        trashed = None
+    if trashed is not None and trashed.get("state") == "trashed":
+        return "trashed", "Trash artifact"
+    try:
+        Path(receipt["worktree"]["path"]).lstat()
+    except FileNotFoundError:
+        return "absent", "worktree absent"
+    except OSError:
+        pass
+    reason = _preview_refusal(receipt, journal, home)
+    if reason is None:
+        return "eligible", "eligible"
+    return "refused", reason
+
+
 def preview(*, repo: Path | None = None, worktree: Path | None = None, home: Path | None = None) -> dict[str, Any]:
     """Return a zero-write public projection of issued Shadow worktrees."""
     narrowed = _real_absolute(Path(worktree), "worktree") if worktree is not None else None
+    private_home = (home or Path.home()).resolve()
     candidates: list[dict[str, Any]] = []
     refusals: list[dict[str, Any]] = []
     for receipt, journal in _valid_records(home):
@@ -800,19 +828,20 @@ def preview(*, repo: Path | None = None, worktree: Path | None = None, home: Pat
             continue
         if repo is not None and Path(journal["source_repo"]).resolve() != _real_absolute(Path(repo), "repository"):
             continue
-        reason = _preview_refusal(receipt, journal, (home or Path.home()).resolve())
+        state, reason = _preview_state(receipt, journal, private_home)
         candidate = {
             "id": f"worktree@{receipt['receipt_sha256'][:12]}",
-            "state": "eligible" if reason is None else "refused",
-            "reason": "eligible" if reason is None else reason,
+            "state": state,
+            "reason": reason,
             "entity": receipt["claim"]["entity"],
             "checkpoint": receipt["claim"]["checkpoint"],
         }
         # `candidates` remains the historical public collection for callers
         # that enumerate managed worktrees; refusals are explicit and never
-        # imply apply eligibility.
+        # imply apply eligibility. A trashed or absent worktree is terminal,
+        # not refused: nothing remains to apply.
         candidates.append(candidate)
-        if reason is not None:
+        if state == "refused":
             refusals.append({"id": candidate["id"], "reason": reason})
     report: dict[str, Any] = {
         "schema": "shadow.clean-preview.v1",
