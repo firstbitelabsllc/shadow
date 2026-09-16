@@ -195,6 +195,21 @@ def lint_plan(
                 f"{_board.hot_plan_budget_remedy(text.encode('utf-8'))}",
             )
         )
+    for dimension in ("bytes", "task_rows", "milestones"):
+        if dimension in budget["exceeded"]:
+            continue
+        used, limit = budget[dimension], budget["limits"][dimension]
+        if limit and used * 10 >= limit * 9:
+            findings.append(
+                _finding(
+                    "HOT-PLAN-BUDGET",
+                    0,
+                    "warning",
+                    f"{dimension} is {used} (limit {limit}); archive a proven milestone or "
+                    f"run `shadow lifecycle --self-compact --repo <plan-dir>` before the "
+                    f"next write lands over budget",
+                )
+            )
 
     # Section dispatch is exact-string: a typo'd or missing canonical heading
     # would otherwise exempt everything under it from every check, silently.

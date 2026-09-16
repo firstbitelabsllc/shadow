@@ -216,6 +216,101 @@ def _amend(
     }
 
 
+def _reopen(
+    entity: str,
+    row_id: str,
+    owner: str,
+    reason: str,
+    proof_root: Path | None,
+) -> dict[str, object]:
+    """Reopen one parked (blocked) row under a new reason, CAS-protected.
+
+    Blocked rows refuse ``shadow throw``, and the grammar offers no sanctioned
+    path back to claimable short of a raw plan edit (the 2026-09-15 takeover
+    needed the blocked->pending hand-flip twice in one day). This is the
+    owner door for that move: the row must be blocked and unclaimed, the new
+    reason must differ from the row's parked wake, and the candidate must
+    pass lint before one root CAS publishes it.
+    """
+    if not reason or not reason.strip():
+        raise PlanStoreError("reopen needs a --reason; the parked wake alone refuses the next throw")
+    resolved = board_store.resolve_entity(entity)
+    if resolved is None:
+        raise PlanStoreError("this computer has no Shadow board yet")
+    plan = resolved["plan"]
+    if plan is None:
+        raise PlanStoreError("this entity is not registered on the computer board")
+    if not board_store.is_local_plan(plan):
+        raise PlanStoreError(
+            "reopen edits machine-local plans only; a committed product plan is "
+            "edited in a branch and reviewed like source"
+        )
+    with board_store.project_lock(plan):
+        state = board_store.entity_state(plan, exact_on_conflict=True)
+        claim = next(
+            (item for item in (state["claims"] if state else []) if item["row"] == row_id),
+            None,
+        )
+        if claim is not None:
+            raise PlanStoreError(
+                f"{row_id} is claimed by {claim['owner']}; return the claim before reopening"
+            )
+        snapshot = board_store.open_plan(plan)
+        text = snapshot.materialize().decode("utf-8")
+        try:
+            index, line, row_state, _proof, _needs = accept.find_row(text, row_id)
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
+        if row_state != "blocked":
+            raise PlanStoreError(f"{row_id} is [{row_state}]; reopen opens blocked rows only")
+        # The parked wake must actually move, or the next throw trips the
+        # unchanged-wake guard and the reopen was theater.
+        parked_wake = None
+        deferred_index = None
+        lines = text.splitlines(keepends=True)
+        for position, candidate_line in enumerate(lines):
+            if candidate_line.startswith(f"- {row_id} ") and "wake:" in candidate_line:
+                deferred_index = position
+                for field in grammar.FIELD_RE.finditer(candidate_line):
+                    if field.group("key") == "wake":
+                        parked_wake = field.group("value").strip()
+                break
+        if parked_wake is not None and parked_wake.strip() == reason.strip():
+            raise PlanStoreError(
+                f"{row_id} reopen reason equals the parked wake; state a reason that changes the wake"
+            )
+        lines[index] = line.replace("- [blocked] ", "- [pending] ", 1)
+        if not lines[index].endswith("\n"):
+            lines[index] += "\n"
+        if deferred_index is not None and parked_wake is not None:
+            lines[deferred_index] = lines[deferred_index].replace(
+                f"wake: {parked_wake}", f"wake: {reason.strip()}", 1
+            )
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        receipt = f"- {stamp} STRUCT {row_id} reopen blocked->pending by {owner}: {reason.strip()}\n"
+        candidate = "".join(lines)
+        if not candidate.endswith("\n"):
+            candidate += "\n"
+        try:
+            candidate = accept.append_progress_line(candidate, receipt)
+            accept.refuse_lint_blocked_plan(
+                candidate, plan, proof_root=proof_root, row_id=row_id
+            )
+            publication = accept.atomic_write_text(plan, candidate)
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
+    return {
+        "schema": "shadow.plan-reopen.v1",
+        "action": "reopened",
+        "row": row_id,
+        "by": owner,
+        "reason": reason.strip(),
+        "wake_updated": parked_wake is not None,
+        "root_sha256": publication.root_sha256 if publication else None,
+        "generation": publication.generation if publication else None,
+    }
+
+
 def _read(path: Path, label: str) -> bytes:
     try:
         return path.read_bytes()
@@ -1263,6 +1358,23 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="source checkout where a cmd proof runs; lint checks its script operands",
     )
+    reopen = commands.add_parser(
+        "reopen",
+        help="reopen one parked (blocked) row under a new reason",
+    )
+    reopen.add_argument("--entity", required=True, help="computer-board entity id")
+    reopen.add_argument("--row", required=True, help="exact ~hash row id")
+    reopen.add_argument("--by", required=True, help="the seat or person reopening the row")
+    reopen.add_argument(
+        "--reason",
+        required=True,
+        help="why the row re-enters claimable state; must differ from the parked wake",
+    )
+    reopen.add_argument(
+        "--repo",
+        type=Path,
+        help="source checkout for lint context, mirroring amend",
+    )
     return result
 
 
@@ -1280,6 +1392,16 @@ def main(argv: list[str] | None = None) -> int:
                 args.by,
                 proof=args.proof,
                 observation=args.observation,
+                proof_root=args.repo.resolve() if args.repo else None,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        if args.command == "reopen":
+            payload = _reopen(
+                args.entity,
+                args.row,
+                args.by,
+                args.reason,
                 proof_root=args.repo.resolve() if args.repo else None,
             )
             print(json.dumps(payload, indent=2, sort_keys=True))
