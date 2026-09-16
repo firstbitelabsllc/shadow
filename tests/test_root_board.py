@@ -5850,6 +5850,124 @@ class LocatorNeverRaises(unittest.TestCase):
             self.assertTrue(locator.endswith("/PLAN.md"), locator)
 
 
+class OneUnreadablePointerNeverBlanksThePortfolio(unittest.TestCase):
+    """Measured 2026-09-16: one registered pointer under a TCC-protected
+    ~/Documents path made `git rev-parse` fail "Operation not permitted", so
+    `plan_identity_parts` raised and `_identity_index` refused for all 46
+    entities. The docstring already names stored ids as the fallback for a
+    missing plan; an unreadable plan is the same quarantine, not a board-wide
+    outage.
+    """
+
+    def setUp(self) -> None:
+        board_api._IDENTITY_QUARANTINE_NOTICED.clear()
+        self.addCleanup(board_api._IDENTITY_QUARANTINE_NOTICED.clear)
+
+    def payload_with_an_unreadable_pointer(self, root: Path) -> tuple[dict, str, str]:
+        readable = project(root, name="readable") / "PLAN.md"
+        unreadable = project(root, name="unreadable") / "PLAN.md"
+        readable_id = board_api.entity_id(readable)
+        unreadable_id = board_api.entity_id(unreadable)
+        payload = {
+            "schema": "shadow.root-board.v1",
+            "revision": 7,
+            "projects": [
+                {"id": "readable", "priority": 1},
+                {"id": "unreadable", "priority": 2},
+            ],
+            "entities": [
+                {
+                    "id": readable_id,
+                    "project": "readable",
+                    "plan": str(readable),
+                    "resume": "~aa11",
+                },
+                {
+                    "id": unreadable_id,
+                    "project": "unreadable",
+                    "plan": str(unreadable),
+                    "resume": "~aa11",
+                },
+            ],
+            "claims": [],
+        }
+        return payload, readable_id, unreadable_id
+
+    def refusing_entity_id(self, blocked: str):
+        """The TCC shape: the file reads as regular, the Git identity does not."""
+        real = board_api.entity_id
+
+        def reader(plan: Path) -> str:
+            if str(plan) == blocked:
+                raise board_api.BoardError(
+                    "project Git identity could not be read; retry when Git is available"
+                )
+            return real(plan)
+
+        return reader
+
+    def test_one_unreadable_pointer_keeps_every_other_entity_indexed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, readable_id, unreadable_id = self.payload_with_an_unreadable_pointer(
+                Path(tmp)
+            )
+            blocked = payload["entities"][1]["plan"]
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    board_api, "entity_id", side_effect=self.refusing_entity_id(blocked)
+                ),
+                redirect_stderr(stderr),
+            ):
+                index = board_api._identity_index(payload)
+
+            self.assertEqual(set(index), {readable_id, unreadable_id})
+            self.assertEqual(
+                [entity["plan"] for entity in index[unreadable_id]], [blocked]
+            )
+            notice = stderr.getvalue()
+            self.assertIn("quarantined", notice)
+            self.assertIn(blocked, notice)
+
+    def test_the_quarantine_notice_is_printed_once_per_pointer(self) -> None:
+        # `_identity_index` is rebuilt by `_entity_aliases` on every lookup;
+        # a per-call print would repeat the notice once per entity per command.
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _, _ = self.payload_with_an_unreadable_pointer(Path(tmp))
+            blocked = payload["entities"][1]["plan"]
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    board_api, "entity_id", side_effect=self.refusing_entity_id(blocked)
+                ),
+                redirect_stderr(stderr),
+            ):
+                board_api._identity_index(payload)
+                board_api._identity_index(payload)
+
+            self.assertEqual(stderr.getvalue().count("quarantined"), 1)
+
+    def test_the_registered_locator_index_still_answers_for_every_entity(self) -> None:
+        # `registered_locator_index` is the reader the portfolio refresh calls;
+        # it must not refuse for 45 healthy entities because one is unreadable.
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, readable_id, unreadable_id = self.payload_with_an_unreadable_pointer(
+                Path(tmp)
+            )
+            blocked = payload["entities"][1]["plan"]
+            with (
+                mock.patch.object(board_api, "snapshot", return_value=payload),
+                mock.patch.object(
+                    board_api, "entity_id", side_effect=self.refusing_entity_id(blocked)
+                ),
+                redirect_stderr(io.StringIO()),
+            ):
+                locators = board_api.registered_locator_index()
+
+            self.assertEqual(set(locators), {readable_id, unreadable_id})
+            self.assertEqual(locators[unreadable_id], (Path(blocked),))
+
+
 class ADegradedPortfolioReadNamesItsTrueCause(unittest.TestCase):
     """Name the fault that was measured, and never print a stale board as current.
 

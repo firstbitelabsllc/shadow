@@ -2620,12 +2620,33 @@ def seat_board_entities(
     return ({candidate["id"]} if candidate is not None else set()), 0
 
 
+_IDENTITY_QUARANTINE_NOTICED: set[str] = set()
+
+
 def _identity_index(payload: dict) -> dict[str, list[dict]]:
-    """Index live identities once; stored ids are fallback only for missing plans."""
+    """Index live identities once; stored ids are fallback for an unreadable plan."""
     result: dict[str, list[dict]] = {}
     for entity in payload["entities"]:
         pointer = Path(entity["plan"])
-        identity = entity_id(pointer) if regular_plan(pointer) else entity["id"]
+        if not regular_plan(pointer):
+            identity = entity["id"]
+        else:
+            try:
+                identity = entity_id(pointer)
+            except BoardError as exc:
+                # Quarantine, never blank the board: one pointer whose Git
+                # identity cannot be read (a TCC-protected directory) must not
+                # refuse the refresh for every healthy peer. The entity keeps
+                # its stored id this cycle and the operator is told why, once.
+                key = str(pointer)
+                if key not in _IDENTITY_QUARANTINE_NOTICED:
+                    _IDENTITY_QUARANTINE_NOTICED.add(key)
+                    print(
+                        f"shadow: {pointer} quarantined from the identity "
+                        f"index: {exc}",
+                        file=sys.stderr,
+                    )
+                identity = entity["id"]
         result.setdefault(identity, []).append(entity)
     return result
 
