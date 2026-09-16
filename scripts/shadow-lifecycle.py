@@ -1834,6 +1834,65 @@ def read_retirement_journal(
     return journal
 
 
+_RECEIPT_LINE = re.compile(r"^- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z ")
+
+
+def self_compact(repo_value: Path) -> dict:
+    """Drop exact-duplicate Progress receipts and blank runs, nothing else.
+
+    The 2026-09-15 window closes hit HOT-PLAN-BYTES four times when no
+    milestone was archive-eligible; each recovery was a hand PlanTransaction
+    that collapsed doubled receipts. This is that recipe as one refusable
+    verb. Scope is deliberately narrow: only a timestamped ``## Progress``
+    receipt that repeats byte-for-byte disappears (first copy stays), and
+    runs of blank lines fold to one. Task rows, Deferred, Contradictions,
+    and prose never change, so ``- none`` under two headings survives.
+    Machine-local plans only: a committed product plan is edited in a branch.
+    """
+    expanded = repo_value.expanduser()
+    if expanded.is_symlink():
+        raise LifecycleError("repository path must not be a symlink")
+    plan = expanded.resolve() / "PLAN.md"
+    if not _board.is_local_plan(plan):
+        raise LifecycleError(
+            "self-compact edits machine-local plans only; a committed product plan "
+            "is edited in a branch and reviewed like source"
+        )
+    with _board.project_lock(plan):
+        snapshot = _plan_store.PlanSnapshot.open(plan)
+        text = snapshot.materialize().decode("utf-8")
+        lines = text.split("\n")
+        kept: list[str] = []
+        seen_receipts: set[str] = set()
+        in_progress = False
+        dropped = 0
+        for line in lines:
+            if line.startswith("## "):
+                in_progress = line.strip() == "## Progress"
+            if in_progress and _RECEIPT_LINE.match(line):
+                if line in seen_receipts:
+                    dropped += 1
+                    continue
+                seen_receipts.add(line)
+            kept.append(line)
+        candidate = re.sub(r"\n{3,}", "\n\n", "\n".join(kept))
+        saved = len(text.encode("utf-8")) - len(candidate.encode("utf-8"))
+        if saved <= 0:
+            raise LifecycleError("self-compact found no duplicate receipt or blank run; nothing done")
+        transaction = _plan_store.PlanTransaction.begin(plan, expected_root=snapshot.root_sha256)
+        transaction.replace_content(candidate.encode("utf-8"))
+        receipt = transaction.publish()
+    return {
+        "schema": "shadow.lifecycle.v1",
+        "action": "self_compacted",
+        "plan": str(plan),
+        "saved_bytes": saved,
+        "dropped_receipts": dropped,
+        "generation": receipt.generation,
+        "root_sha256": receipt.root_sha256,
+    }
+
+
 def inspect_retirement(
     repo_value: Path,
     manifest_path: Path,
@@ -2698,9 +2757,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--expect", help="CAS emitted by the matching dry run")
     parser.add_argument("--by", help="public-safe seat that owns the successor claim")
+    parser.add_argument(
+        "--self-compact",
+        action="store_true",
+        help="drop exact-duplicate Progress receipts and blank runs on a machine-local plan",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
+        if args.self_compact:
+            payload = self_compact(args.repo or Path.cwd())
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
         if args.apply and args.repo is None:
             raise LifecycleError("--apply requires one explicit --repo")
         selected = sum(
@@ -2709,6 +2777,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.milestone,
                 args.progress_before,
                 args.retirement_manifest,
+                args.self_compact,
             )
         )
         if selected > 1:

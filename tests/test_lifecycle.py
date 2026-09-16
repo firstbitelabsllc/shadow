@@ -741,6 +741,51 @@ class HistoricalProgressCompaction(unittest.TestCase):
                 repeated_report["action"], "already_archived_progress"
             )
 
+    def test_self_compact_drops_only_duplicate_receipts_and_blank_runs(self) -> None:
+        doubled = PROGRESS_ONLY_PLAN.replace(
+            "- 2026-08-20T00:00:00Z NOTE newer history remains hot\n",
+            "- 2026-08-20T00:00:00Z NOTE newer history remains hot\n"
+            "- 2026-08-20T00:00:00Z NOTE newer history remains hot\n\n\n\n"
+            "- 2026-08-03T00:00:00Z NOTE ~cc33 current work must remain hot\n"
+            "\n## Deferred\n\n- none\n\n## Contradictions\n\n- none\n",
+        )
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            home = root / "home"
+            entity = home / ".shadow" / "plans" / "progress-pressure"
+            entity.mkdir(parents=True)
+            install_plan_tree(entity, doubled.encode("utf-8"))
+            env = {"HOME": str(home)}
+
+            result, report = run(entity, "--self-compact", extra_env=env)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(report["action"], "self_compacted", report)
+            self.assertEqual(report["dropped_receipts"], 2)
+            self.assertGreater(report["saved_bytes"], 0)
+            text = lifecycle._plan_store.PlanSnapshot.open(entity / "PLAN.md").materialize().decode()
+            self.assertEqual(text.count("NOTE newer history remains hot"), 1)
+            self.assertEqual(text.count("NOTE ~cc33 current work must remain hot"), 1)
+            # non-Progress duplicates are meaning, not waste: both `- none` survive
+            self.assertEqual(text.count("\n- none\n"), 2)
+            self.assertNotIn("\n\n\n", text)
+            self.assertIn("- [pending] current result starts ~cc33", text)
+
+            again, again_report = run(entity, "--self-compact", extra_env=env)
+            self.assertEqual(again.returncode, 1)
+            self.assertIn("nothing done", again_report["error"])
+
+    def test_self_compact_refuses_a_committed_product_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            repo = make_repo(Path(dirname).resolve(), PLAN)
+            before = (repo / "PLAN.md").read_bytes()
+
+            result, report = run(repo, "--self-compact")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("machine-local plans only", report["error"])
+            self.assertEqual((repo / "PLAN.md").read_bytes(), before)
+
     def test_exact_cas_recovers_each_progress_archive_half_state(self) -> None:
         for crash_after in (1, 2):
             with (

@@ -377,6 +377,27 @@ class ShadowLintTests(unittest.TestCase):
         self.assertIn("HOT-PLAN-ROWS", blocking(rows))
         self.assertIn("HOT-PLAN-MILESTONES", blocking(milestones))
 
+    def test_hot_plan_budget_warns_at_ninety_percent_but_does_not_block(self) -> None:
+        limit = lint._board.HOT_PLAN_MAX_BYTES
+        base = CLEAN_PLAN + "\n<!-- PAD -->\n"
+        near = base.replace("PAD", "x" * (limit * 9 // 10 - len(base.encode("utf-8")) + 8))
+        measured = lint._board.hot_plan_budget(near.encode("utf-8"))
+        self.assertGreaterEqual(measured["bytes"] * 10, limit * 9)
+        self.assertNotIn("bytes", measured["exceeded"])
+
+        findings = lint.lint_plan(near)
+        warnings = [f for f in findings if f["check"] == "HOT-PLAN-BUDGET"]
+        self.assertEqual(len(warnings), 1, findings)
+        self.assertEqual(warnings[0]["severity"], "warning")
+        self.assertIn("--self-compact", warnings[0]["detail"])
+        self.assertNotIn("HOT-PLAN-BUDGET", blocking(near))
+        self.assertNotIn("HOT-PLAN-BYTES", blocking(near))
+
+        half = base.replace("PAD", "x" * (limit // 2))
+        self.assertFalse(
+            [f for f in lint.lint_plan(half) if f["check"] == "HOT-PLAN-BUDGET"]
+        )
+
     def test_row_shaped_history_does_not_consume_the_tasks_budget(self) -> None:
         history = "".join(
             f"- [pending] retained historical row {index} ~{index:04x} | proof: cmd true\n"
