@@ -2638,14 +2638,15 @@ def _identity_index(payload: dict) -> dict[str, list[dict]]:
                 # identity cannot be read (a TCC-protected directory) must not
                 # refuse the refresh for every healthy peer. The entity keeps
                 # its stored id this cycle and the operator is told why, once.
-                # The notice names the pointer and a fixed reason; the raw
-                # exception text (which may echo Git output) is not logged.
-                pointer_text = str(pointer)
-                if pointer_text not in _IDENTITY_QUARANTINE_NOTICED:
-                    _IDENTITY_QUARANTINE_NOTICED.add(pointer_text)
+                # The notice names the entity by its path-free stored id and a
+                # fixed reason: plan paths are never echoed (privacy law), and
+                # the raw exception text may carry Git output.
+                stored_id = str(entity["id"])
+                if stored_id not in _IDENTITY_QUARANTINE_NOTICED:
+                    _IDENTITY_QUARANTINE_NOTICED.add(stored_id)
                     print(
-                        "shadow: " + pointer_text + " quarantined from the "
-                        "identity index: project Git identity could not be read",
+                        "shadow: entity " + stored_id[:12] + " quarantined from "
+                        "the identity index: project Git identity could not be read",
                         file=sys.stderr,
                     )
                 identity = entity["id"]
