@@ -3397,6 +3397,9 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
 
     def test_enabled_pass_previews_prepares_and_applies_each_candidate_once(self) -> None:
         clean._write_automatic(True, home=self.home)
+        # A live candidate exists on disk; an absent path is reported as
+        # retired before any preview, so the fixture must create it.
+        (self.repo / "child").mkdir()
         receipt = {
             "receipt_sha256": "a" * 64,
             "claim": {"entity": "b" * 64, "checkpoint": "~aa11"},
@@ -3425,6 +3428,9 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
 
     def test_refusal_is_path_free_and_never_retried(self) -> None:
         clean._write_automatic(True, home=self.home)
+        # A live candidate exists on disk; an absent path is reported as
+        # retired before any preview, so the fixture must create it.
+        (self.repo / "child").mkdir()
         receipt = {
             "receipt_sha256": "a" * 64,
             "claim": {"entity": "b" * 64, "checkpoint": "~aa11"},
