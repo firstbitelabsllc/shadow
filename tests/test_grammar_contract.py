@@ -128,6 +128,8 @@ class GrammarContractTests(unittest.TestCase):
             "PLAN LEADS",
             "native fallback",
             "full release train",
+            "Consent is plan state",
+            "never revokes one",
         ):
             self.assertIn(anchor, text, anchor)
 
