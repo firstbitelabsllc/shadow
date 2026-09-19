@@ -3712,5 +3712,51 @@ class LifecycleAutomaticCleanupTests(unittest.TestCase):
         self.assertEqual(state["claims"], [])
 
 
+class TestSuccessorSkipsWake(unittest.TestCase):
+    """~lw01 successor_skips_wake: the minted successor never names a wake-gated row."""
+
+    PLAN_TEXT = """# Shadow — Plan
+
+This plan is the sole authority for its milestone.
+
+## Brief
+
+- One-line purpose for the fixture plan.
+
+## Tasks
+
+### M - The only milestone
+
+- [pending] a wake-gated row parked for Leo ~abcd | proof: read x.md -> pass | wake: 2027-01-01T00:00:00Z Leo confirms
+- [pending] a freely claimable follow-up row ~efgh | proof: cmd echo ok
+- [pending] the milestone close ~ijkl (DoD) | proof: read y.md -> pass | needs: ~abcd, ~efgh
+"""
+
+    def test_successor_skips_wake_gated_row(self) -> None:
+        chosen = lifecycle.first_reachable_row(self.PLAN_TEXT)
+        self.assertIsNotNone(chosen)
+        self.assertNotEqual(
+            chosen,
+            "~abcd",
+            "the successor projection must skip a row parked behind a dated wake",
+        )
+        self.assertEqual(chosen, "~efgh")
+
+    def test_successor_skips_wake_leaves_none_when_all_gated(self) -> None:
+        gated = self.PLAN_TEXT.replace(
+            "- [pending] a freely claimable follow-up row ~efgh | proof: cmd echo ok\n",
+            "",
+        ).replace(
+            "- [pending] the milestone close ~ijkl (DoD) | proof: read y.md -> pass | needs: ~abcd, ~efgh\n",
+            "",
+        )
+        chosen = lifecycle.first_reachable_row(gated)
+        self.assertIsNone(
+            chosen,
+            "when every remaining row is wake-gated the successor token is none",
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()

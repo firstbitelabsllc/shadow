@@ -418,7 +418,23 @@ def first_reachable_row(text: str) -> str | None:
         candidates = amp._candidate_ids(parsed)
     except Exception as exc:
         raise LifecycleError("lifecycle successor could not be projected") from exc
-    return candidates[0] if candidates else None
+    # A minted successor token tells a cold seat where work restarts; naming a
+    # row parked behind a dated wake would advertise gated work as takeable.
+    # Re-check each candidate row's own `wake:` field, mirroring the row-field
+    # grammar the archive validation already uses.
+    for row_id in candidates:
+        if _row_has_wake(text, row_id):
+            continue
+        return row_id
+    return None
+
+
+def _row_has_wake(text: str, row_id: str) -> bool:
+    marker = f" {row_id} "
+    for line in text.splitlines():
+        if line.startswith("- [") and marker in line:
+            return 'wake: ' in line
+    return False
 
 
 def archive_candidate(
