@@ -2383,7 +2383,7 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
             if h["state"] not in ("awaiting_scope", "open_round_1", "open_round_2"):
                 raise BoardError("Huddle requires lifecycle recovery before scope changes; " + huddle_recovery(h))
             if now >= _timestamp(h["reply_by"], "Huddle deadline"):
-                raise BoardError("Huddle deadline reached; settle before scope changes")
+                raise BoardError("Huddle deadline reached; settle before scope changes; " + huddle_recovery(h))
             if h["state"] == "awaiting_scope" and claim["access"] != "unscoped":
                 raise BoardError("only an unscoped owner may classify an awaiting-scope Huddle")
             if access == "read_only" and any("semantic_suspicion" in edge["kinds"]

@@ -1838,6 +1838,17 @@ class HuddleScopeTransitionTests(HuddleTestCase):
             self.preflight(repo, a, ["a", "b"], now=NOW + timedelta(minutes=2))
         self.assertEqual(self.authority(), before)
 
+    def test_expired_preflight_refusal_names_huddle_recovery_and_is_atomic(self):
+        repo, (a, b) = self.seed([["a"], ["a"]])
+        huddle = self.open(a, [b])
+        before = self.authority()
+        with self.assertRaises(board_api.BoardError) as raised:
+            self.preflight(repo, a, ["a", "b"], now=NOW + timedelta(minutes=2))
+        message = str(raised.exception)
+        self.assertIn(huddle["id"], message)
+        self.assertIn(f"shadow huddle show --id {huddle['id']}", message)
+        self.assertEqual(self.authority(), before)
+
     def test_stale_board_preflight_never_changes_scope_or_generation(self):
         repo, (a, b) = self.seed([["a"], ["a"]])
         previous_revision = board_api.snapshot(home=self.home)["revision"]
