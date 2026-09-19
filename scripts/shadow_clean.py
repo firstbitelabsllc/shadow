@@ -956,9 +956,15 @@ def run_automatic_cleanup(
                 registered_common = _git(registered_source, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
                 if source_common != Path(registered_common).resolve():
                     continue
-            refusal = _preview_refusal(receipt, journal, (home or Path.home()).resolve())
-            if refusal is not None:
-                candidates.append({**base, "state": "refused", "reason": refusal})
+            state, reason = _preview_state(receipt, journal, (home or Path.home()).resolve())
+            if state == "trashed":
+                candidates.append({**base, "state": "already_trashed", "changed": False})
+                continue
+            if state == "absent":
+                candidates.append({**base, "state": "absent", "changed": False})
+                continue
+            if state == "refused":
+                candidates.append({**base, "state": "refused", "reason": reason})
                 continue
             target = receipt["worktree"]
             prepared = prepare_manifest(

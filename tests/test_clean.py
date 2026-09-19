@@ -518,6 +518,37 @@ class CleanApplyTests(unittest.TestCase):
         self.assertTrue(report["changed"], report)
         self.assertFalse(destination.exists())
 
+    def test_automatic_cleanup_second_pass_reports_already_trashed_without_apply(self):
+        destination, _, _, _ = self._terminal_managed()
+        self.clean._write_automatic(True, home=self.home)
+        trash = self.repo.parent / "trash-second-pass"
+        trash.mkdir()
+        first = self.clean.run_automatic_cleanup(self.repo, home=self.home, trash_root=trash)
+        self.assertTrue(first["changed"], first)
+        self.assertFalse(destination.exists())
+        with mock.patch.object(self.clean, "prepare_manifest") as prepare, mock.patch.object(
+            self.clean, "apply_manifest"
+        ) as apply:
+            second = self.clean.run_automatic_cleanup(self.repo, home=self.home, trash_root=trash)
+        self.assertFalse(second["changed"], second)
+        self.assertEqual(second["candidates"][0]["state"], "already_trashed")
+        prepare.assert_not_called()
+        apply.assert_not_called()
+
+    def test_automatic_cleanup_reports_natively_removed_target_without_apply(self):
+        destination, _, _, _ = self._terminal_managed()
+        self.clean._write_automatic(True, home=self.home)
+        git(self.repo, "worktree", "remove", str(destination))
+        self.assertFalse(destination.exists())
+        with mock.patch.object(self.clean, "prepare_manifest") as prepare, mock.patch.object(
+            self.clean, "apply_manifest"
+        ) as apply:
+            report = self.clean.run_automatic_cleanup(self.repo, home=self.home)
+        self.assertFalse(report["changed"], report)
+        self.assertEqual(report["candidates"][0]["state"], "absent")
+        prepare.assert_not_called()
+        apply.assert_not_called()
+
     def test_automatic_cleanup_preserves_sealed_host_evidence_through_restore(self):
         destination, _, _, _ = self._terminal_managed()
         evidence = destination / ".shadow" / "evidence" / "controller.json"

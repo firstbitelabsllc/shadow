@@ -344,6 +344,20 @@ class HuddleLifecycleObservedTests(unittest.TestCase):
 class EventForwardingTests(unittest.TestCase):
     """Forwarded spans carry the event's own clock, not the upload instant."""
 
+    def _throw_event(self, **overrides: object) -> dict[str, object]:
+        """Return the closed local-telemetry shape accepted by the exporter."""
+        return {
+            "schema": gauntlet.telemetry.SCHEMA,
+            "recorded_at": "2026-08-29T07:19:00.5Z",
+            "project": "shadow",
+            "entity": "a" * 64,
+            "row": "~cx71",
+            "verb": "throw",
+            "duration_ms": 0,
+            "outcome": "claimed",
+            **overrides,
+        }
+
     def _sink(self, delivered: bool = True) -> mock.Mock:
         sink = mock.Mock()
         sink.send_spans.return_value = delivered
@@ -356,12 +370,7 @@ class EventForwardingTests(unittest.TestCase):
 
     def test_spans_carry_recorded_at_and_duration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = self._events(tmp, [json.dumps({
-                "recorded_at": "2026-08-29T07:19:00.5Z",
-                "verb": "throw",
-                "duration_ms": 1500,
-                "outcome": "claimed",
-            })])
+            path = self._events(tmp, [json.dumps(self._throw_event(duration_ms=1500))])
             sink = self._sink()
             count, ok = gauntlet.forward_events(sink, path, "0" * 32, "1" * 16)
             self.assertEqual((count, ok), (1, True))
@@ -374,17 +383,13 @@ class EventForwardingTests(unittest.TestCase):
             self.assertEqual(start, expected)
             self.assertEqual(int(span["endTimeUnixNano"]) - start, 1_500_000_000)
 
-    def test_a_malformed_clock_falls_back_to_now(self) -> None:
+    def test_a_malformed_clock_is_rejected_before_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = self._events(tmp, [json.dumps({"recorded_at": "not a time", "verb": "throw"})])
+            path = self._events(tmp, [json.dumps(self._throw_event(recorded_at="not a time"))])
             sink = self._sink()
-            before = gauntlet._now_ns()
             count, ok = gauntlet.forward_events(sink, path, "0" * 32, "1" * 16)
-            after = gauntlet._now_ns()
-            self.assertEqual((count, ok), (1, True))
-            (span,) = sink.send_spans.call_args.args[0]
-            self.assertTrue(before <= int(span["startTimeUnixNano"]) <= after)
-            self.assertEqual(span["startTimeUnixNano"], span["endTimeUnixNano"])
+            self.assertEqual((count, ok), (0, False))
+            sink.send_spans.assert_not_called()
 
     def test_an_unreadable_events_file_is_red_not_silent(self) -> None:
         count, ok = gauntlet.forward_events(
@@ -394,9 +399,20 @@ class EventForwardingTests(unittest.TestCase):
 
     def test_a_failed_event_delivery_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = self._events(tmp, [json.dumps({"verb": "throw"})])
+            path = self._events(tmp, [json.dumps(self._throw_event())])
             count, ok = gauntlet.forward_events(self._sink(delivered=False), path, "0" * 32, "1" * 16)
             self.assertEqual((count, ok), (1, False))
+
+    def test_an_unknown_schema_with_a_path_is_rejected_before_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._events(tmp, [json.dumps({
+                "schema": "untrusted",
+                "absolute_path": "/private/path",
+            })])
+            sink = self._sink()
+            count, ok = gauntlet.forward_events(sink, path, "0" * 32, "1" * 16)
+            self.assertEqual((count, ok), (0, False))
+            sink.send_spans.assert_not_called()
 
 
 class FailureTailTests(unittest.TestCase):
