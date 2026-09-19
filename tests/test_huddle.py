@@ -134,6 +134,15 @@ class HuddleBidTests(HuddleTestCase):
             self.submit(now=NOW + timedelta(minutes=2))
         self.assertEqual(self.authority(), before)
 
+    def test_post_deadline_bid_refusal_names_huddle_recovery_and_is_atomic(self):
+        before = self.authority()
+        with self.assertRaises(board_api.BoardError) as raised:
+            self.submit(now=NOW + timedelta(minutes=2))
+        message = str(raised.exception)
+        self.assertIn(self.huddle["id"], message)
+        self.assertIn(f"shadow huddle show --id {self.huddle['id']}", message)
+        self.assertEqual(self.authority(), before)
+
     def test_bids_are_intent_not_scope_change_or_handoff(self):
         before = board_api.snapshot(home=self.home)["claims"]
         self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))

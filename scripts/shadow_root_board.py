@@ -1918,7 +1918,7 @@ def submit_huddle_bid(*, huddle_id: str, seat: str, claim: dict, role: str,
         if h["state"] not in {"open_round_1", "open_round_2"} or round != h["round"]:
             raise BoardError("Huddle is not accepting bids for this round")
         if now >= _timestamp(h["reply_by"], "Huddle deadline"):
-            raise BoardError("Huddle bid deadline reached")
+            raise BoardError("Huddle bid deadline reached; " + huddle_recovery(h))
         bid = copy.deepcopy(request)
         bid.update(bid_digest=digest, submitted_at=_stamp(now))
         if role == "own" and reason == "owner_authorized_handoff":
