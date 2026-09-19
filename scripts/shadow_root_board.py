@@ -4067,6 +4067,51 @@ def has_accept_proof_receipt(text: str, row: str, argv: list[str]) -> bool:
     return expected in progress_proof_receipts(text, row)
 
 
+def completed_recovery_receipt(text: str, row: str) -> str:
+    """Hash the canonical successful read/gate receipts for an explicit return."""
+    _release_state(Path("PLAN.md"), row, "completed", text=text)
+    matches = [
+        match for line in text.splitlines()
+        if (match := _grammar.ROW_RE.fullmatch(line)) is not None and match.group("id") == row
+    ]
+    assert len(matches) == 1
+    fields = {field.group("key"): field.group("value") for field in _grammar.FIELD_RE.finditer(matches[0].group("tail"))}
+    proof = fields.get("proof", "")
+    if not proof.startswith(("read ", "gate ")):
+        raise BoardError("completed recovery requires a read or gate row")
+    command = proof.partition(" -> ")[0]
+    lines = [
+        line for line in section_lines(text, "Progress")
+        if (receipt := progress_proof_receipt(line)) is not None
+        and receipt[0] == row and receipt[1] == command and receipt[2].strip()
+    ]
+    if not lines:
+        raise BoardError("completed recovery requires its canonical read or gate PROOF receipt")
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _validate_completed_recovery(payload: dict, claim: dict, *, text: str) -> str:
+    """Check the dedicated local completed-return escape before its release gate."""
+    receipt = completed_recovery_receipt(text, claim["row"])
+    ref = _claim_ref(claim)
+    huddles = _claim_huddles(payload, claim)
+    if not huddles:
+        raise BoardError("completed recovery requires active Huddle membership")
+    held = False
+    for huddle in huddles:
+        if huddle["state"] == "remote_pending":
+            raise BoardError("completed recovery refuses remote-pending Huddles")
+        if huddle["state"] not in {"awaiting_scope", "open_round_1", "open_round_2"}:
+            raise BoardError("completed recovery requires an open Huddle")
+        terminal = _terminal_ref(huddle, ref)
+        held = held or any(_terminal_ref(huddle, item) == terminal for item in huddle["holds"])
+        if any(bid["support_claim"] == ref and bid["round"] == huddle["round"] for bid in huddle["bids"]):
+            raise BoardError("completed recovery refuses a Huddle support claim")
+    if not held:
+        raise BoardError("completed recovery requires the current Huddle hold")
+    return receipt
+
+
 def _claim_huddles(payload: dict, claim: dict) -> list[dict]:
     ref = _claim_ref(claim) if payload["schema"] == V2_SCHEMA else None
     return [h for h in payload.get("huddles", []) if h["state"] != "resolved"
@@ -4076,7 +4121,8 @@ def _claim_huddles(payload: dict, claim: dict) -> list[dict]:
 
 
 def _check_huddle_release(payload: dict, claim: dict, *, reason: str,
-                          text: str = "", plan_root: str | None = None) -> None:
+                          text: str = "", plan_root: str | None = None,
+                          recover_completed: bool = False) -> None:
     """Refuse before side effects; the committing transaction repeats this gate."""
     if payload["schema"] != V2_SCHEMA:
         return
@@ -4086,7 +4132,7 @@ def _check_huddle_release(payload: dict, claim: dict, *, reason: str,
         if h["state"] == "remote_pending":
             raise BoardError("Huddle remote ownership requires stable readback before return or accept")
         if reason == "completed":
-            if any(_terminal_ref(h, held) == terminal for held in h["holds"]) or h["state"] == "awaiting_compliance":
+            if (any(_terminal_ref(h, held) == terminal for held in h["holds"]) or h["state"] == "awaiting_compliance") and not recover_completed:
                 raise BoardError("Huddle held or pending-compliance claim cannot accept")
         elif h["state"] == "awaiting_compliance":
             entry = next((e for e in h["compliance"] if _terminal_ref(h, e["claim"]) == terminal
@@ -4120,6 +4166,16 @@ def check_huddle_release(plan: Path, claim: dict, *, reason: str,
         text = read_plan_text(plan) if reason != "completed" else ""
         _check_huddle_release(payload, current, reason=reason, text=text,
                               plan_root=plan_state_token(plan) if text else None)
+
+
+def check_completed_recovery(plan: Path, claim: dict, *, text: str, home: Path | None = None) -> str:
+    """Read-only preflight for the explicit completed local-plan return."""
+    with _transaction(home) as (_, _, payload):
+        current = next((c for c in payload["claims"]
+                        if (c["entity"], c["row"]) == (claim["entity"], claim["row"])), None)
+        if current is None or any(current.get(k) != v for k, v in claim.items() if k != "revision"):
+            raise BoardError("claim changed before completed recovery preflight")
+        return _validate_completed_recovery(payload, current, text=text)
 
 
 def _depart_huddles(
@@ -4278,12 +4334,16 @@ def release(
     expected_plan: dict[str, str] | None = None,
     expected_text: str | None = None,
     expected_claim: dict | None = None,
+    recover_completed: bool = False,
+    completion_receipt: str | None = None,
     now: datetime | None = None,
     home: Path | None = None,
 ) -> tuple[dict, bool] | None:
     if not regular_plan(plan):
         raise BoardError("claim return requires a regular, non-symlink PLAN.md")
     plan = plan.resolve()
+    if recover_completed and (not is_local_plan(plan, home=home) or expected_plan is None or expected_text is None or expected_claim is None):
+        raise BoardError("completed recovery requires a frozen local plan and exact claim")
     if owner is not None:
         owner = validate_owner(owner)
     if snapshot(home=home) is None:
@@ -4313,9 +4373,21 @@ def release(
             raise BoardError(f"claim is owned by {claim['owner']}")
         content = read_plan_text(plan) if claim is not None else ""
         plan_root = plan_state_token(plan) if claim is not None else None
+        recovery_receipt = "self"
         if claim is not None:
-            _release_state(plan, row, reason, text=expected_text if expected_text is not None else content)
-            _check_huddle_release(payload, claim, reason=reason, text=content, plan_root=plan_root)
+            release_text = expected_text if expected_text is not None else content
+            _release_state(plan, row, reason, text=release_text)
+            if recover_completed:
+                if reason != "completed":
+                    raise BoardError("completed recovery requires a completed return")
+                recovered = _validate_completed_recovery(payload, claim, text=release_text)
+                if completion_receipt != recovered:
+                    raise BoardError("completed recovery receipt changed before the claim return committed")
+                recovery_receipt = recovered
+            _check_huddle_release(payload, claim, reason=reason, text=content, plan_root=plan_root,
+                                  recover_completed=recover_completed)
+        elif recover_completed:
+            raise BoardError("completed recovery requires the current claim")
         kept = [item for item in payload["claims"] if item is not claim]
         had_claim = len(kept) != len(payload["claims"])
         if claim is None:
@@ -4326,7 +4398,8 @@ def release(
         if entity["plan"] != str(plan) and not regular_plan(Path(entity["plan"])):
             entity["plan"] = str(plan)
         current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        events = _depart_huddles(payload, claim, now=current)
+        events = _depart_huddles(payload, claim, now=current,
+                                 completion_kind="return", completion_receipt=recovery_receipt)
         payload["claims"] = kept
         candidates = resumes or []
         if any(ROW_ID.fullmatch(candidate) is None for candidate in candidates):
@@ -4344,7 +4417,9 @@ def release(
         def guard():
             if read_plan_text(plan) != content or plan_state_token(plan) != plan_root:
                 raise BoardError("canonical plan changed before claim return committed")
-        _write_and_commit(root, path, payload, f"shadow board: release {row}", guard=guard, now=current)
+        subject = (f"shadow board: recover completed {row} {recovery_receipt}"
+                   if recover_completed else f"shadow board: release {row}")
+        _write_and_commit(root, path, payload, subject, guard=guard, now=current)
         result = json.loads(json.dumps(payload))
     _emit_committed_departures(result, events, home=home)
     return result, True

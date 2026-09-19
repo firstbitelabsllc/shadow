@@ -178,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     location.add_argument("--entity", help="computer-board entity id")
     parser.add_argument("--row", required=True)
     parser.add_argument("--by", required=True, help="the current claim owner")
+    parser.add_argument("--recover-completed", action="store_true",
+                        help="return one held completed local read/gate claim after strict verification")
     args = parser.parse_args(argv)
     if board.ROW_ID.fullmatch(args.row) is None:
         print("shadow return: --row wants a four-char id like ~ab12", file=sys.stderr)
@@ -188,6 +190,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"shadow return: --by is unsafe: {exc}", file=sys.stderr)
         return 2
     try:
+        if args.recover_completed and not args.entity:
+            raise board.BoardError("--recover-completed requires --entity for a local canonical plan")
         if args.entity:
             resolved = board.resolve_entity(args.entity)
             if resolved is None or resolved["plan"] is None:
@@ -207,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
                 repair_missing=True,
                 exact_on_conflict=True,
             )
+        if args.recover_completed and not board.is_local_plan(plan_path):
+            raise board.BoardError("--recover-completed only supports a local canonical plan")
         with board.project_lock(plan_path):
             plan_token, plan_bytes = board.frozen_plan_snapshot(plan_path)
             plan_text = plan_bytes.decode("utf-8")
@@ -260,10 +266,17 @@ def main(argv: list[str] | None = None) -> int:
                     current,
                 )
             transition_claim = claim or remote_only_claim
-            if claim is not None:
+            recovery_receipt = None
+            if args.recover_completed:
+                if claim is None or reason != "completed":
+                    raise board.BoardError("--recover-completed requires the current completed claim")
+                recovery_receipt = board.check_completed_recovery(
+                    plan_path, claim, text=plan_text
+                )
+            elif claim is not None:
                 board._release_state(plan_path, args.row, reason, text=plan_text)
                 board.check_huddle_release(plan_path, claim, reason=reason)
-            if transition_claim is not None and not board.is_local_plan(plan_path):
+            if transition_claim is not None and not board.is_local_plan(plan_path) and not args.recover_completed:
                 repo = Path(plan_token["repo"])
                 remote = remote_claim.transition(
                     repo,
@@ -296,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
                 expected_plan=plan_token,
                 expected_text=plan_text,
                 expected_claim=claim,
+                recover_completed=args.recover_completed,
+                completion_receipt=recovery_receipt,
             )
     except (OSError, UnicodeError, board.BoardError) as exc:
         print(f"shadow return: {exc}", file=sys.stderr)
@@ -322,7 +337,11 @@ def main(argv: list[str] | None = None) -> int:
         reason=reason,
         repository_binding=claim.get("repository_binding") if claim else None,
     )
-    print(f"returned {args.row} ({reason}); root board revision {payload['revision']}")
+    if args.recover_completed:
+        assert recovery_receipt is not None
+        print(f"recovered completed {args.row}; receipt {recovery_receipt}; root board revision {payload['revision']}")
+    else:
+        print(f"returned {args.row} ({reason}); root board revision {payload['revision']}")
     return 0
 
 

@@ -793,6 +793,42 @@ class HuddleLifecycleTests(HuddleTestCase):
                         + f"\n{receipt}\n")
         return receipt
 
+    def test_explicit_completed_recovery_releases_only_a_held_local_read_receipt(self):
+        plan = self.plans["B"]
+        proof = "read evidence/receipt.md -> durable exact commit"
+        plan.write_text(plan.read_text().replace(
+            "[pending] Work ~aa11 | proof: cmd true",
+            "[completed] Work ~aa11 | proof: " + proof,
+        ) + f"\n- 2026-09-04T16:00:00Z ~aa11 PROOF read evidence/receipt.md -> exact retained observation\n")
+        token, frozen = board_api.frozen_plan_snapshot(plan, home=self.home)
+        text = frozen.decode("utf-8")
+        claim = next(item for item in board_api.snapshot(home=self.home)["claims"] if item["owner"] == "B")
+        receipt = board_api.check_completed_recovery(plan, claim, text=text, home=self.home)
+        result, changed = board_api.release(
+            plan, claim["row"], owner="B", reason="completed", expected_plan=token,
+            expected_text=text, expected_claim=claim, recover_completed=True,
+            completion_receipt=receipt, now=NOW, home=self.home,
+        )
+        self.assertTrue(changed)
+        self.assertEqual(result["claims"], [self.a])
+        self.assertEqual(result["huddles"][0]["state"], "resolved")
+        self.assertEqual(len(receipt), 64)
+        subject = subprocess.run(
+            ["git", "-C", str(self.home / ".shadow"), "log", "-1", "--format=%s"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        self.assertEqual(subject, f"shadow board: recover completed ~aa11 {receipt}")
+
+    def test_completed_recovery_refuses_cmd_and_preserves_ordinary_held_guard(self):
+        self.complete_plan("B")
+        claim = next(item for item in board_api.snapshot(home=self.home)["claims"] if item["owner"] == "B")
+        text = self.plans["B"].read_text()
+        with self.assertRaisesRegex(board_api.BoardError, "read or gate"):
+            board_api.check_completed_recovery(self.plans["B"], claim, text=text, home=self.home)
+        with self.assertRaisesRegex(board_api.BoardError, "held"):
+            board_api.release(self.plans["B"], claim["row"], owner="B", reason="completed",
+                              expected_claim=claim, now=NOW, home=self.home)
+
     def test_return_removes_membership_and_resolves_surviving_owner(self):
         result, changed = self.release(self.a)
         self.assertTrue(changed)

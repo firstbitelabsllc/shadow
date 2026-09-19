@@ -158,9 +158,10 @@ proof and immediately before the private plan write. This freezes source state
 but does not confine the trusted proof process to that directory. Only on a
 pass does it rewrite the plan and append the paired PROOF line; a private plan
 also records a path-free source identity and full SHA. Infrastructure plans
-remain local under `~/.shadow/plans/` and are never committed. `read` and
-`gate` proofs are person judgments — re-observe them yourself and append the
-PROOF line with the flip.
+remain local under `~/.shadow/plans/` and are never committed. For a `read` or
+`gate` judgment, record the authorized observation with `shadow plan amend`,
+then run `shadow accept --by <seat>`; never manually flip a held task to
+completed or append its PROOF receipt.
 
 ## Goal chaining
 
