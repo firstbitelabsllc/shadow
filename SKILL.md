@@ -255,6 +255,11 @@ roles.
 
 ## Acceptance
 
+Board-ops mechanics (claim-lifecycle refusals, evidence-anchored probes,
+physical-retirement claims) live in
+[`docs/reference/board-ops.md`](board-ops.md) — load it when a verb refuses,
+a claim must be adopted, or physical material is being retired.
+
 Shadow is accepted only when a cold seat can recover the one authority, resume
 owned work, and run proof that could reject a plausible shallow result. A plan
 write, claim, commit, passing command, merge, install, live surface, and
