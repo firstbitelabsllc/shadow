@@ -1793,6 +1793,18 @@ class HuddleScopeTransitionTests(HuddleTestCase):
         self.assertEqual([r["owner"] for r in h["holds"]], ["B"])
         self.assertEqual(h["opened_revision"], opened["opened_revision"])
 
+    def test_held_unscoped_noop_refuses_but_classification_remains_available(self):
+        repo, (a, b) = self.seed([["a"], []], unscoped=(1,))
+        self.open(a, [b], reason="scope_request")
+        before = self.authority()
+        with self.assertRaisesRegex(board_api.BoardError, "Huddle held claim"):
+            self.preflight(repo, b, [], access="unscoped")
+        self.assertEqual(self.authority(), before)
+
+        classified = self.preflight(repo, b, ["b"], access="write")
+        self.assertTrue(classified.changed)
+        self.assertEqual(classified.payload["huddles"][0]["state"], "resolved")
+
     def test_shrink_keeps_disconnected_disjoint_claim_and_semantic_edges(self):
         repo, (a, b, c) = self.seed([["a"], ["a", "b"], ["b"]])
         self.open(b, [a])

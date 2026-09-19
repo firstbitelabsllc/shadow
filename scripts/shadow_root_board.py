@@ -2370,10 +2370,12 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
         if access == "write" and any(c is not claim and c["access"] == "unscoped" and c["repository_binding"] is None for c in payload["claims"]):
             raise BoardError("legacy_binding_unknown: classify or return every unbound legacy claim")
         involved = _claim_huddles(payload, claim)
-        if involved and access == claim["access"] == "write" and scope == claim["write_scope"]:
-            if any(any(_terminal_ref(h, held) == _terminal_ref(h, _claim_ref(claim))
-                       for held in h["holds"]) for h in involved):
+        if (involved and access == claim["access"] and access in {"write", "unscoped"}
+                and scope == claim["write_scope"]):
+            if any(any(_terminal_ref(huddle, held) == _terminal_ref(huddle, _claim_ref(claim))
+                       for held in huddle["holds"]) for huddle in involved):
                 raise BoardError("Huddle held claim cannot launch or change access")
+        if involved and access == claim["access"] == "write" and scope == claim["write_scope"]:
             # Repeating an authorized scope does not advance a round or revoke
             # a selected writer. Each execution door still checks live holds.
             return BoardMutation(copy.deepcopy(payload), False, None)
