@@ -46,8 +46,11 @@ CLEANUP_PHASE: Final = "automatic_pass"
 CLEANUP_TRIGGERS: Final = frozenset({"accept", "return", "lifecycle", "create", "sweep"})
 CLEANUP_STATES: Final = (
     "disabled", "no_candidates", "trashed", "already_trashed", "refused",
-    "recovery_required", "other",
+    "absent", "recovery_required", "other",
 )
+# The local v1 event stream may already contain records written before `absent`
+# was a first-class outcome. Keep that exact older vocabulary readable.
+LEGACY_CLEANUP_STATES: Final = tuple(state for state in CLEANUP_STATES if state != "absent")
 CLEANUP_FIELDS: Final = (
     "schema", "recorded_at", "phase", "report_sha256", "trigger", "enabled",
     "source_sha256", "entity", "row", "candidate_count", "changed_count",
@@ -138,7 +141,7 @@ def _cleanup_outcomes(report: Mapping[str, object]) -> dict[str, int]:
         state = candidate.get("state")
         if state == "recovery_required":
             bucket = "recovery_required"
-        elif state in {"trashed", "already_trashed", "refused"}:
+        elif state in {"trashed", "already_trashed", "refused", "absent"}:
             bucket = state
         else:
             bucket = "other"
@@ -235,7 +238,8 @@ def validate_cleanup_record(candidate: Mapping[str, object]) -> dict[str, object
         if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > MAX_CLEANUP_CANDIDATES:
             raise TelemetryError("cleanup observation counts are outside the local event vocabulary")
     outcomes = record["outcomes"]
-    if not isinstance(outcomes, dict) or set(outcomes) != set(CLEANUP_STATES):
+    if (not isinstance(outcomes, dict)
+            or set(outcomes) not in (set(CLEANUP_STATES), set(LEGACY_CLEANUP_STATES))):
         raise TelemetryError("cleanup observation outcomes are outside the local event vocabulary")
     if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > MAX_CLEANUP_CANDIDATES
            for value in outcomes.values()):

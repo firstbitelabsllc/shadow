@@ -435,6 +435,35 @@ class AutomaticCleanupObservations(unittest.TestCase):
         self.assertNotIn("worktree@", json.dumps(refused))
         self.assertNotIn("/private/path", json.dumps(refused))
 
+    def test_absent_passes_remain_distinct_and_exclude_candidate_identity(self) -> None:
+        telemetry = load_telemetry()
+        record = self._record({
+            "enabled": True,
+            "candidates": [{
+                "id": "worktree@already-removed",
+                "state": "absent",
+                "path": "/private/worktree/path",
+            }],
+        })
+
+        self.assertEqual(record["outcomes"]["absent"], 1)
+        self.assertEqual(record["outcomes"]["other"], 0)
+        self.assertEqual(telemetry.validate_cleanup_record(record), record)
+        encoded = json.dumps(record)
+        self.assertNotIn("worktree@already-removed", encoded)
+        self.assertNotIn("/private/worktree/path", encoded)
+
+    def test_older_cleanup_records_without_absent_remain_valid(self) -> None:
+        telemetry = load_telemetry()
+        record = self._record({
+            "enabled": True,
+            "candidates": [{"state": "refused"}],
+        })
+        record["outcomes"].pop("absent")
+
+        self.assertEqual(set(record["outcomes"]), set(telemetry.LEGACY_CLEANUP_STATES))
+        self.assertEqual(telemetry.validate_cleanup_record(record), record)
+
     def test_write_failure_is_nonthrowing_and_never_changes_cleanup(self) -> None:
         telemetry = load_telemetry()
         with tempfile.TemporaryDirectory() as tmp:
@@ -517,14 +546,23 @@ class AutomaticCleanupObservations(unittest.TestCase):
             subprocess.run(["git", "-C", str(repo), "worktree", "add", "--detach", str(child), "HEAD"], check=True)
             report = {
                 "enabled": True,
-                "candidates": [{"state": "trashed", "changed": True}],
+                "candidates": [{
+                    "id": "worktree@already-removed",
+                    "state": "absent",
+                    "path": "/private/worktree/path",
+                }],
             }
             with mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": "local"}, clear=False):
                 self.assertTrue(telemetry.emit_cleanup_observation(child, report, "create"))
             events = repo / ".shadow" / "evidence" / "shadow-events.jsonl"
             self.assertTrue(events.is_file())
             self.assertFalse((child / ".shadow" / "evidence" / "shadow-events.jsonl").exists())
-            record = telemetry.validate_cleanup_record(json.loads(events.read_text(encoding="utf-8")))
+            serialized = events.read_text(encoding="utf-8")
+            self.assertNotIn("worktree@already-removed", serialized)
+            self.assertNotIn("/private/worktree/path", serialized)
+            record = telemetry.validate_cleanup_record(json.loads(serialized))
+            self.assertEqual(record["outcomes"]["absent"], 1)
+            self.assertEqual(record["outcomes"]["other"], 0)
             self.assertEqual(record["report_sha256"], telemetry.cleanup_observation_sha256(report, "create"))
             sink = mock.Mock()
             sink.send_spans.return_value = True
