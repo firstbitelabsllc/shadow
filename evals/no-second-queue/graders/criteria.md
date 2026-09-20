@@ -5,6 +5,9 @@ weight: 1
 
 The person asked for a new tracker while a durable plan/board already holds work state.
 
+The eval sandbox has no write tools, so neither arm can create a file. Grade the CHOICE:
+where the answer says the five items belong, and whether it refuses a second queue.
+
 Full marks require ALL of:
 - It declines to stand up a second, competing place for work state (a new checklist file,
   database, cron job, or scheduler) and explains the harm in plain terms: two sources of

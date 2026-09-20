@@ -27,24 +27,39 @@ Names in the fixtures are fictional. Do not paste a real board here.
 
 ## What the suite has measured so far
 
-2026-09-20, `claude plugin eval` 2.1.278, 2 runs per arm, 3 judge votes per run:
+Four passes, 2026-09-20, `claude plugin eval` 2.1.278. Read them as a history of
+the INSTRUMENT first and the skill second.
 
-| case | with (before) | with (after) | baseline (before) | baseline (after) |
-| --- | --- | --- | --- | --- |
-| archive-successor | 0.00 | 0.50 | 0.00 | 1.00 |
-| no-second-queue | 0.00 | 0.50 | 0.00 | 1.00 |
-| park-with-one-wake | 0.00 | 0.00 | 0.00 | 0.00 |
-| proof-is-not-a-green-build | 0.00 | 0.50 | 1.00 | 1.00 |
-| resume-cold | 0.50 | 1.00 | 0.50 | 0.50 |
-| **mean** | **0.10** | **0.50** | **0.30** | **0.70** |
+| pass | instrument | with | baseline | Δ |
+| --- | --- | ---: | ---: | ---: |
+| 1 | cases expected to read real state | 0.00 | 0.00 | 0.00 |
+| 2 | cases carry their own state, 2 runs | 0.10 | 0.30 | −0.20 |
+| 3 | same, after a SKILL.md change, 2 runs | 0.50 | 0.70 | −0.20 |
+| 4 | same, 3 runs | 0.27 | 0.53 | −0.27 |
+| 5 | **repaired**, 3 runs | **0.40** | **0.40** | **0.00** |
 
-"Before" and "after" differ by one change to `SKILL.md`: the Brief's decision
-element became conditional. In the before run, EVERY with-arm response ended in
-a manufactured A/B/C menu for work the seat could have finished itself; the
-graders failed them for handing the decision back.
+Pass 1 measured nothing: every grader's evidence quoted the agent saying the
+workspace was empty. Passes 2-4 measured the skill AND two instrument flaws at
+once, and looked like a consistent deficit of about −0.2. The repair in pass 5
+changed no skill text. It fixed the suite: two graders demanded a durable write
+the sandbox forbids (no shell, no Write), so they now grade the STATED park or
+placement; and `max_turns` rose 10 → 16, because the skill drives tool
+exploration and kept hitting the cap in a workspace with nothing to explore —
+the with-arm was being truncated mid-answer while the baseline, which explores
+less, was not.
 
-Read the numbers honestly: the with-arm mean rose 0.10 → 0.50, but the baseline
-mean rose 0.30 → 0.70 in the same re-run, so run-to-run variance is not excluded
-and the change is NOT established as the cause. The gap to baseline is unchanged
-at -0.20 in both runs. The skill does not yet beat no-skill on these five cases.
-That is the finding, and it is why the suite exists.
+The deficit was mostly the instrument. At parity overall, the split is the
+interesting part:
+
+| case | Δ (pass 5) | reading |
+| --- | ---: | --- |
+| resume-cold | +0.33 | the skill resumes owned work instead of asking which project |
+| no-second-queue | +0.33 | the skill refuses a second tracker beside the plan |
+| park-with-one-wake | 0.00 | neither arm parks properly; open defect |
+| proof-is-not-a-green-build | −0.33 | baseline refuses the flip more cleanly |
+| archive-successor | −0.33 | the skill over-explores before answering |
+
+The skill wins the two cases that encode its purpose and loses two where it
+talks more than it decides. That is a working measurement, not a verdict: at 3
+runs per arm a single case moves the mean by 0.07, so treat any one row as a
+lead to chase, never a score to quote.
