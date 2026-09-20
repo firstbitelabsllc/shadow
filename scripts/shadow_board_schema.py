@@ -746,10 +746,10 @@ def _validate_huddles(payload: dict, *, pending_retention: bool = False) -> None
                 actions = {_claim_key(action["claim"]): action["action"]
                            for action in resolution["actions"]}
                 writer_keys = {_claim_key(ref) for ref in resolution["write_owners"]}
-                # A proof-first stale close can remove only a continuing writer
-                # while a different participant remains pending compliance.
+                # A continuing participant may close independently while a different
+                # participant remains held with its own pending return.
                 historical.update(
-                    key for key in writer_keys
+                    key for key in actions
                     if key in refs and _claim_key(_terminal_ref(h, refs[key])) not in current and actions.get(key) in {
                         "continue", "continue_disjoint", "handoff_complete",
                     }

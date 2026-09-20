@@ -2073,46 +2073,36 @@ def settle_huddle(*, huddle_id: str, actor_claim: dict, expected_generation: int
                 _scope_edge(current[_claim_key(bid["support_claim"])], current[_claim_key(ref)])
                 for ref in selected):
                 raise BoardError("Huddle support scope conflicts with a selected writer")
-        target_key = _claim_key(handoff["target_prior_claim"]) if handoff else None
-        conflict = any(bids[key]["role"] in {"own", "disjoint"}
-                       for key in held if key in bids and key != target_key)
-        conflict = conflict or any("semantic_suspicion" in edge["kinds"]
-            and not (handoff and { _claim_key(edge["left"]), _claim_key(edge["right"]) }
-                     == {_claim_key(handoff["source_claim"]), target_key}) for edge in edges)
-        if h["round"] == 1 and conflict:
-            h.update(state="open_round_2", round=2, reply_by=_stamp(now + timedelta(minutes=2)))
-            event = "round_opened"
-        else:
-            # Removing an edge cannot turn an explicit non-continuing bid
-            # into permission to write. Its canonical return is still owed.
-            held.update(key for key, bid in bids.items() if bid["role"] in {"stand_down", "review", "prove"})
-            h["holds"] = [ref for ref in h["claims"] if _claim_key(ref) in held]
-            selected = [ref for ref in h["claims"] if _claim_key(ref) not in held]
-            rule = "owner_authorized_handoff" if handoff else "earliest_valid_claim" if edges or held else "path_disjoint"
-            h["resolution"] = dict(settled_revision=payload["revision"], settled_at=_stamp(now),
-                rule=rule, handoff=handoff,
-                write_owners=[ref for ref in selected if current[_claim_key(ref)]["access"] == "write"],
-                actions=[dict(claim=ref, action="return_required" if _claim_key(ref) in held
-                              else "continue" if edges else "continue_disjoint") for ref in h["claims"]],
-                support_actions=[dict(participant_claim=b["claim"], support_claim=b["support_claim"],
-                                      action=b["role"] + "_claim") for b in bids.values() if b["support_claim"]])
-            if handoff:
-                source = handoff["source_claim"]
-                h["resolution"]["write_owners"] = sorted(
-                    [handoff["successor_claim"] if ref == source else ref
-                     for ref in h["resolution"]["write_owners"]], key=_claim_rank)
-                for action in h["resolution"]["actions"]:
-                    if action["claim"] == source:
-                        action["action"] = "handoff_complete"
-                current[_claim_key(source)]["owner"] = handoff["successor_claim"]["owner"]
-            entities = {e["id"]: e for e in payload["entities"]}
-            h["compliance"] = [dict(claim=ref, required="canonical_disposition_then_return",
-                plan_root_at_settlement=plan_roots[Path(entities[ref["entity"]]["plan"])],
-                status="pending", completion=None) for ref in h["holds"]]
-            h.update(state="awaiting_compliance" if held else "resolved", reply_by=None)
-            if not held:
-                h.update(resolved_at=_stamp(now), retain_until=_stamp(now + timedelta(hours=24)))
-            event = "resolution_available"
+        # Removing an edge cannot turn an explicit non-continuing bid
+        # into permission to write. Its canonical return is still owed.
+        held.update(key for key, bid in bids.items() if bid["role"] in {"stand_down", "review", "prove"})
+        h["holds"] = [ref for ref in h["claims"] if _claim_key(ref) in held]
+        selected = [ref for ref in h["claims"] if _claim_key(ref) not in held]
+        rule = "owner_authorized_handoff" if handoff else "earliest_valid_claim" if edges or held else "path_disjoint"
+        h["resolution"] = dict(settled_revision=payload["revision"], settled_at=_stamp(now),
+            rule=rule, handoff=handoff,
+            write_owners=[ref for ref in selected if current[_claim_key(ref)]["access"] == "write"],
+            actions=[dict(claim=ref, action="return_required" if _claim_key(ref) in held
+                          else "continue" if edges else "continue_disjoint") for ref in h["claims"]],
+            support_actions=[dict(participant_claim=b["claim"], support_claim=b["support_claim"],
+                                  action=b["role"] + "_claim") for b in bids.values() if b["support_claim"]])
+        if handoff:
+            source = handoff["source_claim"]
+            h["resolution"]["write_owners"] = sorted(
+                [handoff["successor_claim"] if ref == source else ref
+                 for ref in h["resolution"]["write_owners"]], key=_claim_rank)
+            for action in h["resolution"]["actions"]:
+                if action["claim"] == source:
+                    action["action"] = "handoff_complete"
+            current[_claim_key(source)]["owner"] = handoff["successor_claim"]["owner"]
+        entities = {e["id"]: e for e in payload["entities"]}
+        h["compliance"] = [dict(claim=ref, required="canonical_disposition_then_return",
+            plan_root_at_settlement=plan_roots[Path(entities[ref["entity"]]["plan"])],
+            status="pending", completion=None) for ref in h["holds"]]
+        h.update(state="awaiting_compliance" if held else "resolved", reply_by=None)
+        if not held:
+            h.update(resolved_at=_stamp(now), retain_until=_stamp(now + timedelta(hours=24)))
+        event = "resolution_available"
         def guard():
             for plan, content in plans.items():
                 if read_plan_bytes(plan) != content or plan_state_token(plan) != plan_roots[plan]:
@@ -4128,14 +4118,22 @@ def _check_huddle_release(payload: dict, claim: dict, *, reason: str,
         terminal = _terminal_ref(h, ref)
         if h["state"] == "remote_pending":
             raise BoardError("Huddle remote ownership requires stable readback before return or accept")
+        selected = h["resolution"] is not None and any(
+            _terminal_ref(h, writer) == terminal for writer in h["resolution"]["write_owners"])
         if reason == "completed":
-            if (any(_terminal_ref(h, held) == terminal for held in h["holds"]) or h["state"] == "awaiting_compliance") and not recover_completed:
-                raise BoardError("Huddle held or pending-compliance claim cannot accept")
+            if (any(_terminal_ref(h, held) == terminal for held in h["holds"])
+                or h["state"] == "awaiting_compliance" and not selected) and not recover_completed:
+                raise BoardError("Huddle held claim cannot accept")
         elif h["state"] == "awaiting_compliance":
             entry = next((e for e in h["compliance"] if _terminal_ref(h, e["claim"]) == terminal
                           and e["status"] == "pending"), None)
             if entry is None:
-                raise BoardError("Huddle selected owner must wait for pending canonical returns")
+                continuing = any(_terminal_ref(h, action["claim"]) == terminal
+                    and action["action"] in {"continue", "continue_disjoint"}
+                    for action in h["resolution"]["actions"])
+                if selected or continuing:
+                    continue
+                raise BoardError("Huddle return requires a continuing participant or pending return")
             # The existing handback path preserves the unfinished canonical row
             # and journals the exact owner's release. Requiring a product-plan
             # edit just to relinquish ownership deadlocks held source writers.

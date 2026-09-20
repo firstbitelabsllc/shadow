@@ -218,23 +218,17 @@ class HuddleSettlementTests(HuddleTestCase):
                        expected_board_revision=snapshot["revision"])
         return board_api.settle_huddle(**(request | changes), now=now, home=self.home)
 
-    def test_conflict_gets_one_counter_round_then_existing_owner_wins(self):
+    def test_conflict_settles_once_with_existing_owner_and_loser_held(self):
         self.submit()
         self.submit(self.b)
         initial = board_api.snapshot(home=self.home)
-        first = self.settle().payload
-        h = first["huddles"][0]
-        self.assertEqual((h["state"], h["round"], h["generation"]), ("open_round_2", 2, 2))
-        self.assertEqual(h["reply_by"], "2026-09-04T16:02:00Z")
-        self.assertEqual(first["claims"], initial["claims"])
-        self.assertEqual(h["bids"], initial["huddles"][0]["bids"])
-        self.assertFalse(self.submit().changed)
-        result = self.settle(now=NOW + timedelta(minutes=2)).payload
+        result = self.settle().payload
         h = result["huddles"][0]
-        self.assertEqual(h["state"], "awaiting_compliance")
+        self.assertEqual((h["state"], h["round"]), ("awaiting_compliance", 1))
+        self.assertIsNone(h["reply_by"])
         self.assertEqual(h["resolution"]["write_owners"], [board_api._claim_ref(self.a)])
         self.assertEqual(h["holds"], [board_api._claim_ref(self.b)])
-        self.assertEqual([b["role"] for b in h["bids"] if b["round"] == 2], ["unavailable", "unavailable"])
+        self.assertEqual(h["bids"], initial["huddles"][0]["bids"])
         self.assertEqual(result["claims"], initial["claims"])
         before = self.authority()
         with self.assertRaises(board_api.BoardError):
@@ -909,9 +903,6 @@ class HuddleLifecycleTests(HuddleTestCase):
         with self.assertRaisesRegex(board_api.BoardError, "owned by"):
             board_api.release(plan, self.b["row"], owner="A", reason="handback", home=self.home)
         self.assertEqual(self.authority(), before)
-        with self.assertRaisesRegex(board_api.BoardError, "selected owner"):
-            self.release(self.a)
-        self.assertEqual(self.authority(), before)
         result, changed = self.release(self.b)
         self.assertTrue(changed)
         self.assertEqual(plan.read_bytes(), original)
@@ -946,19 +937,119 @@ class HuddleLifecycleTests(HuddleTestCase):
         self.assertEqual(h["compliance"][0]["completion"]["kind"], "return")
         self.assertEqual(result["claims"], [self.a])
 
-    def test_completion_reservation_refuses_held_and_pending_compliance(self):
-        for claim in (self.b, self.a):
-            if claim == self.a:
-                self.submit()
-                self.submit(self.b, role="stand_down")
-                self.settle()
-            plan = self.plans[claim["owner"]]
-            token, _ = board_api.frozen_plan_snapshot(plan, home=self.home)
-            before = self.authority()
-            with self.assertRaises(board_api.BoardError):
-                board_api.reserve_completion(plan, claim["row"], claim["owner"],
-                    expected_plan=token, now=NOW, home=self.home)
-            self.assertEqual(self.authority(), before)
+    def test_completion_reservation_allows_selected_writer_but_refuses_held(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        before = self.authority()
+        token_b, _ = board_api.frozen_plan_snapshot(self.plans["B"], home=self.home)
+        with self.assertRaises(board_api.BoardError):
+            board_api.reserve_completion(self.plans["B"], self.b["row"], "B", expected_plan=token_b, now=NOW, home=self.home)
+        self.assertEqual(self.authority(), before)
+        token_a, _ = board_api.frozen_plan_snapshot(self.plans["A"], home=self.home)
+        board_api.reserve_completion(self.plans["A"], self.a["row"], "A", expected_plan=token_a, now=NOW, home=self.home)
+        self.assertEqual(board_api.snapshot(home=self.home)["huddles"][0]["holds"], [board_api._claim_ref(self.b)])
+
+    def test_selected_writer_closes_without_releasing_loser(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        settled = self.settle().payload["huddles"][0]
+        self.complete_plan("A")
+        result, changed = self.release(self.a, reason="completed")
+        self.assertTrue(changed)
+        self.assertEqual(result["claims"], [self.b])
+        self.assertEqual(result["huddles"][0]["resolution"], settled["resolution"])
+        self.assertEqual(result["huddles"][0]["holds"], [board_api._claim_ref(self.b)])
+        before = self.authority()
+        with self.assertRaises(board_api.BoardError):
+            board_api.check_huddle_release(self.plans["B"], self.b, reason="completed", home=self.home)
+        self.assertEqual(self.authority(), before)
+        closed, _ = self.release(self.b)
+        self.assertEqual(closed["huddles"][0]["state"], "resolved")
+
+    def test_selected_handback_preserves_pending_work_and_loser_hold(self):
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        original = self.plans["A"].read_bytes()
+        result, changed = self.release(self.a)
+        self.assertTrue(changed)
+        self.assertEqual(self.plans["A"].read_bytes(), original)
+        self.assertEqual(result["claims"], [self.b])
+        self.assertEqual(result["huddles"][0]["holds"], [board_api._claim_ref(self.b)])
+
+    def test_unscoped_selected_participant_can_hand_back_without_granting_writes(self):
+        with board_api._transaction(self.home) as (root, path, payload):
+            payload["claims"][0].update(access="unscoped", write_scope=[])
+            h = payload["huddles"][0]
+            h.update(state="awaiting_scope", round=0)
+            h["edges"][0]["kinds"] = ["scope_unknown"]
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: unknown selected scope", now=NOW)
+            self.a = copy.deepcopy(payload["claims"][0])
+        self.settle(now=NOW + timedelta(minutes=3))
+        original = self.plans["A"].read_bytes()
+        result, changed = self.release(self.a)
+        self.assertTrue(changed)
+        self.assertEqual(self.plans["A"].read_bytes(), original)
+        self.assertEqual(result["huddles"][0]["resolution"]["write_owners"], [])
+        self.assertEqual(result["huddles"][0]["holds"], [board_api._claim_ref(self.b)])
+        final, _ = board_api.release(self.plans["B"], self.b["row"], owner="B", reason="handback",
+            expected_claim=self.b, now=NOW + timedelta(minutes=4), home=self.home)
+        self.assertEqual(final["huddles"][0]["state"], "resolved")
+
+    def test_live_handoff_successor_completes_while_prior_claim_remains_held(self):
+        self.submit(role="yield", reason="owner_authorized_handoff", target=board_api._claim_ref(self.b))
+        self.submit(self.b, reason="owner_authorized_handoff")
+        settled = self.settle().payload
+        successor = next(c for c in settled["claims"] if c["entity"] == self.a["entity"])
+        self.complete_plan("A")
+        result, changed = board_api.release(self.plans["A"], successor["row"], owner="B",
+            reason="completed", expected_claim=successor, now=NOW, home=self.home)
+        self.assertTrue(changed)
+        self.assertEqual(result["claims"], [self.b])
+        self.assertEqual(result["huddles"][0]["holds"], [board_api._claim_ref(self.b)])
+        self.assertEqual(result["huddles"][0]["resolution"], settled["huddles"][0]["resolution"])
+
+    def test_selected_public_accept_runs_proof_while_loser_remains_held(self):
+        source = self.home / "source"
+        source.mkdir()
+        marker = self.home / "selected-proof-ran"
+        (source / "proof.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        git(source, "init", "-q")
+        git(source, "config", "user.email", "test@example.invalid")
+        git(source, "config", "user.name", "Test")
+        git(source, "remote", "add", "origin", "https://github.com/example/huddle-fixture.git")
+        git(source, "add", "proof.py")
+        git(source, "commit", "-qm", "fixture")
+        plan = self.plans["A"]
+        plan.write_text(plan.read_text().replace("- Mode: ship", "- Mode: ship\n- Origin: github.com/example/huddle-fixture")
+                        .replace("proof: cmd true", "proof: cmd python3 proof.py"))
+        until = board_api._stamp(datetime.now(timezone.utc) + timedelta(hours=1))
+        self.set_return_by(self.a, until)
+        self.set_return_by(self.b, until)
+        with board_api._transaction(self.home) as (root, path, payload):
+            for claim in payload["claims"]:
+                claim["repository_binding"] = board_api.repository_binding(source)
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: actual proof source binding", now=NOW)
+        self.submit()
+        self.submit(self.b, role="stand_down")
+        self.settle()
+        result = subprocess.run([str(ROOT / "bin" / "shadow"), "accept", "--repo", str(source),
+            "--entity", self.a["entity"], "--row", self.a["row"], "--by", "A", "--no-push"],
+            text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(marker.exists())
+        after = board_api.snapshot(home=self.home)
+        self.assertEqual([c["owner"] for c in after["claims"]], ["B"])
+        self.assertEqual(after["huddles"][0]["holds"], [board_api._claim_ref(self.b)])
+        self.assertIn("[completed] Work ~aa11", board_api.read_plan_text(plan))
+        context = {k: after["claims"][0][k] for k in ("entity", "row", "owner", "claim_revision")}
+        context["board_revision"] = after["revision"]
+        with self.assertRaisesRegex(board_api.BoardError, "held"):
+            board_api.authorize_host_attempt(context=context, repo=source, write_scope=["a"],
+                authority_proposal=False, now=datetime.now(timezone.utc), home=self.home)
 
     def test_selected_completion_releases_node_but_held_completion_refuses(self):
         for claim in (self.b, self.a):
@@ -2484,8 +2575,14 @@ class HuddleAdoptionTests(HuddleTestCase):
     def test_round_two_adoption_keeps_round_and_other_original_receipts(self):
         self.submit()
         self.submit(self.b)
-        second = self.settle().payload["huddles"][0]
-        self.huddle = second
+        # A persisted pre-reduction round remains recoverable.
+        with board_api._transaction(self.home) as (root, path, payload):
+            h = payload["huddles"][0]
+            h.update(state="open_round_2", round=2, generation=h["generation"] + 1,
+                     reply_by="2026-09-04T16:04:00Z")
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: historical round two", now=NOW)
+            self.huddle = copy.deepcopy(h)
         self.submit(round=2)
         self.submit(self.b, round=2)
         before = board_api.snapshot(home=self.home)["huddles"][0]
@@ -2513,6 +2610,12 @@ class HuddleAdoptionTests(HuddleTestCase):
         self.assertEqual(h["replacements"], [{"original": board_api._claim_ref(self.a),
                                                 "current": board_api._claim_ref(result["claim"])}])
         self.assertEqual(h["holds"], [board_api._claim_ref(self.b)])
+        terminal = result["claim"]
+        closed, changed = board_api.release(self.plan, terminal["row"], owner=terminal["owner"],
+            reason="handback", expected_claim=terminal, now=NOW + timedelta(hours=9), home=self.home)
+        self.assertTrue(changed)
+        self.assertEqual(closed["huddles"][0]["holds"], [board_api._claim_ref(self.b)])
+        self.assertEqual(closed["huddles"][0]["resolution"], settled["resolution"])
 
     def test_mapped_pending_return_remains_held_at_host_door(self):
         self.submit()

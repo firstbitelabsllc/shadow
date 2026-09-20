@@ -67,6 +67,8 @@ The two-minute `reply_by` value permits settlement with missing replies; it
 does not close an unsettled round. A current-generation late bid still commits
 atomically, and a settlement using the previous board revision then refuses.
 Explicit scope correction or joining also remains possible until settlement.
+Settlement applies the ownership rule once, without a second negotiation
+round. Previously persisted round-two records remain readable and recoverable.
 Agents can return their own unfinished held claim immediately and select
 independent work, without waiting for a round or asking the person to settle it.
 
@@ -78,7 +80,10 @@ worktree. A blocked return still requires a canonical blocker and wake, and
 completion still requires its proof. Refusals name the Huddle and this
 owner action; status withholds the default claim recommendation until recovery.
 The selected writer may launch jobs within its already-declared paths without
-changing the Huddle or its claim scope. Expanding scope still requires preflight.
+changing the Huddle or its claim scope. It may also accept proven work or return
+its own claim immediately; the other participant's pending return and write
+hold remain intact. An ambiguous remote handoff still blocks both identities
+until authenticated readback. Expanding scope still requires preflight.
 
 The first successful new claim migrates v1 and creates its v2 claim in one
 board journal commit. Reads do not migrate; refusal or journal failure leaves

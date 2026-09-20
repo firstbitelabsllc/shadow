@@ -4515,7 +4515,7 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
         self.assertNotIn("/Users/", combined)
         self.assertNotIn("/tmp/", combined)
 
-    def test_huddle_settled_after_reservation_restores_only_the_accept_publication(self):
+    def test_becoming_held_after_reservation_restores_only_the_accept_publication(self):
         for kind in ("cmd", "read"):
             for tree in (False, True):
                 with self.subTest(kind=kind, tree=tree):
@@ -4537,7 +4537,7 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
                         for claim in payload["claims"]:
                             claim.update(access="write", write_scope=["README.md"],
                                 repository_binding=board.repository_binding(world["repo"]),
-                                claim_revision=1 if claim["row"] == "~ab12" else 2)
+                                claim_revision=2 if claim["row"] == "~ab12" else 1)
                         board._write_and_commit(root, path, payload, "test: staged Huddle", now=now)
                     reserve = board.reserve_completion
                     raced = {}
@@ -4549,8 +4549,8 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
                         b = next(c for c in claims if c["row"] == "~cd34")
                         h = board.open_or_join_huddle(claim=b, overlap=[a],
                             reason="write_scope_overlap", now=now, home=home).payload["huddles"][0]
-                        for claim, role, reason in ((a, "own", "existing_claim"),
-                                                    (b, "stand_down", "duplicate_intent")):
+                        for claim, role, reason in ((a, "stand_down", "duplicate_intent"),
+                                                    (b, "own", "existing_claim")):
                             result = board.submit_huddle_bid(huddle_id=h["id"],
                                 seat=claim["owner"], claim=board._claim_ref(claim), role=role,
                                 scope=claim["write_scope"], reason=reason, target=None,
@@ -4571,7 +4571,7 @@ class ALocalEntityAndExplicitProofRepoSelectTheExactPlan(unittest.TestCase):
                         result = accept.main(["--entity", world["sidecar_entity"],
                             "--repo", str(world["repo"]), "--row", "~ab12", "--by", "seat-a"])
                     self.assertEqual(result, 1, output.getvalue())
-                    self.assertIn("compliance", output.getvalue())
+                    self.assertIn("held", output.getvalue())
                     self.assertEqual(plan.read_bytes(), before)
                     self.assertEqual(accept.plan_object_digests(plan), objects)
                     self.assertEqual((home / ".shadow/board.json").read_bytes(), raced["bytes"])

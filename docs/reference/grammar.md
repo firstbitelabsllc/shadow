@@ -512,10 +512,15 @@ scope conflict. Reads never advance rounds or deadlines.
 Bids are immutable closed structured records. Only the board derives their
 digest and submission time; exact replay is a no-op. Resolution preserves the
 existing valid owner unless the exact owner-authorized handoff is accepted.
+New settlements apply that rule once; the decoder retains historical round-two
+records for recovery rather than creating new counter-rounds.
 Pending remote transitions retain both holds until authenticated readback.
 Compliance references and bounded same-entity replacement mappings preserve
 the committed disposition through stale recovery. A required return stays
 held until its exact owner action is observed; Huddle does not write plan text.
+A selected writer can close independently with its own completion proof or
+handback. Its historical resolution remains while another participant's return
+is pending; that participant gains no write authority from the winner's exit.
 
 `scripts/shadow_board_schema.py` owns the pure complete decoder shared by the
 board and confined delivery reader. The optional event has exactly `schema`,
