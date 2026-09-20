@@ -814,6 +814,7 @@ def _validated_tip_commit(
     row: str,
     project: str,
     plan_token: dict[str, str] | None = None,
+    verified_plans: set[tuple[str, str, str]] | None = None,
 ) -> dict[str, Any] | None:
     sized = _git(repo, "cat-file", "-s", f"{commit_id}:claim.json")
     raw_size = sized.stdout.decode("ascii", errors="ignore").strip()
@@ -835,18 +836,23 @@ def _validated_tip_commit(
         return None
     if not isinstance(token, dict):
         return None
-    ancestor = _git(repo, "merge-base", "--is-ancestor", token["head"], commit_id)
-    resolved_blob = _git(repo, "rev-parse", f"{token['head']}:{token['relative']}")
-    resolved_oid = resolved_blob.stdout.decode("ascii", errors="ignore").strip()
-    object_type = _git(repo, "cat-file", "-t", resolved_oid)
-    if (
-        ancestor.returncode
-        or resolved_blob.returncode
-        or resolved_oid != token["blob"]
-        or object_type.returncode
-        or object_type.stdout.decode("ascii", errors="ignore").strip() != "blob"
-    ):
+    if _git(repo, "merge-base", "--is-ancestor", token["head"], commit_id).returncode:
         return None
+    identity = (token["head"], token["blob"], token["relative"])
+    # Only successful immutable object checks are shared within one discovery.
+    if verified_plans is None or identity not in verified_plans:
+        resolved_blob = _git(repo, "rev-parse", f"{token['head']}:{token['relative']}")
+        resolved_oid = resolved_blob.stdout.decode("ascii", errors="ignore").strip()
+        object_type = _git(repo, "cat-file", "-t", resolved_oid)
+        if (
+            resolved_blob.returncode
+            or resolved_oid != token["blob"]
+            or object_type.returncode
+            or object_type.stdout.decode("ascii", errors="ignore").strip() != "blob"
+        ):
+            return None
+        if verified_plans is not None:
+            verified_plans.add(identity)
     return _valid_winner(
         value,
         ref=ref,
@@ -1177,6 +1183,7 @@ def discover_active_batch(
     )
     if fetched.returncode:
         raise RemoteClaimError("remote claim discovery could not authenticate its receipts")
+    verified_plans: set[tuple[str, str, str]] = set()
     for ref, commit_id in sorted(tips.items()):
         entity, row, project, relative = expected[ref]
         receipt = _validated_tip_commit(
@@ -1186,6 +1193,7 @@ def discover_active_batch(
             entity=entity,
             row=row,
             project=project,
+            verified_plans=verified_plans,
         )
         if receipt is None or receipt["plan"]["relative"] != relative:
             active[entity] = None

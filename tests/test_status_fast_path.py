@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tests.proc_fixture import configure_public_fixture_ssh_remote, git
+
 
 ROOT = Path(__file__).resolve().parents[1]
 STATUS = ROOT / "scripts" / "shadow-status.py"
@@ -903,6 +905,116 @@ class SeatViewStaleTests(unittest.TestCase):
         self.assertIn("STALE — probe proof, then adopt, park, or close", stale_line)
         self.assertNotIn("STALE", fresh_line)
         self.assertLess(view.index("stale row"), view.index("fresh row"))
+
+
+class BatchDiscoveryPlanValidation(unittest.TestCase):
+    """Real Git journals share immutable plan checks, not authentication."""
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        self.repo, bare = root / "repo", root / "remote.git"
+        self.repo.mkdir()
+        bare.mkdir()
+        git(bare, "init", "--bare", "-q")
+        git(self.repo, "init", "-q", "-b", "main")
+        git(self.repo, "config", "user.name", "Fixture")
+        git(self.repo, "config", "user.email", "fixture@example.invalid")
+        self.plan = self.repo / "PLAN.md"
+        self.plan.write_text(
+            plan("fixture", "~aa11", "remote work")
+            + "\n- [pending] more remote work ~aa12 | proof: cmd true\n",
+            encoding="utf-8",
+        )
+        git(self.repo, "add", "PLAN.md")
+        git(self.repo, "commit", "-qm", "plan")
+        git(self.repo, "remote", "add", "origin", str(bare))
+        configure_public_fixture_ssh_remote(self.repo, bare)
+        git(self.repo, "push", "-qu", "origin", "main")
+        self.remote = status._remote_claim
+        self.entity = status._board.entity_id(self.plan)
+        self.token = {
+            "head": git(self.repo, "rev-parse", "HEAD"),
+            "blob": git(self.repo, "rev-parse", "HEAD:PLAN.md"),
+            "relative": "PLAN.md",
+        }
+        self.tips: dict[str, str] = {}
+
+    def publish(self, row: str, **changes) -> dict:
+        state = changes.get("state", "completed")
+        value = {
+            "schema": self.remote.SCHEMA, "entity": self.entity,
+            "row": row, "project": "fixture", "owner": "remote-seat",
+            "state": state, "reason": "acquire" if state == "acquired" else "completed",
+            "plan": dict(self.token),
+            "claim": {
+                "claimed_at": "2026-09-01T00:00:00Z",
+                "return_by": "2099-09-01T08:00:00Z",
+                "recovery": self.remote.RECOVERY,
+            },
+        }
+        value.update(changes)
+        tip = self.remote._commit_receipt(
+            self.repo, value, value["claim"]["claimed_at"], self.tips.get(row)
+        )
+        self.assertIsNotNone(tip)
+        git(self.repo, "push", "-q", "origin", f"{tip}:{self.remote.claim_ref(self.entity, row)}")
+        self.tips[row] = tip
+        return value
+
+    def discover(self) -> dict:
+        return self.remote.discover_active_batch(self.repo, requests=[{
+            "entity": self.entity, "project": "fixture",
+            "rows": sorted(self.tips), "relative": "PLAN.md",
+        }])
+
+    def test_shared_plan_is_checked_once_without_losing_remote_only_work(self) -> None:
+        self.publish("~aa11")
+        active = self.publish("~aa12", state="acquired")
+        with mock.patch.object(self.remote, "_git", wraps=self.remote._git) as measured:
+            observed = self.discover()
+        self.assertEqual(observed, {self.entity: [active]})
+        calls = [call.args[1:] for call in measured.call_args_list]
+        self.assertEqual(calls.count(("rev-parse", f"{self.token['head']}:PLAN.md")), 1)
+        self.assertEqual(calls.count(("cat-file", "-t", self.token["blob"])), 1)
+        self.assertEqual(sum(args[:2] == ("merge-base", "--is-ancestor") for args in calls), 2)
+
+    def test_reuse_never_authenticates_a_malformed_terminal_journal(self) -> None:
+        self.publish("~aa11")
+        for changes in (
+            {"plan": {**self.token, "blob": "0" * 40}},
+            {"plan": {**self.token, "relative": "missing.md"}},
+            {"schema": "wrong-schema"},
+            {"entity": "0" * 64},
+        ):
+            with self.subTest(changes=changes):
+                self.publish("~aa12", **changes)
+                self.assertEqual(self.discover(), {self.entity: None})
+
+    def test_a_cached_plan_does_not_prove_the_next_journals_ancestry(self) -> None:
+        self.publish("~aa11")
+        original = self.publish("~aa12")
+        tree = git(self.repo, "rev-parse", f"{self.tips['~aa12']}^{{tree}}")
+        orphan = git(self.repo, "commit-tree", tree, "-m", "unrelated journal")
+        # The fixture SSH bridge routes only to our disposable local bare repo.
+        git(self.repo, "push", "-q", "--force", "origin",
+            f"{orphan}:{self.remote.claim_ref(self.entity, '~aa12')}")
+        self.assertEqual(original["plan"], self.token)
+        self.assertEqual(self.discover(), {self.entity: None})
+
+    def test_successful_checks_do_not_survive_into_the_next_discovery(self) -> None:
+        self.publish("~aa11")
+        self.assertEqual(self.discover(), {self.entity: []})
+        real_git = self.remote._git
+
+        def unavailable(repo, *args, **kwargs):
+            if args == ("cat-file", "-t", self.token["blob"]):
+                return subprocess.CompletedProcess(args, 1, b"", b"object unavailable")
+            return real_git(repo, *args, **kwargs)
+
+        with mock.patch.object(self.remote, "_git", side_effect=unavailable):
+            self.assertEqual(self.discover(), {self.entity: None})
 
 
 if __name__ == "__main__":
