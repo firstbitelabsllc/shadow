@@ -471,6 +471,7 @@ def execution_binding(
     ancestry, has_merge, committed_paths = observation or git_commit_paths(repo, head_before, head_after)
     candidate = (
         status == "ok"
+        and admitted_claim["access"] == "write"
         and branch_before is not None
         and branch_after == branch_before
         and head_after != head_before
@@ -931,6 +932,8 @@ def host_prompt(
     paths = "\n".join(f"- {path}" for path in allowed)
     if authority_proposal:
         paths = "- none; this proposal pass must not change source files"
+    elif not allowed:
+        paths = "- none; inspect only, without changing source files or Git control state"
     delegation_contract = (
         "Do the bounded work directly. Do not invoke a child agent."
         if delegation == "direct"
@@ -950,7 +953,7 @@ to the proposal. This is the second, no-change pass after source edits were
 reviewed and committed. Report an empty `changed_paths` list and do not change
 source files or Git control state.
 """
-    changed_paths_example = "[]" if authority_proposal else '["one-allowed-relative-path"]'
+    changed_paths_example = "[]" if not allowed else '["one-allowed-relative-path"]'
     return f"""Execute this bounded coding task in the current worktree.
 
 Task ID: {task_id}
@@ -1541,6 +1544,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         else None
     )
     binary = resolve_binary(args.host, args.binary)
+    read_only_attempt = False
     with tempfile.TemporaryDirectory(prefix="shadow-host-") as temp_dir:
         final_message = Path(temp_dir) / "final-message.txt"
         prompt_file = Path(temp_dir) / "prompt.txt"
@@ -1577,12 +1581,16 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             if admitted_claim is None:
                 raise HostError("claim_access_refused", "authorized claim disappeared before launch")
             head_before = git_value(repo, "rev-parse", "--verify", "HEAD^{commit}")
+            read_only_attempt = admitted_claim["access"] == "read_only"
+            if read_only_attempt:
+                source_head_before = head_before
+                git_control_before = git_control_snapshot(repo)
             reflog_before = head_reflog_snapshot(repo, limit=HEAD_REFLOG_ANCHOR_LIMIT)
             binding_context = (
                 admitted_claim,
                 authorization.payload["revision"],
                 authorized_at,
-                admitted_claim["repository_binding"],
+                admitted_claim["repository_binding"] or _board.repository_binding(repo),
                 git_branch(repo),
                 head_before,
                 reflog_before,
@@ -1613,7 +1621,7 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         )
         git_control_after = (
             git_control_snapshot(repo)
-            if authority_proposal
+            if authority_proposal or read_only_attempt
             else None
         )
         branch_after = git_branch(repo) if binding_context is not None else None
@@ -1652,21 +1660,26 @@ def run_attempt(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
                     repo, binding_context[5], source_head_after or binding_context[5]
                 )
                 committed_paths = range_observation[2]
-            if authority_proposal and source_head_after != source_head_before:
+            if (authority_proposal or read_only_attempt) and source_head_after != source_head_before:
                 raise HostError(
                     "source_head_changed",
-                    "authority proposal attempt changed source HEAD",
+                    "no-change attempt changed source HEAD",
                 )
-            if authority_proposal and git_control_after != git_control_before:
+            if (authority_proposal or read_only_attempt) and git_control_after != git_control_before:
                 raise HostError(
                     "git_control_changed",
-                    "authority proposal attempt changed Git control state",
+                    "no-change attempt changed Git control state",
                 )
-            if authority_proposal and changed:
+            if (authority_proposal or read_only_attempt) and changed:
                 raise HostError(
                     "scope_violation",
-                    "authority proposal attempt changed source state",
+                    "no-change attempt changed source state",
                 )
+            if read_only_attempt and any(
+                not (launch_event is not None and log_unchanged and path == _observation.LOG_PATH)
+                for path in ignored_artifacts
+            ):
+                raise HostError("scope_violation", "read-only attempt created ignored artifacts")
             host_receipt = validate_host_receipt(
                 extract_host_receipt(output_texts),
                 task_id,

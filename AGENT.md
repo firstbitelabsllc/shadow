@@ -29,8 +29,16 @@ notification never grants ownership. Declare source access and scope with
 `shadow huddle preflight`; use structured `own`, `disjoint`, `review`, `prove`,
 `yield`, `stand_down`, or `unavailable` bids, not a parallel conversation ledger.
 
-Each round has a two-minute reply window. Only explicit settlement advances a
-deadline; reads do not. Transfer requires the owner's yield and the target's
+Agents handle this coordination themselves. Declare read-only access for
+inspection, and exact write paths for source changes. A held agent can return
+its own unfinished claim immediately and continue independent work; no bid
+round or person approval is needed for that return.
+
+Each round gives peers two minutes before settlement may proceed without all
+replies. This is a grace period, not an expiry of the right to reply or correct
+scope. Current-generation replies and explicit scope changes remain available
+until settlement; stale state and settled rounds refuse. Reads never advance
+the clock. Transfer requires the owner's yield and the target's
 matching acceptance, with stable remote CAS/readback when remotely coordinated.
 An ambiguous transfer keeps both sides held. Required returns remain held until
 the owner updates the canonical plan and returns the exact claim. Huddle itself

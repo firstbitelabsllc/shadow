@@ -1668,7 +1668,7 @@ def huddle_recovery(huddle: dict) -> str:
             + f"inspect shadow huddle show --id {huddle['id']}")
 
 
-def _huddle_membership_issue(existing: list[dict], now: datetime) -> str | None:
+def _huddle_membership_issue(existing: list[dict]) -> str | None:
     if len(existing) > 1:
         return "huddle_bridge: settle the earlier live Huddle before retrying; " + huddle_recovery(existing[0])
     if not existing:
@@ -1676,8 +1676,6 @@ def _huddle_membership_issue(existing: list[dict], now: datetime) -> str | None:
     old = existing[0]
     if old["state"] not in ("awaiting_scope", "open_round_1", "open_round_2"):
         return "Huddle requires lifecycle recovery before changing membership; " + huddle_recovery(old)
-    if now >= _timestamp(old["reply_by"], "Huddle deadline"):
-        return "Huddle deadline reached; settle before changing membership; " + huddle_recovery(old)
     return None
 
 
@@ -1687,7 +1685,7 @@ def unscoped_admission_issue(payload: dict, binding: dict, *, now: datetime) -> 
     peers = {_claim_key(c) for c in payload["claims"] if _scope_edge(candidate, c)}
     existing = [h for h in payload.get("huddles", []) if h["state"] != "resolved"
                 and any(_claim_key(_terminal_ref(h, ref)) in peers for ref in h["claims"])]
-    return _huddle_membership_issue(existing, now)
+    return _huddle_membership_issue(existing)
 
 
 def _open_huddle(payload: dict, claim: dict, overlap: list[dict], reason: str, now: datetime,
@@ -1715,7 +1713,7 @@ def _open_huddle(payload: dict, claim: dict, overlap: list[dict], reason: str, n
         if candidate is not claim and _scope_edge(claim, candidate):
             keys.add(_claim_key(candidate))
     existing = [h for h in payload["huddles"] if h["state"] != "resolved" and any(_claim_key(c) in keys for c in h["claims"])]
-    issue = _huddle_membership_issue(existing, now)
+    issue = _huddle_membership_issue(existing)
     if issue:
         raise BoardError(issue)
     old = existing[0] if existing else None
@@ -1917,8 +1915,6 @@ def submit_huddle_bid(*, huddle_id: str, seat: str, claim: dict, role: str,
             raise BoardError("Huddle bid generation changed")
         if h["state"] not in {"open_round_1", "open_round_2"} or round != h["round"]:
             raise BoardError("Huddle is not accepting bids for this round")
-        if now >= _timestamp(h["reply_by"], "Huddle deadline"):
-            raise BoardError("Huddle bid deadline reached; " + huddle_recovery(h))
         bid = copy.deepcopy(request)
         bid.update(bid_digest=digest, submitted_at=_stamp(now))
         if role == "own" and reason == "owner_authorized_handoff":
@@ -2384,8 +2380,6 @@ def preflight_access(*, entity: str, row: str, owner: str, repo: Path,
             terminal = _terminal_ref(h, _claim_ref(claim))
             if h["state"] not in ("awaiting_scope", "open_round_1", "open_round_2"):
                 raise BoardError("Huddle requires lifecycle recovery before scope changes; " + huddle_recovery(h))
-            if now >= _timestamp(h["reply_by"], "Huddle deadline"):
-                raise BoardError("Huddle deadline reached; settle before scope changes; " + huddle_recovery(h))
             if h["state"] == "awaiting_scope" and claim["access"] != "unscoped":
                 raise BoardError("only an unscoped owner may classify an awaiting-scope Huddle")
             if access == "read_only" and any("semantic_suspicion" in edge["kinds"]
@@ -2445,7 +2439,8 @@ def authorize_host_attempt(*, context: dict | None, repo: Path, write_scope: lis
         raise BoardError("host claim context is malformed")
     admitted = next((claim for claim in observed["claims"]
         if all(claim[key] == context[key] for key in ("entity", "row", "owner", "claim_revision"))), None)
-    if admitted is None or admitted["access"] == "read_only" or admitted["repository_binding"] is None:
+    read_only = admitted is not None and admitted["access"] == "read_only" and not authority_proposal and not write_scope
+    if admitted is None or (not read_only and (admitted["access"] == "read_only" or admitted["repository_binding"] is None)):
         raise BoardError("host requires an explicitly source-bound claim; classify with huddle preflight first")
     scope, witnesses = _scope_snapshot(repo, write_scope)
     # Native editors do not promise no-follow operations on a terminal link.
@@ -2457,7 +2452,7 @@ def authorize_host_attempt(*, context: dict | None, repo: Path, write_scope: lis
     # A job may use less than its existing authority without renegotiating the
     # claim. Scope mutation belongs to preflight, not every worker launch.
     reuses_scope = bool(scope) and admitted["access"] == "write" and _scope_subset(scope, admitted["write_scope"])
-    if not authority_proposal and not reuses_scope:
+    if not authority_proposal and not read_only and not reuses_scope:
         result = preflight_access(
             entity=context["entity"], row=context["row"], owner=context["owner"],
             repo=repo, access="write", write_scope=write_scope,
@@ -2476,7 +2471,9 @@ def authorize_host_attempt(*, context: dict | None, repo: Path, write_scope: lis
         if (claim is None or claim["owner"] != context["owner"]
             or claim["claim_revision"] != context["claim_revision"]):
             raise BoardError("host claim instance changed")
-        if claim["repository_binding"] is None or not _same_repository(binding, claim["repository_binding"]):
+        if read_only and (claim["access"] != "read_only" or claim["write_scope"]):
+            raise BoardError("host read-only claim changed; repeat preflight")
+        if not read_only and (claim["repository_binding"] is None or not _same_repository(binding, claim["repository_binding"])):
             raise BoardError("host repository does not match the bound claim")
         if not authority_proposal and not _scope_subset(scope, claim["write_scope"]):
             raise BoardError("host scope exceeds the current claim; repeat preflight")

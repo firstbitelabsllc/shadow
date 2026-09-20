@@ -157,6 +157,9 @@ elif mode == "scope":
 elif mode == "ignored":
     pathlib.Path.cwd().joinpath(".env").write_text("ignored escape\n", encoding="utf-8")
     changed = []
+elif mode == "ref-only":
+    subprocess.run(["git", "branch", "read-only-escape"], check=True, capture_output=True)
+    changed = []
 else:
     changed = []
 
@@ -272,6 +275,7 @@ def run_host(
     authority_proposal: bool = False,
     extra: tuple[str, ...] = (),
     test_home: Path | None = None,
+    read_only: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -312,14 +316,9 @@ def run_host(
         environment["PATH"] = f"{bin_dir}{os.pathsep}{environment.get('PATH', '')}"
         command.append("--authority-proposal")
     else:
-        command.extend(
-            [
-                "--binary",
-                str(binary),
-                "--allowed-path",
-                "result.txt",
-            ]
-        )
+        command.extend(["--binary", str(binary)])
+        if not read_only:
+            command.extend(["--allowed-path", "result.txt"])
     if force:
         command.append("--force")
     command.extend(extra)
@@ -351,14 +350,98 @@ class HuddleHostTests(HuddleTestCase):
         return {key: claim[key] for key in ("entity", "row", "owner", "claim_revision")} | {
             "board_revision": board_api.snapshot(home=self.home)["revision"]}
 
-    def invoke(self, context=None, *, paths=(), proposal=False):
+    def invoke(self, context=None, *, paths=(), proposal=False, read_only=False):
         extra = () if context is None else ("--claim-context", json.dumps(context) if isinstance(context, dict) else context)
         extra += tuple(part for path in paths for part in ("--allowed-path", path))
         with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
             return run_host(self.repo, self.binary, self.task, self.output,
                             host="codex" if proposal else "cursor", force=True,
                             authority_proposal=proposal, extra=extra,
-                            test_home=self.home)
+                            test_home=self.home, read_only=read_only)
+
+    def seed_read_only_with_writer(self):
+        with board_api._transaction(self.home) as (root, path, payload):
+            self.claim.update(access="read_only", repository_binding=None, write_scope=[])
+            payload["claims"][0] = copy.deepcopy(self.claim)
+            payload["claims"].append(dict(self.claim, owner="hermes", row="~bb22", claim_revision=2,
+                access="write", write_scope=["."], repository_binding=board_api.repository_binding(self.repo)))
+            payload["revision"] += 1
+            board_api._write_and_commit(root, path, payload, "test: read-only review alongside Hermes writer")
+
+    def test_read_only_launch_preserves_claims_and_refuses_write_scope(self):
+        self.seed_read_only_with_writer()
+        before = self.authority()
+        self.assert_not_launched(self.invoke(self.context(), paths=("result.txt",), read_only=True))
+        result = self.invoke(self.context(), read_only=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertFalse(receipt["execution_binding"]["execution_candidate"])
+        self.assertEqual(receipt["execution_binding"]["allowed_scope"], [])
+        self.assertEqual(self.authority(), before)
+
+    def test_read_only_worker_cannot_report_success_after_source_mutation(self):
+        self.seed_read_only_with_writer()
+        self.binary.with_suffix(".mode").write_text("ok")
+        before = self.authority()
+        result = self.invoke(self.context(), read_only=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(json.loads(result.stdout)["blocked"]["kind"], {"scope_violation", "host_receipt_invalid"})
+        self.assertTrue(self.binary.with_suffix(".argv.json").exists())
+        self.assertEqual(self.authority(), before)
+
+    def test_read_only_worker_cannot_commit_source(self):
+        self.seed_read_only_with_writer()
+        self.binary.with_suffix(".mode").write_text("commit")
+        before = self.authority()
+        result = self.invoke(self.context(), read_only=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "source_head_changed")
+        self.assertFalse(json.loads(result.stdout)["execution_binding"]["execution_candidate"])
+        self.assertEqual(self.authority(), before)
+
+    def test_read_only_worker_cannot_change_refs_with_unchanged_head(self):
+        self.seed_read_only_with_writer()
+        self.binary.with_suffix(".mode").write_text("ref-only")
+        before = self.authority()
+        result = self.invoke(self.context(), read_only=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "git_control_changed")
+        self.assertEqual(self.authority(), before)
+
+    def test_read_only_worker_cannot_create_ignored_files(self):
+        self.seed_read_only_with_writer()
+        self.binary.with_suffix(".mode").write_text("ignored")
+        before = self.authority()
+        result = self.invoke(self.context(), read_only=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["blocked"]["kind"], "scope_violation")
+        self.assertEqual(self.authority(), before)
+
+    def test_read_only_guards_use_authorized_claim_after_snapshot_race(self):
+        self.seed_read_only_with_writer()
+        self.binary.with_suffix(".mode").write_text("ref-only")
+        context = self.context()
+        stale = board_api.snapshot(home=self.home)
+        stale["revision"] -= 1
+        stale["claims"][0].update(access="write", write_scope=["result.txt"],
+            repository_binding=board_api.repository_binding(self.repo))
+        original = board_api.snapshot
+        reads = 0
+        def snapshot(*args, **kwargs):
+            nonlocal reads
+            reads += 1
+            return stale if reads == 1 else original(*args, **kwargs)
+        before = self.authority()
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            args = shadow_host.parser().parse_args([
+                "run", "--host", "cursor", "--work-class", "review", "--delegation", "direct",
+                "--binary", str(self.binary), "--repo", str(self.repo), "--task-file", str(self.task),
+                "--task-id", "add-proof", "--claim-context", json.dumps(context), "--out", str(self.output)])
+            with mock.patch.object(board_api, "snapshot", side_effect=snapshot):
+                payload, code = shadow_host.run_attempt(args)
+        self.assertEqual(code, 1, payload)
+        self.assertEqual(payload["blocked"]["kind"], "git_control_changed")
+        self.assertEqual(self.authority(), before)
 
     def assert_not_launched(self, result):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -522,8 +605,15 @@ class HuddleHostTests(HuddleTestCase):
                 self.binary.with_suffix(".argv.json").unlink()
                 self.assert_not_launched(self.invoke(self.context(payload["claims"][1])))
                 self.assertEqual(self.authority(), before)
-                self.assert_not_launched(self.invoke(self.context(payload["claims"][0]), paths=("other.txt",)))
-                self.assertEqual(self.authority(), before)
+                expanded = self.invoke(self.context(payload["claims"][0]), paths=("other.txt",))
+                if state == "awaiting_compliance":
+                    self.assert_not_launched(expanded)
+                    self.assertEqual(self.authority(), before)
+                else:
+                    self.assertEqual(expanded.returncode, 0, expanded.stdout + expanded.stderr)
+                    current = board_api.snapshot(home=self.home)
+                    self.assertEqual(current["claims"][0]["write_scope"], ["other.txt", "result.txt"])
+                    self.assertEqual([ref["owner"] for ref in current["huddles"][0]["holds"]], ["B"])
 
 
 class UnclaimedHostTestCase(unittest.TestCase):

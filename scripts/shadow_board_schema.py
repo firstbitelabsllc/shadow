@@ -403,8 +403,6 @@ def _validate_bids(h: dict, payload: dict) -> None:
             if (selected and bid["role"] not in {"own", "disjoint", "yield", "unavailable"}
                 or not selected and bid["role"] == "yield"):
                 raise BoardError("Huddle bid role disagrees with graph authority")
-            if h["reply_by"] is not None and submitted >= _timestamp(h["reply_by"], "Huddle deadline"):
-                raise BoardError("active bid is at or beyond its deadline")
             if bid["role"] in {"review", "prove"}:
                 support = current.get(_claim_key(bid["support_claim"]))
                 if (support is None or _claim_ref(support) != bid["support_claim"]

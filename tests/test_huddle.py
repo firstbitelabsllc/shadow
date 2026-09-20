@@ -130,18 +130,17 @@ class HuddleBidTests(HuddleTestCase):
             with self.subTest(changes=changes), self.assertRaises(board_api.BoardError):
                 self.submit(**changes)
             self.assertEqual(self.authority(), before)
-        with self.assertRaisesRegex(board_api.BoardError, "deadline"):
-            self.submit(now=NOW + timedelta(minutes=2))
-        self.assertEqual(self.authority(), before)
 
-    def test_post_deadline_bid_refusal_names_huddle_recovery_and_is_atomic(self):
-        before = self.authority()
-        with self.assertRaises(board_api.BoardError) as raised:
-            self.submit(now=NOW + timedelta(minutes=2))
-        message = str(raised.exception)
-        self.assertIn(self.huddle["id"], message)
-        self.assertIn(f"shadow huddle show --id {self.huddle['id']}", message)
-        self.assertEqual(self.authority(), before)
+    def test_late_bid_is_admitted_until_settlement_and_invalidates_settle_cas(self):
+        before = board_api.snapshot(home=self.home)
+        result = self.submit(now=NOW + timedelta(minutes=3))
+        self.assertTrue(result.changed)
+        self.assertEqual(result.payload["huddles"][0]["reply_by"], self.huddle["reply_by"])
+        self.assertEqual(result.payload["huddles"][0]["holds"], self.huddle["holds"])
+        with self.assertRaisesRegex(board_api.BoardError, "board revision"):
+            board_api.settle_huddle(huddle_id=self.huddle["id"], actor_claim=board_api._claim_ref(self.a),
+                expected_generation=self.huddle["generation"], expected_board_revision=before["revision"],
+                now=NOW + timedelta(minutes=3), home=self.home)
 
     def test_bids_are_intent_not_scope_change_or_handoff(self):
         before = board_api.snapshot(home=self.home)["claims"]
@@ -1882,7 +1881,7 @@ class HuddleScopeTransitionTests(HuddleTestCase):
         self.assertEqual(h["generation"], 2)
         self.assertEqual([r["owner"] for r in h["claims"]], ["A", "B", "E"])
 
-    def test_held_expansion_read_only_and_late_classification_refuse(self):
+    def test_held_expansion_and_read_only_refuse(self):
         repo, (a, b) = self.seed([["a"], ["a"]])
         self.open(a, [b])
         before = self.authority()
@@ -1891,20 +1890,31 @@ class HuddleScopeTransitionTests(HuddleTestCase):
                 self.preflight(repo, b, scope, access=access)
             self.assertEqual(self.authority(), before)
         self.assertFalse(self.preflight(repo, a, ["a"], now=NOW + timedelta(minutes=2)).changed)
-        with self.assertRaises(board_api.BoardError):
-            self.preflight(repo, a, ["a", "b"], now=NOW + timedelta(minutes=2))
-        self.assertEqual(self.authority(), before)
 
-    def test_expired_preflight_refusal_names_huddle_recovery_and_is_atomic(self):
-        repo, (a, b) = self.seed([["a"], ["a"]])
+    def test_late_scope_narrowing_resolves_without_waiting_for_bids(self):
+        repo, (a, b) = self.seed([["a/one"], ["a"]])
         huddle = self.open(a, [b])
-        before = self.authority()
-        with self.assertRaises(board_api.BoardError) as raised:
-            self.preflight(repo, a, ["a", "b"], now=NOW + timedelta(minutes=2))
-        message = str(raised.exception)
-        self.assertIn(huddle["id"], message)
-        self.assertIn(f"shadow huddle show --id {huddle['id']}", message)
-        self.assertEqual(self.authority(), before)
+        result = self.preflight(repo, b, ["a/two"], now=NOW + timedelta(minutes=3))
+        resolved = result.payload["huddles"][0]
+        self.assertEqual(resolved["id"], huddle["id"])
+        self.assertEqual(resolved["state"], "resolved")
+        self.assertEqual(resolved["holds"], [])
+        self.assertEqual(result.payload["claims"][0], a)
+
+    def test_late_unscoped_review_classifies_without_blocking_writer(self):
+        repo, (a, b) = self.seed([[], ["a"]], unscoped=(0,))
+        self.open(b, [a], reason="scope_request")
+        result = self.preflight(repo, a, [], access="read_only", now=NOW + timedelta(minutes=3))
+        self.assertEqual(result.payload["huddles"][0]["state"], "resolved")
+        self.assertEqual(result.payload["claims"][1], b)
+
+    def test_late_join_keeps_existing_owner_and_overlapping_newcomer_held(self):
+        repo, (a, b, c) = self.seed([["a"], ["a"], ["b"]])
+        self.open(a, [b])
+        result = self.preflight(repo, c, ["a"], now=NOW + timedelta(minutes=3))
+        huddle = result.payload["huddles"][0]
+        self.assertEqual([ref["owner"] for ref in huddle["holds"]], ["B", "C"])
+        self.assertEqual(result.payload["claims"][0], a)
 
     def test_stale_board_preflight_never_changes_scope_or_generation(self):
         repo, (a, b) = self.seed([["a"], ["a"]])

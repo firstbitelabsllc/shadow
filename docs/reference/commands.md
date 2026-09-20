@@ -54,10 +54,21 @@ through the owner's existing plan-update and return path.
 When the source paths are known, claim them in the same transaction:
 `shadow throw --entity ID --task '~hash' --by SEAT --access write --path PREFIX`.
 Repeat `--path` for each prefix; a machine-local entity also needs `--repo PATH`.
-Use `--access read_only` for source-free reading. Omitting access preserves the
+Use `--access read_only` for inspection. A claim-bound `shadow host run` may
+use that claim with no `--allowed-path`; the runner leaves its access and scope
+unchanged and refuses a success receipt if the worker changes source, HEAD,
+Git control state, or creates ignored artifacts. This is cooperative admission
+and verification, not an operating-system sandbox. Omitting access preserves the
 unscoped default for source-backed work, which can overlap any peer in that
 repository. Declared disjoint scopes avoid that unnecessary negotiation; they
 cannot bypass a held peer whose scope is still unknown.
+
+The two-minute `reply_by` value permits settlement with missing replies; it
+does not close an unsettled round. A current-generation late bid still commits
+atomically, and a settlement using the previous board revision then refuses.
+Explicit scope correction or joining also remains possible until settlement.
+Agents can return their own unfinished held claim immediately and select
+independent work, without waiting for a round or asking the person to settle it.
 
 An `awaiting_compliance` Huddle has already settled. Do not settle it again or
 retry an overlapping claim. Its named held owner returns that exact claim. An
