@@ -23,30 +23,25 @@ Remote coordination may use `refs/heads/shadow/claims/v1/`; it carries no task o
 ## Overlapping work
 
 Exact duplicate claims refuse immediately. Other source overlap opens one
-board-owned Huddle: the existing valid owner continues, and later overlapping
-claims stay held. Read the exact Huddle before acting; a chat response or missed
-notification never grants ownership. Declare source access and scope with
-`shadow huddle preflight`; use structured `own`, `disjoint`, `review`, `prove`,
-`yield`, `stand_down`, or `unavailable` bids, not a parallel conversation ledger.
+board-owned Huddle: the existing valid owner continues, later overlapping claims
+stay held. Read the exact Huddle before acting; a chat response or missed
+notification never grants ownership. Declare access and scope with `shadow huddle
+preflight`; bid `own`, `disjoint`, `review`, `prove`, `yield`, `stand_down` or
+`unavailable`, never a parallel conversation ledger.
 
-Agents handle this coordination themselves. Declare read-only access for
-inspection, and exact write paths for source changes. A held agent can return
-its own unfinished claim immediately and continue independent work; no bid
-round or person approval is needed for that return.
-
-The reply window gives peers two minutes before settlement may proceed without all
-replies. This is a grace period, not an expiry of the right to reply or correct
-scope. Current-generation replies and explicit scope changes remain available
-until settlement; stale state and settled rounds refuse. Reads never advance
-the clock. Settlement applies the existing ownership rule once; conflicting
-bids do not open another negotiation round. Old round-two records remain
-recoverable. A selected writer may complete with proof or return its own work
-without waiting for another participant's required return; that participant
-remains held. Transfer requires the owner's yield and the target's
-matching acceptance. A continuing participant with unknown scope may also
-return its own claim; this grants no write access. Remote transfer requires
-stable remote CAS/readback.
-An ambiguous transfer keeps both sides held. Required returns remain held until
+Agents coordinate this themselves: read-only access for inspection, exact write
+paths for source changes. Any held or continuing agent may return its own
+unfinished claim at once and continue independent work — no bid round, no
+approval, no write access granted by it. The two-minute reply window is a grace
+period before settlement may proceed without every reply, not an expiry of the
+right to reply or correct scope: current-generation replies and scope changes
+stand until settlement, while stale state and settled rounds refuse and reads
+never advance the clock. Settlement applies the ownership rule once —
+conflicting bids open no second round — and old round-two records stay
+recoverable. A selected writer may finish with proof or return its own work
+without waiting on another participant's required return; that participant
+stays held. Transfer requires the owner's yield and the target's matching
+acceptance, plus stable remote CAS/readback when remote. An ambiguous transfer keeps both sides held. Required returns remain held until
 the owner updates the canonical plan and returns the exact claim. Huddle itself
 never writes a plan contradiction. Optional delivery is confined best-effort
 notice; pull-only coordination must work with every adapter absent.
