@@ -193,7 +193,18 @@ Lead with:
 - What changed
 - What is happening now
 - Proof or uncertainty
-- The one decision needed, expressed as at most A/B/C
+- A decision ONLY when one is genuinely needed, expressed as at most A/B/C;
+  otherwise say plainly that no decision is needed right now
+
+Default to no decision. A decision belongs in the Brief only when a gate the
+seat cannot pass itself actually blocks the next step: credentials or access,
+money, an external send or publication, a destructive or irreversible action,
+or irrecoverable product intent. Everything else is a reversible operating call
+the seat makes and reports. Measured 2026-09-20 on the packaged skill's own
+eval suite: with this element written as a required field, every run ended in a
+manufactured A/B/C menu for work the seat could have simply done, and scored
+BELOW the no-skill baseline on the same cases. A menu offered instead of
+finished work is the proxy stance failing, not serving.
 
 Explain every term in the same message that uses it. A change gets a
 before/after pair; a flow gets a small diagram; a fact gets one line —

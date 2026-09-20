@@ -18,3 +18,4 @@ blob-report/
 secrets/
 .claude/*
 !.claude/settings.json
+evals/results/
