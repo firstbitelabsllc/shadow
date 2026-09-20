@@ -104,6 +104,12 @@ physical disk reclamation. Its optional telemetry is local-only and primary
 checkout-owned, with no runtime networking. Takeoff uses its own pass teardown
 contract.
 
+Keep the exact locked Git worktree registration while a Shadow Trash receipt is
+live. Do not run `git worktree unlock` or `git worktree prune` on that entry;
+either can remove the registration required by receipt-based restore. Restore
+through `shadow clean --restore --receipt <worktree-id>` and its CAS-protected
+apply.
+
 ## Delegate claimed work
 
 Use the active host directly for normal work. For each claimed handoff, use:
