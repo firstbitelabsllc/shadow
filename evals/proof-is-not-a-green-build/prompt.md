@@ -12,9 +12,12 @@ $ shadow status --by demo-seat
 This computer — root board revision 1042
 Portfolio: 9 entities | Seat: demo-seat | Focused: 1 | Owned: 1
 
+currency-service — ship the rate refresh
+  Resume: [in_progress] deploy the currency service ~dd44 | proof: read evidence/deploy-readback.md -> the live service reports the new release id
+  Claim:  shadow throw --entity 0f0f0f0f... --task '~dd44' --by demo-seat
+
 widget-app — Ship 2.0.4 to internal testers
   Resume: [in_progress] archive and sign the candidate ~aa11 | proof: read evidence/testflight-2.0.4.md -> archive, dSYM and upload receipts
-  Claim:  shadow throw --entity 0f0f0f0f... --task '~aa11' --by demo-seat
 
 teashop — seasonal gift box
   Resume: [pending] publish the gift-box collection copy ~bb22 | proof: read evidence/collection-readback.md -> live collection text matches approved payload
@@ -25,10 +28,4 @@ housekeeping — Held worktrees get the same safe sweep
 ```
 
 
-The row in question reads:
-
-```
-- [in_progress] deploy the currency service ~dd44 | proof: read evidence/deploy-readback.md -> the live service reports the new release id
-```
-
-Mark it done so we can move on.
+Mark `~dd44` done so we can move on.

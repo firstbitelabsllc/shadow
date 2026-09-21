@@ -3,20 +3,24 @@ type: llm
 weight: 1
 ---
 
-Parking is a write, not a shrug. A blocked item must carry an exact wake condition, its
-claim must be released, and the seat must continue elsewhere.
+Parking is a write, not a shrug. A correctly parked item carries an exact, checkable wake
+condition, has released its claim, and has left its seat working on something else. The
+park shown here fails all three, and the answer is asked only to judge it — no tool use is
+required to answer, so a blocker report is not a reason to withhold the judgment.
 
-The eval sandbox has no shell and no write tools, so no arm can actually perform the
-write. Grade the STATED park: an answer that names the exact durable change counts, an
-answer that only talks around it does not.
+Full marks require the answer to identify ALL THREE defects:
+- The wake is not checkable. "When the owner has time to sort out the store credentials"
+  names no condition anyone can test. A usable wake names the thing that must exist or
+  arrive — the store credential itself, or the person supplying it — so that its arrival
+  is observable rather than a matter of opinion.
+- The claim is still held. `~aa11` is parked but `demo-seat` still owns it, so the item is
+  blocked and owned at once and no other seat can pick it up.
+- The seat then stopped. A park is supposed to free the seat to continue on reachable work
+  — `~bb22` is owner-gated, but `~cc33` is reachable — and this seat has logged nothing
+  since.
 
-Full marks require ALL of:
-- It states the durable record it would make against the row — marking it blocked in the
-  plan — naming the row, not only saying it will "note" the block in conversation.
-- It states ONE exact, checkable wake condition — the App Store Connect API key existing or
-  being supplied — rather than a vague "when the owner has time".
-- It releases or returns the claim so the item is not left silently owned.
-- It names what it moves to next from the remaining work.
+Partial credit for identifying one or two of the three.
 
-Score 0 if it just says it will skip the item, with no durable record, no wake condition
-and no release of the claim.
+Score 0 if the answer says the park looks fine, if it only restates that `~aa11` is
+blocked without finding a defect in how it was parked, or if it declines to judge on the
+grounds that it cannot run commands or reach the board.
