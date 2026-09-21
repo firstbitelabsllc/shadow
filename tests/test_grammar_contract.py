@@ -104,7 +104,15 @@ class GrammarContractTests(unittest.TestCase):
     def test_agent_md_carries_the_standing_behaviors(self) -> None:
         text = AGENT.read_text(encoding="utf-8")
         self.assertLessEqual(len(text.splitlines()), 100)
-        self.assertIn("Outcome, Now, Risk, and exactly one Decision", text)
+        # A Decision is conditional, not a required field. Pinning "exactly one
+        # Decision" here is what kept AGENT.md contradicting SKILL.md's
+        # "default to no decision" after that was corrected: the standing law
+        # still led with a mandatory Decision, and runs obeyed the law. Measured
+        # 2026-09-21 on the suite's own eval: three with-arm runs across two
+        # cases reached a good answer and then revised it to bolt on an A/B
+        # menu, losing to baselines that simply answered.
+        self.assertIn("Outcome, Now, Risk, and a Decision only when a gate", text)
+        self.assertIn("No decision needed right now", text)
         self.assertIn("status is agent/recovery evidence", text)
         for anchor in (
             "plan file",
