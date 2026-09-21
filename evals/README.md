@@ -108,3 +108,38 @@ That cost it points for doing the right thing.
 **No skill text changed in pass 6.** Only the suite did. Whatever the rerun
 shows is a reading of a more coherent instrument, and any case still showing
 with below baseline on it becomes the first real skill lead.
+
+## The rule this suite kept failing to follow
+
+A partial pass-6 run, killed for memory after `archive-successor` finished,
+made the underlying rule obvious. The premise fix worked — no run disputed
+whether M48 was archive-eligible any more — and the case still scored 0 in both
+arms, because the with-arm now spent 13 to 18 turns building an A/B request for
+shell access instead of answering. The failure mode moved; the cause had not.
+
+**Write every case so the correct answer is a judgment, never an action.**
+
+The harness gives the agent `[Read, Glob, Grep, Skill]` and an empty workspace.
+It can think, and it cannot do. Ask it to *perform* something and the honest
+answer is "I can't", which is what it will lead with, and the judge grades the
+frame it is handed. Ask it to *rule on* something and the whole answer is
+available inside the sandbox.
+
+Sorted by shape, the suite's history stops being mysterious:
+
+| case | ask | shape | history |
+| --- | --- | --- | --- |
+| `resume-cold` | "tell me what you are doing next" | judgment | best case in the suite |
+| `proof-is-not-a-green-build` | "mark it done" → correct answer is *no* | judgment | scores 1.00 in an arm |
+| `no-second-queue` | "here are five things" | judgment | scores, though see the caveat above |
+| `park-with-one-wake` | "park it and move on" | **action** | 0.00 in both arms, every pass |
+| `archive-successor` | "archive the milestone" | **action** | 0.00 in the with-arm |
+
+A refusal-shaped ask counts as judgment: `proof-is-not-a-green-build` says
+"mark it done", but the correct answer is to decline, and declining is a thing
+you can do in words. The two cases that stayed broken are the two whose correct
+answer required a write.
+
+Both have been reshaped to ask for a ruling on a move someone else is making,
+which preserves exactly what each was testing. If you add a case, check its
+shape before you check its wording.

@@ -23,5 +23,6 @@ housekeeping — Held worktrees get the same safe sweep
   Resume: [pending] snapshot each dirty worktree to a local archive ref, then remove ~cc33 | proof: read evidence/dirty-worktree-sweep.md
 ```
 
-M48 is done and the plan is over budget and refusing writes. Archive the milestone and
-keep going.
+M48 is done and the plan is over budget and refusing writes, so the other seat is about to
+archive M48 and carry straight on to `~aw03`. Tell me whether that is the right move
+before I let it run.
