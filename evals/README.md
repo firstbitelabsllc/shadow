@@ -143,3 +143,50 @@ answer required a write.
 Both have been reshaped to ask for a ruling on a move someone else is making,
 which preserves exactly what each was testing. If you add a case, check its
 shape before you check its wording.
+
+## Passes 6 and 7 — what a coherent instrument finally showed
+
+Pass 6 is the repaired suite with no skill change. Pass 7 is the same suite with
+exactly one line of the skill changed. Both at 3 runs per arm, run one case at a
+time because the machine was out of memory.
+
+| case | 6 with | 6 base | 7 with | 7 base |
+| --- | ---: | ---: | ---: | ---: |
+| archive-successor | 1.00 | 1.00 | 1.00 | 1.00 |
+| no-second-queue | 0.33 | 0.00 | 0.33 | 0.67 |
+| park-with-one-wake | 1.00 | 0.50\* | 1.00 | 1.00 |
+| proof-is-not-a-green-build | 0.33 | 1.00 | **1.00** | 1.00 |
+| resume-cold | 0.67 | 0.67 | 0.67 | 0.67 |
+| **overall** | 0.67 | 0.63 | **0.80** | 0.87 |
+
+\* one baseline run was interrupted by the memory kill; the clean value is 1.00.
+
+Both reshaped cases work now. `park-with-one-wake` went from 0.00 in both arms
+across every earlier pass to 1.00 in both. `archive-successor` went from 0.00
+with / 0.33 base to 1.00 in both.
+
+**Pass 6 also exposed the first defect in this suite's history that was
+genuinely the skill's.** Three with-arm runs, across two unrelated cases, each
+reached a good answer and then revised it to bolt on an A/B decision block —
+one literally opens *"Rewriting the ending — the two options needed to be shown,
+not just named."* Every one lost; their baselines, which simply answered,
+scored 1.00.
+
+The cause was that `SKILL.md` and `AGENT.md` disagreed. `SKILL.md` had been
+corrected to default to no decision; `AGENT.md`, the standing law loaded into
+every session, still led with "exactly one Decision" — and a grammar-contract
+assertion pinned that exact string, so the fix could never propagate. Pass 7
+changed that one line and its test. `proof-is-not-a-green-build`'s with-arm went
+**0.33 → 1.00**.
+
+### Read the overall delta with care
+
+Pass 7's −0.07 is carried entirely by `no-second-queue`, whose with-arm sat at
+0.33 in both passes while its baseline swung 0.00 → 0.67. That case was
+pre-registered as probably noisy in this file before either number existed.
+
+### The suite's next problem is the ceiling
+
+Three of five cases now score 1.00 in **both** arms. A case everything passes
+measures as little as a case everything fails. Four of five sit at parity. The
+next useful work on this suite is harder cases, not another re-measure of these.
