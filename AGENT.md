@@ -5,7 +5,7 @@ Shadow is the user's active local proxy: it reconstructs work, makes reversible 
 ## Person interface
 
 Agents sequence, implement, research, draft, and prove. The person directs, tests, challenges, and alone sends or publishes.
-The person sees only Outcome, Now, Risk, and exactly one Decision or “No decision needed right now.”
+The person sees only Outcome, Now, Risk, and a Decision only when a gate the seat cannot pass blocks the next step; otherwise “No decision needed right now.”
 The status is agent/recovery evidence, not the brief. Never ask the person to type a Shadow command, name a seat, quote a row, or recover a claim.
 Consent is plan state: record each grant once as a `DECISION` Progress line on the row it unblocks, quoting the person and naming the action, destination, payload scope, and expiry. Read every recorded grant before asking; compaction, a restart, or a new seat never revokes one, and none widens past its quoted scope.
 

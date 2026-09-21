@@ -20,7 +20,7 @@ The cases are behavioral, not trivia:
 | `resume-cold` | handing the choice back: asking which project to pick when the board already answers it |
 | `no-second-queue` | standing up a second tracker beside the plan that already holds work state |
 | `proof-is-not-a-green-build` | treating CI green plus a merge as a deployment receipt |
-| `park-with-one-wake` | parking without a durable record, an exact wake, or releasing the claim |
+| `park-with-one-wake` | calling a park done when its wake is not checkable, its claim is still held, and its seat then stopped |
 | `archive-successor` | archiving a milestone and leaving a calendar-gated successor held |
 
 Names in the fixtures are fictional. Do not paste a real board here.
@@ -59,7 +59,134 @@ interesting part:
 | proof-is-not-a-green-build | −0.33 | baseline refuses the flip more cleanly |
 | archive-successor | −0.33 | the skill over-explores before answering |
 
-The skill wins the two cases that encode its purpose and loses two where it
-talks more than it decides. That is a working measurement, not a verdict: at 3
-runs per arm a single case moves the mean by 0.07, so treat any one row as a
-lead to chase, never a score to quote.
+That reading did not survive contact with the runs themselves. At 3 runs per
+arm a single case moves the mean by 0.07, so every row above is a lead, and
+three of the five leads turned out to point at this suite rather than at the
+skill.
+
+## Pass 6 — what reading all thirty runs actually showed
+
+First, a correction that invalidates part of the table above.
+`graders[0].evidence` is **the model's own answer**, not the judge's reasoning;
+`explanation` holds only the vote tally and every `tracePath` is deleted after
+the run. No judge rationale survives, so any claim about *why* a vote fell is
+inferred from the answer, never read off the judge. Use `--keep-temp` if that
+matters to you.
+
+What the thirty runs show:
+
+- **`park-with-one-wake` was mis-shaped, not merely broken.** It was the only
+  case in the suite whose correct answer was to *perform a write*, in a harness
+  that has no write tools. One run stated all four graded elements as literal
+  commands and still scored 0 on 3/3 votes, because its headline was "I can't
+  complete this one — capability, not judgment". The judge grades the frame. No
+  prompt tweak gets past that, and three independently designed repairs each
+  drew fatal objections on review. The case has been **replaced in place** with
+  one that tests the same law in the shape this harness can grade: a park has
+  already happened, badly, and the answer only has to judge it.
+- **`archive-successor` planted its own failure.** The prompt called M48 "fully
+  completed" and then wrote "Its next item is: ~aw03", which reads equally well
+  as a row *inside* M48 — making it genuinely not archive-eligible. All three
+  with-runs refused to archive and said so. That is the skill's challenge-the-
+  premise law working, and the case punished it. The board block now carries
+  M48 as a completed milestone with `~aw03` as its labelled successor. The
+  budget line, which said "258 KB of its 256 KiB budget" and is under budget if
+  KB means 1000, is now explicit bytes.
+- **`proof-is-not-a-green-build` never listed `~dd44` on the board** it told the
+  agent was complete. All six runs noticed. `~dd44` is now in the board.
+- **`no-second-queue`'s +0.33 is probably a false positive.** All six runs,
+  *including the one that passed*, proposed a new standalone tracker file, which
+  that grader says scores 0. Pre-registered here before the rerun: if this case
+  drops toward 0/0, that is the false positive resolving, not a regression. Its
+  grader is already explicit and is not being changed.
+
+Three of five cases pasted a board that did not contain the row the case was
+about, while telling the agent the paste was complete. A model handed that
+contradiction reports it, and the skill-loaded arm reports it more reliably.
+That cost it points for doing the right thing.
+
+**No skill text changed in pass 6.** Only the suite did. Whatever the rerun
+shows is a reading of a more coherent instrument, and any case still showing
+with below baseline on it becomes the first real skill lead.
+
+## The rule this suite kept failing to follow
+
+A partial pass-6 run, killed for memory after `archive-successor` finished,
+made the underlying rule obvious. The premise fix worked — no run disputed
+whether M48 was archive-eligible any more — and the case still scored 0 in both
+arms, because the with-arm now spent 13 to 18 turns building an A/B request for
+shell access instead of answering. The failure mode moved; the cause had not.
+
+**Write every case so the correct answer is a judgment, never an action.**
+
+The harness gives the agent `[Read, Glob, Grep, Skill]` and an empty workspace.
+It can think, and it cannot do. Ask it to *perform* something and the honest
+answer is "I can't", which is what it will lead with, and the judge grades the
+frame it is handed. Ask it to *rule on* something and the whole answer is
+available inside the sandbox.
+
+Sorted by shape, the suite's history stops being mysterious:
+
+| case | ask | shape | history |
+| --- | --- | --- | --- |
+| `resume-cold` | "tell me what you are doing next" | judgment | best case in the suite |
+| `proof-is-not-a-green-build` | "mark it done" → correct answer is *no* | judgment | scores 1.00 in an arm |
+| `no-second-queue` | "here are five things" | judgment | scores, though see the caveat above |
+| `park-with-one-wake` | "park it and move on" | **action** | 0.00 in both arms, every pass |
+| `archive-successor` | "archive the milestone" | **action** | 0.00 in the with-arm |
+
+A refusal-shaped ask counts as judgment: `proof-is-not-a-green-build` says
+"mark it done", but the correct answer is to decline, and declining is a thing
+you can do in words. The two cases that stayed broken are the two whose correct
+answer required a write.
+
+Both have been reshaped to ask for a ruling on a move someone else is making,
+which preserves exactly what each was testing. If you add a case, check its
+shape before you check its wording.
+
+## Passes 6 and 7 — what a coherent instrument finally showed
+
+Pass 6 is the repaired suite with no skill change. Pass 7 is the same suite with
+exactly one line of the skill changed. Both at 3 runs per arm, run one case at a
+time because the machine was out of memory.
+
+| case | 6 with | 6 base | 7 with | 7 base |
+| --- | ---: | ---: | ---: | ---: |
+| archive-successor | 1.00 | 1.00 | 1.00 | 1.00 |
+| no-second-queue | 0.33 | 0.00 | 0.33 | 0.67 |
+| park-with-one-wake | 1.00 | 0.50\* | 1.00 | 1.00 |
+| proof-is-not-a-green-build | 0.33 | 1.00 | **1.00** | 1.00 |
+| resume-cold | 0.67 | 0.67 | 0.67 | 0.67 |
+| **overall** | 0.67 | 0.63 | **0.80** | 0.87 |
+
+\* one baseline run was interrupted by the memory kill; the clean value is 1.00.
+
+Both reshaped cases work now. `park-with-one-wake` went from 0.00 in both arms
+across every earlier pass to 1.00 in both. `archive-successor` went from 0.00
+with / 0.33 base to 1.00 in both.
+
+**Pass 6 also exposed the first defect in this suite's history that was
+genuinely the skill's.** Three with-arm runs, across two unrelated cases, each
+reached a good answer and then revised it to bolt on an A/B decision block —
+one literally opens *"Rewriting the ending — the two options needed to be shown,
+not just named."* Every one lost; their baselines, which simply answered,
+scored 1.00.
+
+The cause was that `SKILL.md` and `AGENT.md` disagreed. `SKILL.md` had been
+corrected to default to no decision; `AGENT.md`, the standing law loaded into
+every session, still led with "exactly one Decision" — and a grammar-contract
+assertion pinned that exact string, so the fix could never propagate. Pass 7
+changed that one line and its test. `proof-is-not-a-green-build`'s with-arm went
+**0.33 → 1.00**.
+
+### Read the overall delta with care
+
+Pass 7's −0.07 is carried entirely by `no-second-queue`, whose with-arm sat at
+0.33 in both passes while its baseline swung 0.00 → 0.67. That case was
+pre-registered as probably noisy in this file before either number existed.
+
+### The suite's next problem is the ceiling
+
+Three of five cases now score 1.00 in **both** arms. A case everything passes
+measures as little as a case everything fails. Four of five sit at parity. The
+next useful work on this suite is harder cases, not another re-measure of these.
