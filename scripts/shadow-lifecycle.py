@@ -271,8 +271,14 @@ def validate_milestone(
     lines: list[str],
 ) -> tuple[set[str], list[tuple[int, int, str]]]:
     rows = milestone.rows
-    if any("malformed" in row for row in rows) or not 2 <= len(rows) <= 7:
-        raise LifecycleError("milestone must contain 2-7 well-formed task rows")
+    # The 2-7 band is Milestone law for an OPEN milestone; lint warns above 7.
+    # Archive eligibility has no upper bound: the archive moves one whole
+    # `###` block and its receipts by id, and nothing below keys on row count.
+    # Mirroring the band here left a fully completed, fully proven 8+-row
+    # milestone unarchivable forever — measured 2026-09-21 on two plans held
+    # within 1 KB of the hot-plan byte cap by exactly one such milestone each.
+    if any("malformed" in row for row in rows) or len(rows) < 2:
+        raise LifecycleError("milestone must contain at least 2 well-formed task rows")
     ids = {row["id"] for row in rows}
     if len(ids) != len(rows):
         raise LifecycleError("milestone task ids must be unique")

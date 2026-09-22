@@ -409,16 +409,19 @@ def lint_plan(
             ))
             continue
         if len(rows) > 7:
-            # The published 2-7 band is the lifecycle archive boundary, but
-            # existing plans predate mechanical enforcement and may carry
+            # The published 2-7 band is Milestone law for an open milestone,
+            # but existing plans predate mechanical enforcement and may carry
             # larger live milestones. Make that debt visible without turning
-            # an otherwise healthy board into a flag-day outage. DoD checks
+            # an otherwise healthy board into a flag-day outage. Lifecycle
+            # archives any fully completed milestone regardless of width, so
+            # this is authoring advice, not an archive blocker. DoD checks
             # below still run and remain blocking.
             findings.append(_finding(
                 "MILESTONE-SHAPE",
                 rows[0][0],
                 "warning",
-                f"milestone has {len(rows)} task rows; lifecycle archives require 2-7",
+                f"milestone has {len(rows)} task rows; the milestone band is 2-7 "
+                "— split it while it is still open",
             ))
         dod = [(n, r) for n, r in rows if r["dod"]]
         if len(dod) != 1:

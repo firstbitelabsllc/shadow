@@ -401,8 +401,10 @@ cannot run and the remedy is to trim or relocate plan text; or the same trim
 when no archive-eligible milestone exists. Migration is lossless and does not
 shrink the plan.
 
-Archive eligibility, rechecked per milestone at apply time: 2-7 well-formed
-task rows; exactly one `(DoD)` row; every row completed; every row's proof
+Archive eligibility, rechecked per milestone at apply time: at least 2
+well-formed task rows (the 2-7 Milestone law bounds an open milestone; a
+fully completed wider one archives whole); exactly one `(DoD)` row; every row
+completed; every row's proof
 matches a typed class ("`<id>` has no typed proof" otherwise); ids unique
 within the milestone, and no duplicate task id anywhere in the plan ("plan
 has duplicate task ids" — a duplicate would let the dependency fold strip a
