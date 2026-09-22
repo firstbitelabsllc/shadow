@@ -842,7 +842,10 @@ class ShadowAcceptTests(unittest.TestCase):
             (
                 "malformed",
                 malformed,
-                r"~ef56 has a malformed SOURCE receipt",
+                # option A (grant 2026-09-22): a post-cutover SOURCE candidate
+                # without canonical shape is prose — skipped, so the row has
+                # zero canonical receipts instead of a malformed one.
+                r"~ef56 has 0 canonical SOURCE receipts",
             ),
             (
                 "state reverted",
@@ -867,7 +870,9 @@ class ShadowAcceptTests(unittest.TestCase):
             (
                 "exact cutover prose",
                 cutover_prose_source,
-                r"~ij90 has a malformed SOURCE receipt",
+                # option A (grant 2026-09-22): prose is skipped, so the
+                # canonical-count gate refuses instead of the shape gate.
+                r"~ij90 has 0 canonical SOURCE receipts",
             ),
             (
                 "conflicting",
@@ -937,7 +942,9 @@ class ShadowAcceptTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             accept.AcceptError,
-            r"~ab12 has a malformed SOURCE receipt",
+            # option A (grant 2026-09-22): non-canonical post-cutover
+            # candidates are prose — the canonical-count gate refuses.
+            r"~ab12 has 0 canonical SOURCE receipts",
         ):
             accept.local_plan_source_identity(modern_malformed)
 
@@ -952,7 +959,9 @@ class ShadowAcceptTests(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(
                     accept.AcceptError,
-                    r"~ab12 has a malformed SOURCE receipt",
+                    # option A (grant 2026-09-22): non-canonical spacing
+                    # makes this prose — the canonical-count gate refuses.
+                    r"~ab12 has 0 canonical SOURCE receipts",
                 ):
                     accept.local_plan_source_identity(malformed_spacing)
 
@@ -967,7 +976,9 @@ class ShadowAcceptTests(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(
                     accept.AcceptError,
-                    r"~ab12 has a malformed SOURCE receipt",
+                    # option A (grant 2026-09-22): non-canonical spacing
+                    # makes this prose — the canonical-count gate refuses.
+                    r"~ab12 has 0 canonical SOURCE receipts",
                 ):
                     accept.local_plan_source_identity(malformed_spacing)
 
