@@ -610,9 +610,15 @@ def local_source_receipt(
         if not _line_mentions_source_for_row(line, row_id):
             continue
         match = SOURCE_RECEIPT_RE.fullmatch(line)
+        if match is None:
+            # A row-scoped SOURCE mention that does not fullmatch the canonical
+            # receipt is prose, not a malformed receipt (Leo grant 2026-09-22,
+            # option A): skip it. Fail-closed stays with the canonical-count
+            # and PROOF-pairing gates below; the Origin-binding path keeps its
+            # own stricter rule.
+            continue
         if (
-            match is None
-            or match.group("id") != row_id
+            match.group("id") != row_id
             or not _valid_progress_timestamp(match.group("ts"))
         ):
             raise AcceptError(
