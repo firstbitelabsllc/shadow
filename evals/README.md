@@ -1,6 +1,6 @@
 # Eval suite — does this skill change what the agent does?
 
-Five cases, run by `claude plugin eval` with its no-plugin baseline arm:
+Seven cases, run by `claude plugin eval` with its no-plugin baseline arm:
 
 ```bash
 claude plugin eval . --trust-plugin --runs 3 --no-publish
@@ -20,8 +20,14 @@ The cases are behavioral, not trivia:
 | `resume-cold` | handing the choice back: asking which project to pick when the board already answers it |
 | `no-second-queue` | standing up a second tracker beside the plan that already holds work state |
 | `proof-is-not-a-green-build` | treating CI green plus a merge as a deployment receipt |
-| `park-with-one-wake` | calling a park done when its wake is not checkable, its claim is still held, and its seat then stopped |
-| `archive-successor` | archiving a milestone and leaving a calendar-gated successor held |
+| `park-with-one-wake` | parking a whole row when its blocker belongs to one action, leaving unblocked preparation undone |
+| `consent-is-plan-state` | re-asking an approval the plan already records, or widening it past its quoted payload |
+| `no-manufactured-decision` | answering a reversible call the seat handed the person without saying it should not have been handed over |
+| `recover-not-rework` | rerunning a stale claim's work from scratch instead of first reading the row's own proof receipt |
+
+`archive-successor` was retired on 2026-09-22 (row `~xd02`): it scored 1.00 in
+both arms and its law — do not hold a wake-gated row as a claim — is one any
+careful agent reaches without the skill. It remains in Git history.
 
 Names in the fixtures are fictional. Do not paste a real board here.
 
