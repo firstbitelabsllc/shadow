@@ -144,6 +144,45 @@ class CleanPreviewTests(unittest.TestCase):
                 landed_ref="refs/heads/master",
             )
 
+    def test_creation_rejects_non_commit_object_ids_without_side_effects(self):
+        blob = git(self.repo, "hash-object", "-w", "PLAN.md")
+        tree = git(self.repo, "rev-parse", "HEAD^{tree}")
+        git(self.repo, "tag", "-a", "oid-object-test", "-m", "object test")
+        tag = git(self.repo, "rev-parse", "oid-object-test^{tag}")
+        for label, ref in (("blob", blob), ("tree", tree), ("tag", tag)):
+            with self.subTest(label=label):
+                destination = self.repo.parent / f"managed-{label}-oid"
+                with self.assertRaisesRegex(self.clean.CleanError, "commit"):
+                    self.clean.create_managed_worktree(
+                        self.repo,
+                        destination,
+                        entity=self.entity,
+                        checkpoint="~aa11",
+                        seat="seat-a",
+                        ref=ref,
+                        landed_ref="refs/heads/master",
+                        home=self.home,
+                    )
+                self.assertFalse(destination.exists())
+                self.assertFalse((self.home / ".shadow" / "clean").exists())
+
+    def test_creation_issues_managed_worktree_for_full_commit_oid(self):
+        oid = git(self.repo, "rev-parse", "HEAD")
+        destination = self.repo.parent / "managed-commit-oid"
+        created = self.clean.create_managed_worktree(
+            self.repo,
+            destination,
+            entity=self.entity,
+            checkpoint="~aa11",
+            seat="seat-a",
+            ref=oid,
+            landed_ref="refs/heads/master",
+            home=self.home,
+        )
+        self.assertEqual(created["state"], "issued")
+        self.assertEqual(git(destination, "rev-parse", "HEAD"), oid)
+        self.assertEqual(len(list((self.home / ".shadow" / "clean" / "journals").glob("*.json"))), 1)
+
     def test_preview_reads_only_matching_issued_receipt_and_journal(self):
         destination = self.repo.parent / "managed"
         self.clean.create_managed_worktree(

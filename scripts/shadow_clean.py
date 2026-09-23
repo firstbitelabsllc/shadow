@@ -482,7 +482,9 @@ def _creation_inputs(
     _git(source, "rev-parse", "--show-toplevel")
     if ref != "HEAD" and not OID_RE.fullmatch(ref):
         _git(source, "check-ref-format", ref)
-    source_head = _git(source, "rev-parse", ref).stdout.strip()
+    source_head = _git(source, "rev-parse", "--verify", f"{ref}^{{commit}}").stdout.strip()
+    if OID_RE.fullmatch(ref) and _git(source, "cat-file", "-t", ref).stdout.strip() != "commit":
+        raise CleanError("creation object id must name a commit")
     if not OID_RE.fullmatch(source_head):
         raise CleanError("creation ref did not resolve to a full Git object id")
     stamp = _stamp(_utc(now) if now is not None else datetime.now(timezone.utc))
