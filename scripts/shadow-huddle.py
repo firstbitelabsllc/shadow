@@ -246,9 +246,15 @@ def _recover_remote_pending(payload: dict, huddle: dict, *, now: datetime,
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="shadow huddle")
+    parser = argparse.ArgumentParser(
+        prog="shadow huddle",
+        description="Coordinate overlapping claims through the board Huddle. "
+                    "Use exact IDs and revisions from current board readback.")
     sub = parser.add_subparsers(dest="route", required=True)
-    preflight = sub.add_parser("preflight")
+    preflight = sub.add_parser(
+        "preflight", help="declare a claim's source access under exact board/claim CAS",
+        description="Declare source access under exact board/claim CAS. --path values are "
+                    "repository-relative prefixes; repeat --path for each write prefix.")
     preflight.add_argument("--entity", required=True, type=_entity_id)
     preflight.add_argument("--row", required=True, type=_row_id)
     preflight.add_argument("--claim-revision", required=True, type=_nonnegative_int)
@@ -257,20 +263,30 @@ def _parser() -> argparse.ArgumentParser:
     preflight.add_argument("--access", required=True, choices=("unscoped", "read_only", "write"))
     preflight.add_argument("--path", action="append", default=[])
     preflight.add_argument("--expect-board", required=True, type=_nonnegative_int)
-    opening = sub.add_parser("open")
+    opening = sub.add_parser(
+        "open", help="open or join a Huddle; reads JSON on stdin",
+        description='Reads bounded JSON on stdin: {"claim_keys": [<five-field claim refs>], '
+                    '"reason": "semantic_suspicion"}. The --by seat must own one listed claim.')
     opening.add_argument("--by", required=True)
-    bid = sub.add_parser("bid")
+    bid = sub.add_parser(
+        "bid", help="submit one bid for the current round; reads JSON on stdin",
+        description="Reads bounded JSON on stdin with exactly: seat, claim, role, scope, reason, "
+                    "target, support_claim, evidence, round, expected_huddle_generation. Roles: "
+                    "own, disjoint, review, prove, yield, stand_down, unavailable.")
     bid.add_argument("--id", required=True, type=_huddle_id)
     bid.add_argument("--generation", required=True, type=_positive_int)
     bid.add_argument("--by", required=True)
-    showing = sub.add_parser("show")
+    showing = sub.add_parser(
+        "show", help="print one Huddle record as JSON; never changes the board")
     showing.add_argument("--id", required=True, type=_huddle_id)
-    settle = sub.add_parser("settle")
+    settle = sub.add_parser(
+        "settle", help="settle once all bids arrive or the two-minute reply window passes")
     settle.add_argument("--id", required=True, type=_huddle_id)
     settle.add_argument("--generation", required=True, type=_positive_int)
     settle.add_argument("--expect-board", required=True, type=_nonnegative_int)
     settle.add_argument("--by", required=True)
-    contact = sub.add_parser("contact-register")
+    contact = sub.add_parser(
+        "contact-register", help="pass contact JSON on stdin to the optional delivery adapter")
     contact.add_argument("--seat", required=True)
     return parser
 
