@@ -329,6 +329,16 @@ class HuddleCliTests(HuddleTestCase):
                     "round": 1, "expected_huddle_generation": huddle["generation"]}
         first = bid(a, "own", "existing_claim")
         first_args = ("bid", "--id", huddle["id"], "--generation", str(huddle["generation"]), "--by", "A")
+        # A malformed bid names what is wrong, so a seat can fix it inside the reply window.
+        before = self.authority()
+        malformed = {k: v for k, v in first.items() if k != "target"} | {"note": "x"}
+        refused = self.run_cli(*first_args, stdin=json.dumps(malformed).encode())
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("missing: target", refused.stderr.decode())
+        self.assertIn("unexpected: note", refused.stderr.decode())
+        wrong_seat = self.run_cli("bid", "--id", huddle["id"], "--generation", str(huddle["generation"]), "--by", "B", stdin=json.dumps(first).encode())
+        self.assertIn("seat must equal --by", wrong_seat.stderr.decode())
+        self.assertEqual(before, self.authority())
         one = self.run_cli(*first_args, stdin=json.dumps(first).encode())
         self.assertEqual(one.returncode, 0, one.stderr.decode())
         second = self.run_cli(*first_args, stdin=json.dumps(first).encode())

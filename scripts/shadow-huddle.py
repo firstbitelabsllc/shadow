@@ -349,7 +349,12 @@ def main() -> None:
     if args.route == "bid":
         value = stdin_object()
         if set(value) != board._BID_REQUEST_FIELDS or value.get("seat") != args.by:
-            fail("bid input is invalid")
+            # Name the fault: a seat fixing a bid is racing the two-minute reply window.
+            missing = sorted(board._BID_REQUEST_FIELDS - set(value))
+            extra = sorted(str(key)[:40] for key in set(value) - board._BID_REQUEST_FIELDS)[:5]
+            faults = ([f"missing: {', '.join(missing)}"] if missing else []) + \
+                     ([f"unexpected: {', '.join(extra)}"] if extra else [])
+            fail(f"bid input is invalid ({'; '.join(faults or ['seat must equal --by'])})")
         if value.get("expected_huddle_generation") != args.generation:
             fail("bid generation differs from CLI generation")
         mutation = board.submit_huddle_bid(huddle_id=args.id, now=now, home=home, **value)
