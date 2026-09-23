@@ -164,6 +164,43 @@ class ReleaseTrainTriggersAreDeterministic(unittest.TestCase):
         self.assertTrue(release_plan["full_gauntlet"])
         self.assertFalse(feature_plan["full_gauntlet"])
 
+    def test_main_push_runs_full_python_proof_for_a_narrow_source_change(self) -> None:
+        with mock.patch.object(
+            ci, "changed_paths", return_value=["scripts/shadow-status.py"]
+        ):
+            plan = ci.event_plan({
+                "EVENT_NAME": "push", "PUSH_BEFORE_SHA": "a", "HEAD_SHA": "b",
+            })
+
+        self.assertTrue(plan["run_all"])
+        self.assertEqual(plan["modules"], [])
+        self.assertFalse(plan["release_contract"])
+        self.assertFalse(plan["full_gauntlet"])
+        self.assertEqual(plan["browser_modules"], sorted(ci.BROWSER_BASELINE))
+        self.assertIn("main push requires full Python proof", plan["reason"])
+
+    def test_pull_request_keeps_narrow_source_selection(self) -> None:
+        with mock.patch.object(
+            ci, "changed_paths", return_value=["scripts/shadow-status.py"]
+        ):
+            plan = ci.event_plan({
+                "EVENT_NAME": "pull_request", "PR_BASE_SHA": "a", "HEAD_SHA": "b",
+            })
+
+        self.assertFalse(plan["run_all"])
+        self.assertIn("tests.test_status_focus", plan["modules"])
+
+    def test_main_push_preserves_release_contract_and_gauntlet(self) -> None:
+        with mock.patch.object(ci, "changed_paths", return_value=["VERSION"]):
+            plan = ci.event_plan({
+                "EVENT_NAME": "push", "PUSH_BEFORE_SHA": "a", "HEAD_SHA": "b",
+            })
+
+        self.assertTrue(plan["run_all"])
+        self.assertEqual(plan["modules"], [])
+        self.assertTrue(plan["release_contract"])
+        self.assertTrue(plan["full_gauntlet"])
+
     def test_gauntlet_runs_every_expensive_stage_once_in_order(self) -> None:
         expected = (
             "story-e2e-pass-1", "story-e2e-pass-2", "migration-and-lifecycle",
