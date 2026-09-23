@@ -2986,7 +2986,10 @@ def claim(
                     raise BoardError("Huddle support claim must remain current until its participant returns")
                 if ((access != "unscoped" and access != winner["access"])
                     or write_scope is not None and write_scope != winner["write_scope"]):
-                    raise BoardError("stale adoption must preserve access and write scope")
+                    raise BoardError(
+                        "stale adoption must preserve access and write scope; omit --access and "
+                        "--path to inherit them, or pass --access "
+                        f"{winner['access']}" + "".join(f" --path {p}" for p in winner["write_scope"] or ()))
                 access, write_scope = winner["access"], copy.deepcopy(winner["write_scope"])
                 if adoption_plan is not None:
                     adoption_bytes = read_plan_bytes(adoption_plan)
