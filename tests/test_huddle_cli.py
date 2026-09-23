@@ -343,21 +343,19 @@ class HuddleCliTests(HuddleTestCase):
         self.assertEqual(before, self.authority())
         settled = self.run_cli("settle", "--id", huddle["id"], "--generation", str(huddle["generation"]), "--expect-board", str(board.snapshot(home=self.home)["revision"]), "--by", "A")
         self.assertEqual(settled.returncode, 0, settled.stderr.decode())
-        shown = self.run_cli("show", "--id", huddle["id"])
-        round_two = json.loads(shown.stdout)
-        self.assertEqual((round_two["state"], round_two["round"]), ("open_round_2", 2))
-        self.assertEqual(self.run_cli(*first_args, stdin=json.dumps(first).encode()).stdout, one.stdout)
-        for claim, role, reason in ((a, "own", "existing_claim"), (b, "stand_down", "duplicate_intent")):
-            payload = bid(claim, role, reason)
-            payload["round"] = 2
-            payload["expected_huddle_generation"] = round_two["generation"]
-            result = self.run_cli("bid", "--id", huddle["id"], "--generation", str(round_two["generation"]), "--by", claim["owner"], stdin=json.dumps(payload).encode())
-            self.assertEqual(result.returncode, 0, result.stderr.decode())
-        settled = self.run_cli("settle", "--id", huddle["id"], "--generation", str(round_two["generation"]), "--expect-board", str(board.snapshot(home=self.home)["revision"]), "--by", "A")
-        self.assertEqual(settled.returncode, 0, settled.stderr.decode())
+        # Conflicting bids settle once; no second round opens.
         final = json.loads(self.run_cli("show", "--id", huddle["id"]).stdout)
+        self.assertEqual((final["state"], final["round"]), ("awaiting_compliance", 1))
         self.assertEqual(final["resolution"]["write_owners"], [board._claim_ref(a)])
         self.assertEqual(final["holds"], [board._claim_ref(b)])
+        self.assertEqual(self.run_cli(*first_args, stdin=json.dumps(first).encode()).stdout, one.stdout)
+        before = self.authority()
+        late = bid(a, "own", "existing_claim")
+        late["round"] = 2
+        late["expected_huddle_generation"] = final["generation"]
+        refused = self.run_cli("bid", "--id", huddle["id"], "--generation", str(final["generation"]), "--by", "A", stdin=json.dumps(late).encode())
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(before, self.authority())
 
 
 if __name__ == "__main__":
