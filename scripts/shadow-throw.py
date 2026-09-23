@@ -463,10 +463,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
     except _board.AlreadyClaimed as exc:
-        print(
-            f"shadow throw: {args.task} was claimed by {exc.owner}; take another reachable row",
-            file=sys.stderr,
-        )
+        if exc.stale:
+            hint = (f"its lease expired at {exc.return_by}; probe its proof, then rerun "
+                    "with --adopt-expired, or take another reachable row")
+        elif exc.return_by:
+            hint = (f"its lease runs until {exc.return_by}; take another reachable row, "
+                    "or after that probe its proof and rerun with --adopt-expired")
+        else:
+            hint = "take another reachable row"
+        print(f"shadow throw: {args.task} was claimed by {exc.owner}; {hint}", file=sys.stderr)
         return 1
     except (_board.BoardError, LookupError, ValueError) as exc:
         print(f"shadow throw: claim refused: {exc}", file=sys.stderr)

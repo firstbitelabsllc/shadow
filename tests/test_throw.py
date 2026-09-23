@@ -689,6 +689,8 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             losing = run(THROW, repo, env, "--task", "~bb22", "--by", "codex")
             self.assertEqual(losing.returncode, 1)
             self.assertIn("claimed by claude", losing.stderr)
+            self.assertRegex(losing.stderr, r"lease runs until \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+            self.assertNotIn("lease expired", losing.stderr)
             projected = run(AMP, repo, env)
             self.assertNotIn("the ready row ~bb22", projected.stdout)
 
@@ -856,6 +858,8 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             ordinary = run(THROW, repo, env, "--task", "~bb22", "--by", "new-seat")
             self.assertEqual(ordinary.returncode, 1, ordinary.stderr)
             self.assertIn("claimed by old-seat", ordinary.stderr)
+            self.assertIn(f"lease expired at {legacy['return_by']}", ordinary.stderr)
+            self.assertIn("--adopt-expired", ordinary.stderr)
 
             adopted = run(
                 THROW,
