@@ -19,6 +19,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as _board  # noqa: E402
+import shadow_plan_grammar as _grammar  # noqa: E402
 import shadow_board_import as _import  # noqa: E402
 import shadow_remote_claim as _remote_claim  # noqa: E402
 from shadow_scrub_lib import PRIVATE_PATH_RE, SECRET_SHAPE_RE  # noqa: E402
@@ -187,6 +188,16 @@ def v4_brief(
     return record
 
 
+# Wakes are exported verbatim for consumers such as Cabinet's waiting section.
+# Measured 2026-09-22: 297 of this computer's 314 wake texts on open rows fit in 480
+# characters; a longer one is a marked prefix, never a paraphrase.
+WAKE_CHARS = 480
+
+
+def _wake_text(value: str | None) -> str | None:
+    return (_amp._clean(value, WAKE_CHARS) or None) if value else None
+
+
 def milestone_rotation(
     plan: dict,
     resume_id: str | None,
@@ -200,6 +211,9 @@ def milestone_rotation(
     for claim in claims:
         owners.setdefault(claim["row"], []).append(claim["owner"])
     reachable = set(candidates if candidates is not None else _amp._candidate_ids(plan))
+    # Row and Deferred wakes are reported side by side; neither overrides the
+    # other, and an ambiguous Deferred entry exports null instead of raising.
+    deferred = _grammar.deferred_wakes(plan.get("text", ""))
     rotation = []
     for milestone in plan["milestones"]:
         checkpoints = []
@@ -222,6 +236,8 @@ def milestone_rotation(
                     "availability": availability,
                     "resume": is_resume,
                     "owners": row_owners,
+                    "wake": _wake_text(row["fields"].get("wake")),
+                    "deferred_wake": _wake_text(deferred.get(row["id"])),
                 }
             )
         open_milestone = any(
