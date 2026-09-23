@@ -123,6 +123,27 @@ class CleanPreviewTests(unittest.TestCase):
             )
         self.assertEqual(receipt_path.read_bytes(), before)
 
+    def test_creation_inputs_accepts_full_commit_oid_and_refuses_invalid_ref(self):
+        oid = git(self.repo, "rev-parse", "HEAD")
+        source, destination, source_head, stamp = self.clean._creation_inputs(
+            self.repo,
+            self.repo.parent / "managed-oid",
+            ref=oid,
+            landed_ref="refs/heads/master",
+            now="2026-09-23T00:00:00Z",
+        )
+        self.assertEqual(source, self.repo.resolve())
+        self.assertEqual(destination, (self.repo.parent / "managed-oid").resolve())
+        self.assertEqual(source_head, oid)
+        self.assertEqual(stamp, "2026-09-23T00:00:00Z")
+        with self.assertRaisesRegex(self.clean.CleanError, "Git command failed"):
+            self.clean._creation_inputs(
+                self.repo,
+                self.repo.parent / "managed-invalid-ref",
+                ref="refs/heads/invalid..ref",
+                landed_ref="refs/heads/master",
+            )
+
     def test_preview_reads_only_matching_issued_receipt_and_journal(self):
         destination = self.repo.parent / "managed"
         self.clean.create_managed_worktree(
