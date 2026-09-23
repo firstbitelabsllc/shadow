@@ -1,6 +1,6 @@
 # Eval suite — does this skill change what the agent does?
 
-Seven cases, run by `claude plugin eval` with its no-plugin baseline arm:
+Four cases, run by `claude plugin eval` with its no-plugin baseline arm:
 
 ```bash
 claude plugin eval . --trust-plugin --runs 3 --no-publish
@@ -17,17 +17,14 @@ The cases are behavioral, not trivia:
 
 | case | what it refuses to reward |
 | --- | --- |
-| `resume-cold` | handing the choice back: asking which project to pick when the board already answers it |
+| `resume-cold` | handing the choice back: answering "where should we start?" with a menu when the board already answers it |
 | `no-second-queue` | standing up a second tracker beside the plan that already holds work state |
-| `proof-is-not-a-green-build` | treating CI green plus a merge as a deployment receipt |
-| `park-with-one-wake` | parking a whole row when its blocker belongs to one action, leaving unblocked preparation undone |
-| `consent-is-plan-state` | re-asking an approval the plan already records, or widening it past its quoted payload |
-| `no-manufactured-decision` | answering a reversible call the seat handed the person without saying it should not have been handed over |
-| `recover-not-rework` | rerunning a stale claim's work from scratch instead of first reading the row's own proof receipt |
+| `proof-is-not-a-green-build` | treating CI green plus a merge as a deployment receipt (kept at the ceiling as the regression guard for the 2026-09-21 decision-menu fix) |
+| `no-manufactured-decision` | polishing a brief's A/B for the person when the choice is a reversible call the seat should make itself |
 
-`archive-successor` was retired on 2026-09-22 (row `~xd02`): it scored 1.00 in
-both arms and its law — do not hold a wake-gated row as a claim — is one any
-careful agent reaches without the skill. It remains in Git history.
+Retired on 2026-09-22 (row `~xd02`), all still in Git history, because each scored
+1.00 in BOTH arms on every shape tried: `archive-successor`, `park-with-one-wake`,
+`consent-is-plan-state` and `recover-not-rework`. See "Passes 8-12" below.
 
 Names in the fixtures are fictional. Do not paste a real board here.
 
@@ -196,3 +193,44 @@ pre-registered as probably noisy in this file before either number existed.
 Three of five cases now score 1.00 in **both** arms. A case everything passes
 measures as little as a case everything fails. Four of five sit at parity. The
 next useful work on this suite is harder cases, not another re-measure of these.
+
+## Passes 8-12 — restoring discrimination (2026-09-22, claude 2.1.280, agent model claude-opus-5-5)
+
+The ceiling was the problem, so the cases were rewritten against it, not re-measured.
+Four new or hardened cases were tried in two shapes each:
+
+| case | shape tried | with | baseline |
+| --- | --- | ---: | ---: |
+| `park-with-one-wake` (too wide: park only the upload, build the archive first) | "is that the right park?" / "park it for me" / without the build hint | 1.00 | 1.00 |
+| `consent-is-plan-state` (recorded grant: don't re-ask v3, don't widen to the banner) | "should it send?" / "tighten this message" / without the hash line | 1.00 | 1.00 |
+| `recover-not-rework` (read the orphan's proof receipt before rerunning) | "is that right?" 1.00/1.00 · "write the rerun steps" 0.00/0.00 · "write takeover steps" 1.00/1.00 | — | — |
+| `no-manufactured-decision` | "A or B?" 1.00/1.00 · "rewrite it so I can decide faster" | 0.67, 0.33 | 0.00, 0.00 |
+
+**The finding: a review question is not a hard case.** Asked "is this right?", the
+no-skill arm finds every one of these laws unaided, in one turn, and the skill often does
+not even fire. The only cases that separate are the ones where **the person's own request
+is the anti-pattern** — "set me up a tracker", "rewrite this so I can decide faster",
+"where should we start?" — so the generically helpful answer is to comply, and only the
+skill's law says not to. That is the shape rule's second half: *judgment, never action;
+and the request, not a review prompt, carries the trap.*
+
+`resume-cold` was also reshaped. Its old ask ("tell me what you are doing next") was
+action-shaped, and its baseline failures were the "I can't run anything" frame, not the
+stance. The new ask is "Where should we start?". A "give me a menu" variant floored at
+0.00/0.00 with the skill never firing, so it was not kept.
+
+Final pass, the suite as committed, 3 runs per arm:
+
+| case | with | baseline | Δ | skill fired (with) |
+| --- | ---: | ---: | ---: | --- |
+| no-manufactured-decision | 0.33 | 0.00 | +0.33 | 1/3 — the one run that fired passed; the two where it did not fire failed |
+| no-second-queue | 0.67 | 0.00 | +0.67 | 3/3 |
+| proof-is-not-a-green-build | 1.00 | 1.00 | 0.00 | 3/3 |
+| resume-cold | 1.00 | 0.67 | +0.33 | 3/3 |
+| **overall** | **0.75** | **0.42** | **+0.33** | |
+
+One case sits at 1.00 in both arms, by design. Across pass 9 and the final pass,
+`no-manufactured-decision` passed 3 of 3 runs where the skill fired and 0 of 3 where it
+did not. **The next lever is the skill's trigger, not its text:** a brief-rewrite request
+does not load it reliably.
+

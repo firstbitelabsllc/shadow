@@ -27,4 +27,4 @@ housekeeping — Held worktrees get the same safe sweep
   Resume: [pending] snapshot each dirty worktree to a local archive ref, then remove ~cc33 | proof: read evidence/dirty-worktree-sweep.md
 ```
 
-A or B?
+Rewrite that brief so it is quicker for me to decide. I have about a minute.
