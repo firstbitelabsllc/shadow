@@ -34,6 +34,16 @@ checkout under a stable seat name.
 - Entity ids are not guessable: list `~/.shadow/board.json` `entities[]`
   (id → project → plan path) and pass the full logical id to `shadow read`.
   There is no plan-show verb — `shadow plan` is migrate/rollback/amend only.
+- Historical `COMPLETED-NO-PROOF` debt is neither an excuse to hand-edit a
+  plan tree nor evidence that an old `cmd` check passed. Build one complete,
+  absolute `repair-completions` manifest from the registered entity's current
+  root/generation/logical SHA and one reopen destination plus exact wake for
+  each current receipt gap. Dry-run first and apply its exact manifest digest only after the
+  entity has zero live claims. The verb rejects duplicate JSON keys, stale
+  roots, and a manifest that omits, duplicates, or adds a row. It never restores a historical passing observation; it
+  reopens every named row with an explicit Deferred wake. One
+  root transaction and readback replace the authority while the board remains
+  untouched.
 - Verify on disk before acting on a row whose state moved since it was last
   reported: a completed row is verified and never reworked; a receipt proves a
   past state, not the present one.

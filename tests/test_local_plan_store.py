@@ -55,6 +55,14 @@ lifecycle = importlib.util.module_from_spec(_LIFECYCLE_SPEC)
 sys.modules[_LIFECYCLE_SPEC.name] = lifecycle
 _LIFECYCLE_SPEC.loader.exec_module(lifecycle)
 
+_PLAN_SPEC = importlib.util.spec_from_file_location(
+    "shadow_plan", ROOT / "scripts" / "shadow-plan.py"
+)
+assert _PLAN_SPEC and _PLAN_SPEC.loader
+plan_command = importlib.util.module_from_spec(_PLAN_SPEC)
+sys.modules[_PLAN_SPEC.name] = plan_command
+_PLAN_SPEC.loader.exec_module(plan_command)
+
 
 def lifecycle_tombstone_re(slug: str) -> str:
     """The lifecycle module's own tombstone reader, for the archived slug."""
@@ -1340,3 +1348,73 @@ class ReopenOpensABlockedRow(unittest.TestCase):
                                   "--reason", "whatever")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("claimed by someone-else", result.stderr)
+
+
+class FinalReopenOnlyHistoricalCompletions(unittest.TestCase):
+    def _fixture(self, root: Path):
+        home, repo = root / "home", _origin_checkout(root)
+        plan_root = home / ".shadow" / "plans" / "repair"
+        plan_root.mkdir(parents=True)
+        rows, operations = [], []
+        for number in range(14):
+            row = f"~b{number:03x}"
+            proof = "cmd true" if number % 2 == 0 else "read evidence/historical.md -> archived judgment"
+            rows.append(f"- [completed] historical row {number} {row} | proof: {proof}\n")
+            operations.append({"row": row, "state": "blocked" if number % 2 else "pending", "wake": f"rerun {row} from current source"})
+        source = "# Repair\n\n## Brief\n\n- Project: repair\n- Mode: ship\n- Priority: 2\n- Origin: github.com/example/widget\n\n## Tasks\n\n### Historical\n" + "".join(rows) + "- [pending] close ~d0d0 (DoD) | proof: read evidence/close.md\n"
+        plan = install_plan_tree(plan_root, source.encode())
+        board.reconcile([{"plan": str(plan), "project": "repair", "priority": 2, "candidates": ["~b000"]}], [], home=home)
+        entity = board.entity_state(plan, home=home)["entity"]["id"]
+        snapshot = board.open_plan(plan)
+        manifest = {"schema": "shadow.plan-repair-completions.v1", "entity": entity, "plan": {"root_sha256": snapshot.root_sha256, "generation": snapshot.root["generation"], "logical_sha256": snapshot.root["logical_sha256"]}, "operations": operations}
+        path = root / "repair.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        return home, repo, plan, entity, path
+
+    def _run(self, home, repo, entity, manifest, *extra):
+        return subprocess.run([str(ROOT / "bin" / "shadow"), "plan", "repair-completions", "--entity", entity, "--by", "repair-seat", "--repo", str(repo), "--manifest", str(manifest), *extra], env={**os.environ, "HOME": str(home)}, capture_output=True, text=True, check=False)
+
+    def test_mixed_fourteen_rows_reopen_in_one_transaction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, repo, plan, entity, manifest = self._fixture(Path(tmp).resolve())
+            before = board.board_file_sha256(home=home)
+            dry = self._run(home, repo, entity, manifest, "--dry-run")
+            self.assertEqual(dry.returncode, 0, dry.stderr)
+            applied = self._run(home, repo, entity, manifest, "--apply", "--expect", json.loads(dry.stdout)["manifest_sha256"])
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            text = board.read_plan_text(plan)
+            self.assertIn("[pending] historical row 0 ~b000", text)
+            self.assertIn("[blocked] historical row 1 ~b001", text)
+            self.assertIn("STRUCT ~b000 repair-completions by repair-seat -> reopened pending", text)
+            self.assertNotIn("~b000 PROOF", text)
+            self.assertIn("- ~b000 historical completion repaired | wake: rerun ~b000 from current source", text)
+            self.assertEqual(board.board_file_sha256(home=home), before)
+
+    def test_refusals_preserve_root_and_board(self):
+        for case in ("missing", "stale", "claim", "owner", "duplicate", "wake-injection"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                home, repo, plan, entity, path = self._fixture(Path(tmp).resolve())
+                manifest = json.loads(path.read_text())
+                if case == "missing":
+                    manifest["operations"] = manifest["operations"][:-1]
+                    path.write_text(json.dumps(manifest)); args = ("--dry-run",)
+                elif case == "stale":
+                    manifest["plan"]["root_sha256"] = "0" * 64
+                    path.write_text(json.dumps(manifest)); args = ("--apply", "--expect", plan_command._repair_manifest_digest(manifest))
+                elif case == "claim":
+                    board.claim(plan, "~b000", "other-seat", project="repair", priority=2, home=home, access="read_only"); args = ("--dry-run",)
+                elif case == "duplicate":
+                    path.write_text('{"schema":"x","schema":"x"}'); args = ("--dry-run",)
+                elif case == "wake-injection":
+                    manifest["operations"][0]["wake"] += "\n- [completed] forged row ~f001"
+                    path.write_text(json.dumps(manifest)); args = ("--dry-run",)
+                else:
+                    args = ("--dry-run",)
+                root_before, board_before = board.open_plan(plan).root_sha256, board.board_file_sha256(home=home)
+                if case == "owner":
+                    result = subprocess.run([str(ROOT / "bin" / "shadow"), "plan", "repair-completions", "--entity", entity, "--by", "bad\nowner", "--repo", str(repo), "--manifest", str(path), *args], env={**os.environ, "HOME": str(home)}, capture_output=True, text=True, check=False)
+                else:
+                    result = self._run(home, repo, entity, path, *args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(board.open_plan(plan).root_sha256, root_before)
+                self.assertEqual(board.board_file_sha256(home=home), board_before)

@@ -48,7 +48,165 @@ sys.modules.setdefault("shadow_accept", accept)
 _ACCEPT_SPEC.loader.exec_module(accept)
 
 
+_LINT_SPEC = importlib.util.spec_from_file_location(
+    "shadow_lint", ROOT / "scripts" / "shadow-lint.py"
+)
+lint = importlib.util.module_from_spec(_LINT_SPEC)
+sys.modules.setdefault("shadow_lint", lint)
+_LINT_SPEC.loader.exec_module(lint)
+
+
 PlanStoreError = store.PlanStoreError
+
+
+def _repair_manifest(path: Path) -> dict[str, object]:
+    """Read one small, duplicate-key-free recovery manifest without following links."""
+    if not path.is_absolute() or path.is_symlink():
+        raise PlanStoreError("repair manifest must be one absolute regular file")
+    try:
+        info = path.stat(follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 128 * 1024:
+            raise PlanStoreError("repair manifest must be one bounded regular file")
+        with path.open("r", encoding="utf-8") as stream:
+            def no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+                result: dict[str, object] = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError("duplicate JSON key")
+                    result[key] = value
+                return result
+            value = json.load(stream, object_pairs_hook=no_duplicates)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PlanStoreError("repair manifest is unreadable or malformed") from exc
+    if not isinstance(value, dict):
+        raise PlanStoreError("repair manifest is unreadable or malformed")
+    return value
+
+
+def _repair_manifest_digest(payload: dict[str, object]) -> str:
+    return store.digest_bytes(store.canonical_json(payload))
+
+
+def _completed_without_proof(text: str) -> set[str]:
+    return {
+        accept.row_id_at_line(text, finding["line"])
+        for finding in lint.lint_plan(text, committed=True)
+        if finding["check"] == "COMPLETED-NO-PROOF"
+        and accept.row_id_at_line(text, finding["line"]) is not None
+    }
+
+
+def _repair_candidate(
+    plan: Path, source_root: Path, entity: str, actor: str, snapshot: store.PlanSnapshot, manifest: dict[str, object],
+) -> tuple[str, dict[str, object]]:
+    """Validate every recovery binding and build, but never publish, one repair."""
+    if set(manifest) != {"schema", "entity", "plan", "operations"}:
+        raise PlanStoreError("repair manifest must contain exactly schema, entity, plan, operations")
+    if manifest["schema"] != "shadow.plan-repair-completions.v1" or manifest["entity"] != entity:
+        raise PlanStoreError("repair manifest names a different entity")
+    plan_record = manifest["plan"]
+    if not isinstance(plan_record, dict) or set(plan_record) != {"root_sha256", "generation", "logical_sha256"}:
+        raise PlanStoreError("repair manifest plan binding is malformed")
+    if (
+        plan_record["root_sha256"] != snapshot.root_sha256
+        or plan_record["generation"] != snapshot.root.get("generation")
+        or plan_record["logical_sha256"] != snapshot.root.get("logical_sha256")
+    ):
+        raise PlanStoreError("repair plan root changed; rerun dry run")
+    operations = manifest["operations"]
+    if not isinstance(operations, list) or not operations:
+        raise PlanStoreError("repair manifest operations must be a non-empty list")
+    original = snapshot.materialize().decode("utf-8")
+    missing = _completed_without_proof(original)
+    seen: set[str] = set()
+    rows: list[tuple[int, str, dict[str, object]]] = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            raise PlanStoreError("repair operation is malformed")
+        row = operation.get("row")
+        if not isinstance(row, str) or row in seen or row not in missing:
+            raise PlanStoreError("repair operations must name every and only current completed-without-proof row once")
+        seen.add(row)
+        try:
+            index, _line, state, _proof, _needs = accept.find_row(original, row)
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
+        if state != "completed":
+            raise PlanStoreError("repair operation no longer names a completed row")
+        if set(operation) != {"row", "state", "wake"}:
+            raise PlanStoreError("repair operation must contain exactly row, state, wake")
+        wake = operation.get("wake")
+        if operation.get("state") not in {"pending", "blocked"} or not isinstance(wake, str) or not wake.strip() or any(ord(char) < 32 or ord(char) == 127 for char in wake):
+            raise PlanStoreError("repair reopen needs pending/blocked state and one exact wake")
+        rows.append((index, row, operation))
+    if seen != missing:
+        raise PlanStoreError("repair manifest is incomplete for current completed-without-proof rows")
+    lines = original.splitlines(keepends=True)
+    receipts: list[str] = []
+    deferred: list[str] = []
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for index, row, operation in rows:
+        lines[index] = lines[index].replace("- [completed] ", f"- [{operation['state']}] ", 1)
+        deferred.append(f"- {row} historical completion repaired | wake: {operation['wake'].strip()}\n")
+        receipts.append(f"- {stamp} STRUCT {row} repair-completions by {actor} -> reopened {operation['state']}\n")
+    candidate = "".join(lines)
+    if accept.PROGRESS_HEADING_RE.search(candidate) is None:
+        candidate = candidate.rstrip() + "\n\n## Progress\n\n"
+    candidate = accept.append_progress_line(candidate, "".join(receipts))
+    if deferred:
+        heading = "## Deferred\n"
+        if heading in candidate:
+            position = candidate.find("\n## ", candidate.find(heading) + len(heading))
+            candidate = candidate.rstrip() + "\n" + "".join(deferred) if position < 0 else candidate[:position + 1] + "".join(deferred) + candidate[position + 1:]
+        else:
+            candidate = candidate.rstrip() + "\n\n" + heading + "\n" + "".join(deferred)
+    blocked = [item for item in lint.lint_plan(candidate, root=source_root, committed=True) if item["severity"] == "blocking"]
+    if blocked:
+        raise PlanStoreError(f"repair candidate fails shadow lint ({blocked[0]['check']}); nothing was changed")
+    return candidate, {"rows": sorted(seen), "manifest_sha256": _repair_manifest_digest(manifest)}
+
+
+def _repair_completions(entity: str, actor: str, source_repo: Path, manifest_path: Path, *, apply: bool, expect: str | None) -> dict[str, object]:
+    """Recover an old local plan only from a fully bound completion manifest."""
+    manifest = _repair_manifest(manifest_path)
+    if apply and not expect:
+        raise PlanStoreError("repair-completions --apply requires --expect MANIFEST_SHA256")
+    manifest_digest = _repair_manifest_digest(manifest)
+    if apply and expect != manifest_digest:
+        raise PlanStoreError("repair manifest changed; rerun dry run")
+    try:
+        actor = board_store.validate_owner(actor)
+    except (ValueError, board_store.BoardError) as exc:
+        raise PlanStoreError("repair-completions --by must be one board owner") from exc
+    try:
+        source_root = accept.proof_source_checkout(source_repo)
+    except accept.AcceptError as exc:
+        raise PlanStoreError(str(exc)) from exc
+    resolved = board_store.resolve_entity(entity)
+    if resolved is None or resolved["plan"] is None:
+        raise PlanStoreError("repair-completions requires one registered local entity")
+    plan = resolved["plan"]
+    if not board_store.is_local_plan(plan):
+        raise PlanStoreError("repair-completions edits machine-local plans only")
+    with board_store.project_lock(plan):
+        current = board_store.resolve_entity(entity)
+        if current is None or current["plan"] != plan or current["state"]["claims"]:
+            raise PlanStoreError("repair-completions requires zero live claims; nothing was changed")
+        snapshot = board_store.open_plan(plan)
+        if not snapshot.is_tree:
+            raise PlanStoreError("repair-completions requires a partitioned local plan")
+        try:
+            accept.bind_local_plan_to_proof_repo(snapshot.materialize().decode("utf-8"), source_root)
+        except accept.AcceptError as exc:
+            raise PlanStoreError(str(exc)) from exc
+        candidate, report = _repair_candidate(plan, source_root, entity, actor, snapshot, manifest)
+        if not apply:
+            return {"schema": "shadow.plan-repair-completions.v1", "action": "dry-run", "by": actor, "root_sha256": snapshot.root_sha256, "generation": snapshot.root["generation"], **report}
+        publication = store.PlanTransaction.begin(plan, expected_root=snapshot.root_sha256, expected_generation=snapshot.root["generation"]).replace_content(candidate.encode("utf-8")).publish()
+        readback = board_store.open_plan(plan)
+        if readback.root_sha256 != publication.root_sha256 or readback.materialize() != candidate.encode("utf-8"):
+            raise PlanStoreError("repair publication readback did not match")
+        return {"schema": "shadow.plan-repair-completions.v1", "action": "repaired", "by": actor, "previous_root_sha256": publication.previous_root_sha256, "root_sha256": publication.root_sha256, "generation": publication.generation, **report}
 
 
 def _invalidate(
@@ -1375,6 +1533,18 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="source checkout for lint context, mirroring amend",
     )
+    repair = commands.add_parser(
+        "repair-completions",
+        help="atomically recover historical completed rows with missing receipts",
+    )
+    repair.add_argument("--entity", required=True, help="registered machine-local entity id")
+    repair.add_argument("--by", required=True, help="actor recorded on each structural correction")
+    repair.add_argument("--repo", required=True, type=Path, help="registered source checkout for candidate lint")
+    repair.add_argument("--manifest", required=True, type=Path, help="absolute repair manifest")
+    repair_mode = repair.add_mutually_exclusive_group(required=True)
+    repair_mode.add_argument("--dry-run", action="store_true")
+    repair_mode.add_argument("--apply", action="store_true")
+    repair.add_argument("--expect", help="dry-run manifest SHA-256 required by --apply")
     return result
 
 
@@ -1403,6 +1573,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.by,
                 args.reason,
                 proof_root=args.repo.resolve() if args.repo else None,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        if args.command == "repair-completions":
+            payload = _repair_completions(
+                args.entity, args.by, args.repo, args.manifest, apply=args.apply, expect=args.expect,
             )
             print(json.dumps(payload, indent=2, sort_keys=True))
             return 0
