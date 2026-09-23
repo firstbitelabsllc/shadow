@@ -19,7 +19,7 @@ from tests.test_shadow_lint import CLEAN_PLAN, lint
 
 
 ROOT = Path(__file__).resolve().parent.parent
-HOT_PLAN_LIMIT = 256 * 1024
+HOT_PLAN_LIMIT = 288 * 1024
 STATUS = ROOT / "scripts" / "shadow-status.py"
 
 _DOCTOR_SPEC = importlib.util.spec_from_file_location(
@@ -61,6 +61,16 @@ def _write_local_plan(home: Path, slug: str, project: str, *, bytes_over: int = 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(body)
     return path
+
+
+def _pad_repo_plan(repo: Path, target: int) -> None:
+    plan = repo / "PLAN.md"
+    body = plan.read_bytes()
+    if len(body) >= target:
+        raise AssertionError("fixture already meets the target")
+    plan.write_bytes(body + b"x" * (target - len(body)))
+    git(repo, "add", "PLAN.md")
+    git(repo, "commit", "--quiet", "-m", f"pad plan to {target} bytes")
 
 
 class DoctorSlotsDegradeToOneFailRow(unittest.TestCase):
@@ -237,6 +247,66 @@ class FreshBoardOverBudgetDoesNotBlank(unittest.TestCase):
             combined = observed.stdout + observed.stderr
             self.assertRegex(combined.lower(), r"budget|hot plan|limit")
             self.assertEqual(observed.returncode, 1, observed.stdout + observed.stderr)
+
+
+class HotPlanCapacityBoundary(unittest.TestCase):
+    def test_new_cap_imports_and_claims_but_cap_plus_one_refuses_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+
+            valid = project(root, name="valid")
+            _pad_repo_plan(valid, HOT_PLAN_LIMIT)
+            imported = run(home, "status", "--json", cwd=valid)
+            self.assertEqual(imported.returncode, 0, imported.stderr)
+            claimed = run(
+                home,
+                "throw",
+                "--repo",
+                str(valid),
+                "--task",
+                "~aa11",
+                "--by",
+                "capacity-seat",
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+
+            over = project(root, name="over")
+            _pad_repo_plan(over, HOT_PLAN_LIMIT + 1)
+            plan_before = (over / "PLAN.md").read_bytes()
+            board_before = (home / ".shadow" / "board.json").read_bytes()
+            journal_before = subprocess.run(
+                ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+
+            refused = run(
+                home,
+                "throw",
+                "--repo",
+                str(over),
+                "--task",
+                "~aa11",
+                "--by",
+                "over-cap-seat",
+            )
+
+            self.assertEqual(refused.returncode, 1, refused.stderr)
+            self.assertRegex(refused.stderr.lower(), r"hot plan|budget|limit")
+            self.assertEqual((over / "PLAN.md").read_bytes(), plan_before)
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), board_before)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(home / ".shadow"), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout,
+                journal_before,
+            )
 
 
 class OverBudgetRemedyNamesMigrateWhenNothingArchives(unittest.TestCase):

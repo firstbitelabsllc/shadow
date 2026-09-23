@@ -26,7 +26,7 @@ BOARD_MODULE = ROOT / "scripts" / "shadow_root_board.py"
 PLAN_MODULE = ROOT / "scripts" / "shadow-plan.py"
 STATUS_MODULE = ROOT / "scripts" / "shadow-status.py"
 PROOF_SENTINEL = "PROOF-MUST-NOT-ENTER-THE-BOARD"
-HOT_PLAN_LIMIT = 256 * 1024
+HOT_PLAN_LIMIT = 288 * 1024
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import shadow_root_board as board_api  # noqa: E402

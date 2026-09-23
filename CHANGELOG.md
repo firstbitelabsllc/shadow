@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Raised Shadow's hot-plan byte ceiling to 288 KiB (294912 bytes), preserving
+  the 128-row and 32-milestone limits and the one-byte-over refusal path.
+
 ## 1.4.0 — 2026-09-16 — the packaged front door is `shadow-coach`
 
 - The packaged front-door skill is renamed: `plugins/shadow/skills/shadow/`

@@ -64,7 +64,7 @@ MAX_PLAN_BYTES = 1_000_000
 # hold as a predicate. Bounded for the same reason every other import input is:
 # a caller cannot make one reconcile stat an unbounded list of locators.
 MAX_DISCOVERY_WITNESSES = 256
-HOT_PLAN_MAX_BYTES = 256 * 1024
+HOT_PLAN_MAX_BYTES = 288 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
 HOT_TASK_ROW_RE = _grammar.HOT_TASK_ROW_RE
@@ -81,9 +81,11 @@ class BoardMutation(NamedTuple):
 
 
 class AlreadyClaimed(BoardError):
-    def __init__(self, owner: str):
+    def __init__(self, owner: str, return_by: str | None = None, stale: bool = False):
         super().__init__(f"claimed by {owner}")
         self.owner = owner
+        self.return_by = return_by
+        self.stale = stale
 
 
 class _RepositoryIdentityCache:
@@ -2972,7 +2974,8 @@ def claim(
         adoption_plan = None
         if winner is not None:
             if not adopt_expired or not claim_is_stale(winner, now=claimed):
-                raise AlreadyClaimed(winner["owner"])
+                raise AlreadyClaimed(winner["owner"], winner.get("return_by"),
+                                     claim_is_stale(winner, now=claimed))
             if payload["schema"] == V2_SCHEMA:
                 for h in _claim_huddles(payload, winner):
                     if h["state"] not in {"awaiting_scope", "open_round_1", "open_round_2", "awaiting_compliance"}:

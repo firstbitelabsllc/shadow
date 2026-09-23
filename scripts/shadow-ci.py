@@ -390,6 +390,14 @@ def event_plan(
             selection = select_paths(changed_paths(base, env.get("HEAD_SHA", "")))
         except ValueError as exc:
             selection = Selection(True, (), tuple(sorted(BROWSER_BASELINE)), True, f"{exc}; full proof")
+        if event == "push":
+            selection = Selection(
+                True,
+                (),
+                selection.browser_modules,
+                selection.release_contract,
+                "main push requires full Python proof; " + selection.reason,
+            )
         return {
             "run_checks": True,
             "run_all": selection.run_all,

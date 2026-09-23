@@ -67,6 +67,10 @@ class CleanMoveCommittedError(CleanError):
     """The no-replace rename committed, but a post-rename sync failed."""
 
 
+class _CleanRecordExists(CleanError):
+    """An exclusive private-record create found an existing path."""
+
+
 def _public_reason(value: str) -> str:
     """Return bounded reason text; Git stderr and private paths never cross CLI."""
     known = (
@@ -171,23 +175,44 @@ def _read(path: Path) -> bytes:
 
 def _exclusive(path: Path, value: dict[str, Any]) -> None:
     encoded = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     descriptor = -1
     try:
-        descriptor = os.open(path, flags, 0o600)
+        descriptor = os.open(temporary, flags, 0o600)
         os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "wb") as stream:
             descriptor = -1
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
-    except FileExistsError as exc:
-        raise CleanError("clean receipt already exists and is immutable") from exc
     except OSError as exc:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
         raise CleanError("clean receipt could not be written exclusively") from exc
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+    try:
+        os.link(temporary, path)
+    except FileExistsError as exc:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise _CleanRecordExists("clean receipt already exists and is immutable") from exc
+    except OSError as exc:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise CleanError("clean receipt could not be written exclusively") from exc
+    try:
+        temporary.unlink()
+    except OSError as exc:
+        raise CleanError("clean receipt could not be written exclusively") from exc
     try:
         directory = os.open(path.parent, os.O_RDONLY)
         try:
@@ -1147,7 +1172,12 @@ def _prepare_manifest_record(
     payload = _manifest_payload(enriched, now=current)
     digest = canonical_sha256(payload)
     path = directories["manifests"] / f"{digest}.json"
-    _exclusive(path, payload)
+    encoded = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode()
+    try:
+        _exclusive(path, payload)
+    except _CleanRecordExists:
+        if _read(path) != encoded:
+            raise CleanError("clean receipt already exists and is immutable")
     return path, payload, digest
 
 
