@@ -189,13 +189,39 @@ def v4_brief(
 
 
 # Wakes are exported verbatim for consumers such as Cabinet's waiting section.
-# Measured 2026-09-22: 297 of this computer's 314 wake texts on open rows fit in 480
-# characters; a longer one is a marked prefix, never a paraphrase.
-WAKE_CHARS = 480
+# A value longer than the export bound is withheld rather than emitted as a
+# marked prefix, so downstream readers never mistake incomplete text for an
+# executable wake.
+WAKE_CHARS = 4096
 
 
-def _wake_text(value: str | None) -> str | None:
-    return (_amp._clean(value, WAKE_CHARS) or None) if value else None
+def _wake_text(value: str | None) -> tuple[str | None, bool]:
+    if not value:
+        return None, False
+    text = value.strip()
+    if any(
+        ord(char) == 0x7F or (ord(char) < 0x20 and char != "\t")
+        for char in text
+    ):
+        return None, False
+    if len(text) > WAKE_CHARS:
+        return None, True
+    return text or None, False
+
+
+def _row_wake(row: dict) -> tuple[str | None, bool]:
+    """Project one row wake only when its source has exactly one wake field."""
+    if "tail" not in row:
+        return _wake_text(row["fields"].get("wake"))
+    tail = row.get("tail") or ""
+    fields = [
+        field.group("value").strip()
+        for field in _grammar.FIELD_RE.finditer(tail)
+        if field.group("key") == "wake"
+    ]
+    if tail.count("| wake:") != 1 or len(fields) != 1 or not fields[0]:
+        return None, False
+    return _wake_text(fields[0])
 
 
 def milestone_rotation(
@@ -228,6 +254,8 @@ def milestone_rotation(
                 "reachable" if row["id"] in reachable else
                 "waiting"
             )
+            wake, wake_withheld = _row_wake(row)
+            deferred_wake, deferred_wake_withheld = _wake_text(deferred.get(row["id"]))
             checkpoints.append(
                 {
                     "id": row["id"],
@@ -236,8 +264,10 @@ def milestone_rotation(
                     "availability": availability,
                     "resume": is_resume,
                     "owners": row_owners,
-                    "wake": _wake_text(row["fields"].get("wake")),
-                    "deferred_wake": _wake_text(deferred.get(row["id"])),
+                    "wake": wake,
+                    "wake_withheld": wake_withheld,
+                    "deferred_wake": deferred_wake,
+                    "deferred_wake_withheld": deferred_wake_withheld,
                 }
             )
         open_milestone = any(
