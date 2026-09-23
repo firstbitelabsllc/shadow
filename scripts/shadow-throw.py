@@ -336,25 +336,13 @@ def main(argv: list[str] | None = None) -> int:
             }
             claim_access = args.access or ("read_only" if claim_repo is None else "unscoped")
             # A source-free invocation normally receives read-only authority.
-            # Adoption is different: preserve the exact current legacy lease's
-            # unscoped/null binding rather than inventing a source repository or
-            # previewing access that the guarded board CAS must reject.
-            if args.adopt_expired:
-                current = next(
-                    (
-                        claim for claim in state["claims"]
-                        if (claim["entity"], claim["row"])
-                        == (state["entity"]["id"], args.task)
-                    ),
-                    None,
-                )
-                if (
-                    current is not None
-                    and current.get("access", "unscoped") == "unscoped"
-                    and current.get("repository_binding") is None
-                ):
-                    if args.access is None:
-                        claim_access = "unscoped"
+            # Adoption without --access inherits the expired lease's declared
+            # access and write scope; the guarded board CAS copies them.
+            if args.adopt_expired and args.access is None and any(
+                (claim["entity"], claim["row"]) == (state["entity"]["id"], args.task)
+                for claim in state["claims"]
+            ):
+                claim_access = "unscoped"
             plan["claim_access"] = claim_access
             # Prove the final block fits before taking a claim. A concurrent board
             # write invalidates the preview and refuses before claiming.

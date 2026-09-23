@@ -882,6 +882,40 @@ class ThrowUsesTheRootBoard(unittest.TestCase):
             self.assertEqual(current["repository_binding"], board.repository_binding(repo))
             self.assertEqual(current["claim_revision"], legacy["claim_revision"] + 1)
 
+    def test_adoption_without_access_inherits_an_expired_write_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, home, env = fixture(Path(tmp))
+            local = home / ".shadow" / "plans" / "demo" / "PLAN.md"
+            local.parent.mkdir(parents=True)
+            local.write_text(PLAN, encoding="utf-8")
+            with mock.patch.dict(os.environ, env):
+                board.reconcile([{"plan": str(local), "project": "demo", "priority": 2,
+                                  "candidates": ["~bb22"]}], [], home=home)
+                entity = board.entity_id(local)
+            with board._transaction(home) as (root, path, payload):
+                migrated = board.migrate_v1_to_v2(payload)
+                payload.clear()
+                payload.update(migrated)
+                payload["claims"] = [{
+                    "entity": entity, "row": "~bb22", "owner": "old-seat",
+                    "claimed_at": "2000-01-01T00:00:00Z", "return_by": "2000-01-01T08:00:00Z",
+                    "recovery": board.RECOVERY_ACTION, "claim_revision": 0, "access": "write",
+                    "repository_binding": board.repository_binding(repo), "write_scope": ["src"],
+                }]
+                board._write_and_commit(root, path, payload, "test: expired write lease")
+            base = ("--entity", entity, "--task", "~bb22", "--by", "new-seat", "--adopt-expired")
+            before = board.snapshot(home=home)
+            sourceless = subprocess.run([sys.executable, str(THROW), *base],
+                                        env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(sourceless.returncode, 1, sourceless.stderr)
+            self.assertIn("requires an explicit repository", sourceless.stderr)
+            self.assertEqual(board.snapshot(home=home), before)
+            adopted = run(THROW, repo, env, *base)
+            self.assertEqual(adopted.returncode, 0, adopted.stderr)
+            claim = board.snapshot(home=home)["claims"][0]
+            self.assertEqual((claim["owner"], claim["access"], claim["write_scope"]),
+                             ("new-seat", "write", ["src"]))
+
     def test_source_backed_adoption_preserves_a_legacy_unknown_binding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, home, env = fixture(Path(tmp))
