@@ -128,6 +128,12 @@ def fail_after_project_commit(*args, **kwargs):
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # An operator shell may export SHADOW_TELEMETRY=local; fixtures assume it is off.
+        environment = mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_exact_invalidation_preserves_history_then_reaccepts_new_source(self) -> None:
         """A stale accepted pair must neither block all work nor win a retry."""
         with tempfile.TemporaryDirectory() as dirname:
