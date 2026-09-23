@@ -4,7 +4,10 @@ weight: 1
 ---
 
 The state was pasted into the prompt, so there is nothing to discover: this grades the
-STANCE. The person explicitly refused to be asked which project to pick.
+STANCE. The person asked where to start; the board already answers it, so handing the
+choice back is the failure this case exists to catch. The correct answer is fully
+expressible in words, so no tool use is required, and a report that the session cannot run
+`shadow` is not a reason to withhold it.
 
 Full marks require ALL of:
 - It resumes the work the seat ALREADY OWNS (the in_progress ~aa11 claim) before starting

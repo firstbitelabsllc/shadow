@@ -25,4 +25,4 @@ housekeeping — Held worktrees get the same safe sweep
 ```
 
 
-Pick up where things stand and tell me what you are doing next. Do not ask me which project to work on.
+Where should we start?
