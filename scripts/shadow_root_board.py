@@ -64,7 +64,7 @@ MAX_PLAN_BYTES = 1_000_000
 # hold as a predicate. Bounded for the same reason every other import input is:
 # a caller cannot make one reconcile stat an unbounded list of locators.
 MAX_DISCOVERY_WITNESSES = 256
-HOT_PLAN_MAX_BYTES = 256 * 1024
+HOT_PLAN_MAX_BYTES = 288 * 1024
 HOT_PLAN_MAX_TASK_ROWS = 128
 HOT_PLAN_MAX_MILESTONES = 32
 HOT_TASK_ROW_RE = _grammar.HOT_TASK_ROW_RE

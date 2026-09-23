@@ -163,7 +163,7 @@ checkout under a stable seat name.
   (`HOT_PLAN_MAX_BYTES` in Shadow's `shadow_root_board.py`), not a per-plan
   setting; `lifecycle --self-compact` drops only exact-duplicate receipts and
   progress archival needs an archive-eligible milestone. Tests hard-code
-  `256 * 1024`; an uncommitted raise to 320 with those tests unchanged is
+  `288 * 1024`; an uncommitted raise to 320 with those tests unchanged is
   unauthorized dirt — `git restore` the file so `skillbox doctor --strict`
   can pass. Do not commit a new ceiling without updating those tests and
   owner authority; a raise still needs the admit/refuse-one-byte-over proof
