@@ -123,11 +123,94 @@ def run_shadow(repo: Path, home: Path, *args: str) -> subprocess.CompletedProces
     )
 
 
+def pad_cmd_accept_plan(repo: Path, target: int) -> None:
+    """Pad a cmd plan so the canonical post-accept text has ``target`` bytes."""
+    row_id = "~ab12"
+    proof = accept.find_row(PLAN, row_id)[3]
+    argv = accept.proof_argv(proof[4:])
+    # Padding follows PLAN's final newline.  The first padding byte therefore
+    # also changes the append helper's trailing-newline normalization.
+    preview = accept.completed_plan_text(
+        PLAN + "x",
+        row_id,
+        argv,
+        "2026-09-23T00:00:00Z",
+    )
+    padding = target - len(preview.encode("utf-8")) + 1
+    if padding < 0:
+        raise AssertionError("accept preview already exceeds target")
+    (repo / "PLAN.md").write_bytes(PLAN.encode("utf-8") + b"x" * padding)
+    git(repo, "add", "PLAN.md")
+    git(repo, "commit", "-qm", f"pad post-accept plan to {target} bytes")
+
+
+def claim_cmd_row(repo: Path, home: Path) -> None:
+    plan = repo / "PLAN.md"
+    accept._board.reconcile(
+        [{"plan": str(plan), "project": "demo", "priority": 3, "candidates": ["~ab12"]}],
+        [],
+        home=home,
+    )
+    accept._board.claim(
+        plan,
+        "~ab12",
+        "seat-a",
+        project="demo",
+        priority=3,
+        home=home,
+        repo=repo,
+    )
+
+
 def fail_after_project_commit(*args, **kwargs):
     raise accept._board.BoardError("receipt unavailable")
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def test_hot_plan_boundary_accepts_at_cap_and_refuses_cap_plus_one_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            pad_cmd_accept_plan(repo, 288 * 1024)
+            accepted = run_accept(repo, "~ab12")
+            accepted_plan = (repo / "PLAN.md").read_bytes()
+            self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+            self.assertEqual(len(accepted_plan), 288 * 1024)
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo = make_repo(root)
+            pad_cmd_accept_plan(repo, 288 * 1024 + 1)
+            home = root / "home"
+            home.mkdir()
+            claim_cmd_row(repo, home)
+            plan_before = (repo / "PLAN.md").read_bytes()
+            plan_root_before = git(repo, "rev-parse", "HEAD:PLAN.md")
+            board_before = (home / ".shadow" / "board.json").read_bytes()
+            journal_before = git(home / ".shadow", "rev-parse", "HEAD")
+            claims_before = accept._board.snapshot(home=home)["claims"]
+
+            refused = run_shadow(
+                repo,
+                home,
+                "accept",
+                "--repo",
+                str(repo),
+                "--row",
+                "~ab12",
+                "--by",
+                "seat-a",
+                "--no-push",
+            )
+
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertRegex(refused.stdout.lower() + refused.stderr.lower(), r"hot plan|budget|limit")
+            self.assertEqual((repo / "PLAN.md").read_bytes(), plan_before)
+            self.assertEqual(git(repo, "rev-parse", "HEAD:PLAN.md"), plan_root_before)
+            self.assertEqual((home / ".shadow" / "board.json").read_bytes(), board_before)
+            self.assertEqual(git(home / ".shadow", "rev-parse", "HEAD"), journal_before)
+            self.assertEqual(accept._board.snapshot(home=home)["claims"], claims_before)
+
     def test_exact_invalidation_preserves_history_then_reaccepts_new_source(self) -> None:
         """A stale accepted pair must neither block all work nor win a retry."""
         with tempfile.TemporaryDirectory() as dirname:

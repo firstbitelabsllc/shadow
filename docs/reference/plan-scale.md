@@ -61,7 +61,7 @@ The current parser calls `read_plan_text()`, `splitlines()`, `_sections()`, and
 
 - one entity lookup is `O(plan bytes)` time and space at the parser boundary;
 - a portfolio lookup is `O(sum of selected plan bytes)`;
-- the 256 KiB lifecycle ceiling bounds the constant but does not change the
+- the 288 KiB lifecycle ceiling bounds the constant but does not change the
   complexity;
 - result context is tiny, but the source bytes read are the whole file.
 
@@ -329,7 +329,7 @@ shard before an answer is returned.
 Index pages MUST be at most 16 KiB, data shards at most 32 KiB, and the
 `PLAN.md` root at most 8 KiB. Tree pages have at most 64 children. A single
 grammar item that cannot fit a data shard MUST refuse migration rather than be
-split mid-item. These budgets bound each stored object; the 256 KiB
+split mid-item. These budgets bound each stored object; the 288 KiB
 logical ceiling still applies to the materialized hot plan, and active row
 and milestone budgets remain unchanged. Historical growth adds immutable
 shards and logarithmic catalog pages without enlarging the active context.

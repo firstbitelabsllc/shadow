@@ -384,13 +384,13 @@ knowledge or writes `LESSON none — <why>`.
 
 ## ARCHIVE
 
-The hot plan is bounded at **256 KiB**, **128 task rows**, and **32 milestone
+The hot plan is bounded at **288 KiB**, **128 task rows**, and **32 milestone
 headings**. `shadow lifecycle` reports those checked-in limits without writing
 by default. A budget-only over-limit report exits non-zero; a preview that
 proves one legal monotonic repair exits zero so its CAS can be applied. Limits
 are product law, not environment knobs.
 
-The byte limit an operator sees in refusals is the literal `262144`
+The byte limit an operator sees in refusals is the literal `294912`
 (`HOT-PLAN-BYTES`). Two verbs refuse differently at that wall: `shadow throw`
 refuses the claim ("hot plan exceeds the checked-in bytes budget"), and
 `shadow accept` refuses through lint ("the completed plan would fail shadow
