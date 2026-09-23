@@ -174,17 +174,15 @@ def contradiction_is_open(line: str) -> bool:
     return CONTRADICTION_RESOLVED_RE.match(stripped) is None
 
 
-def deferred_wake_projection(plan_text: str, row_id: str) -> str:
-    """Return the one exact Deferred wake for ``row_id``.
+def deferred_wakes(plan_text: str) -> dict[str, str | None]:
+    """Map every row the Deferred section names to its one exact wake.
 
-    A wake is valid only when exactly one Deferred entry names the row and
-    carries a non-empty ``wake:`` field.  Counting malformed entries as
-    matches is deliberate: callers must not accept one valid wake alongside a
-    duplicate or wake-less entry for the same row.
+    ``None`` marks ambiguity: a duplicate entry for the row, or an entry
+    without exactly one non-empty ``wake:`` field.  Counting malformed entries
+    as matches is deliberate: callers must not accept one valid wake alongside
+    a duplicate or wake-less entry for the same row.
     """
-    if ROW_ID_RE.fullmatch(row_id) is None:
-        raise ValueError("Deferred wake row id is invalid")
-    matches: list[str | None] = []
+    matches: dict[str, list[str | None]] = {}
     in_deferred = False
     for line in plan_text.splitlines():
         if line.startswith("## "):
@@ -194,14 +192,24 @@ def deferred_wake_projection(plan_text: str, row_id: str) -> str:
         if not in_deferred:
             continue
         candidate = DEFERRED_ROW_RE.match(line)
-        if candidate is None or candidate.group("id") != row_id:
+        if candidate is None:
             continue
         wake_values = [
             field.group("value").strip()
             for field in FIELD_RE.finditer(line)
             if field.group("key") == "wake"
         ]
-        matches.append(wake_values[0] if len(wake_values) == 1 and wake_values[0] else None)
-    if len(matches) != 1 or matches[0] is None:
+        matches.setdefault(candidate.group("id"), []).append(
+            wake_values[0] if len(wake_values) == 1 and wake_values[0] else None
+        )
+    return {row: found[0] if len(found) == 1 else None for row, found in matches.items()}
+
+
+def deferred_wake_projection(plan_text: str, row_id: str) -> str:
+    """Return the one exact Deferred wake for ``row_id`` or raise ValueError."""
+    if ROW_ID_RE.fullmatch(row_id) is None:
+        raise ValueError("Deferred wake row id is invalid")
+    wake = deferred_wakes(plan_text).get(row_id)
+    if wake is None:
         raise ValueError("Deferred entry must name the row exactly once with one wake")
-    return matches[0]
+    return wake
