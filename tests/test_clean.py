@@ -772,6 +772,164 @@ class CleanApplyTests(unittest.TestCase):
         _path, _payload, digest = self.clean._prepare_manifest_record(candidate, home=self.home)
         return digest, _path
 
+    def test_prepare_manifest_reuses_identical_same_second_record(self):
+        _destination, _prepared, manifest_path, digest = self._terminal_managed()
+        original_bytes = manifest_path.read_bytes()
+        manifest = json.loads(original_bytes)
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+
+        reused_path, payload, reused_digest = self.clean._prepare_manifest_record(
+            candidate, home=self.home, now=manifest["generated_at"],
+        )
+
+        self.assertEqual(reused_path, manifest_path)
+        self.assertEqual(payload, manifest)
+        self.assertEqual(reused_digest, digest)
+        self.assertEqual(manifest_path.read_bytes(), original_bytes)
+
+    def test_prepare_manifest_concurrent_same_digest_reuses_winner(self):
+        _destination, _prepared, manifest_path, digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        manifest_path.unlink()
+        barrier = threading.Barrier(2)
+        results = []
+        errors = []
+        original_exclusive = self.clean._exclusive
+
+        def synchronized_exclusive(path, value):
+            barrier.wait(timeout=5)
+            return original_exclusive(path, value)
+
+        def prepare():
+            try:
+                results.append(self.clean._prepare_manifest_record(
+                    candidate, home=self.home, now=manifest["generated_at"],
+                ))
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        with mock.patch.object(self.clean, "_exclusive", side_effect=synchronized_exclusive):
+            threads = [threading.Thread(target=prepare) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 2)
+        self.assertEqual({result[0] for result in results}, {manifest_path})
+        self.assertEqual({result[2] for result in results}, {digest})
+
+    def test_prepare_manifest_refuses_tampered_existing_record(self):
+        _destination, _prepared, manifest_path, _digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        manifest_path.write_bytes(manifest_path.read_bytes().replace(b'"schema":', b'"schema": '))
+
+        with self.assertRaisesRegex(self.clean.CleanError, "immutable|manifest"):
+            self.clean._prepare_manifest_record(
+                candidate, home=self.home, now=manifest["generated_at"],
+            )
+
+    def test_prepare_manifest_refuses_wrong_mode_record(self):
+        _destination, _prepared, manifest_path, _digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        os.chmod(manifest_path, 0o644)
+
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._prepare_manifest_record(
+                candidate, home=self.home, now=manifest["generated_at"],
+            )
+
+    def test_prepare_manifest_refuses_symlink_record(self):
+        _destination, _prepared, manifest_path, _digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        aside = manifest_path.with_name(f"{manifest_path.name}.aside")
+        manifest_path.rename(aside)
+        manifest_path.symlink_to(aside)
+
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._prepare_manifest_record(
+                candidate, home=self.home, now=manifest["generated_at"],
+            )
+
+    def test_prepare_manifest_refuses_directory_record(self):
+        _destination, _prepared, manifest_path, _digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        manifest_path.unlink()
+        manifest_path.mkdir()
+
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._prepare_manifest_record(
+                candidate, home=self.home, now=manifest["generated_at"],
+            )
+
+    def test_prepare_manifest_refuses_wrong_owner_record(self):
+        _destination, _prepared, manifest_path, _digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        actual_uid = os.getuid()
+        original_read = self.clean._read
+
+        def read_with_wrong_owner(path):
+            if Path(path) == manifest_path:
+                with mock.patch.object(self.clean.os, "getuid", return_value=actual_uid + 1):
+                    return original_read(path)
+            return original_read(path)
+
+        with mock.patch.object(self.clean, "_read", side_effect=read_with_wrong_owner):
+            with self.assertRaisesRegex(self.clean.CleanError, "wrong owner"):
+                self.clean._prepare_manifest_record(
+                    candidate, home=self.home, now=manifest["generated_at"],
+                )
+
     def _registration_bytes(self, destination):
         listing = git(self.repo, "worktree", "list", "--porcelain")
         admin = Path(git(destination, "rev-parse", "--git-dir"))
