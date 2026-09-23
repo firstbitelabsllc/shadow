@@ -437,6 +437,19 @@ exact apply with its original CAS validates the unique lifecycle introduction,
 reports already archived, and never advances to another row; committed
 marker-preserving tampering refuses.
 
+`shadow lifecycle --repo <entity-directory> --relocate-closed` is the trim
+door, under the same dry-run CAS and `--apply --expect <cas> --by <seat>`. It
+moves whole items (the bullet plus its indented continuations) to one verbatim
+`docs/plan-archive/<safe-slug>.md` (slug `relocated-closed-<blob>`): a Contradictions item only when
+it starts `RESOLVED`, and a Deferred or Progress item only when it names at
+least one row and every row it names has left Tasks. An item naming no row
+stays, as do tombstones, pointers, a Progress item carrying its own `wake:`,
+and any item whose head line says DECISION, LESSON, WAKE, GAP, or SUCCESSOR.
+Each touched section keeps one pointer (the Contradictions pointer starts
+`RESOLVED`; the Deferred pointer carries a wake). It refuses when Tasks, the
+open contradictions, or a live row's Deferred wake would change, or when the
+result adds a blocking lint finding.
+
 Apply refuses a dirty plan or target archive, symlinks, an existing archive
 with different provenance, a malformed or unproven milestone, and a non-Git
 plan. Normal lint, accept, portfolio import, and claim paths enforce the same hot-plan
