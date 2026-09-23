@@ -440,7 +440,7 @@ marker-preserving tampering refuses.
 `shadow lifecycle --repo <entity-directory> --relocate-closed` is the trim
 door, under the same dry-run CAS and `--apply --expect <cas> --by <seat>`. It
 moves whole items (the bullet plus its indented continuations) to one verbatim
-`docs/plan-archive/relocated-closed-<blob>.md`: a Contradictions item only when
+`docs/plan-archive/<safe-slug>.md` (slug `relocated-closed-<blob>`): a Contradictions item only when
 it starts `RESOLVED`, and a Deferred or Progress item only when it names at
 least one row and every row it names has left Tasks. An item naming no row
 stays, as do tombstones, pointers, a Progress item carrying its own `wake:`,
