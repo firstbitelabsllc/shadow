@@ -348,6 +348,8 @@ class HuddleCliTests(HuddleTestCase):
         self.assertEqual((final["state"], final["round"]), ("awaiting_compliance", 1))
         self.assertEqual(final["resolution"]["write_owners"], [board._claim_ref(a)])
         self.assertEqual(final["holds"], [board._claim_ref(b)])
+        self.assertEqual({r["claim"]["owner"]: r["action"] for r in final["resolution"]["actions"]},
+                         {"A": "continue", "B": "return_required"})
         self.assertEqual(self.run_cli(*first_args, stdin=json.dumps(first).encode()).stdout, one.stdout)
         before = self.authority()
         late = bid(a, "own", "existing_claim")
