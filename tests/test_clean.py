@@ -123,6 +123,66 @@ class CleanPreviewTests(unittest.TestCase):
             )
         self.assertEqual(receipt_path.read_bytes(), before)
 
+    def test_creation_inputs_accepts_full_commit_oid_and_refuses_invalid_ref(self):
+        oid = git(self.repo, "rev-parse", "HEAD")
+        source, destination, source_head, stamp = self.clean._creation_inputs(
+            self.repo,
+            self.repo.parent / "managed-oid",
+            ref=oid,
+            landed_ref="refs/heads/master",
+            now="2026-09-23T00:00:00Z",
+        )
+        self.assertEqual(source, self.repo.resolve())
+        self.assertEqual(destination, (self.repo.parent / "managed-oid").resolve())
+        self.assertEqual(source_head, oid)
+        self.assertEqual(stamp, "2026-09-23T00:00:00Z")
+        with self.assertRaisesRegex(self.clean.CleanError, "Git command failed"):
+            self.clean._creation_inputs(
+                self.repo,
+                self.repo.parent / "managed-invalid-ref",
+                ref="refs/heads/invalid..ref",
+                landed_ref="refs/heads/master",
+            )
+
+    def test_creation_rejects_non_commit_object_ids_without_side_effects(self):
+        blob = git(self.repo, "hash-object", "-w", "PLAN.md")
+        tree = git(self.repo, "rev-parse", "HEAD^{tree}")
+        git(self.repo, "tag", "-a", "oid-object-test", "-m", "object test")
+        tag = git(self.repo, "rev-parse", "oid-object-test^{tag}")
+        for label, ref in (("blob", blob), ("tree", tree), ("tag", tag)):
+            with self.subTest(label=label):
+                destination = self.repo.parent / f"managed-{label}-oid"
+                with self.assertRaisesRegex(self.clean.CleanError, "commit"):
+                    self.clean.create_managed_worktree(
+                        self.repo,
+                        destination,
+                        entity=self.entity,
+                        checkpoint="~aa11",
+                        seat="seat-a",
+                        ref=ref,
+                        landed_ref="refs/heads/master",
+                        home=self.home,
+                    )
+                self.assertFalse(destination.exists())
+                self.assertFalse((self.home / ".shadow" / "clean").exists())
+
+    def test_creation_issues_managed_worktree_for_full_commit_oid(self):
+        oid = git(self.repo, "rev-parse", "HEAD")
+        destination = self.repo.parent / "managed-commit-oid"
+        created = self.clean.create_managed_worktree(
+            self.repo,
+            destination,
+            entity=self.entity,
+            checkpoint="~aa11",
+            seat="seat-a",
+            ref=oid,
+            landed_ref="refs/heads/master",
+            home=self.home,
+        )
+        self.assertEqual(created["state"], "issued")
+        self.assertEqual(git(destination, "rev-parse", "HEAD"), oid)
+        self.assertEqual(len(list((self.home / ".shadow" / "clean" / "journals").glob("*.json"))), 1)
+
     def test_preview_reads_only_matching_issued_receipt_and_journal(self):
         destination = self.repo.parent / "managed"
         self.clean.create_managed_worktree(
