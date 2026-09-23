@@ -875,10 +875,11 @@ class PlanSnapshot:
         digest: str,
         counters: list[int],
         visited: list[str],
+        depth: int,
     ) -> dict[str, Any]:
         if digest in visited:
             raise PlanStoreError("index cycle detected")
-        if len(visited) >= MAX_TREE_DEPTH:
+        if depth > MAX_TREE_DEPTH:
             raise PlanStoreError("index exceeds the maximum tree depth")
         page = _decode_page(self._read_object(digest, INDEX_MAX_BYTES, counters), tree)
         visited.append(digest)
@@ -898,7 +899,7 @@ class PlanSnapshot:
             if digest in path_seen:
                 raise PlanStoreError("index cycle detected")
             path_seen.add(digest)
-            page = self._page(tree, digest, counters, visited)
+            page = self._page(tree, digest, counters, visited, len(path_seen))
             entries = page["entries"]
             keys = [entry.get("key") for entry in entries if isinstance(entry, dict)]
             if len(keys) != len(entries) or any(not isinstance(item, str) for item in keys):
@@ -930,7 +931,7 @@ class PlanSnapshot:
     ) -> Iterator[tuple[str, Any]]:
         if digest in ancestors:
             raise PlanStoreError("index cycle detected")
-        page = self._page(tree, digest, counters, visited)
+        page = self._page(tree, digest, counters, visited, len(ancestors) + 1)
         entries = page["entries"]
         if page["kind"] == "leaf":
             for entry in entries:
