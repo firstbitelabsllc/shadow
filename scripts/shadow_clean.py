@@ -73,6 +73,7 @@ class _CleanRecordExists(CleanError):
 
 def _public_reason(value: str) -> str:
     """Return bounded reason text; Git stderr and private paths never cross CLI."""
+    import sys as _dbg_sys; print("RAW_REASON:", repr(value), file=_dbg_sys.stderr)
     known = (
         "manifest expired", "manifest changed", "not Shadow-created", "active claim",
         "checkpoint is not terminal", "worktree is dirty", "untracked files",
