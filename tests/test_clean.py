@@ -887,6 +887,49 @@ class CleanApplyTests(unittest.TestCase):
                 candidate, home=self.home, now=manifest["generated_at"],
             )
 
+    def test_prepare_manifest_refuses_directory_record(self):
+        _destination, _prepared, manifest_path, _digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        manifest_path.unlink()
+        manifest_path.mkdir()
+
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._prepare_manifest_record(
+                candidate, home=self.home, now=manifest["generated_at"],
+            )
+
+    def test_prepare_manifest_refuses_wrong_owner_record(self):
+        _destination, _prepared, manifest_path, _digest = self._terminal_managed()
+        manifest = json.loads(manifest_path.read_bytes())
+        candidate = {
+            "target": manifest["target"],
+            "entity": manifest["entity"],
+            "checkpoint": manifest["checkpoint"],
+            "creation_receipt": manifest["creation_receipt"],
+            "issuance_journal": manifest["issuance_journal"],
+        }
+        actual_uid = os.getuid()
+        original_read = self.clean._read
+
+        def read_with_wrong_owner(path):
+            if Path(path) == manifest_path:
+                with mock.patch.object(self.clean.os, "getuid", return_value=actual_uid + 1):
+                    return original_read(path)
+            return original_read(path)
+
+        with mock.patch.object(self.clean, "_read", side_effect=read_with_wrong_owner):
+            with self.assertRaisesRegex(self.clean.CleanError, "wrong owner"):
+                self.clean._prepare_manifest_record(
+                    candidate, home=self.home, now=manifest["generated_at"],
+                )
+
     def _registration_bytes(self, destination):
         listing = git(self.repo, "worktree", "list", "--porcelain")
         admin = Path(git(destination, "rev-parse", "--git-dir"))
