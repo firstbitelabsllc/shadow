@@ -167,6 +167,12 @@ def fail_after_project_commit(*args, **kwargs):
 
 
 class ShadowAcceptTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # An operator shell may export SHADOW_TELEMETRY=local; fixtures assume it is off.
+        environment = mock.patch.dict(os.environ, {"SHADOW_TELEMETRY": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_hot_plan_boundary_accepts_at_cap_and_refuses_cap_plus_one_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname).resolve()
