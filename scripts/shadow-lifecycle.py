@@ -67,12 +67,20 @@ PROGRESS_ARCHIVE_HEADER_TEMPLATE = (
     "head:{head}:blob:{blob}:successor:{successor} -->\n"
 )
 MAX_ARCHIVE_BYTES = _board.MAX_PLAN_BYTES + 64 * 1024
+RELOCATE_ARCHIVE_HEADER_TEMPLATE = (
+    "<!-- shadow:relocate-archive:v1:{slug}:sha256:{digest}:cas:{cas}:"
+    "head:{head}:blob:{blob} -->\n"
+)
+RELOCATE_SECTIONS = ("Deferred", "Contradictions", "Progress")
+# Knowledge and continuity lines stay hot whatever rows they name.
+RELOCATE_PROTECTED_RE = re.compile(r"\b(?:DECISION|LESSON|WAKE|GAP|SUCCESSOR)\b")
 MAX_MANIFEST_BYTES = 64 * 1024
 RETIREMENT_SCHEMA = "shadow.retirement.v1"
 RETIREMENT_RECEIPT_SCHEMA = "shadow.retirement-receipt.v1"
 OID_RE = re.compile(r"[0-9a-f]{40,64}")
 REF_RE = re.compile(r"refs/(?:heads|tags)/[-A-Za-z0-9._/]+")
 _AMP = None
+_LINT = None
 
 
 class LifecycleError(ValueError):
@@ -232,20 +240,28 @@ def monotonic_budget_repair(before: dict, after: dict) -> bool:
 
 
 def progress_items(lines: list[str]) -> list[tuple[int, int, str]]:
+    return section_items(lines, "Progress")
+
+
+def section_items(
+    lines: list[str], name: str, *, required: bool = True
+) -> list[tuple[int, int, str]]:
     starts = [
         index
         for index, line in enumerate(lines)
-        if line.rstrip("\r\n") == "## Progress"
-        or line.startswith("## Progress ")
+        if line.rstrip("\r\n") == f"## {name}"
+        or line.startswith(f"## {name} ")
     ]
+    if not starts and not required:
+        return []
     if len(starts) != 1:
-        raise LifecycleError("plan must have exactly one Progress section")
+        raise LifecycleError(f"plan must have exactly one {name} section")
     start = starts[0] + 1
     end = next(
         (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
         len(lines),
     )
-    # A receipt owns its bullet plus the blank and INDENTED continuation lines
+    # An item owns its bullet plus the blank and INDENTED continuation lines
     # under it, and nothing else. Any other top-level line — the next bullet, a
     # nested heading, a closing paragraph — starts content this receipt does not
     # own. The last receipt is bounded the same way instead of running to the
@@ -652,6 +668,139 @@ def progress_archive_candidate(
         "current_receipts_kept": current_kept,
         "successor_row": successor_row,
         "cutoff": cutoff,
+    }
+
+
+def _relocatable(section: str, item: str, task_ids: set[str]) -> bool:
+    """Whether one whole plan item is closed text that may leave the hot plan.
+
+    A contradiction is closed only when it says RESOLVED. A Deferred or
+    Progress item is closed only when it names at least one row and every row
+    it names has left Tasks. An item naming no row carries no closure signal,
+    so it stays: reading silence as closure is how hand relocation archived
+    open contradictions on 2026-09-22. Tombstones, pointers, protected
+    knowledge lines, and Progress items carrying their own wake never move.
+    """
+    head = item.splitlines()[0]
+    if "<!-- shadow:" in item or RELOCATE_PROTECTED_RE.search(head):
+        return False
+    if section == "Contradictions":
+        return _grammar.CONTRADICTION_RESOLVED_RE.match(head) is not None
+    if section == "Progress" and re.search(r"(?:^|\| )wake: \S", item, re.MULTILINE):
+        return False
+    named = set(HASH_RE.findall(item))
+    return bool(named) and not named & task_ids
+
+
+def _blocking_checks(text: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for finding in lint_module().lint_plan(text):
+        if finding.get("severity") == "blocking":
+            counts[finding["check"]] = counts.get(finding["check"], 0) + 1
+    return counts
+
+
+def relocate_closed_candidate(text: str, source_token: dict[str, str]) -> dict:
+    lines = text.splitlines(keepends=True)
+    task_ids = unique_task_ids(lines)
+    selected: dict[str, list[tuple[int, int, str]]] = {}
+    for section in RELOCATE_SECTIONS:
+        for start, stop, item in section_items(lines, section, required=False):
+            # Blank lines after an item separate it from the next; they stay.
+            while stop > start + 1 and not lines[stop - 1].strip():
+                stop -= 1
+            item = "".join(lines[start:stop])
+            if _relocatable(section, item, task_ids):
+                selected.setdefault(section, []).append((start, stop, item))
+    if not selected:
+        raise LifecycleError("no closed plan text to relocate")
+    slug = safe_slug(f"relocated-closed-{source_token['blob'][:12]}")
+    archive_link = Path("docs") / "plan-archive" / f"{slug}.md"
+    link = f"[{slug}]({archive_link.as_posix()})"
+    counts = {section: len(items) for section, items in selected.items()}
+    pointers = {
+        "Deferred": (
+            f"- {counts.get('Deferred')} closed deferrals relocated verbatim to {link} "
+            "| every row they name left Tasks "
+            "| wake: a relocated row id returns to Tasks <!-- shadow:relocated -->\n"
+        ),
+        "Contradictions": (
+            f"- RESOLVED: {counts.get('Contradictions')} resolved contradictions "
+            f"relocated verbatim to {link} <!-- shadow:relocated -->\n"
+        ),
+        "Progress": (
+            f"- {counts.get('Progress')} closed Progress items relocated verbatim "
+            f"to {link} <!-- shadow:relocated -->\n"
+        ),
+    }
+    archive_body = (
+        f"# Relocated closed plan text: {slug}\n\n"
+        "Source: `PLAN.md`\n"
+    )
+    removed: set[int] = set()
+    insert: dict[int, str] = {}
+    for section, items in selected.items():
+        archive_body += f"\n## {section}\n\n" + "".join(item for _, _, item in items)
+        insert[items[0][0]] = pointers[section]
+        for start, stop, _ in items:
+            removed.update(range(start, stop))
+    output: list[str] = []
+    for index, line in enumerate(lines):
+        if index in insert:
+            output.append(insert[index])
+        if index not in removed:
+            output.append(line)
+    relocated_plan = "".join(output)
+    # Invariants the selection rules promise; a violation is a bug, never a
+    # judgment call, so the operation refuses rather than publishing it.
+    amp = amp_module()
+    before, after = amp._parse(text), amp._parse(relocated_plan)
+    if after["contradictions"] != before["contradictions"]:
+        raise LifecycleError("relocation would change the open contradictions")
+    if after["milestones"] != before["milestones"]:
+        raise LifecycleError("relocation would change Tasks")
+    if any(
+        _grammar.deferred_wakes(relocated_plan).get(row)
+        != _grammar.deferred_wakes(text).get(row)
+        for row in task_ids
+    ):
+        raise LifecycleError("relocation would change a live row's Deferred wake")
+    source_blocking = _blocking_checks(text)
+    added = sorted(
+        check
+        for check, count in _blocking_checks(relocated_plan).items()
+        if count > source_blocking.get(check, 0)
+    )
+    if added:
+        raise LifecycleError(
+            "relocation would add blocking lint findings: " + ", ".join(added)
+        )
+    digest = hashlib.sha256(archive_body.encode("utf-8")).hexdigest()
+    cas = canonical_sha256(
+        {
+            "schema": "shadow.lifecycle-relocate.v1",
+            "relative": source_token["relative"],
+            "head": source_token["head"],
+            "blob": source_token["blob"],
+            "archive_sha256": digest,
+            "plan_sha256": hashlib.sha256(relocated_plan.encode("utf-8")).hexdigest(),
+        }
+    )
+    archive = RELOCATE_ARCHIVE_HEADER_TEMPLATE.format(
+        slug=slug,
+        digest=digest,
+        cas=cas,
+        head=source_token["head"],
+        blob=source_token["blob"],
+    ) + archive_body
+    return {
+        "slug": slug,
+        "archive_link": archive_link,
+        "cas": cas,
+        "digest": digest,
+        "plan": relocated_plan,
+        "archive": archive,
+        "relocated": counts,
     }
 
 
@@ -1343,6 +1492,25 @@ def amp_module():
     except Exception as exc:
         raise LifecycleError("Shadow plan parser could not be loaded") from exc
     _AMP = module
+    return module
+
+
+def lint_module():
+    global _LINT
+    if _LINT is not None:
+        return _LINT
+    spec = importlib.util.spec_from_file_location(
+        "shadow_lifecycle_lint", ROOT / "scripts" / "shadow-lint.py"
+    )
+    if spec is None or spec.loader is None:
+        raise LifecycleError("Shadow plan linter could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        raise LifecycleError("Shadow plan linter could not be loaded") from exc
+    _LINT = module
     return module
 
 
@@ -2476,6 +2644,90 @@ def apply_progress(
         raise LifecycleError(str(exc)) from None
 
 
+def inspect_relocation(repo_value: Path) -> tuple[dict, dict]:
+    repo, plan, token, text = committed_snapshot(repo_value)
+    before = measure(text)
+    candidate = relocate_closed_candidate(text, token)
+    plan_relative = Path(token["relative"])
+    archive_relative = plan_relative.parent / candidate["archive_link"]
+    ensure_no_symlink(repo, archive_relative)
+    if not _board.is_local_plan(plan):
+        ensure_clean(repo, [plan_relative, archive_relative])
+    archive_path = repo / archive_relative
+    if os.path.lexists(archive_path) and read_regular_bounded(
+        archive_path, MAX_ARCHIVE_BYTES, "relocation archive"
+    ) != candidate["archive"].encode("utf-8"):
+        raise LifecycleError("relocation archive exists with different content")
+    after = measure(candidate["plan"])
+    if after["bytes"] >= before["bytes"]:
+        raise LifecycleError("relocation must reduce the hot plan")
+    candidate["archive_relative"] = archive_relative
+    report = {
+        "schema": "shadow.lifecycle.v1",
+        "ok": True,
+        "action": "would_relocate_closed",
+        "changed": False,
+        "repo": str(repo),
+        "plan": str(plan),
+        "plan_relative": token["relative"],
+        "head": token["head"],
+        "archive": str(archive_path),
+        "cas": candidate["cas"],
+        "archive_sha256": candidate["digest"],
+        "relocated": candidate["relocated"],
+        "budget": {"before": before, "after": after},
+        "retirement": retirement_boundary(),
+    }
+    return report, candidate
+
+
+def apply_relocation(repo_value: Path, *, expected: str) -> dict:
+    plan = repo_value.expanduser().resolve() / "PLAN.md"
+    try:
+        with _board.project_lock(plan):
+            report, candidate = inspect_relocation(repo_value)
+            if report["cas"] != expected:
+                raise LifecycleError("lifecycle dry-run CAS changed; rerun without --apply")
+            repo = Path(report["repo"])
+            plan_relative = Path(report["plan_relative"])
+            archive_relative: Path = candidate["archive_relative"]
+            archive_path = repo / archive_relative
+            original = plan.read_bytes()
+            plan_mode = stat.S_IMODE(plan.stat().st_mode)
+            parent_existed = archive_path.parent.exists()
+            publication: _plan_store.PublishReceipt | None = None
+            try:
+                # An existing archive already matched these exact bytes: it is
+                # the half state of an interrupted apply, finished here.
+                atomic_write(archive_path, candidate["archive"].encode("utf-8"))
+                publication = replace_plan(
+                    plan, candidate["plan"].encode("utf-8"), plan_mode
+                )
+                commit = commit_archive_candidate(
+                    repo,
+                    plan_relative,
+                    archive_relative,
+                    candidate["slug"],
+                    kind="relocation",
+                )
+            except (OSError, LifecycleError):
+                restore_plan(plan, original, plan_mode, publication)
+                _rollback_archive_apply(
+                    repo,
+                    plan,
+                    plan_relative,
+                    archive_relative,
+                    parent_existed=parent_existed,
+                )
+                raise
+            report.update(
+                {"action": "relocated_closed", "changed": True, "commit": commit, "head": commit}
+            )
+            return report
+    except _board.BoardError as exc:
+        raise LifecycleError(str(exc)) from None
+
+
 def inspect(repo_value: Path, wanted: str | None) -> tuple[dict, dict | None]:
     repo, plan, token, text = committed_snapshot(repo_value)
     before = measure(text)
@@ -2768,6 +3020,11 @@ def main(argv: list[str] | None = None) -> int:
         help="exclusive UTC cutoff for closed historical Progress compaction",
     )
     parser.add_argument(
+        "--relocate-closed",
+        action="store_true",
+        help="move closed Deferred, Contradictions, and Progress items to one verbatim archive",
+    )
+    parser.add_argument(
         "--retirement-manifest",
         type=Path,
         help="absolute shadow.retirement.v1 manifest for one exact artifact",
@@ -2798,13 +3055,14 @@ def main(argv: list[str] | None = None) -> int:
             for value in (
                 args.milestone,
                 args.progress_before,
+                args.relocate_closed,
                 args.retirement_manifest,
                 args.self_compact,
             )
         )
         if selected > 1:
             raise LifecycleError(
-                "choose one milestone, progress cutoff, or retirement manifest"
+                "choose one milestone, progress cutoff, relocation, or retirement manifest"
             )
         if args.apply and selected != 1:
             raise LifecycleError("--apply requires one exact lifecycle operation")
@@ -2828,6 +3086,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if args.apply
                 else inspect_progress(repo, args.progress_before)[0]
+            )
+        elif args.relocate_closed:
+            report = (
+                apply_relocation(repo, expected=args.expect)
+                if args.apply
+                else inspect_relocation(repo)[0]
             )
         elif args.retirement_manifest:
             report = (
