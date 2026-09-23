@@ -250,6 +250,75 @@ class PlanSnapshotTests(unittest.TestCase):
         ):
             snapshot.row("~bb22")
 
+    def test_many_shallow_index_pages_are_not_mistaken_for_depth(self) -> None:
+        wide = "".join(
+            f"- 2026-08-13T{i // 60:02d}:{i % 60:02d}:00Z LESSON wide {i}\n"
+            for i in range(1000)
+        )
+        source = plan() + wide.encode("utf-8")
+        plan_path, build = install_plan_tree(self.root, source, return_build=True)
+        root = store._decode_page(build.objects[build.root["catalog_root"]], "catalog")
+        self.assertEqual(root["kind"], "branch")
+        self.assertGreater(len(root["entries"]) + 1, store.MAX_TREE_DEPTH)
+        self.assertEqual(store._page_depth(build, "catalog", build.root["catalog_root"]), 2)
+        snapshot = store.PlanSnapshot.open(plan_path)
+
+        self.assertEqual(snapshot.materialize(), source)
+        self.assertIn(b"second result", snapshot.row("~bb22").content)
+        self.assertIn(b"LESSON wide 999", snapshot.latest("lesson").content)
+
+    def _chained_catalog(self, levels: int) -> store.PlanSnapshot:
+        """Wrap the one-leaf catalog in `levels` single-child branch pages."""
+        build = store.build_tree(plan())
+        objects = dict(build.objects)
+        digest = build.root["catalog_root"]
+        leaf = store._decode_page(objects[digest], "catalog")
+        low, high = leaf["entries"][0]["key"], leaf["entries"][-1]["key"]
+        for _ in range(levels):
+            page = store._page(
+                "catalog", "branch", [{"key": low, "max": high, "object": digest}]
+            )
+            digest = store._add_object(objects, page)
+        payload = {**build.root, "catalog_root": digest}
+        root_bytes = store.ROOT_PREFIX + store.canonical_json(payload) + store.ROOT_SUFFIX
+        return store.snapshot_of_root(
+            self.root / "PLAN.md",
+            root_bytes,
+            object_reader=lambda candidate, _limit: objects[candidate],
+        )
+
+    def test_index_depth_is_the_path_not_the_pages_read(self) -> None:
+        at_limit = self._chained_catalog(store.MAX_TREE_DEPTH - 1)
+
+        self.assertEqual(at_limit.materialize(), plan())
+        self.assertIn(b"second result", at_limit.row("~bb22").content)
+
+        too_deep = self._chained_catalog(store.MAX_TREE_DEPTH)
+        with self.assertRaisesRegex(store.PlanStoreError, "maximum tree depth"):
+            too_deep.materialize()
+        with self.assertRaisesRegex(store.PlanStoreError, "maximum tree depth"):
+            too_deep.row("~bb22")
+
+    def test_aliased_index_page_refuses(self) -> None:
+        build = store.build_tree(plan())
+        objects = dict(build.objects)
+        leaf_digest = build.root["catalog_root"]
+        leaf = store._decode_page(objects[leaf_digest], "catalog")
+        low, high = leaf["entries"][0]["key"], leaf["entries"][-1]["key"]
+        entry = {"key": low, "max": high, "object": leaf_digest}
+        branch = store._add_object(
+            objects, store._page("catalog", "branch", [entry, entry])
+        )
+        payload = {**build.root, "catalog_root": branch}
+        snapshot = store.snapshot_of_root(
+            self.root / "PLAN.md",
+            store.ROOT_PREFIX + store.canonical_json(payload) + store.ROOT_SUFFIX,
+            object_reader=lambda candidate, _limit: objects[candidate],
+        )
+
+        with self.assertRaisesRegex(store.PlanStoreError, "index cycle detected"):
+            snapshot.materialize()
+
     def test_tag_route_requires_a_complete_catalog_descriptor(self) -> None:
         snapshot = store.PlanSnapshot.open(install_plan_tree(self.root, plan()))
         malformed = {"tags": ["proof"], "bytes": 1}
