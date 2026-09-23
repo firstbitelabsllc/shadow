@@ -122,6 +122,8 @@ class StatusWakeExportTests(unittest.TestCase):
             for row, checkpoint in checkpoints.items():
                 self.assertIn("wake", checkpoint, f"{project} {row}")
                 self.assertIn("deferred_wake", checkpoint, f"{project} {row}")
+                self.assertIn("wake_withheld", checkpoint, f"{project} {row}")
+                self.assertIn("deferred_wake_withheld", checkpoint, f"{project} {row}")
 
     def test_row_and_deferred_wakes_are_exact_and_never_arbitrated(self) -> None:
         records = self.by_project(self.status_json())
@@ -140,14 +142,121 @@ class StatusWakeExportTests(unittest.TestCase):
     def test_ambiguous_deferred_entry_is_null_not_a_failure(self) -> None:
         alpha = self.checkpoints(self.by_project(self.status_json())["alpha"])
         self.assertIsNone(alpha["~bb22"]["deferred_wake"])
+        self.assertFalse(alpha["~bb22"]["deferred_wake_withheld"])
         self.assertIsNone(alpha["~bb22"]["wake"])
+        self.assertFalse(alpha["~bb22"]["wake_withheld"])
 
-    def test_long_wake_is_bounded_as_a_marked_prefix(self) -> None:
+    def test_long_wake_is_exact_until_limit(self) -> None:
         alpha = self.checkpoints(self.by_project(self.status_json())["alpha"])
         wake = alpha["~cc33"]["wake"]
-        self.assertLess(len(wake), len(LONG_WAKE.strip()))
-        self.assertTrue(wake.endswith("…"), wake[-20:])
-        self.assertTrue(LONG_WAKE.startswith(wake[:-1]))
+        self.assertEqual(wake, LONG_WAKE.strip())
+        self.assertFalse(alpha["~cc33"]["wake_withheld"])
+
+    def test_wakes_preserve_exact_boundary_and_withhold_overlong_values_independently(self) -> None:
+        exact = ("r" * 2048) + "\t" + ("r" * 2047)
+        overlong = "s" * 4097
+        text = "\n".join([
+            "# Boundary",
+            "",
+            "## Brief",
+            "",
+            "- Project: boundary",
+            "- Mode: ship",
+            "",
+            "## Tasks",
+            "",
+            "### Boundary",
+            f"- [pending] exact ~nn11 | proof: read exact -> exact | wake: {exact}",
+            f"- [pending] row overlong ~oo22 | proof: read row -> withheld | wake: {overlong}",
+            f"- [pending] Deferred overlong ~pp33 | proof: read deferred -> withheld | wake: {exact}",
+            f"- [pending] both overlong ~qq44 | proof: read both -> withheld | wake: {overlong}",
+            "- [pending] absent ~rr55 | proof: read none -> unknown",
+            "- [pending] unsafe ~ss66 | proof: read unsafe -> unknown | wake: safe\x1btext",
+            f"- [pending] unsafe overlong ~tt77 | proof: read unsafe -> unknown | wake: {overlong}\x1b",
+            "",
+            "## Deferred",
+            "",
+            f"- ~nn11 exact Deferred boundary | wake: {exact}",
+            f"- ~oo22 exact Deferred boundary | wake: {exact}",
+            f"- ~pp33 overlong Deferred wake | wake: {overlong}",
+            f"- ~qq44 overlong Deferred wake | wake: {overlong}",
+        ])
+        status = _load_status()
+        plan = status._amp._parse(text)
+        checkpoints = self.checkpoints(
+            {"milestones": status.milestone_rotation(plan, None, [], candidates=[])}
+        )
+
+        exact_row = checkpoints["~nn11"]
+        self.assertEqual(exact_row["wake"], exact)
+        self.assertEqual(exact_row["deferred_wake"], exact)
+        self.assertFalse(exact_row["wake_withheld"])
+        self.assertFalse(exact_row["deferred_wake_withheld"])
+
+        row_overlong = checkpoints["~oo22"]
+        self.assertIsNone(row_overlong["wake"])
+        self.assertEqual(row_overlong["deferred_wake"], exact)
+        self.assertTrue(row_overlong["wake_withheld"])
+        self.assertFalse(row_overlong["deferred_wake_withheld"])
+
+        deferred_overlong = checkpoints["~pp33"]
+        self.assertEqual(deferred_overlong["wake"], exact)
+        self.assertIsNone(deferred_overlong["deferred_wake"])
+        self.assertFalse(deferred_overlong["wake_withheld"])
+        self.assertTrue(deferred_overlong["deferred_wake_withheld"])
+
+        both_overlong = checkpoints["~qq44"]
+        self.assertIsNone(both_overlong["wake"])
+        self.assertIsNone(both_overlong["deferred_wake"])
+        self.assertTrue(both_overlong["wake_withheld"])
+        self.assertTrue(both_overlong["deferred_wake_withheld"])
+
+        absent = checkpoints["~rr55"]
+        self.assertIsNone(absent["wake"])
+        self.assertIsNone(absent["deferred_wake"])
+        self.assertFalse(absent["wake_withheld"])
+        self.assertFalse(absent["deferred_wake_withheld"])
+
+        unsafe = checkpoints["~ss66"]
+        self.assertIsNone(unsafe["wake"])
+        self.assertFalse(unsafe["wake_withheld"])
+
+        unsafe_overlong = checkpoints["~tt77"]
+        self.assertIsNone(unsafe_overlong["wake"])
+        self.assertFalse(unsafe_overlong["wake_withheld"])
+
+    def test_duplicate_row_wakes_are_ambiguous_in_either_order(self) -> None:
+        text = "\n".join([
+            "# Duplicate wakes",
+            "",
+            "## Brief",
+            "",
+            "- Project: duplicate-wakes",
+            "- Mode: ship",
+            "",
+            "## Tasks",
+            "",
+            "### Duplicate row fields",
+            "- [pending] first duplicate ~uu11 | proof: read first -> unknown | wake: first | wake: second",
+            "- [pending] reversed duplicate ~vv22 | proof: read second -> unknown | wake: second | wake: first",
+            "- [pending] empty duplicate ~ww33 | proof: read empty -> unknown | wake: | wake: present",
+        ])
+        status = _load_status()
+        plan = status._amp._parse(text)
+        record = status.v4_brief(
+            Path("PLAN.md"),
+            "PLAN.md",
+            plan_text=text,
+            parsed=plan,
+            candidates=[],
+            lint_findings=status._lint.lint_plan(text),
+        )
+        self.assertIsNotNone(record)
+        self.assertGreater(record["lint_blocking"], 0)
+        checkpoints = self.checkpoints(record)
+        for row in ("~uu11", "~vv22", "~ww33"):
+            self.assertIsNone(checkpoints[row]["wake"], row)
+            self.assertFalse(checkpoints[row]["wake_withheld"], row)
 
     def test_seat_brief_and_full_export_agree(self) -> None:
         full = self.by_project(self.status_json())
@@ -162,11 +271,21 @@ class StatusWakeExportTests(unittest.TestCase):
                     payload, entity_ids={entity["id"]}, verify_identity=True,
                 )
                 wakes = {
-                    row: (checkpoint["wake"], checkpoint["deferred_wake"])
+                    row: (
+                        checkpoint["wake"],
+                        checkpoint["deferred_wake"],
+                        checkpoint["wake_withheld"],
+                        checkpoint["deferred_wake_withheld"],
+                    )
                     for row, checkpoint in self.checkpoints(brief).items()
                 }
                 expected = {
-                    row: (checkpoint["wake"], checkpoint["deferred_wake"])
+                    row: (
+                        checkpoint["wake"],
+                        checkpoint["deferred_wake"],
+                        checkpoint["wake_withheld"],
+                        checkpoint["deferred_wake_withheld"],
+                    )
                     for row, checkpoint in self.checkpoints(full[entity["project"]]).items()
                 }
                 self.assertEqual(wakes, expected, entity["project"])
