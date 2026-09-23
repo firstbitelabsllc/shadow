@@ -842,7 +842,10 @@ class ShadowAcceptTests(unittest.TestCase):
             (
                 "malformed",
                 malformed,
-                r"~ef56 has a malformed SOURCE receipt",
+                # option A (grant 2026-09-22): a post-cutover SOURCE candidate
+                # without canonical shape is prose — skipped, so the row has
+                # zero canonical receipts instead of a malformed one.
+                r"~ef56 has 0 canonical SOURCE receipts",
             ),
             (
                 "state reverted",
@@ -867,7 +870,9 @@ class ShadowAcceptTests(unittest.TestCase):
             (
                 "exact cutover prose",
                 cutover_prose_source,
-                r"~ij90 has a malformed SOURCE receipt",
+                # option A (grant 2026-09-22): prose is skipped, so the
+                # canonical-count gate refuses instead of the shape gate.
+                r"~ij90 has 0 canonical SOURCE receipts",
             ),
             (
                 "conflicting",
@@ -887,6 +892,30 @@ class ShadowAcceptTests(unittest.TestCase):
                 ),
                 source_a,
             )
+
+    def test_local_source_receipt_treats_prose_mentions_as_prose(self) -> None:
+        """A row-scoped SOURCE mention without canonical shape is prose (option A)."""
+        stamp = "2026-08-28T05:00:00Z"
+        head = "a" * 40
+        completed = accept.completed_plan_text(PLAN, "~ab12", ["true"], stamp)
+        canonical = accept.append_progress_line(
+            completed,
+            f"- {stamp} ~ab12 SOURCE github.com/example/repo HEAD {head} "
+            "-> proof and final lint (accept)\n",
+        )
+        prose = accept.append_progress_line(
+            canonical,
+            "- 2026-09-01T18:17:21Z ~ab12 SOURCE ai-leo commit 7a50dca -> NOT DONE\n",
+        )
+        self.assertEqual(
+            accept.local_source_receipt(prose, "~ab12", ["true"]),
+            ("github.com/example/repo", head),
+        )
+        with self.assertRaisesRegex(
+            accept.AcceptError,
+            r"~ab12 has 0 canonical SOURCE receipts",
+        ):
+            accept.local_source_receipt(completed, "~ab12", ["true"])
 
     def test_legacy_source_prose_and_duplicate_receipts_are_checked_by_exact_argv(
         self,
@@ -913,7 +942,9 @@ class ShadowAcceptTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             accept.AcceptError,
-            r"~ab12 has a malformed SOURCE receipt",
+            # option A (grant 2026-09-22): non-canonical post-cutover
+            # candidates are prose — the canonical-count gate refuses.
+            r"~ab12 has 0 canonical SOURCE receipts",
         ):
             accept.local_plan_source_identity(modern_malformed)
 
@@ -928,7 +959,9 @@ class ShadowAcceptTests(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(
                     accept.AcceptError,
-                    r"~ab12 has a malformed SOURCE receipt",
+                    # option A (grant 2026-09-22): non-canonical spacing
+                    # makes this prose — the canonical-count gate refuses.
+                    r"~ab12 has 0 canonical SOURCE receipts",
                 ):
                     accept.local_plan_source_identity(malformed_spacing)
 
@@ -943,7 +976,9 @@ class ShadowAcceptTests(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(
                     accept.AcceptError,
-                    r"~ab12 has a malformed SOURCE receipt",
+                    # option A (grant 2026-09-22): non-canonical spacing
+                    # makes this prose — the canonical-count gate refuses.
+                    r"~ab12 has 0 canonical SOURCE receipts",
                 ):
                     accept.local_plan_source_identity(malformed_spacing)
 
