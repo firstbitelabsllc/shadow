@@ -242,6 +242,18 @@ def changed_paths(base: str, head: str) -> list[str]:
     return [item.decode("utf-8") for item in result.stdout.split(b"\0") if item]
 
 
+def merge_base(ref: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "merge-base", ref, "HEAD"],
+        capture_output=True,
+        env=_shadow_git.sanitized_git_env(),
+        check=False,
+    )
+    if result.returncode or not result.stdout.strip():
+        raise ValueError("comparison base is unavailable")
+    return result.stdout.decode("utf-8").strip()
+
+
 def _integer(name: str, value: str, minimum: int, maximum: int) -> int:
     if not re.fullmatch(r"[0-9]+", value or ""):
         raise ValueError(f"{name} must be a decimal integer")
@@ -524,6 +536,9 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--modules-json", default="[]")
     gauntlet = sub.add_parser("gauntlet")
     gauntlet.add_argument("--scratch-root", required=True, type=Path)
+    local = sub.add_parser("local")
+    local.add_argument("--base", default="origin/main")
+    local.add_argument("--max-modules", type=int, default=6)
     return result
 
 
@@ -536,6 +551,26 @@ def main(argv: list[str] | None = None) -> int:
             print(plan["reason"])
         elif args.command == "run":
             run_selected(args.run_all == "true", args.modules_json)
+        elif args.command == "local":
+            base_sha = merge_base(args.base)
+            selection = select_paths(changed_paths(base_sha, "HEAD"))
+            extra = set(selection.modules) - BASELINE
+            if selection.run_all:
+                print(
+                    "shadow-ci local: full proof deferred to landing "
+                    f"({selection.reason})"
+                )
+                modules = BASELINE
+            elif len(extra) > args.max_modules:
+                # A push lane must stay fast; a wide selection is landing's job.
+                print(
+                    "shadow-ci local: full proof deferred to landing "
+                    f"({len(extra)} focused modules exceed --max-modules {args.max_modules})"
+                )
+                modules = BASELINE
+            else:
+                modules = selection.modules
+            run_selected(False, json.dumps(sorted(modules)))
         else:
             run_gauntlet(args.scratch_root)
     except (OSError, ValueError) as exc:

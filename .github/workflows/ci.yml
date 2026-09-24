@@ -1,8 +1,8 @@
 name: CI
 
 # Git, Bash, Python. No Node, no npm — removed 2026-08-09 by owner ruling.
-# All four existing CI contexts are load-bearing branch-protection checks:
-# test (3.10), test (3.12), test (3.14), and browser-and-docs. Never skip the
+# All four existing CI contexts are advisory because main is not branch-protected;
+# the local takeoff gate (.githooks/pre-push) judges pushes. Never skip the
 # workflow by path; an unmapped path selects the full suite instead.
 
 on:
