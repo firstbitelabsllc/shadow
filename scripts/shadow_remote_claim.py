@@ -576,6 +576,112 @@ def published_plan_bytes(repo: Path, plan_token: dict[str, str]) -> bytes | None
     return snapshot[0] if snapshot is not None else None
 
 
+def published_completion_plan_snapshot(
+    repo: Path,
+    plan_token: dict[str, str],
+) -> tuple[bytes, tuple[str, str]] | None:
+    """Read a completion's exact PLAN blob from the authenticated default.
+
+    This is deliberately separate from ``published_plan_snapshot``.  The normal
+    read requires the source head to be an ancestor of the default tip.  A
+    completion retry may instead encounter a rebuilt default with identical
+    PLAN bytes and no shared commit ancestry.  The fallback authenticates the
+    default twice, then requires the default's PLAN blob to be the exact blob
+    bound by the completion claim.  A different default PLAN is a refusal, not
+    permission to push a stale branch over the current default.
+    """
+    if not public_safe_plan_token(plan_token):
+        return None
+    binding = upstream_binding(repo, recover_detached=True)
+    if binding.eligibility is RemoteEligibility.UNKNOWN:
+        raise RemoteClaimError("published completion remote is unavailable")
+    if binding.endpoint is None or not binding.merge_refs:
+        return None
+    default_ref, default_tip = _remote_default(repo, binding.endpoint)
+    if default_ref not in binding.merge_refs:
+        return None
+    fetched = _git(
+        repo,
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        binding.endpoint,
+        default_ref,
+    )
+    if fetched.returncode:
+        raise RemoteClaimError("published completion could not be authenticated")
+    if _remote_default(repo, binding.endpoint) != (default_ref, default_tip):
+        raise RemoteClaimError("published completion changed during authentication")
+    # The ordinary fast-forward publication path owns this case.  The
+    # completion-only fallback is for a default that has diverged from the
+    # completion source, never for the first publication of a child commit.
+    if not _git(repo, "merge-base", "--is-ancestor", default_tip, plan_token["head"]).returncode:
+        return None
+    content = published_file_bytes(repo, default_tip, plan_token["relative"])
+    if content is None:
+        raise RemoteClaimError("published completion default PLAN is missing")
+    measured = _git(repo, "hash-object", "--stdin", input_bytes=content)
+    observed_blob = measured.stdout.decode("ascii", errors="ignore").strip()
+    if measured.returncode or observed_blob != plan_token["blob"]:
+        raise RemoteClaimError("published completion default does not carry the exact claim-plan blob")
+    bound_blob = _git(repo, "rev-parse", f"{plan_token['head']}:{plan_token['relative']}")
+    if (
+        bound_blob.returncode
+        or bound_blob.stdout.decode("ascii", errors="ignore").strip() != plan_token["blob"]
+    ):
+        raise RemoteClaimError("completion claim-plan blob is not authenticated")
+    # Materialize the exact published plan root.  PLAN.md may be a bounded
+    # shadow.plan-tree.v1 manifest, whose row text lives in authenticated CAS
+    # objects rather than in the root blob itself.
+    reads, source_bytes = 1, len(content)
+    parent = plan_token["relative"].rpartition("/")[0]
+    prefix = f"{parent}/" if parent else ""
+
+    def read_object(digest: str, limit: int) -> bytes:
+        nonlocal reads, source_bytes
+        if reads >= MAX_PUBLISHED_PLAN_READS:
+            raise RemoteClaimError("published plan-tree exceeds the read budget")
+        reads += 1
+        relative = f"{prefix}PLAN.d/objects/sha256/{digest[:2]}/{digest}"
+        body = published_file_bytes(
+            repo,
+            default_tip,
+            relative,
+            max_bytes=min(limit, MAX_PUBLISHED_PLAN_SOURCE_BYTES - source_bytes),
+        )
+        if body is None:
+            raise RemoteClaimError("published plan-tree object is missing")
+        source_bytes += len(body)
+        return body
+
+    try:
+        snapshot = _plan_store.snapshot_of_root(
+            repo / plan_token["relative"], content, object_reader=read_object
+        )
+        if snapshot.root is not None and snapshot.root["logical_bytes"] > MAX_PLAN_BYTES:
+            raise RemoteClaimError("published plan-tree exceeds the logical byte budget")
+        logical = snapshot.materialize()
+    except _plan_store.PlanStoreError as exc:
+        raise RemoteClaimError("published plan-tree could not be authenticated") from exc
+    return logical, (default_ref, default_tip)
+
+
+def assert_published_default_stable(
+    repo: Path, expected_identity: tuple[str, str]
+) -> None:
+    """Refuse a completion if the authenticated default moved before CAS."""
+    binding = upstream_binding(repo, recover_detached=True)
+    if binding.eligibility is RemoteEligibility.UNKNOWN or binding.endpoint is None:
+        raise RemoteClaimError("published completion remote is unavailable")
+    default_ref, default_tip = _remote_default(repo, binding.endpoint)
+    if (
+        default_ref not in binding.merge_refs
+        or (default_ref, default_tip) != expected_identity
+    ):
+        raise RemoteClaimError("published completion default changed before claim transition")
+
+
 def _has_git_marker(path: Path) -> bool | None:
     try:
         current = path.resolve(strict=True)

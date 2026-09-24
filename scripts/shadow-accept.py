@@ -2569,13 +2569,32 @@ def ensure_completion_published(
     plan_token: dict[str, str],
     plan_text: str,
     summary: str,
+    authenticated_default_identity: list[tuple[str, str]] | None = None,
 ) -> int | None:
     """Publish on a tracking branch or authenticate an already-merged retry."""
     tracking = _remote_claim.uses_remote_upstream(repo)
+    normal_error: _remote_claim.RemoteClaimError | None = None
     try:
         snapshot = _remote_claim.published_plan_snapshot(repo, plan_token)
-    except _remote_claim.RemoteClaimError:
+    except _remote_claim.RemoteClaimError as exc:
         snapshot = None
+        normal_error = exc
+    if snapshot is None and normal_error is None:
+        # A rebuilt default can preserve the exact completion PLAN blob while
+        # losing commit ancestry.  Reconcile that bounded case from the
+        # authenticated default; never push a stale completion over a default
+        # whose PLAN blob differs.
+        try:
+            completion_snapshot = _remote_claim.published_completion_plan_snapshot(
+                repo, plan_token
+            )
+        except _remote_claim.RemoteClaimError as exc:
+            raise AcceptError(
+                "current tracked-upstream default does not carry the exact "
+                f"claim-plan completion; remote claim retained ({exc})"
+            ) from exc
+        if completion_snapshot is not None:
+            snapshot = completion_snapshot
     if snapshot is None:
         if not tracking:
             raise AcceptError(
@@ -2604,7 +2623,17 @@ def ensure_completion_published(
                 "completion is not published on the tracked upstream default; "
                 "remote claim retained"
             )
-    published_bytes, default_tip = snapshot
+    published_bytes, default_identity = snapshot
+    if (
+        authenticated_default_identity is not None
+        and isinstance(default_identity, tuple)
+    ):
+        authenticated_default_identity[:] = [default_identity]
+    default_tip = (
+        default_identity[1]
+        if isinstance(default_identity, tuple)
+        else default_identity
+    )
     try:
         published_text = published_bytes.decode("utf-8")
         _, _, local_state, local_proof, _ = find_row(plan_text, row_id)
@@ -2791,7 +2820,18 @@ def transition_remote_completion(
     owner: str,
     plan_token: dict[str, str],
     claim: dict,
+    expected_default_identity: tuple[str, str] | None = None,
 ) -> None:
+    if expected_default_identity is not None:
+        try:
+            _remote_claim.assert_published_default_stable(
+                repo, expected_default_identity
+            )
+        except _remote_claim.RemoteClaimError as exc:
+            raise AcceptError(
+                "published completion default changed before claim transition; "
+                "exact local and remote claims retained"
+            ) from exc
     state = _board.entity_state(plan_path, exact_on_conflict=True)
     remote = _remote_claim.transition(
         repo,
@@ -2845,8 +2885,14 @@ def finalize_completion(
             False,
         )
     if managed:
+        authenticated_default_identity: list[tuple[str, str]] = []
         published = ensure_completion_published(
-            repo, row_id, plan_token, plan_text, summary
+            repo,
+            row_id,
+            plan_token,
+            plan_text,
+            summary,
+            authenticated_default_identity,
         )
         if published:
             return published, False
@@ -2856,7 +2902,15 @@ def finalize_completion(
                 "local and remote completion claims disagree; exact local claim retained"
             )
         transition_remote_completion(
-            repo, plan_path, row_id, owner, plan_token, remote_claim
+            repo,
+            plan_path,
+            row_id,
+            owner,
+            plan_token,
+            remote_claim,
+            authenticated_default_identity[0]
+            if authenticated_default_identity
+            else None,
         )
     else:
         published = publish_completion(
@@ -2953,8 +3007,14 @@ def finalize_completed_retry_without_local_claim(
             summary,
             expected_head=plan_token["head"],
         )
+    authenticated_default_identity: list[tuple[str, str]] = []
     published = ensure_completion_published(
-        repo, row_id, plan_token, plan_text, summary
+        repo,
+        row_id,
+        plan_token,
+        plan_text,
+        summary,
+        authenticated_default_identity,
     )
     if published:
         return published
@@ -2965,6 +3025,9 @@ def finalize_completed_retry_without_local_claim(
         owner,
         plan_token,
         claim_from_remote_receipt(receipt),
+        authenticated_default_identity[0]
+        if authenticated_default_identity
+        else None,
     )
     print(f"accepted {row_id}: {summary}; published and remote claim completed")
     return 0

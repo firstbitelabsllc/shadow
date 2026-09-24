@@ -3082,7 +3082,7 @@ class ARejectedPushLeavesTheFlipReachable(unittest.TestCase):
 
 
 class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
-    def fixture(self, root: Path) -> tuple[Path, Path, Path, dict]:
+    def fixture(self, root: Path, *, tree: bool = False) -> tuple[Path, Path, Path, dict]:
         repo = make_repo(root)
         remote = root / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
@@ -3090,6 +3090,11 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
         configure_public_fixture_ssh_remote(repo, remote)
         git(repo, "push", "-qu", "origin", "HEAD:main")
         git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        if tree:
+            install_plan_tree(repo, (repo / "PLAN.md").read_bytes())
+            git(repo, "add", "PLAN.md", "PLAN.d")
+            git(repo, "commit", "-qm", "migrate plan before claim")
+            git(repo, "push", "-qu", "origin", "HEAD:main")
         home = root / "home"
         home.mkdir()
         claimed = run_shadow(
@@ -3215,6 +3220,332 @@ class ARemoteManagedAcceptClosesOnlyAfterPublication(unittest.TestCase):
             self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
             payload = json.loads((home / ".shadow" / "board.json").read_text())
             self.assertEqual(payload["claims"], [])
+
+    def test_completed_retry_accepts_divergent_default_with_exact_claim_plan_blob(self) -> None:
+        """A rebuilt default may differ in history when its claimed PLAN blob is exact."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, receipt = self.fixture(root)
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            completed_plan = (repo / "PLAN.md").read_bytes()
+            advanced = root / "rebuilt"
+            subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
+            git(advanced, "config", "user.email", "t@example.invalid")
+            git(advanced, "config", "user.name", "T")
+            git(advanced, "switch", "--orphan", "rebuilt")
+            (advanced / "PLAN.md").write_bytes(completed_plan)
+            (advanced / "x.txt").write_text("hello\n", encoding="utf-8")
+            git(advanced, "add", "PLAN.md", "x.txt")
+            git(advanced, "commit", "-qm", "rebuild default with exact completion")
+            git(advanced, "push", "-qf", "origin", "HEAD:main")
+            token, _ = accept._board.committed_plan_snapshot(repo / "PLAN.md")
+            self.assertEqual(git(remote, "rev-parse", "main:PLAN.md"), token["blob"])
+
+            retry = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(repo), "--row", "~ab12", "--by", "seat-a"],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("remote claim completed", retry.stdout)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+            self.assertEqual(json.loads((home / ".shadow" / "board.json").read_text())["claims"], [])
+
+    def test_completed_retry_refuses_divergent_default_with_forged_completion_tail(self) -> None:
+        """A copied completed row on a different PLAN blob cannot settle the claim."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, receipt = self.fixture(root)
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            advanced = root / "forged"
+            subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
+            git(advanced, "config", "user.email", "t@example.invalid")
+            git(advanced, "config", "user.name", "T")
+            git(advanced, "switch", "--orphan", "forged")
+            forged = (repo / "PLAN.md").read_text(encoding="utf-8").replace(
+                "- 2026-08-06T10:00:00Z POSTURE Broad->Close | harness: the proof command",
+                "- 2026-08-06T10:00:00Z POSTURE Forged->Close | harness: the proof command",
+            )
+            (advanced / "PLAN.md").write_text(forged, encoding="utf-8")
+            (advanced / "x.txt").write_text("hello\n", encoding="utf-8")
+            git(advanced, "add", "PLAN.md", "x.txt")
+            git(advanced, "commit", "-qm", "forge completion tail")
+            git(advanced, "push", "-qf", "origin", "HEAD:main")
+
+            retry = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(repo), "--row", "~ab12", "--by", "seat-a"],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("remote claim retained", retry.stdout + retry.stderr)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("acquired", "acquire"))
+            self.assertEqual(len(json.loads((home / ".shadow" / "board.json").read_text())["claims"]), 1)
+
+    def test_completed_retry_accepts_independent_default_sibling_with_exact_claim_plan_blob(self) -> None:
+        """A default sibling sharing the claim base may settle an exact completion."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, receipt = self.fixture(root)
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            completed_head = git(repo, "rev-parse", "HEAD")
+            local_plan_before = (repo / "PLAN.md").read_bytes()
+            base_head = receipt["plan"]["head"]
+            completed_plan = local_plan_before
+            advanced = root / "sibling"
+            subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
+            git(advanced, "config", "user.email", "t@example.invalid")
+            git(advanced, "config", "user.name", "T")
+            git(advanced, "switch", "-c", "sibling", base_head)
+            (advanced / "PLAN.md").write_bytes(completed_plan)
+            (advanced / "x.txt").write_text("hello\n", encoding="utf-8")
+            git(advanced, "add", "PLAN.md", "x.txt")
+            git(advanced, "commit", "-qm", "publish independent completion sibling")
+            sibling_head = git(advanced, "rev-parse", "HEAD")
+            self.assertNotEqual(sibling_head, completed_head)
+            self.assertEqual(git(advanced, "merge-base", sibling_head, completed_head), base_head)
+            git(advanced, "push", "-qf", "origin", "HEAD:main")
+
+            retry = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(repo), "--row", "~ab12", "--by", "seat-a"],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertIn("remote claim completed", retry.stdout)
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), completed_head)
+            self.assertEqual((repo / "PLAN.md").read_bytes(), local_plan_before)
+            self.assertEqual(json.loads((home / ".shadow" / "board.json").read_text())["claims"], [])
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("completed", "completed"))
+
+    def test_completion_only_snapshot_materializes_sharded_claim_plan_and_rejects_forgery(self) -> None:
+        """The fallback reads authenticated PLAN.d objects and binds the root blob."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, _receipt = self.fixture(root, tree=True)
+            plan_path = repo / "PLAN.md"
+            token, expected = accept._board.committed_plan_snapshot(plan_path)
+            advanced = root / "sharded-default"
+            subprocess.run(["git", "clone", "-q", str(remote), str(advanced)], check=True)
+            configure_public_fixture_ssh_remote(advanced, remote)
+            git(advanced, "config", "user.email", "t@example.invalid")
+            git(advanced, "config", "user.name", "T")
+            git(advanced, "switch", "--orphan", "rebuilt")
+            shutil.copytree(repo / "PLAN.d", advanced / "PLAN.d")
+            (advanced / "PLAN.md").write_bytes(plan_path.read_bytes())
+            (advanced / "x.txt").write_text("hello\n", encoding="utf-8")
+            git(advanced, "add", "PLAN.md", "PLAN.d", "x.txt")
+            git(advanced, "commit", "-qm", "rebuild sharded default")
+            git(advanced, "push", "-qf", "origin", "HEAD:main")
+
+            result = accept._remote_claim.published_completion_plan_snapshot(repo, token)
+
+            self.assertIsNotNone(result)
+            self.assertEqual(result[0], expected)
+            forged_text = expected.replace(b"Broad->Close", b"Forged->Close")
+            (advanced / "PLAN.md").write_bytes(forged_text)
+            git(advanced, "add", "PLAN.md")
+            git(advanced, "commit", "-qm", "forge sharded default")
+            git(advanced, "push", "-qf", "origin", "HEAD:main")
+            with self.assertRaisesRegex(accept._remote_claim.RemoteClaimError, "exact claim-plan blob"):
+                accept._remote_claim.published_completion_plan_snapshot(repo, token)
+
+    def test_completed_retry_refuses_default_move_after_snapshot_before_transition(self) -> None:
+        """A native Git move between read and CAS keeps both claims acquired."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, receipt = self.fixture(root)
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            completed_head = git(repo, "rev-parse", "HEAD")
+            base_head = receipt["plan"]["head"]
+            sibling = root / "race-sibling"
+            subprocess.run(["git", "clone", "-q", str(remote), str(sibling)], check=True)
+            configure_public_fixture_ssh_remote(sibling, remote)
+            git(sibling, "config", "user.email", "t@example.invalid")
+            git(sibling, "config", "user.name", "T")
+            git(sibling, "switch", "-c", "sibling", base_head)
+            (sibling / "PLAN.md").write_bytes((repo / "PLAN.md").read_bytes())
+            (sibling / "x.txt").write_text("hello\n", encoding="utf-8")
+            git(sibling, "add", "PLAN.md", "x.txt")
+            git(sibling, "commit", "-qm", "race sibling completion")
+            git(sibling, "push", "-qf", "origin", "HEAD:main")
+
+            racer = root / "race-after-read"
+            subprocess.run(["git", "clone", "-q", str(remote), str(racer)], check=True)
+            configure_public_fixture_ssh_remote(racer, remote)
+            git(racer, "config", "user.email", "t@example.invalid")
+            git(racer, "config", "user.name", "T")
+            (racer / "RACE.txt").write_text("default moved\n", encoding="utf-8")
+            original_guard = accept._remote_claim.assert_published_default_stable
+
+            def move_then_guard(
+                checkout: Path, expected_identity: tuple[str, str]
+            ) -> None:
+                git(racer, "add", "RACE.txt")
+                git(racer, "commit", "-qm", "move default during completion race")
+                git(racer, "push", "-qf", "origin", "HEAD:main")
+                original_guard(checkout, expected_identity)
+
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "assert_published_default_stable",
+                    side_effect=move_then_guard,
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                retry = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+
+            self.assertEqual(retry, 1, output.getvalue())
+            self.assertIn("default changed before claim transition", output.getvalue())
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), completed_head)
+            self.assertEqual(len(json.loads((home / ".shadow" / "board.json").read_text())["claims"]), 1)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("acquired", "acquire"))
+
+    def test_completed_retry_refuses_default_identity_swap_at_same_tip(self) -> None:
+        """A symbolic default-ref swap at one tip cannot bypass the final guard."""
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname).resolve()
+            repo, remote, home, receipt = self.fixture(root)
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "transition",
+                    return_value={"status": "error", "failure": "ambiguous_remote"},
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                first = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+            self.assertEqual(first, 1, output.getvalue())
+            completed_head = git(repo, "rev-parse", "HEAD")
+            base_head = receipt["plan"]["head"]
+            sibling = root / "identity-sibling"
+            subprocess.run(["git", "clone", "-q", str(remote), str(sibling)], check=True)
+            configure_public_fixture_ssh_remote(sibling, remote)
+            git(sibling, "config", "user.email", "t@example.invalid")
+            git(sibling, "config", "user.name", "T")
+            git(sibling, "switch", "-c", "sibling", base_head)
+            (sibling / "PLAN.md").write_bytes((repo / "PLAN.md").read_bytes())
+            (sibling / "x.txt").write_text("hello\n", encoding="utf-8")
+            git(sibling, "add", "PLAN.md", "x.txt")
+            git(sibling, "commit", "-qm", "identity sibling completion")
+            sibling_tip = git(sibling, "rev-parse", "HEAD")
+            git(sibling, "push", "-qf", "origin", "HEAD:main")
+            git(remote, "branch", "stable", "main")
+            git(repo, "fetch", "-q", "origin")
+            git(repo, "branch", "stable", completed_head)
+            git(repo, "branch", "--set-upstream-to=origin/stable", "stable")
+            git(remote, "symbolic-ref", "HEAD", "refs/heads/stable")
+            original_guard = accept._remote_claim.assert_published_default_stable
+
+            def swap_default(checkout: Path, expected_identity: tuple[str, str]) -> None:
+                self.assertEqual(expected_identity, ("refs/heads/stable", sibling_tip))
+                git(remote, "symbolic-ref", "HEAD", "refs/heads/main")
+                original_guard(checkout, expected_identity)
+
+            output = io.StringIO()
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                mock.patch.object(
+                    accept._remote_claim,
+                    "assert_published_default_stable",
+                    side_effect=swap_default,
+                ),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                retry = accept.main(
+                    ["--repo", str(repo), "--row", "~ab12", "--by", "seat-a"]
+                )
+
+            self.assertEqual(retry, 1, output.getvalue())
+            self.assertIn("default changed before claim transition", output.getvalue())
+            self.assertEqual(git(repo, "rev-parse", "HEAD"), completed_head)
+            self.assertEqual(len(json.loads((home / ".shadow" / "board.json").read_text())["claims"]), 1)
+            stored = json.loads(git(remote, "show", f"{receipt['ref']}:claim.json"))
+            self.assertEqual((stored["state"], stored["reason"]), ("acquired", "acquire"))
 
     def test_completed_retry_does_not_treat_a_feature_upstream_as_published(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
