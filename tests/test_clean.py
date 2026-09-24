@@ -283,6 +283,40 @@ class CleanPreviewTests(unittest.TestCase):
         self.assertNotIn("journal", result.stdout)
         self.assertNotIn("manifest_path", result.stdout)
 
+    def test_prepare_cli_accepts_preview_id_and_refuses_unknown(self):
+        destination = self.repo.parent / "managed-id"
+        created = self.clean.create_managed_worktree(
+            self.repo, destination, entity=self.entity, checkpoint="~aa11", seat="seat-a",
+            landed_ref="refs/heads/master", home=self.home,
+        )
+        plan = self.repo / "PLAN.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8").replace("[pending] managed worktree", "[completed] managed worktree")
+            + "\n- 2026-09-04T00:00:00Z ~aa11 PROOF cmd true -> pass\n",
+            encoding="utf-8",
+        )
+        board.release(plan, "~aa11", owner="seat-a", reason="completed", home=self.home)
+        preview = self.clean.preview(repo=self.repo, home=self.home)
+        public_id = next(c["id"] for c in preview["candidates"] if c["state"] == "eligible")
+        self.assertEqual(public_id, f"worktree@{created['receipt_sha256'][:12]}")
+
+        result = subprocess.run(
+            [str(CLI), "clean", "--prepare", "--worktree", public_id, "--json"],
+            env={**os.environ, "HOME": str(self.home)}, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["worktree_id"], public_id)
+
+        manifests = self.home / ".shadow" / "clean" / "manifests"
+        before = sorted(manifests.glob("*.json"))
+        for unknown_id in ("worktree@000000000000", "worktree@not-hex"):
+            unknown = subprocess.run(
+                [str(CLI), "clean", "--prepare", "--worktree", unknown_id, "--json"],
+                env={**os.environ, "HOME": str(self.home)}, capture_output=True, text=True, check=False,
+            )
+            self.assertNotEqual(unknown.returncode, 0)
+            self.assertEqual(sorted(manifests.glob("*.json")), before)
+
     def test_interrupted_issuance_can_only_resume_matching_pending_nonce(self):
         destination = self.repo.parent / "managed"
         pending = self.clean.prepare_creation(

@@ -2840,12 +2840,21 @@ def main(argv: list[str] | None = None) -> int:
         elif args.prepare:
             if args.worktree is None:
                 raise CleanError("--prepare requires --worktree")
-            records = [
-                (receipt, journal)
-                for receipt, journal in _valid_records(home)
-                if Path(receipt["worktree"]["path"]) == _real_absolute(args.worktree, "worktree")
-            ]
-            if not records:
+            worktree_arg = str(args.worktree)
+            if worktree_arg.startswith("worktree@"):
+                if WORKTREE_ID_RE.fullmatch(worktree_arg) is None:
+                    raise CleanError("worktree receipt identity is invalid")
+                records = [
+                    (receipt, journal) for receipt, journal in _valid_records(home)
+                    if f"worktree@{receipt['receipt_sha256'][:12]}" == worktree_arg
+                ]
+            else:
+                path = _real_absolute(args.worktree, "worktree")
+                records = [
+                    (receipt, journal) for receipt, journal in _valid_records(home)
+                    if Path(receipt["worktree"]["path"]) == path
+                ]
+            if len(records) != 1:
                 raise CleanError("not Shadow-created")
             receipt, journal = records[0]
             refusal = _preview_refusal(receipt, journal, home)
