@@ -1352,7 +1352,40 @@ def _status_snapshot(target: Path) -> tuple[str, str]:
         "--untracked-files=all",
     ).stdout
     lines = status.splitlines()
-    evidence = _sealed_evidence_inventory(target)
+    state = target / ".shadow"
+    tracked_shadow = (
+        _git(target, "ls-files", "--stage", "-v", "-z", "--", ".shadow").stdout
+        if state.exists() or state.is_symlink() else ""
+    )
+    if tracked_shadow:
+        if state.is_symlink() or not state.is_dir() or any(
+            not item.startswith("H ") or item.split(" ", 2)[1] == "120000"
+            for item in tracked_shadow.split("\0") if item
+        ):
+            raise CleanError("worktree is dirty")
+        pending = [(state, 0)]
+        nodes = 0
+        while pending:
+            directory, depth = pending.pop()
+            try:
+                with os.scandir(directory) as children:
+                    for child in children:
+                        nodes += 1
+                        if nodes > MAX_EVIDENCE_NODES or child.name == ".git" or child.is_symlink():
+                            raise CleanError("worktree is dirty")
+                        if child.is_dir(follow_symlinks=False):
+                            if depth + 1 > MAX_EVIDENCE_DEPTH:
+                                raise CleanError("worktree is dirty")
+                            pending.append((Path(child.path), depth + 1))
+                        elif not child.is_file(follow_symlinks=False):
+                            raise CleanError("worktree is dirty")
+            except OSError as exc:
+                raise CleanError("worktree is dirty") from exc
+        # Committed .shadow content belongs to HEAD. New host evidence beside it is
+        # ordinary untracked/ignored state, never the sole sealed-evidence exception.
+        evidence = None
+    else:
+        evidence = _sealed_evidence_inventory(target)
     if status:
         if any(not line.startswith(("!!", "??")) for line in lines):
             raise CleanError("worktree is dirty")

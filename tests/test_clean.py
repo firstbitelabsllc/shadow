@@ -686,6 +686,103 @@ class CleanApplyTests(unittest.TestCase):
         with self.assertRaises(self.clean.CleanError):
             self.clean._status_snapshot(destination)
 
+    def test_clean_tracked_shadow_source_is_not_untracked_host_evidence(self):
+        task = self.repo / ".shadow" / "tasks" / "existing.md"
+        task.parent.mkdir(parents=True)
+        task.write_text("committed task\n", encoding="utf-8")
+        receipt = self.repo / ".shadow" / "evidence" / "existing.json"
+        receipt.parent.mkdir(parents=True)
+        receipt.write_text('{"committed":true}\n', encoding="utf-8")
+        git(self.repo, "add", ".shadow")
+        git(self.repo, "commit", "-qm", "tracked Shadow source")
+        destination = self.repo.parent / "tracked-shadow-clean"
+        git(self.repo, "worktree", "add", "--detach", str(destination), "HEAD")
+
+        try:
+            status, _ = self.clean._status_snapshot(destination)
+        except self.clean.CleanError as exc:
+            self.fail(f"Git-clean tracked Shadow source was refused: {exc}")
+        self.assertEqual(status, "")
+
+        extra = destination / ".shadow" / "evidence" / "new.json"
+        extra.write_text("new\n", encoding="utf-8")
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._status_snapshot(destination)
+        extra.unlink()
+
+        (self.repo / ".git" / "info" / "exclude").write_text(
+            ".shadow/evidence/ignored.json\n", encoding="utf-8"
+        )
+        ignored = destination / ".shadow" / "evidence" / "ignored.json"
+        ignored.write_text("ignored\n", encoding="utf-8")
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._status_snapshot(destination)
+        ignored.unlink()
+
+        changed = destination / ".shadow" / "tasks" / "existing.md"
+        changed.write_text("staged change\n", encoding="utf-8")
+        git(destination, "add", ".shadow/tasks/existing.md")
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._status_snapshot(destination)
+
+    def test_clean_tracked_shadow_symlink_still_refuses(self):
+        link = self.repo / ".shadow" / "tasks" / "outside"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(self.repo / "PLAN.md")
+        git(self.repo, "add", ".shadow")
+        git(self.repo, "commit", "-qm", "tracked Shadow symlink")
+        destination = self.repo.parent / "tracked-shadow-symlink"
+        git(self.repo, "worktree", "add", "--detach", str(destination), "HEAD")
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._status_snapshot(destination)
+
+    def test_clean_tracked_shadow_nested_git_history_still_refuses(self):
+        evidence = self.repo / ".shadow" / "evidence"
+        evidence.mkdir(parents=True)
+        (evidence / "existing.json").write_text("tracked\n", encoding="utf-8")
+        git(self.repo, "add", ".shadow")
+        git(self.repo, "commit", "-qm", "tracked Shadow source")
+        destination = self.repo.parent / "tracked-shadow-inner-git"
+        git(self.repo, "worktree", "add", "--detach", str(destination), "HEAD")
+
+        inner = destination / ".shadow" / "evidence"
+        git(inner, "init", "-q")
+        git(inner, "config", "user.email", "test@example.invalid")
+        git(inner, "config", "user.name", "Inner history")
+        (inner / "unique.txt").write_text("only in inner Git\n", encoding="utf-8")
+        git(inner, "add", "unique.txt")
+        git(inner, "commit", "-qm", "unique history")
+        (inner / "unique.txt").unlink()
+        self.assertEqual(
+            git(destination, "status", "--porcelain=v1", "--ignored=matching", "--untracked-files=all"),
+            "",
+        )
+        with self.assertRaises(self.clean.CleanError):
+            self.clean._status_snapshot(destination)
+
+    def test_clean_tracked_shadow_hidden_index_changes_still_refuse(self):
+        tracked = self.repo / ".shadow" / "tasks" / "existing.md"
+        tracked.parent.mkdir(parents=True)
+        tracked.write_text("committed\n", encoding="utf-8")
+        git(self.repo, "add", ".shadow")
+        git(self.repo, "commit", "-qm", "tracked Shadow source")
+        destination = self.repo.parent / "tracked-shadow-hidden-index"
+        git(self.repo, "worktree", "add", "--detach", str(destination), "HEAD")
+        changed = destination / ".shadow" / "tasks" / "existing.md"
+
+        for flag in ("assume-unchanged", "skip-worktree"):
+            with self.subTest(flag=flag):
+                git(destination, "update-index", f"--{flag}", ".shadow/tasks/existing.md")
+                changed.write_text("unique hidden change\n", encoding="utf-8")
+                self.assertEqual(
+                    git(destination, "status", "--porcelain=v1", "--ignored=matching", "--untracked-files=all"),
+                    "",
+                )
+                with self.assertRaises(self.clean.CleanError):
+                    self.clean._status_snapshot(destination)
+                git(destination, "update-index", f"--no-{flag}", ".shadow/tasks/existing.md")
+                git(destination, "checkout", "--", ".shadow/tasks/existing.md")
+
     def test_automatic_cleanup_does_not_cross_independent_clone(self):
         destination, _, _, _ = self._terminal_managed()
         other = self.repo.parent / "independent"
