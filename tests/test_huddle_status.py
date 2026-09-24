@@ -118,6 +118,22 @@ class HuddleStatusTests(unittest.TestCase):
         self.assertIn("--entity", help_output)
         self.assertNotIn("next_command", status.in_flight_huddle_marker(self.huddle()))
 
+    def test_satisfied_return_is_not_a_new_bid(self):
+        huddle = self.huddle()
+        returned = huddle["claims"][1]
+        waiting = {**returned, "row": "~cc33", "owner": "C", "claim_revision": 6}
+        huddle["claims"].append(waiting)
+        huddle["holds"] = [waiting]
+        huddle["compliance"] = [
+            {"claim": returned, "status": "satisfied"},
+            {"claim": waiting, "status": "pending"},
+        ]
+
+        self.assertFalse(status.seat_huddle_view(huddle, "B")["involved"])
+        self.assertIsNone(status.render_seat_huddle(huddle, "B"))
+        self.assertEqual(status.seat_huddle_view(huddle, "C")["disposition"], "return_required")
+        self.assertEqual(status.seat_huddle_view(huddle, "A")["disposition"], "continue")
+
     def test_adopted_hold_is_current_but_remote_pending_keeps_source_owner(self):
         huddle = self.huddle()
         original_b = huddle["claims"][1]

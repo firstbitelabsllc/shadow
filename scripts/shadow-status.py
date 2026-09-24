@@ -579,7 +579,11 @@ def seat_huddle_view(huddle: dict, seat: str) -> dict:
     """Private agent resume detail; never used by person-facing brief output."""
     _board.validate_owner(seat)
     marker = in_flight_huddle_marker(huddle)
-    own = [ref for ref in _operating_huddle_refs(huddle) if ref.get("owner") == seat]
+    satisfied = {_board._claim_key(_terminal_huddle_ref(huddle, item["claim"]))
+                 for item in huddle.get("compliance", []) if isinstance(item.get("claim"), dict)
+                 and item.get("status") == "satisfied"}
+    own = [ref for ref in _operating_huddle_refs(huddle)
+           if ref.get("owner") == seat and _board._claim_key(ref) not in satisfied]
     if not own:
         return {"involved": False, "transport": "status_pull"}
     held_refs = {_board._claim_key(_terminal_huddle_ref(huddle, ref)) for ref in huddle.get("holds", [])}
