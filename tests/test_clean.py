@@ -783,6 +783,31 @@ class CleanApplyTests(unittest.TestCase):
                 git(destination, "update-index", f"--no-{flag}", ".shadow/tasks/existing.md")
                 git(destination, "checkout", "--", ".shadow/tasks/existing.md")
 
+    def test_clean_tracked_shadow_sparse_omission_is_safe(self):
+        kept = self.repo / ".shadow" / "tasks" / "kept.md"
+        kept.parent.mkdir(parents=True)
+        kept.write_text("kept\n", encoding="utf-8")
+        omitted = self.repo / ".shadow" / "evidence" / "omitted.md"
+        omitted.parent.mkdir(parents=True)
+        omitted.write_text("committed but omitted\n", encoding="utf-8")
+        git(self.repo, "add", ".shadow")
+        git(self.repo, "commit", "-qm", "tracked Shadow source")
+        destination = self.repo.parent / "tracked-shadow-sparse"
+        git(self.repo, "worktree", "add", "--detach", str(destination), "HEAD")
+        git(destination, "sparse-checkout", "set", "--no-cone", "PLAN.md", ".shadow/tasks/kept.md")
+
+        self.assertTrue((destination / ".shadow" / "tasks" / "kept.md").is_file())
+        self.assertFalse((destination / ".shadow" / "evidence" / "omitted.md").exists())
+        self.assertEqual(
+            git(destination, "status", "--porcelain=v1", "--ignored=matching", "--untracked-files=all"),
+            "",
+        )
+        try:
+            status, _ = self.clean._status_snapshot(destination)
+        except self.clean.CleanError as exc:
+            self.fail(f"Clean sparse Shadow source was refused: {exc}")
+        self.assertEqual(status, "")
+
     def test_automatic_cleanup_does_not_cross_independent_clone(self):
         destination, _, _, _ = self._terminal_managed()
         other = self.repo.parent / "independent"

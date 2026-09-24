@@ -1358,9 +1358,24 @@ def _status_snapshot(target: Path) -> tuple[str, str]:
         if state.exists() or state.is_symlink() else ""
     )
     if tracked_shadow:
+        def unsafe_index_entry(item: str) -> bool:
+            tag, _, rest = item.partition(" ")
+            mode = rest.partition(" ")[0]
+            if mode not in {"100644", "100755"}:
+                return True
+            if tag == "H":
+                return False
+            if tag != "S":
+                return True
+            _, separator, name = item.partition("\t")
+            path = Path(name)
+            if not separator or not path.parts or path.parts[0] != ".shadow" or ".." in path.parts:
+                return True
+            candidate = target / path
+            return candidate.exists() or candidate.is_symlink()
+
         if state.is_symlink() or not state.is_dir() or any(
-            not item.startswith("H ") or item.split(" ", 2)[1] == "120000"
-            for item in tracked_shadow.split("\0") if item
+            unsafe_index_entry(item) for item in tracked_shadow.split("\0") if item
         ):
             raise CleanError("worktree is dirty")
         pending = [(state, 0)]
