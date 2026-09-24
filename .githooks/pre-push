@@ -1,0 +1,13 @@
+#!/bin/sh
+# takeoff gate (METHOD T7): judge each pushed ref's tip commit in an isolated clone.
+# Enable once per checkout: git config core.hooksPath .githooks
+# The lane runs the path-selected modules for what this push changes; full proof stays at
+# landing and on the release train.
+GATE="${TAKEOFF_GATE_BIN:-$HOME/Development/takeoff/bin/gate}"
+if [ ! -x "$GATE" ]; then
+  echo "takeoff gate: REFUSED — no gate at $GATE (install takeoff or set TAKEOFF_GATE_BIN)" >&2
+  exit 1
+fi
+exec "$GATE" pre-push "$1" "$2" \
+  --lane focused --run 'python3 scripts/shadow-ci.py local --base "${TAKEOFF_GATE_BASE:-origin/main}"' \
+  --marker '^Ran ([0-9]+) tests? in' --floor 50
