@@ -51,14 +51,6 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _row_line(text: str, task_id: str) -> tuple[str, re.Match[str]] | None:
-    for line in text.splitlines():
-        match = _amp.ROW_RE.match(line)
-        if match and match.group("id") == task_id:
-            return line, match
-    return None
-
-
 def _priority(plan: dict) -> int:
     raw = plan["brief"].get("Priority", "3")
     try:
@@ -95,21 +87,19 @@ def _repo_for(plan_path: Path) -> Path:
     return Path(top.stdout.strip()).resolve() if top.returncode == 0 else plan_path.parent
 
 
-def _canonical_task(text: str, requested: str) -> str:
+def _canonical_task(plan: dict, requested: str) -> str:
     if _board.ROW_ID.fullmatch(requested):
         return requested
     if LEGACY_TASK_ALIAS_RE.fullmatch(requested) is None:
         raise _board.BoardError(
             f"--task wants a canonical id like ~ab12 or a legacy alias like P9a~formats, got {requested}"
         )
-    matches = []
-    for line in text.splitlines():
-        match = _amp.ROW_RE.match(line)
-        if match and (
-            match.group("text") == requested
-            or match.group("text").startswith(f"{requested} ")
-        ):
-            matches.append(match.group("id"))
+    matches = [
+        row["id"]
+        for milestone in plan["milestones"]
+        for row in milestone["rows"]
+        if row["text"] == requested or row["text"].startswith(f"{requested} ")
+    ]
     if not matches:
         raise _board.BoardError(
             f"no canonical task row preserves legacy alias {requested}"
@@ -140,21 +130,27 @@ def _validated_target(
         text = content.decode("utf-8")
     except (OSError, UnicodeError) as exc:
         raise _board.BoardError("entity plan is missing or unreadable") from exc
+    # Amp's plan parser already owns Tasks-section rows and their fields —
+    # reuse that universe instead of re-scanning the whole file with ROW_RE.
     plan = _amp._parse(text)
-    canonical_task = _canonical_task(text, task)
-    located = _row_line(text, canonical_task)
-    if located is None:
+    canonical_task = _canonical_task(plan, task)
+    row = next(
+        (
+            candidate
+            for milestone in plan["milestones"]
+            for candidate in milestone["rows"]
+            if candidate["id"] == canonical_task
+        ),
+        None,
+    )
+    if row is None:
         raise _board.BoardError(
             f"no task carries {canonical_task} in the stored canonical entity plan"
         )
-    _, match = located
     done = _amp._completed_ids(plan["milestones"])
-    fields = {
-        field.group("key"): field.group("value").strip()
-        for field in _amp.FIELD_RE.finditer(match.group("tail") or "")
-    }
-    if match.group("state") not in {"pending", "in_progress"}:
-        raise _board.BoardError(f"{task} is [{match.group('state')}], not claimable")
+    fields = row["fields"]
+    if row["state"] not in {"pending", "in_progress"}:
+        raise _board.BoardError(f"{task} is [{row['state']}], not claimable")
     current_wake = fields.get("wake")
     returned_wake = _last_blocked_return_wake(text, canonical_task)
     if current_wake and returned_wake is not None and current_wake == returned_wake:

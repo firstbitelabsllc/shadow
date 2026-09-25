@@ -89,6 +89,9 @@ CLAUDE_EVIDENCE_AGENT = {
 ENVIRONMENTAL_KINDS = frozenset({"host_failed", "host_launch_failed", "host_timeout"})
 HOST_DEFAULTS_ENV = "SHADOW_HOST_DEFAULTS"
 HOST_DEFAULTS_NAME = "host-defaults.json"
+# A cold Node host CLI can take longer than 8s to answer --version. 45s still
+# fails closed; it is long enough for that cold start to count as available.
+PROBE_TIMEOUT_SECONDS = 45
 
 
 class HostError(ValueError):
@@ -192,7 +195,7 @@ def run_probe(binary: str) -> tuple[int | None, str, bool]:
             [binary, "--version"],
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=PROBE_TIMEOUT_SECONDS,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -895,31 +898,6 @@ def launch_command(
     raise HostError("host_unknown", f"unsupported host: {host}")
 
 
-def command_shape(
-    host: str,
-    binary: str,
-    repo: Path,
-    final_message: Path,
-    prompt_file: Path | None = None,
-    *,
-    work_class: str,
-    delegation: str,
-    git_escalation: str | None = None,
-) -> list[str]:
-    """Compatibility helper for tests of the native argv."""
-
-    return launch_command(
-        host,
-        binary,
-        repo,
-        final_message,
-        prompt_file,
-        work_class=work_class,
-        delegation=delegation,
-        git_escalation=git_escalation,
-    )
-
-
 def host_prompt(
     task: str,
     task_id: str,
@@ -1325,15 +1303,11 @@ def validate_host_receipt(
     return validated
 
 
-def _json_text(payload: dict[str, Any]) -> str:
-    return json_text(payload)
-
-
 def bound_successful_proposal_attempt(payload: dict[str, Any]) -> dict[str, Any]:
     if (
         payload.get("status") != "ok"
         or "authority_proposal" not in payload
-        or len(_json_text(payload).encode("utf-8")) <= MAX_ATTEMPT_BYTES
+        or len(json_text(payload).encode("utf-8")) <= MAX_ATTEMPT_BYTES
     ):
         return payload
     bounded = dict(payload)
@@ -1353,14 +1327,14 @@ def bound_successful_proposal_attempt(payload: dict[str, Any]) -> dict[str, Any]
             },
         }
     )
-    if len(_json_text(bounded).encode("utf-8")) > MAX_ATTEMPT_BYTES:
+    if len(json_text(bounded).encode("utf-8")) > MAX_ATTEMPT_BYTES:
         bounded["changed_paths"] = []
         bounded["ignored_artifact_paths"] = []
     return bounded
 
 
 def write_json(path: str, payload: dict[str, Any], *, force: bool = False) -> None:
-    encoded = _json_text(payload)
+    encoded = json_text(payload)
     if path == "-":
         sys.stdout.write(encoded)
         return

@@ -232,7 +232,7 @@ if mode != "missing":
 def make_repo(root: Path, *, ignore_evidence: bool = True) -> Path:
     repo = root / "repo"
     repo.mkdir()
-    git(repo, "init", "-q")
+    git(repo, "init", "-q", "-b", "master")
     git(repo, "config", "user.email", "shadow-test@example.invalid")
     git(repo, "config", "user.name", "Shadow Test")
     (repo / "result.txt").write_text("base\n", encoding="utf-8")
@@ -684,7 +684,7 @@ class ShadowHostTests(UnclaimedHostTestCase):
     def test_cursor_command_shape_uses_agent_stdin_and_coding_selector(self) -> None:
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
-        command = shadow_host.command_shape(
+        command = shadow_host.launch_command(
             "cursor",
             "cursor-agent",
             repo,
@@ -812,7 +812,7 @@ class ShadowHostTests(UnclaimedHostTestCase):
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
         prompt_file = Path("/tmp/prompt.txt")
-        command = shadow_host.command_shape(
+        command = shadow_host.launch_command(
             "grok",
             "grok",
             repo,
@@ -862,7 +862,7 @@ class ShadowHostTests(UnclaimedHostTestCase):
         with tempfile.TemporaryDirectory() as dirname:
             prompt_file = Path(dirname) / "prompt.txt"
             prompt_file.write_text("bounded zai task", encoding="utf-8")
-            command = shadow_host.command_shape(
+            command = shadow_host.launch_command(
                 "zai",
                 "opencode",
                 repo,
@@ -936,11 +936,11 @@ class ShadowHostTests(UnclaimedHostTestCase):
         repo = Path("/workspace/repo")
         final_message = Path("/tmp/final-message.txt")
         for delegation, flag in (("direct", "--disable"), ("required", "--enable")):
-            codex = shadow_host.command_shape(
+            codex = shadow_host.launch_command(
                 "codex", "codex", repo, final_message,
                 work_class="lightweight", delegation=delegation,
             )
-            zai = shadow_host.command_shape(
+            zai = shadow_host.launch_command(
                 "codex-zai", "codexz", repo, final_message,
                 work_class="lightweight", delegation=delegation,
             )
@@ -960,11 +960,11 @@ class ShadowHostTests(UnclaimedHostTestCase):
         final_message = Path("/tmp/final-message.txt")
         for host, binary in (("codex", "codex"), ("codex-zai", "codexz")):
             with self.subTest(host=host):
-                unescalated = shadow_host.command_shape(
+                unescalated = shadow_host.launch_command(
                     host, binary, repo, final_message,
                     work_class="coding", delegation="direct",
                 )
-                escalated = shadow_host.command_shape(
+                escalated = shadow_host.launch_command(
                     host, binary, repo, final_message,
                     work_class="coding", delegation="direct",
                     git_escalation="approve-for-me",
@@ -1082,7 +1082,7 @@ class ShadowHostTests(UnclaimedHostTestCase):
         final_message = Path("/tmp/final-message.txt")
         prompt_file = Path("/tmp/prompt.txt")
         commands = {
-            host: shadow_host.command_shape(
+            host: shadow_host.launch_command(
                 host,
                 {"claude-code": "claude", "codex": "codex", "grok": "grok"}[host],
                 repo,
@@ -1100,7 +1100,7 @@ class ShadowHostTests(UnclaimedHostTestCase):
         )
         self.assertEqual(commands["grok"][1:3], ["--max-turns", "20"])
         with self.assertRaises(shadow_host.HostError) as raised:
-            shadow_host.command_shape(
+            shadow_host.launch_command(
                 "cursor",
                 "cursor-agent",
                 repo,
@@ -1111,7 +1111,7 @@ class ShadowHostTests(UnclaimedHostTestCase):
         self.assertEqual(raised.exception.kind, "execution_policy_invalid")
         self.assertIn("observable child lineage", raised.exception.detail)
         with self.assertRaises(shadow_host.HostError) as zai_raised:
-            shadow_host.command_shape(
+            shadow_host.launch_command(
                 "zai",
                 "opencode",
                 repo,

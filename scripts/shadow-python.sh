@@ -20,7 +20,18 @@ resolve_python() {
     return 127
   fi
 
-  local candidate
+  local candidate minor
+  # Probe the known floor names directly. `compgen -c` hashes every command on
+  # PATH, which is the slow path on a machine whose bare python3 is below 3.10
+  # and whose shims make that hash large. Fall through only if none of these
+  # names is a usable interpreter, so a newer minor still resolves.
+  for minor in 14 13 12 11 10; do
+    candidate="python3.${minor}"
+    if command -v "${candidate}" >/dev/null 2>&1 && python3_satisfies_floor "${candidate}"; then
+      command -v "${candidate}"
+      return 0
+    fi
+  done
   for candidate in $(compgen -c python3. | grep -E '^python3\.[0-9]+$' | sort -t. -k2,2nr -u) python3; do
     if command -v "${candidate}" >/dev/null 2>&1 && python3_satisfies_floor "${candidate}"; then
       command -v "${candidate}"

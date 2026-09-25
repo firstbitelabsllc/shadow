@@ -8,7 +8,6 @@ or private filesystem paths.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import hashlib
 import importlib.util
 import json
 import math
@@ -47,10 +46,6 @@ ARCHIVE_RE = re.compile(
 
 class PlanScaleError(ValueError):
     """The benchmark input changed, is malformed, or cannot answer its corpus."""
-
-
-def _sha256(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -123,7 +118,7 @@ def _entity_ref(entity: dict[str, Any]) -> str:
 
 
 def _source(ref: str, content: bytes) -> dict[str, str | int]:
-    return {"ref": ref, "sha256": _sha256(content), "bytes": len(content)}
+    return {"ref": ref, "sha256": _store.digest_bytes(content), "bytes": len(content)}
 
 
 def _text(content: bytes) -> str:
@@ -252,7 +247,7 @@ def _profile_plan(entity: dict[str, Any], repeats: int) -> dict[str, Any]:
     return {
         "project": entity["project"],
         "entity": _entity_ref(entity),
-        "sha256": _sha256(content),
+        "sha256": _store.digest_bytes(content),
         "bytes": len(content),
         "lines": len(text.splitlines()),
         "task_rows": budget["task_rows"],
@@ -286,7 +281,7 @@ def _query_report(
         "hops": hops,
         "source_bytes": source_bytes,
         "result_bytes": len(result.encode("utf-8")),
-        "result_sha256": _sha256(result.encode("utf-8")),
+        "result_sha256": _store.digest_bytes(result.encode("utf-8")),
         "latency_ms": timing,
         "sources": sources,
     }
@@ -375,7 +370,7 @@ def _cross_entity_action(
             if not isinstance(resume, str):
                 raise PlanScaleError("entity resume row is missing")
             line = _row_line(_text(content), resume)
-            results.append(f"{entity['project']}:{resume}:{_sha256(line.encode('utf-8'))}")
+            results.append(f"{entity['project']}:{resume}:{_store.digest_bytes(line.encode('utf-8'))}")
             sources.append(_source(_entity_ref(entity), content))
             source_bytes += len(content)
         return "\n".join(results), source_bytes, len(entities) + 1, sources
@@ -463,7 +458,7 @@ def benchmark_board(
         "observed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "board": {
             "revision": board["revision"],
-            "sha256": _sha256(board_content),
+            "sha256": _store.digest_bytes(board_content),
             "bytes": len(board_content),
         },
         "projects": list(projects),
@@ -677,7 +672,7 @@ def benchmark_cold_trees(
             resume = entity["resume"]
             routed = _store.PlanSnapshot.open(Path(entity["plan"])).row(resume)
             line = _row_line(_text(routed.content), resume)
-            answers.append(f"{entity['project']}:{resume}:{_sha256(line.encode('utf-8'))}")
+            answers.append(f"{entity['project']}:{resume}:{_store.digest_bytes(line.encode('utf-8'))}")
             sources.extend(_cold_sources(entity, routed))
             source_bytes += routed.provenance.source_bytes
             hops += routed.provenance.file_reads
@@ -695,7 +690,7 @@ def benchmark_cold_trees(
         "observed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "board": {
             "revision": board["revision"],
-            "sha256": _sha256(board_content),
+            "sha256": _store.digest_bytes(board_content),
             "bytes": len(board_content),
         },
         "projects": list(projects),
@@ -744,7 +739,7 @@ def sharded_layout(content: bytes) -> dict[str, Any]:
         )
     manifest_payload = {
         "schema": "shadow.plan-shards.v1",
-        "source_sha256": _sha256(content),
+        "source_sha256": _store.digest_bytes(content),
         "source_bytes": len(content),
         "shards": [
             {key: value for key, value in shard.items() if key != "content"}
@@ -758,7 +753,7 @@ def sharded_layout(content: bytes) -> dict[str, Any]:
         "source_sha256": manifest_payload["source_sha256"],
         "source_bytes": len(content),
         "manifest": manifest,
-        "manifest_sha256": _sha256(manifest),
+        "manifest_sha256": _store.digest_bytes(manifest),
         "shards": shards,
         "tree": build,
     }
@@ -780,7 +775,7 @@ def _validate_layout(layout: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(entry, dict) or not isinstance(shard, dict):
             raise PlanScaleError("shard entry is malformed")
         content = shard.get("content")
-        if not isinstance(content, bytes) or _sha256(content) != entry.get("sha256"):
+        if not isinstance(content, bytes) or _store.digest_bytes(content) != entry.get("sha256"):
             raise PlanScaleError("shard digest mismatch")
         if any(shard.get(key) != value for key, value in entry.items()):
             raise PlanScaleError("shard metadata mismatch")
@@ -797,7 +792,7 @@ def _validate_layout(layout: dict[str, Any]) -> dict[str, Any]:
 def reassemble_shards(layout: dict[str, Any]) -> bytes:
     manifest = _validate_layout(layout)
     content = b"".join(shard["content"] for shard in layout["shards"])
-    if _sha256(content) != manifest.get("source_sha256"):
+    if _store.digest_bytes(content) != manifest.get("source_sha256"):
         raise PlanScaleError("reassembled source digest mismatch")
     if len(content) != manifest.get("source_bytes"):
         raise PlanScaleError("reassembled source byte count mismatch")
@@ -886,7 +881,7 @@ def compare_layouts(content: bytes) -> dict[str, Any]:
     ]
     return {
         "schema": "shadow.plan-layout-comparison.v1",
-        "source_sha256": _sha256(content),
+        "source_sha256": _store.digest_bytes(content),
         "source_bytes": len(content),
         "candidates": candidates,
         "decision": "manifest-plus-shards",

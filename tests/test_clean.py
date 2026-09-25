@@ -76,7 +76,7 @@ class CleanPreviewTests(unittest.TestCase):
         self.home.mkdir()
         self.repo = root / "repo"
         self.repo.mkdir()
-        git(self.repo, "init", "-q")
+        git(self.repo, "init", "-b", "master", "-q")
         git(self.repo, "config", "user.email", "test@example.invalid")
         git(self.repo, "config", "user.name", "Clean Tests")
         (self.repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
@@ -502,7 +502,7 @@ class CleanApplyTests(unittest.TestCase):
         self.home.mkdir()
         self.repo = root / "repo"
         self.repo.mkdir()
-        git(self.repo, "init", "-q")
+        git(self.repo, "init", "-b", "master", "-q")
         git(self.repo, "config", "user.email", "test@example.invalid")
         git(self.repo, "config", "user.name", "Clean Apply Tests")
         (self.repo / "PLAN.md").write_text(PLAN, encoding="utf-8")
@@ -1501,7 +1501,7 @@ class CleanApplyTests(unittest.TestCase):
         destination, _prepared, _old_path, _old_digest = self._terminal_managed()
         module = Path(self.tmp.name) / "module"
         module.mkdir()
-        git(module, "init", "-q")
+        git(module, "init", "-b", "master", "-q")
         git(module, "config", "user.email", "test@example.invalid")
         git(module, "config", "user.name", "Clean Apply Tests")
         (module / "module.txt").write_text("module\n", encoding="utf-8")

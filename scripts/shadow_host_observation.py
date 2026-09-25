@@ -25,7 +25,6 @@ COMMON = ('schema', 'recorded_at', 'event', 'run_id', 'entity', 'row',
           'claim_revision', 'owner_sha256', 'worktree_sha256', 'task_sha256',
           'host', 'work_class')
 TERMINAL = ('receipt_sha256', 'receipt_path_sha256', 'status', 'duration_ms')
-CLASSES = set(WORK_CLASSES)
 
 
 def sha(value):
@@ -56,7 +55,7 @@ def validate(candidate):
             raise telemetry.TelemetryError('invalid host observation identity')
     if (not isinstance(candidate['row'], str) or not telemetry.ROW_RE.fullmatch(candidate['row'])
             or not integer(candidate['claim_revision']) or candidate['claim_revision'] == 0
-            or candidate['host'] not in HOSTS or candidate['work_class'] not in CLASSES
+            or candidate['host'] not in HOSTS or candidate['work_class'] not in WORK_CLASSES
             or not isinstance(candidate['recorded_at'], str)
             or not telemetry.UTC_RE.fullmatch(candidate['recorded_at'])):
         raise telemetry.TelemetryError('invalid host observation vocabulary')

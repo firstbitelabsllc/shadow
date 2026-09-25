@@ -408,15 +408,6 @@ def _bind_local_creation_source(plan: Path, source: Path) -> None:
         raise CleanError(str(exc)) from None
 
 
-def _claim(home: Path, entity: str, checkpoint: str, seat: str, *, source: Path | None = None) -> dict[str, Any]:
-    try:
-        _board.validate_owner(seat)
-        payload = _board.snapshot(home=home)
-        return _claim_payload(payload, entity, checkpoint, seat, source=source)
-    except _board.BoardError as exc:
-        raise CleanError(str(exc)) from None
-
-
 @contextmanager
 def _locked_claim(
     home: Path, entity: str, checkpoint: str, seat: str, *, source: Path | None = None,
@@ -1903,25 +1894,16 @@ def _post_stage_check(info: dict[str, Any], stage: Path) -> os.stat_result:
     return metadata
 
 
-def _flag_trash_recovery(journal_path: Path, journal: dict[str, Any], reason: str) -> None:
-    """Persist a recoverable source-race marker without issuing a receipt."""
-    marked = {**journal, "source_race": True, "recovery_required": True}
-    try:
-        _replace(journal_path, marked)
-    except CleanError:
-        # The original operation is already refusing; leave its last durable
-        # journal state in place rather than risking a partial replacement.
-        pass
-
-
 def _flag_restore_recovery(journal_path: Path, journal: dict[str, Any], *, state: str | None = None) -> None:
-    """Persist restore source-race state without unlocking or receipt."""
+    """Persist a recoverable source-race marker without unlocking or issuing a receipt."""
     marked = {**journal, "source_race": True, "recovery_required": True}
     if state is not None:
         marked["state"] = state
     try:
         _replace(journal_path, marked)
     except CleanError:
+        # The original operation is already refusing; leave its last durable
+        # journal state in place rather than risking a partial replacement.
         pass
 
 
@@ -2251,8 +2233,8 @@ def apply_manifest(
                         info["target"], private_stage,
                         expected_source=(info["metadata"].st_dev, info["metadata"].st_ino),
                     )
-                except CleanError as exc:
-                    _flag_trash_recovery(journal_path, journal, str(exc))
+                except CleanError:
+                    _flag_restore_recovery(journal_path, journal)
                     raise
                 _crash_point("after_private_stage", crash_at)
             try:
@@ -2261,18 +2243,18 @@ def apply_manifest(
                     private_stage, destination,
                     expected_source=(staged.st_dev, staged.st_ino),
                 )
-            except (CleanError, CleanMoveCommittedError) as exc:
-                _flag_trash_recovery(journal_path, journal, str(exc))
+            except (CleanError, CleanMoveCommittedError):
+                _flag_restore_recovery(journal_path, journal)
                 raise
             _fsync_directory(info["target"].parent)
             _fsync_directory(trash)
             try:
                 _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
-            except CleanError as exc:
+            except CleanError:
                 # Apply mismatches retain the locked Trash artifact and the
                 # authenticated journal. Never unlock a potentially raced
                 # source or issue a success receipt.
-                _flag_trash_recovery(journal_path, journal, str(exc))
+                _flag_restore_recovery(journal_path, journal)
                 raise
             _remove_empty_private_stage(private_stage)
             _crash_point("after_rename_before_journal", crash_at)
@@ -2288,8 +2270,8 @@ def apply_manifest(
                 _fsync_directory(info["target"].parent)
                 _fsync_directory(trash)
                 _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
-            except (CleanError, CleanMoveCommittedError) as exc:
-                _flag_trash_recovery(journal_path, journal, str(exc))
+            except (CleanError, CleanMoveCommittedError):
+                _flag_restore_recovery(journal_path, journal)
                 raise
             _remove_empty_private_stage(private_stage)
         elif not destination.exists():
@@ -2299,8 +2281,8 @@ def apply_manifest(
             # the full post-move boundary before issuing a receipt.
             try:
                 _post_move_check(info, destination, worktree_id=worktree_id, manifest_digest=digest)
-            except CleanError as exc:
-                _flag_trash_recovery(journal_path, journal, str(exc))
+            except CleanError:
+                _flag_restore_recovery(journal_path, journal)
                 raise
         moved = {**journal, "state": "moved", "source_race": False, "recovery_required": False}
         _replace(journal_path, moved)
@@ -2392,7 +2374,6 @@ def restore_preview(
     if trash_root is not None and trash.parent != _trash_directory(trash_root):
         raise CleanError("Trash receipt is outside the requested Trash root")
     target = Path(receipt["target"])
-    trash = Path(receipt["trash"])
     if _real_absolute(target, "original path") != target or _real_absolute(trash, "Trash artifact") != trash:
         raise CleanError("original path contains a symlink")
     if receipt["state"] == "restored":

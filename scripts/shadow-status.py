@@ -452,25 +452,9 @@ def seat_focus(records: list[dict], seat: str) -> list[dict]:
 
 def render_seat_v4(record: dict, seat: str) -> str:
     """Render the cold-resume facts without replaying the plan transcript."""
-    lines = [
-        f"{record['project'].replace('-', ' ')} — {record.get('entity_name', record['project'])}",
-        f"  Entity plan: {record['path']}",
-        f"  Mode: {record['mode']}"
-        + (f" | Priority: {record['priority']}" if record.get("priority") else ""),
-    ]
-    if record.get("milestone_human"):
-        lines.append(f"  Current outcome: {record['milestone_human']}")
-    elif record.get("milestone"):
-        lines.append(f"  Milestone: {record['milestone']}")
-    lines.append(f"  Resume: {record.get('resume_human', record['resume'])}")
-    append_live_work(lines, record, seat)
-    if record.get("proof"):
-        lines.append(f"  Proof: {record['proof']}")
-    if record.get("unclean"):
-        lines.append(f"  Plan health: {record['unclean']}")
-    if record.get("contradictions_open"):
-        lines.append(f"  Plan contradictions unresolved: {record['contradictions_open']}")
-    return "\n".join(lines)
+    # render_v4 already owns the shared header/footer; suppress rotation so the
+    # seat view stays a cold resume instead of a second copy of that formatter.
+    return render_v4({**record, "milestones": None, "omitted": None}, seat)
 
 
 def root_board_view(payload: dict) -> dict:
@@ -818,11 +802,13 @@ def board_records(
         try:
             if text is None or parsed is None:
                 raise _board.BoardError("the entity plan is missing or unreadable")
-            row_ids = {
-                row["id"]
+            # One row map per entity: integrity and live_claims both need it.
+            rows = {
+                row["id"]: row
                 for milestone in parsed["milestones"]
                 for row in milestone["rows"]
             }
+            row_ids = set(rows)
             claims, remote_issue = projected_claims(
                 entity,
                 project,
@@ -881,11 +867,6 @@ def board_records(
             )
             record["resume"] = "UNHEALTHY — " + unclean + remedy
         candidates = analysis_candidates if parsed is not None else []
-        rows = {
-            row["id"]: row
-            for milestone in (parsed or {"milestones": []})["milestones"]
-            for row in milestone["rows"]
-        }
         record["live_claims"] = [
             {
                 "row": claim["row"],
