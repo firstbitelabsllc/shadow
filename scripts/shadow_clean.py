@@ -84,6 +84,7 @@ def _public_reason(value: str) -> str:
         "recovery required", "source race", "private cleanup", "private restore", "payload changed",
         "content changed",
         "mutually exclusive",
+        "creation ref must be HEAD, a full Git ref, or a full object id",
     )
     for marker in known:
         if marker in value:

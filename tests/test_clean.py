@@ -254,6 +254,20 @@ class CleanPreviewTests(unittest.TestCase):
         self.assertNotIn(str(destination), result.stdout)
         self.assertNotIn("receipt_path", public)
 
+    def test_create_cli_refusal_names_safe_ref_shape(self):
+        destination = self.repo.parent / "managed-short-ref"
+        result = subprocess.run(
+            [str(CLI), "clean", "--create", "--repo", str(self.repo), "--worktree", str(destination),
+             "--entity", self.entity, "--row", "~aa11", "--by", "seat-a",
+             "--landed-ref", "refs/heads/master", "--ref", "origin/main", "--json"],
+            env={**os.environ, "HOME": str(self.home)}, capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("creation ref must be HEAD, a full Git ref, or a full object id", result.stderr)
+        self.assertNotIn(str(self.repo), result.stderr)
+        self.assertFalse(destination.exists())
+        self.assertFalse((self.home / ".shadow" / "clean").exists())
+
     def test_prepare_cli_exposes_only_opaque_manifest_metadata(self):
         destination = self.repo.parent / "managed-prepare"
         create = subprocess.run(
